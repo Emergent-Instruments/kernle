@@ -9,12 +9,16 @@ from supabase import Client, create_client
 from .config import Settings, get_settings
 
 
-@lru_cache
+_supabase_client: Client | None = None
+
 def get_supabase_client(settings: Settings | None = None) -> Client:
     """Get cached Supabase client."""
-    if settings is None:
-        settings = get_settings()
-    return create_client(settings.supabase_url, settings.supabase_service_role_key)
+    global _supabase_client
+    if _supabase_client is None:
+        if settings is None:
+            settings = get_settings()
+        _supabase_client = create_client(settings.supabase_url, settings.supabase_service_role_key)
+    return _supabase_client
 
 
 def get_db(settings: Annotated[Settings, Depends(get_settings)]) -> Client:
