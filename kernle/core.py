@@ -5,7 +5,7 @@ Kernle Core - Stratified memory for synthetic intelligences.
 import os
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -49,9 +49,11 @@ class Kernle:
             "values": self.load_values(),
             "beliefs": self.load_beliefs(),
             "goals": self.load_goals(),
+            "drives": self.load_drives(),
             "lessons": self.load_lessons(),
             "recent_work": self.load_recent_work(),
             "recent_notes": self.load_recent_notes(),
+            "relationships": self.load_relationships(),
         }
     
     def load_values(self, limit: int = 10) -> list[dict]:
@@ -509,4 +511,358 @@ class Kernle:
                 lines.append(f"- {w['objective']} [{w.get('outcome_type', '?')}]")
             lines.append("")
         
+        # Drives
+        if memory.get("drives"):
+            lines.append("## Drives")
+            for d in memory["drives"]:
+                lines.append(f"- **{d['drive_type']}**: {d['intensity']:.0%}")
+            lines.append("")
+        
+        # Relationships
+        if memory.get("relationships"):
+            lines.append("## Key Relationships")
+            for r in memory["relationships"][:5]:
+                lines.append(f"- {r['other_agent_id']}: trust {r.get('trust_level', 0):.0%}")
+            lines.append("")
+        
         return "\n".join(lines)
+    
+    # =========================================================================
+    # DRIVES (Motivation System)
+    # =========================================================================
+    
+    DRIVE_TYPES = ["existence", "growth", "curiosity", "connection", "reproduction"]
+    
+    def load_drives(self) -> list[dict]:
+        """Load current drive states."""
+        result = self.client.table("agent_drives").select(
+            "drive_type, intensity, last_satisfied_at, focus_areas"
+        ).eq("agent_id", self.agent_id).execute()
+        return result.data
+    
+    def drive(
+        self,
+        drive_type: str,
+        intensity: float = 0.5,
+        focus_areas: Optional[list[str]] = None,
+        decay_hours: int = 24,
+    ) -> str:
+        """Set or update a drive."""
+        if drive_type not in self.DRIVE_TYPES:
+            raise ValueError(f"Invalid drive type. Must be one of: {self.DRIVE_TYPES}")
+        
+        drive_id = str(uuid.uuid4())
+        
+        # Check if drive exists
+        existing = self.client.table("agent_drives").select("id").eq(
+            "agent_id", self.agent_id
+        ).eq("drive_type", drive_type).execute()
+        
+        drive_data = {
+            "agent_id": self.agent_id,
+            "drive_type": drive_type,
+            "intensity": max(0.0, min(1.0, intensity)),
+            "focus_areas": focus_areas or [],
+            "satisfaction_decay_hours": decay_hours,
+            "last_satisfied_at": datetime.now(timezone.utc).isoformat(),
+        }
+        
+        if existing.data:
+            # Update existing
+            self.client.table("agent_drives").update(drive_data).eq(
+                "id", existing.data[0]["id"]
+            ).execute()
+            return existing.data[0]["id"]
+        else:
+            # Create new
+            drive_data["id"] = drive_id
+            self.client.table("agent_drives").insert(drive_data).execute()
+            return drive_id
+    
+    def satisfy_drive(self, drive_type: str, amount: float = 0.2) -> bool:
+        """Record satisfaction of a drive (reduces intensity toward baseline)."""
+        existing = self.client.table("agent_drives").select("id, intensity").eq(
+            "agent_id", self.agent_id
+        ).eq("drive_type", drive_type).execute()
+        
+        if existing.data:
+            new_intensity = max(0.1, existing.data[0]["intensity"] - amount)
+            self.client.table("agent_drives").update({
+                "intensity": new_intensity,
+                "last_satisfied_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("id", existing.data[0]["id"]).execute()
+            return True
+        return False
+    
+    # =========================================================================
+    # RELATIONAL MEMORY (Models of Other Agents)
+    # =========================================================================
+    
+    def load_relationships(self, limit: int = 10) -> list[dict]:
+        """Load relationship models for other agents."""
+        # Try to load from a relationships table or memories with relational metadata
+        try:
+            result = self.client.table("agent_relationships").select(
+                "other_agent_id, trust_level, interaction_count, last_interaction, notes"
+            ).eq("agent_id", self.agent_id).order(
+                "last_interaction", desc=True
+            ).limit(limit).execute()
+            return result.data
+        except:
+            # Table might not exist, return empty
+            return []
+    
+    def relationship(
+        self,
+        other_agent_id: str,
+        trust_level: Optional[float] = None,
+        notes: Optional[str] = None,
+        interaction_type: Optional[str] = None,
+    ) -> str:
+        """Update relationship model for another agent."""
+        rel_id = str(uuid.uuid4())
+        
+        # Check existing
+        try:
+            existing = self.client.table("agent_relationships").select("*").eq(
+                "agent_id", self.agent_id
+            ).eq("other_agent_id", other_agent_id).execute()
+        except:
+            existing = type('obj', (object,), {'data': []})()
+        
+        now = datetime.now(timezone.utc).isoformat()
+        
+        if existing.data:
+            # Update
+            update_data = {"last_interaction": now}
+            if trust_level is not None:
+                update_data["trust_level"] = max(0.0, min(1.0, trust_level))
+            if notes:
+                update_data["notes"] = notes
+            update_data["interaction_count"] = existing.data[0].get("interaction_count", 0) + 1
+            
+            self.client.table("agent_relationships").update(update_data).eq(
+                "id", existing.data[0]["id"]
+            ).execute()
+            return existing.data[0]["id"]
+        else:
+            # Create
+            rel_data = {
+                "id": rel_id,
+                "agent_id": self.agent_id,
+                "other_agent_id": other_agent_id,
+                "trust_level": trust_level or 0.5,
+                "interaction_count": 1,
+                "last_interaction": now,
+                "notes": notes,
+            }
+            try:
+                self.client.table("agent_relationships").insert(rel_data).execute()
+            except:
+                # Table might not exist, store in memories instead
+                self.note(
+                    f"Relationship with {other_agent_id}: trust={trust_level}, {notes}",
+                    type="note",
+                    tags=["relationship", other_agent_id],
+                )
+            return rel_id
+    
+    # =========================================================================
+    # TEMPORAL MEMORY (Time-Aware Retrieval)
+    # =========================================================================
+    
+    def load_temporal(
+        self,
+        start: Optional[datetime] = None,
+        end: Optional[datetime] = None,
+        limit: int = 20,
+    ) -> dict:
+        """Load memories within a time range."""
+        if end is None:
+            end = datetime.now(timezone.utc)
+        if start is None:
+            start = end.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        start_iso = start.isoformat()
+        end_iso = end.isoformat()
+        
+        # Episodes in range
+        episodes = self.client.table("agent_episodes").select(
+            "objective, outcome_type, lessons_learned, created_at"
+        ).eq("agent_id", self.agent_id).gte(
+            "created_at", start_iso
+        ).lte("created_at", end_iso).order(
+            "created_at", desc=True
+        ).limit(limit).execute()
+        
+        # Notes in range
+        notes = self.client.table("memories").select(
+            "content, metadata, created_at"
+        ).eq("owner_id", self.agent_id).eq("source", "curated").gte(
+            "created_at", start_iso
+        ).lte("created_at", end_iso).order(
+            "created_at", desc=True
+        ).limit(limit).execute()
+        
+        return {
+            "range": {"start": start_iso, "end": end_iso},
+            "episodes": episodes.data,
+            "notes": notes.data,
+        }
+    
+    def what_happened(self, when: str = "today") -> dict:
+        """Natural language time query."""
+        now = datetime.now(timezone.utc)
+        
+        if when == "today":
+            start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif when == "yesterday":
+            start = (now.replace(hour=0, minute=0, second=0, microsecond=0) - 
+                    timedelta(days=1))
+            end = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            return self.load_temporal(start, end)
+        elif when == "this week":
+            start = now - timedelta(days=now.weekday())
+            start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+        elif when == "last hour":
+            start = now - timedelta(hours=1)
+        else:
+            # Default to today
+            start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        
+        return self.load_temporal(start, now)
+    
+    # =========================================================================
+    # SIGNAL DETECTION (Auto-Capture Significance)
+    # =========================================================================
+    
+    SIGNAL_PATTERNS = {
+        "success": {
+            "keywords": ["completed", "done", "finished", "succeeded", "works", "fixed", "solved"],
+            "weight": 0.7,
+            "type": "positive",
+        },
+        "failure": {
+            "keywords": ["failed", "error", "broken", "doesn't work", "bug", "issue"],
+            "weight": 0.7,
+            "type": "negative",
+        },
+        "decision": {
+            "keywords": ["decided", "chose", "going with", "will use", "picked"],
+            "weight": 0.8,
+            "type": "decision",
+        },
+        "lesson": {
+            "keywords": ["learned", "realized", "insight", "discovered", "understood"],
+            "weight": 0.9,
+            "type": "lesson",
+        },
+        "feedback": {
+            "keywords": ["great", "thanks", "helpful", "perfect", "exactly", "wrong", "not what"],
+            "weight": 0.6,
+            "type": "feedback",
+        },
+    }
+    
+    def detect_significance(self, text: str) -> dict:
+        """Detect if text contains significant signals worth capturing."""
+        text_lower = text.lower()
+        signals = []
+        total_weight = 0.0
+        
+        for signal_name, pattern in self.SIGNAL_PATTERNS.items():
+            for keyword in pattern["keywords"]:
+                if keyword in text_lower:
+                    signals.append({
+                        "signal": signal_name,
+                        "type": pattern["type"],
+                        "weight": pattern["weight"],
+                    })
+                    total_weight = max(total_weight, pattern["weight"])
+                    break  # One match per pattern is enough
+        
+        return {
+            "significant": total_weight >= 0.6,
+            "score": total_weight,
+            "signals": signals,
+        }
+    
+    def auto_capture(self, text: str, context: Optional[str] = None) -> Optional[str]:
+        """Automatically capture text if it's significant."""
+        detection = self.detect_significance(text)
+        
+        if detection["significant"]:
+            # Determine what type of capture
+            primary_signal = detection["signals"][0] if detection["signals"] else None
+            
+            if primary_signal:
+                if primary_signal["type"] == "decision":
+                    return self.note(text, type="decision", tags=["auto-captured"])
+                elif primary_signal["type"] == "lesson":
+                    return self.note(text, type="insight", tags=["auto-captured"])
+                elif primary_signal["type"] in ("positive", "negative"):
+                    # Could be an episode outcome
+                    outcome = "success" if primary_signal["type"] == "positive" else "partial"
+                    return self.episode(
+                        objective=context or "Auto-captured event",
+                        outcome=outcome,
+                        lessons=[text] if "learn" in text.lower() else None,
+                        tags=["auto-captured"],
+                    )
+                else:
+                    return self.note(text, type="note", tags=["auto-captured"])
+        
+        return None
+    
+    # =========================================================================
+    # CONSOLIDATION (Episodes → Beliefs/Lessons)
+    # =========================================================================
+    
+    def consolidate(self, min_episodes: int = 3) -> dict:
+        """Extract patterns from episodes, update beliefs."""
+        # Get unreflected episodes
+        episodes = self.client.table("agent_episodes").select("*").eq(
+            "agent_id", self.agent_id
+        ).eq("is_reflected", False).execute()
+        
+        if len(episodes.data) < min_episodes:
+            return {"consolidated": 0, "message": f"Need {min_episodes} episodes, have {len(episodes.data)}"}
+        
+        # Collect all lessons
+        all_lessons = []
+        for ep in episodes.data:
+            all_lessons.extend(ep.get("lessons_learned", []))
+        
+        # Find repeated lessons (potential beliefs)
+        from collections import Counter
+        lesson_counts = Counter(all_lessons)
+        
+        new_beliefs = 0
+        for lesson, count in lesson_counts.items():
+            if count >= 2:  # Lesson appeared multiple times
+                # Check if belief already exists
+                existing = self.client.table("agent_beliefs").select("id").eq(
+                    "agent_id", self.agent_id
+                ).ilike("statement", f"%{lesson[:50]}%").execute()
+                
+                if not existing.data:
+                    # Create new belief from repeated lesson
+                    self.belief(
+                        statement=lesson,
+                        type="learned",
+                        confidence=min(0.9, 0.5 + (count * 0.1)),
+                        foundational=False,
+                    )
+                    new_beliefs += 1
+        
+        # Mark episodes as reflected
+        for ep in episodes.data:
+            self.client.table("agent_episodes").update({
+                "is_reflected": True
+            }).eq("id", ep["id"]).execute()
+        
+        return {
+            "consolidated": len(episodes.data),
+            "new_beliefs": new_beliefs,
+            "lessons_found": len(all_lessons),
+        }

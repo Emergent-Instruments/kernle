@@ -121,6 +121,57 @@ def cmd_status(args, k: Kernle):
     print(f"Checkpoint: {'Yes' if status['checkpoint'] else 'No'}")
 
 
+def cmd_drive(args, k: Kernle):
+    """Set or view drives."""
+    if args.drive_action == "list":
+        drives = k.load_drives()
+        if not drives:
+            print("No drives set.")
+            return
+        print("Drives:")
+        for d in drives:
+            focus = f" → {', '.join(d.get('focus_areas', []))}" if d.get('focus_areas') else ""
+            print(f"  {d['drive_type']}: {d['intensity']:.0%}{focus}")
+    
+    elif args.drive_action == "set":
+        k.drive(args.type, args.intensity, args.focus)
+        print(f"✓ Drive '{args.type}' set to {args.intensity:.0%}")
+    
+    elif args.drive_action == "satisfy":
+        if k.satisfy_drive(args.type, args.amount):
+            print(f"✓ Satisfied drive '{args.type}'")
+        else:
+            print(f"Drive '{args.type}' not found")
+
+
+def cmd_consolidate(args, k: Kernle):
+    """Run memory consolidation."""
+    result = k.consolidate(args.min_episodes)
+    print(f"Consolidation complete:")
+    print(f"  Episodes processed: {result['consolidated']}")
+    print(f"  New beliefs: {result.get('new_beliefs', 0)}")
+    print(f"  Lessons found: {result.get('lessons_found', 0)}")
+
+
+def cmd_temporal(args, k: Kernle):
+    """Query memories by time."""
+    result = k.what_happened(args.when)
+    
+    print(f"What happened {args.when}:")
+    print(f"  Time range: {result['range']['start'][:10]} to {result['range']['end'][:10]}")
+    print()
+    
+    if result.get("episodes"):
+        print("Episodes:")
+        for ep in result["episodes"][:5]:
+            print(f"  - {ep['objective'][:60]} [{ep.get('outcome_type', '?')}]")
+    
+    if result.get("notes"):
+        print("Notes:")
+        for n in result["notes"][:5]:
+            print(f"  - {n['content'][:60]}...")
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="kernle",
@@ -172,6 +223,30 @@ def main():
     # status
     subparsers.add_parser("status", help="Show memory status")
     
+    # drive
+    p_drive = subparsers.add_parser("drive", help="Manage drives")
+    drive_sub = p_drive.add_subparsers(dest="drive_action", required=True)
+    
+    drive_sub.add_parser("list", help="List drives")
+    
+    drive_set = drive_sub.add_parser("set", help="Set a drive")
+    drive_set.add_argument("type", choices=["existence", "growth", "curiosity", "connection", "reproduction"])
+    drive_set.add_argument("intensity", type=float, help="Intensity 0.0-1.0")
+    drive_set.add_argument("--focus", "-f", action="append", help="Focus area")
+    
+    drive_satisfy = drive_sub.add_parser("satisfy", help="Satisfy a drive")
+    drive_satisfy.add_argument("type", help="Drive type")
+    drive_satisfy.add_argument("--amount", "-a", type=float, default=0.2)
+    
+    # consolidate
+    p_consolidate = subparsers.add_parser("consolidate", help="Run memory consolidation")
+    p_consolidate.add_argument("--min-episodes", "-m", type=int, default=3)
+    
+    # temporal
+    p_temporal = subparsers.add_parser("when", help="Query by time")
+    p_temporal.add_argument("when", nargs="?", default="today", 
+                           choices=["today", "yesterday", "this week", "last hour"])
+    
     args = parser.parse_args()
     
     # Initialize Kernle
@@ -190,6 +265,12 @@ def main():
         cmd_search(args, k)
     elif args.command == "status":
         cmd_status(args, k)
+    elif args.command == "drive":
+        cmd_drive(args, k)
+    elif args.command == "consolidate":
+        cmd_consolidate(args, k)
+    elif args.command == "when":
+        cmd_temporal(args, k)
 
 
 if __name__ == "__main__":
