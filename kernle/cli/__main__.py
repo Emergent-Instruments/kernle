@@ -15,8 +15,27 @@ Usage:
 import argparse
 import json
 import sys
+import re
+import logging
 
 from kernle import Kernle
+
+# Set up logging
+logging.basicConfig(level=logging.WARNING)
+logger = logging.getLogger(__name__)
+
+def validate_input(value: str, field_name: str, max_length: int = 1000) -> str:
+    """Validate and sanitize CLI inputs."""
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string")
+    
+    if len(value) > max_length:
+        raise ValueError(f"{field_name} too long (max {max_length} characters)")
+    
+    # Remove null bytes and control characters except newlines
+    sanitized = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', value)
+    
+    return sanitized
 
 
 def cmd_load(args, k: Kernle):
@@ -31,7 +50,11 @@ def cmd_load(args, k: Kernle):
 def cmd_checkpoint(args, k: Kernle):
     """Handle checkpoint subcommands."""
     if args.checkpoint_action == "save":
-        result = k.checkpoint(args.task, args.pending, args.context)
+        task = validate_input(args.task, "task", 500)
+        pending = [validate_input(p, "pending item", 200) for p in (args.pending or [])]
+        context = validate_input(args.context, "context", 1000) if args.context else None
+        
+        result = k.checkpoint(task, pending, context)
         print(f"✓ Checkpoint saved: {result['current_task']}")
         if result.get("pending"):
             print(f"  Pending: {len(result['pending'])} items")
@@ -62,11 +85,16 @@ def cmd_checkpoint(args, k: Kernle):
 
 def cmd_episode(args, k: Kernle):
     """Record an episode."""
+    objective = validate_input(args.objective, "objective", 1000)
+    outcome = validate_input(args.outcome, "outcome", 1000)
+    lessons = [validate_input(l, "lesson", 500) for l in (args.lesson or [])]
+    tags = [validate_input(t, "tag", 100) for t in (args.tag or [])]
+    
     episode_id = k.episode(
-        objective=args.objective,
-        outcome=args.outcome,
-        lessons=args.lesson,
-        tags=args.tag,
+        objective=objective,
+        outcome=outcome,
+        lessons=lessons,
+        tags=tags,
     )
     print(f"✓ Episode saved: {episode_id[:8]}...")
     if args.lesson:
@@ -75,12 +103,17 @@ def cmd_episode(args, k: Kernle):
 
 def cmd_note(args, k: Kernle):
     """Capture a note."""
+    content = validate_input(args.content, "content", 2000)
+    speaker = validate_input(args.speaker, "speaker", 200) if args.speaker else None
+    reason = validate_input(args.reason, "reason", 1000) if args.reason else None
+    tags = [validate_input(t, "tag", 100) for t in (args.tag or [])]
+    
     note_id = k.note(
-        content=args.content,
+        content=content,
         type=args.type,
-        speaker=args.speaker,
-        reason=args.reason,
-        tags=args.tag,
+        speaker=speaker,
+        reason=reason,
+        tags=tags,
         protect=args.protect,
     )
     print(f"✓ Note saved: {args.content[:50]}...")
@@ -90,7 +123,8 @@ def cmd_note(args, k: Kernle):
 
 def cmd_search(args, k: Kernle):
     """Search memory."""
-    results = k.search(args.query, args.limit)
+    query = validate_input(args.query, "query", 500)
+    results = k.search(query, args.limit)
     if not results:
         print(f"No results for '{args.query}'")
         return
@@ -249,28 +283,40 @@ def main():
     
     args = parser.parse_args()
     
-    # Initialize Kernle
-    k = Kernle(agent_id=args.agent)
+    # Initialize Kernle with error handling
+    try:
+        agent_id = validate_input(args.agent, "agent_id", 100) if args.agent else None
+        k = Kernle(agent_id=agent_id)
+    except (ValueError, TypeError) as e:
+        logger.error(f"Failed to initialize Kernle: {e}")
+        sys.exit(1)
     
-    # Dispatch
-    if args.command == "load":
-        cmd_load(args, k)
-    elif args.command == "checkpoint":
-        cmd_checkpoint(args, k)
-    elif args.command == "episode":
-        cmd_episode(args, k)
-    elif args.command == "note":
-        cmd_note(args, k)
-    elif args.command == "search":
-        cmd_search(args, k)
-    elif args.command == "status":
-        cmd_status(args, k)
-    elif args.command == "drive":
-        cmd_drive(args, k)
-    elif args.command == "consolidate":
-        cmd_consolidate(args, k)
-    elif args.command == "when":
-        cmd_temporal(args, k)
+    # Dispatch with error handling
+    try:
+        if args.command == "load":
+            cmd_load(args, k)
+        elif args.command == "checkpoint":
+            cmd_checkpoint(args, k)
+        elif args.command == "episode":
+            cmd_episode(args, k)
+        elif args.command == "note":
+            cmd_note(args, k)
+        elif args.command == "search":
+            cmd_search(args, k)
+        elif args.command == "status":
+            cmd_status(args, k)
+        elif args.command == "drive":
+            cmd_drive(args, k)
+        elif args.command == "consolidate":
+            cmd_consolidate(args, k)
+        elif args.command == "when":
+            cmd_temporal(args, k)
+    except (ValueError, TypeError) as e:
+        logger.error(f"Input validation error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        logger.error(f"Command failed: {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":

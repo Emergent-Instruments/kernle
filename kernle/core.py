@@ -5,11 +5,15 @@ Kernle Core - Stratified memory for synthetic intelligences.
 import os
 import json
 import uuid
+import logging
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Optional, Dict, List, Any, Union
 
 from supabase import create_client
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 
 class Kernle:
@@ -22,12 +26,60 @@ class Kernle:
         supabase_key: Optional[str] = None,
         checkpoint_dir: Optional[Path] = None,
     ):
-        self.agent_id = agent_id or os.environ.get("KERNLE_AGENT_ID", "default")
+        self.agent_id = self._validate_agent_id(agent_id or os.environ.get("KERNLE_AGENT_ID", "default"))
         self.supabase_url = supabase_url or os.environ.get("KERNLE_SUPABASE_URL") or os.environ.get("SUPABASE_URL")
         self.supabase_key = supabase_key or os.environ.get("KERNLE_SUPABASE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-        self.checkpoint_dir = checkpoint_dir or Path.home() / ".kernle" / "checkpoints"
+        self.checkpoint_dir = self._validate_checkpoint_dir(checkpoint_dir or Path.home() / ".kernle" / "checkpoints")
         
         self._client = None
+    
+    def _validate_agent_id(self, agent_id: str) -> str:
+        """Validate and sanitize agent ID."""
+        if not agent_id or not agent_id.strip():
+            raise ValueError("Agent ID cannot be empty")
+        
+        # Remove potentially dangerous characters
+        sanitized = "".join(c for c in agent_id.strip() if c.isalnum() or c in "-_.")
+        
+        if not sanitized:
+            raise ValueError("Agent ID must contain alphanumeric characters")
+        
+        if len(sanitized) > 100:
+            raise ValueError("Agent ID too long (max 100 characters)")
+            
+        return sanitized
+    
+    def _validate_checkpoint_dir(self, checkpoint_dir: Path) -> Path:
+        """Validate checkpoint directory path."""
+        try:
+            # Resolve to absolute path to prevent directory traversal
+            resolved_path = checkpoint_dir.resolve()
+            
+            # Ensure it's within a safe directory (user's home or /tmp)
+            home_path = Path.home().resolve()
+            tmp_path = Path("/tmp").resolve()
+            
+            if not (str(resolved_path).startswith(str(home_path)) or str(resolved_path).startswith(str(tmp_path))):
+                raise ValueError("Checkpoint directory must be within user home or /tmp")
+                
+            return resolved_path
+            
+        except (OSError, ValueError) as e:
+            logger.error(f"Invalid checkpoint directory: {e}")
+            raise ValueError(f"Invalid checkpoint directory: {e}")
+    
+    def _validate_string_input(self, value: str, field_name: str, max_length: int = 1000) -> str:
+        """Validate and sanitize string inputs."""
+        if not isinstance(value, str):
+            raise TypeError(f"{field_name} must be a string")
+        
+        if len(value) > max_length:
+            raise ValueError(f"{field_name} too long (max {max_length} characters)")
+            
+        # Basic sanitization - remove null bytes and control characters
+        sanitized = value.replace('\x00', '').replace('\r\n', '\n')
+        
+        return sanitized
     
     @property
     def client(self):
@@ -35,6 +87,15 @@ class Kernle:
         if self._client is None:
             if not self.supabase_url or not self.supabase_key:
                 raise ValueError("Supabase credentials required. Set KERNLE_SUPABASE_URL and KERNLE_SUPABASE_KEY.")
+            
+            # Validate URL format
+            if not self.supabase_url.startswith(('http://', 'https://')):
+                raise ValueError("Invalid Supabase URL format. Must start with http:// or https://")
+            
+            # Validate key is not empty/whitespace
+            if not self.supabase_key.strip():
+                raise ValueError("Supabase key cannot be empty")
+                
             self._client = create_client(self.supabase_url, self.supabase_key)
         return self._client
     
@@ -42,7 +103,7 @@ class Kernle:
     # LOAD
     # =========================================================================
     
-    def load(self, budget: int = 6000) -> dict:
+    def load(self, budget: int = 6000) -> Dict[str, Any]:
         """Load working memory context."""
         return {
             "checkpoint": self.load_checkpoint(),
@@ -56,7 +117,7 @@ class Kernle:
             "relationships": self.load_relationships(),
         }
     
-    def load_values(self, limit: int = 10) -> list[dict]:
+    def load_values(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Load normative values (highest authority)."""
         result = self.client.table("agent_values").select(
             "name, statement, priority, value_type"
@@ -65,7 +126,7 @@ class Kernle:
         ).limit(limit).execute()
         return result.data
     
-    def load_beliefs(self, limit: int = 20) -> list[dict]:
+    def load_beliefs(self, limit: int = 20) -> List[Dict[str, Any]]:
         """Load semantic beliefs."""
         result = self.client.table("agent_beliefs").select(
             "statement, belief_type, confidence"
@@ -74,7 +135,7 @@ class Kernle:
         ).limit(limit).execute()
         return result.data
     
-    def load_goals(self, limit: int = 10) -> list[dict]:
+    def load_goals(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Load active goals."""
         result = self.client.table("agent_goals").select(
             "title, description, priority, status"
@@ -83,7 +144,7 @@ class Kernle:
         ).limit(limit).execute()
         return result.data
     
-    def load_lessons(self, limit: int = 20) -> list[str]:
+    def load_lessons(self, limit: int = 20) -> List[str]:
         """Load lessons from reflected episodes."""
         result = self.client.table("agent_episodes").select(
             "lessons_learned"
@@ -96,7 +157,7 @@ class Kernle:
             lessons.extend(ep.get("lessons_learned", [])[:2])
         return lessons
     
-    def load_recent_work(self, limit: int = 5) -> list[dict]:
+    def load_recent_work(self, limit: int = 5) -> List[Dict[str, Any]]:
         """Load recent episodes."""
         result = self.client.table("agent_episodes").select(
             "objective, outcome_type, tags, created_at"
@@ -139,54 +200,65 @@ class Kernle:
             "context": context,
         }
         
-        # Save locally
-        self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        # Save locally with proper error handling
+        try:
+            self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        except (OSError, PermissionError) as e:
+            logger.error(f"Cannot create checkpoint directory: {e}")
+            raise ValueError(f"Cannot create checkpoint directory: {e}")
+            
         checkpoint_file = self.checkpoint_dir / f"{self.agent_id}.json"
         
         existing = []
         if checkpoint_file.exists():
             try:
-                with open(checkpoint_file) as f:
+                with open(checkpoint_file, 'r', encoding='utf-8') as f:
                     existing = json.load(f)
                     if not isinstance(existing, list):
                         existing = [existing]
-            except:
+            except (json.JSONDecodeError, OSError, PermissionError) as e:
+                logger.warning(f"Could not load existing checkpoint: {e}")
                 existing = []
         
         existing.append(checkpoint_data)
         existing = existing[-10:]  # Keep last 10
         
-        with open(checkpoint_file, "w") as f:
-            json.dump(existing, f, indent=2)
+        try:
+            with open(checkpoint_file, "w", encoding='utf-8') as f:
+                json.dump(existing, f, indent=2)
+        except (OSError, PermissionError) as e:
+            logger.error(f"Cannot save checkpoint: {e}")
+            raise ValueError(f"Cannot save checkpoint: {e}")
         
         # Also save to Supabase as episode
         try:
             self.client.table("agent_episodes").insert({
                 "agent_id": self.agent_id,
-                "objective": f"[CHECKPOINT] {task}",
+                "objective": f"[CHECKPOINT] {self._validate_string_input(task, 'task', 500)}",
                 "outcome_type": "partial",
-                "outcome_description": context or "Working state checkpoint",
+                "outcome_description": self._validate_string_input(context or "Working state checkpoint", 'context', 1000),
                 "lessons_learned": pending or [],
                 "tags": ["checkpoint", "working_state"],
             }).execute()
         except Exception as e:
-            pass  # Local save is sufficient
+            logger.warning(f"Failed to save checkpoint to database: {e}")
+            # Local save is sufficient, continue
         
         return checkpoint_data
     
-    def load_checkpoint(self) -> Optional[dict]:
+    def load_checkpoint(self) -> Optional[Dict[str, Any]]:
         """Load most recent checkpoint."""
         checkpoint_file = self.checkpoint_dir / f"{self.agent_id}.json"
         if checkpoint_file.exists():
             try:
-                with open(checkpoint_file) as f:
+                with open(checkpoint_file, 'r', encoding='utf-8') as f:
                     checkpoints = json.load(f)
                     if isinstance(checkpoints, list) and checkpoints:
                         return checkpoints[-1]
                     elif isinstance(checkpoints, dict):
                         return checkpoints
-            except:
-                pass
+            except (json.JSONDecodeError, OSError, PermissionError) as e:
+                logger.warning(f"Could not load checkpoint: {e}")
         return None
     
     def clear_checkpoint(self) -> bool:
@@ -205,12 +277,25 @@ class Kernle:
         self,
         objective: str,
         outcome: str,
-        lessons: Optional[list[str]] = None,
-        repeat: Optional[list[str]] = None,
-        avoid: Optional[list[str]] = None,
-        tags: Optional[list[str]] = None,
+        lessons: Optional[List[str]] = None,
+        repeat: Optional[List[str]] = None,
+        avoid: Optional[List[str]] = None,
+        tags: Optional[List[str]] = None,
     ) -> str:
         """Record an episodic experience."""
+        # Validate inputs
+        objective = self._validate_string_input(objective, "objective", 1000)
+        outcome = self._validate_string_input(outcome, "outcome", 1000)
+        
+        if lessons:
+            lessons = [self._validate_string_input(l, "lesson", 500) for l in lessons]
+        if repeat:
+            repeat = [self._validate_string_input(r, "repeat pattern", 500) for r in repeat]
+        if avoid:
+            avoid = [self._validate_string_input(a, "avoid pattern", 500) for a in avoid]
+        if tags:
+            tags = [self._validate_string_input(t, "tag", 100) for t in tags]
+        
         episode_id = str(uuid.uuid4())
         
         outcome_type = "success" if outcome.lower() in ("success", "done", "completed") else (
@@ -244,10 +329,23 @@ class Kernle:
         type: str = "note",
         speaker: Optional[str] = None,
         reason: Optional[str] = None,
-        tags: Optional[list[str]] = None,
+        tags: Optional[List[str]] = None,
         protect: bool = False,
     ) -> str:
         """Capture a quick note (decision, insight, quote)."""
+        # Validate inputs
+        content = self._validate_string_input(content, "content", 2000)
+        
+        if type not in ("note", "decision", "insight", "quote"):
+            raise ValueError("Invalid note type. Must be one of: note, decision, insight, quote")
+            
+        if speaker:
+            speaker = self._validate_string_input(speaker, "speaker", 200)
+        if reason:
+            reason = self._validate_string_input(reason, "reason", 1000)
+        if tags:
+            tags = [self._validate_string_input(t, "tag", 100) for t in tags]
+        
         note_id = str(uuid.uuid4())
         
         # Format content based on type
@@ -841,9 +939,11 @@ class Kernle:
         for lesson, count in lesson_counts.items():
             if count >= 2:  # Lesson appeared multiple times
                 # Check if belief already exists
+                # Escape lesson content to prevent SQL injection
+                escaped_lesson = lesson[:50].replace("%", "\\%").replace("_", "\\_")
                 existing = self.client.table("agent_beliefs").select("id").eq(
                     "agent_id", self.agent_id
-                ).ilike("statement", f"%{lesson[:50]}%").execute()
+                ).ilike("statement", f"%{escaped_lesson}%").execute()
                 
                 if not existing.data:
                     # Create new belief from repeated lesson
