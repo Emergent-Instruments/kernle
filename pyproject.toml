@@ -34,6 +34,7 @@ classifiers = [
 ]
 dependencies = [
     "python-dotenv>=1.0.0",
+    "sqlite-vec>=0.1.0",  # Required for semantic search
 ]
 
 [project.optional-dependencies]
