@@ -128,8 +128,53 @@ kernle -a claire export memory.json -f json
 
 1. **Start**: `kernle -a <agent> load`
 2. **During**: Record episodes, notes as things happen
-3. **Before end**: `kernle -a <agent> checkpoint save "state"`
-4. **Periodically**: `kernle -a <agent> anxiety --auto` to manage memory health
+3. **Monitor context**: Check context pressure after substantive exchanges (see below)
+4. **Before end**: `kernle -a <agent> checkpoint save "state"`
+5. **Periodically**: `kernle -a <agent> anxiety --auto` to manage memory health
+
+## Context Pressure Monitoring (Clawdbot)
+
+**Problem**: Context truncation/compaction happens without warning. Unsaved memories are lost.
+
+**Solution**: Proactively monitor context usage and save before hitting limits.
+
+### Pattern for Clawdbot Agents
+
+After substantive exchanges (not every message, but after significant work):
+
+1. Check context usage via `session_status`
+2. If context > 50%, save checkpoint immediately
+3. If context > 70%, consider saving episode summaries too
+
+```
+# Pseudo-workflow in agent reasoning:
+[complete substantive task]
+→ session_status shows "Context: 105k/200k (52%)"
+→ kernle -a <agent> checkpoint save "current work state"
+```
+
+### When to Check
+
+- After completing a multi-step task
+- After long back-and-forth discussions  
+- After generating substantial output
+- When you notice the conversation has been going a while
+- Before starting a task that might take many turns
+
+### Thresholds
+
+| Context % | Action |
+|-----------|--------|
+| < 50%     | Normal operation |
+| 50-70%    | Save checkpoint |
+| > 70%     | Save checkpoint + record important episodes |
+| > 85%     | Emergency save, warn user context is near limit |
+
+### Why This Matters
+
+Context compaction discards older messages to make room. If your working state isn't saved to Kernle before compaction, you lose it. This pattern ensures continuity survives truncation.
+
+**Future**: When Clawdbot adds `onBeforeCompaction` hooks, this can be automated. Until then, discipline is the fix.
 
 ## MCP Server (For Claude Code/Desktop)
 
