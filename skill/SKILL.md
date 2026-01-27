@@ -137,12 +137,12 @@ Kernle also provides an MCP server for native tool integration:
 
 ```bash
 # Claude Code
-claude mcp add kernle -- kernle mcp -a <agent_id>
+claude mcp add kernle -- kernle -a <agent_id> mcp
 
 # Claude Desktop (~/.config/claude/settings.json)
 "kernle": {
   "command": "kernle",
-  "args": ["mcp", "-a", "<agent_id>"]
+  "args": ["-a", "<agent_id>", "mcp"]
 }
 ```
 
