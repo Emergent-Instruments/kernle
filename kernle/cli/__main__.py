@@ -131,7 +131,10 @@ def cmd_search(args, k: Kernle):
     
     print(f"Found {len(results)} result(s) for '{args.query}':\n")
     for i, r in enumerate(results, 1):
-        print(f"{i}. [{r['type']}] {r['title']}")
+        # Handle potentially malformed results gracefully
+        result_type = r.get('type', 'unknown')
+        title = r.get('title', '(no title)')
+        print(f"{i}. [{result_type}] {title}")
         if r.get("lessons"):
             for lesson in r["lessons"]:
                 print(f"     → {lesson[:50]}...")
@@ -139,7 +142,8 @@ def cmd_search(args, k: Kernle):
             print(f"     tags: {', '.join(r['tags'])}")
         if r.get("confidence"):
             print(f"     confidence: {r['confidence']}")
-        print(f"     {r['date']}")
+        if r.get("date"):
+            print(f"     {r['date']}")
         print()
 
 

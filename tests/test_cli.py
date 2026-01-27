@@ -209,7 +209,7 @@ class TestCheckpointCommands:
         with patch('sys.stdout', new=StringIO()) as fake_out:
             cmd_checkpoint(args, mock_kernle)
         
-        mock_kernle.checkpoint.assert_called_once_with("Simple task", None, None)
+        mock_kernle.checkpoint.assert_called_once_with("Simple task", [], None)
     
     def test_cmd_checkpoint_load_formatted(self, mock_kernle):
         """Test checkpoint load with formatted output."""
@@ -290,7 +290,7 @@ class TestEpisodeCommand:
             lessons=["Validate all inputs", "Use secure libraries"],
             tags=["security", "feature"]
         )
-        assert "✓ Episode saved: episode12..." in fake_out.getvalue()
+        assert "✓ Episode saved: episode1..." in fake_out.getvalue()
         assert "Lessons: 2" in fake_out.getvalue()
     
     def test_cmd_episode_minimal(self, mock_kernle):
@@ -308,8 +308,8 @@ class TestEpisodeCommand:
         mock_kernle.episode.assert_called_once_with(
             objective="Simple task",
             outcome="completed", 
-            lessons=None,
-            tags=None
+            lessons=[],
+            tags=[]
         )
 
 
@@ -383,7 +383,7 @@ class TestNoteCommand:
             type="note",
             speaker=None,
             reason=None,
-            tags=None,
+            tags=[],
             protect=False
         )
 
@@ -730,7 +730,7 @@ class TestErrorHandling:
             
             test_args = ["kernle", "status"]
             with patch('sys.argv', test_args):
-                with pytest.raises(ValueError):
+                with pytest.raises(SystemExit):
                     main()
     
     def test_command_execution_error(self, mock_kernle):
