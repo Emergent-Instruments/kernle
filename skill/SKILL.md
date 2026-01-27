@@ -1,0 +1,168 @@
+---
+name: kernle
+description: "Stratified memory for synthetic intelligences. Use at session start to restore memory, and throughout sessions to record episodes, notes, and checkpoints. Essential for continuity across sessions."
+homepage: https://github.com/Emergent-Instruments/kernle
+metadata: {"clawdbot":{"emoji":"🧠","requires":{"bins":["kernle"]},"install":[{"id":"pip","kind":"shell","command":"pip install kernle","label":"Install Kernle (pip)"},{"id":"pipx","kind":"shell","command":"pipx install kernle","label":"Install Kernle (pipx)"}]}}
+---
+
+# Kernle - Stratified Memory
+
+Kernle provides persistent, structured memory across sessions. Use it to maintain continuity, record learnings, and build identity over time.
+
+## Quick Start
+
+**Every session, load your memory first:**
+```bash
+kernle -a <agent_id> load
+```
+
+Replace `<agent_id>` with your identifier (e.g., `claire`, `assistant`).
+
+## Core Commands
+
+### Load Memory (Session Start)
+```bash
+kernle -a claire load
+```
+Returns your working memory: values, beliefs, goals, recent episodes, checkpoint.
+
+### Check Status
+```bash
+kernle -a claire status
+```
+Quick overview of memory counts and checkpoint state.
+
+### Save Checkpoint (Before Context Full / Session End)
+```bash
+kernle -a claire checkpoint save "what I was working on" --pending "next step" --context "additional notes"
+```
+Captures your current state for the next session.
+
+### Record Episodes (Learnings)
+```bash
+kernle -a claire episode "what I tried" "what happened" --lesson "what I learned" --tag "category"
+```
+Episodes are the foundation of learning. Record significant events with outcomes and lessons.
+
+### Capture Notes
+```bash
+kernle -a claire note "important observation" --type insight
+```
+Types: `note`, `decision`, `insight`, `quote`
+
+For decisions:
+```bash
+kernle -a claire note "chose X over Y" --type decision --reason "because Z"
+```
+
+### Search Memory
+```bash
+kernle -a claire search "topic or question"
+```
+
+## Anxiety Management
+
+Check memory pressure:
+```bash
+kernle -a claire anxiety
+```
+
+Auto-fix issues:
+```bash
+kernle -a claire anxiety --auto
+```
+
+Emergency save (when context is critical):
+```bash
+kernle -a claire anxiety --emergency
+```
+
+## Identity & Consolidation
+
+View identity synthesis:
+```bash
+kernle -a claire identity show
+```
+
+Run memory consolidation (extracts patterns from episodes):
+```bash
+kernle -a claire consolidate
+```
+
+## Advanced Commands
+
+### Beliefs
+```bash
+kernle -a claire belief list
+kernle -a claire belief contradictions "statement to check"
+```
+
+### Playbooks (Procedural Memory)
+```bash
+kernle -a claire playbook list
+kernle -a claire playbook find "situation description"
+kernle -a claire playbook create "name" --step "step 1" --step "step 2"
+```
+
+### Temporal Queries
+```bash
+kernle -a claire when today
+kernle -a claire when yesterday
+kernle -a claire when "this week"
+```
+
+### Raw Capture
+```bash
+kernle -a claire raw "quick thought to process later"
+kernle -a claire raw list --unprocessed
+```
+
+### Export
+```bash
+kernle -a claire dump                    # stdout
+kernle -a claire export memory.md        # to file
+kernle -a claire export memory.json -f json
+```
+
+## Session Workflow
+
+1. **Start**: `kernle -a <agent> load`
+2. **During**: Record episodes, notes as things happen
+3. **Before end**: `kernle -a <agent> checkpoint save "state"`
+4. **Periodically**: `kernle -a <agent> anxiety --auto` to manage memory health
+
+## MCP Server (For Claude Code/Desktop)
+
+Kernle also provides an MCP server for native tool integration:
+
+```bash
+# Claude Code
+claude mcp add kernle -- kernle mcp -a <agent_id>
+
+# Claude Desktop (~/.config/claude/settings.json)
+"kernle": {
+  "command": "kernle",
+  "args": ["mcp", "-a", "<agent_id>"]
+}
+```
+
+## Installation
+
+```bash
+# pip
+pip install kernle
+
+# pipx (isolated)
+pipx install kernle
+
+# From source
+cd ~/kernle && pip install -e .
+```
+
+## Tips
+
+- Use descriptive episode objectives: "Tried to fix the login bug" not "debugging"
+- Always include lessons when recording episodes
+- Check `anxiety` periodically to manage memory health
+- Use `--protect` flag on important notes to prevent forgetting
+- Tag episodes consistently for better search

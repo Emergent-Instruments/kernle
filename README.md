@@ -156,9 +156,31 @@ kernle -a my-agent dump
 kernle -a my-agent consolidate
 ```
 
-## MCP Integration
+## Integrations
 
-Kernle provides an MCP server with 23+ tools for memory operations:
+Kernle supports three integration methods:
+
+| Method | Best For | Agent Auto-Discovery |
+|--------|----------|---------------------|
+| **CLI** | Any environment | Manual (via system prompt) |
+| **Clawdbot Skill** | Clawdbot/Moltbot | ✅ Automatic (SKILL.md) |
+| **MCP Server** | Claude Code, Desktop, Cline | ✅ Automatic (tools) |
+
+### Clawdbot Skill
+
+For Clawdbot/Moltbot users, install the skill for automatic discovery:
+
+```bash
+# The skill is included in the kernle repo at skill/SKILL.md
+# Copy or symlink to your skills directory:
+ln -s ~/kernle/skill ~/.clawdbot/skills/kernle
+```
+
+The agent will see Kernle in its available skills and know how to use it.
+
+### MCP Server
+
+For Claude Code, Claude Desktop, Cline, and other MCP-compatible tools:
 
 ```json
 {
@@ -171,7 +193,21 @@ Kernle provides an MCP server with 23+ tools for memory operations:
 }
 ```
 
-Works with Claude Code, Cline, and other MCP-compatible tools.
+```bash
+# Claude Code quick setup
+claude mcp add kernle -- kernle mcp -a my-agent
+```
+
+### Raw CLI
+
+For any environment, use the CLI directly via shell/exec:
+
+```bash
+kernle -a my-agent load        # At session start
+kernle -a my-agent checkpoint save "state"  # Before ending
+```
+
+Add instructions to your system prompt (AGENTS.md, CLAUDE.md, etc.) to remind the agent to use Kernle.
 
 ## Memory Hierarchy
 

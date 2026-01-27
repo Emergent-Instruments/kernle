@@ -2073,9 +2073,10 @@ def main():
     p_raw = subparsers.add_parser("raw", help="Raw memory capture and management")
     raw_sub = p_raw.add_subparsers(dest="raw_action")
     
-    # kernle raw "content" - quick capture (default action)
-    p_raw.add_argument("content", nargs="?", help="Content to capture")
-    p_raw.add_argument("--tags", "-t", help="Comma-separated tags")
+    # kernle raw capture "content" - explicit capture subcommand
+    raw_capture = raw_sub.add_parser("capture", help="Capture a raw entry")
+    raw_capture.add_argument("content", help="Content to capture")
+    raw_capture.add_argument("--tags", "-t", help="Comma-separated tags")
     
     # kernle raw list
     raw_list = raw_sub.add_parser("list", help="List raw entries")
@@ -2232,7 +2233,27 @@ def main():
                                 help="Memory type")
     forget_salience.add_argument("id", help="Memory ID")
     
-    args = parser.parse_args()
+    # Pre-process arguments: handle `kernle raw "content"` by inserting "capture"
+    # This is needed because argparse subparsers consume positional args before parent parser
+    raw_subcommands = {"list", "show", "process", "capture"}
+    argv = sys.argv[1:]  # Skip program name
+    
+    # Find position of "raw" in argv (accounting for -a/--agent which takes a value)
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg in ("-a", "--agent"):
+            i += 2  # Skip flag and its value
+            continue
+        if arg == "raw":
+            # Check if there's a next argument and it's not a known subcommand
+            if i + 1 < len(argv) and argv[i + 1] not in raw_subcommands and not argv[i + 1].startswith("-"):
+                # Insert "capture" after "raw"
+                argv.insert(i + 1, "capture")
+            break
+        i += 1
+    
+    args = parser.parse_args(argv)
     
     # Initialize Kernle with error handling
     try:
