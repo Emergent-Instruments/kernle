@@ -51,16 +51,23 @@ class Kernle:
     
     def _validate_checkpoint_dir(self, checkpoint_dir: Path) -> Path:
         """Validate checkpoint directory path."""
+        import tempfile
         try:
             # Resolve to absolute path to prevent directory traversal
             resolved_path = checkpoint_dir.resolve()
             
-            # Ensure it's within a safe directory (user's home or /tmp)
+            # Ensure it's within a safe directory (user's home, system temp, or /tmp)
             home_path = Path.home().resolve()
             tmp_path = Path("/tmp").resolve()
+            system_temp = Path(tempfile.gettempdir()).resolve()
             
-            if not (str(resolved_path).startswith(str(home_path)) or str(resolved_path).startswith(str(tmp_path))):
-                raise ValueError("Checkpoint directory must be within user home or /tmp")
+            safe_paths = [str(home_path), str(tmp_path), str(system_temp)]
+            # Also allow /var/folders on macOS (where tempfile creates dirs)
+            safe_paths.append("/var/folders")
+            safe_paths.append("/private/var/folders")
+            
+            if not any(str(resolved_path).startswith(safe) for safe in safe_paths):
+                raise ValueError("Checkpoint directory must be within user home or temp directory")
                 
             return resolved_path
             
