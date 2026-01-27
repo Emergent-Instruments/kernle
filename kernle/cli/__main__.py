@@ -206,6 +206,17 @@ def cmd_temporal(args, k: Kernle):
             print(f"  - {n['content'][:60]}...")
 
 
+def cmd_mcp(args):
+    """Start MCP server."""
+    try:
+        from kernle.mcp.server import main as mcp_main
+        mcp_main()
+    except ImportError as e:
+        logger.error(f"MCP dependencies not installed. Run: pip install kernle[mcp]")
+        logger.error(f"Error: {e}")
+        sys.exit(1)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="kernle",
@@ -281,6 +292,9 @@ def main():
     p_temporal.add_argument("when", nargs="?", default="today", 
                            choices=["today", "yesterday", "this week", "last hour"])
     
+    # mcp
+    subparsers.add_parser("mcp", help="Start MCP server (stdio transport)")
+    
     args = parser.parse_args()
     
     # Initialize Kernle with error handling
@@ -311,6 +325,8 @@ def main():
             cmd_consolidate(args, k)
         elif args.command == "when":
             cmd_temporal(args, k)
+        elif args.command == "mcp":
+            cmd_mcp(args)
     except (ValueError, TypeError) as e:
         logger.error(f"Input validation error: {e}")
         sys.exit(1)
