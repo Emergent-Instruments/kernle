@@ -76,6 +76,35 @@ class TestFindContradictions:
         # Can be either direct_negation or preference_conflict (like/dislike matches both patterns)
         assert contra["contradiction_type"] in ("preference_conflict", "direct_negation")
     
+    def test_finds_comparative_opposition(self, kernle_with_beliefs):
+        """Should find beliefs with comparative opposition (more/less, better/worse)."""
+        k = kernle_with_beliefs
+        
+        # Add a belief with comparative
+        k.belief("Local-first memory is more reliable than cloud-dependent", type="fact", confidence=0.8)
+        
+        # Find contradictions with opposite comparative
+        contradictions = k.find_contradictions("Local-first memory is less reliable than cloud-dependent")
+        
+        # Should find the contradiction
+        assert len(contradictions) >= 1
+        contra = next((c for c in contradictions if "more reliable" in c["statement"].lower()), None)
+        assert contra is not None
+        assert contra["contradiction_type"] == "comparative_opposition"
+    
+    def test_finds_comparative_opposition_better_worse(self, kernle_with_beliefs):
+        """Should find comparative contradictions with better/worse."""
+        k = kernle_with_beliefs
+        
+        k.belief("Python is better than JavaScript for data science", type="fact", confidence=0.7)
+        
+        contradictions = k.find_contradictions("Python is worse than JavaScript for data science")
+        
+        assert len(contradictions) >= 1
+        contra = next((c for c in contradictions if "better" in c["statement"].lower()), None)
+        assert contra is not None
+        assert contra["contradiction_type"] == "comparative_opposition"
+    
     def test_no_contradictions_for_unrelated(self, kernle_with_beliefs):
         """Should not find contradictions for unrelated statements."""
         k = kernle_with_beliefs

@@ -479,9 +479,58 @@ class TestCLIRaw:
         with patch('sys.stdout', new=StringIO()) as fake_out:
             cmd_raw(args, mock_kernle)
         
-        mock_kernle.get_raw.assert_called_once_with("raw123")
+        # Called twice: once for ID resolution (exact match check), once to fetch entry
+        assert mock_kernle.get_raw.call_count == 2
+        mock_kernle.get_raw.assert_called_with("raw123")
         output = fake_out.getvalue()
         assert "Raw Entry: raw123" in output
+        assert "Test content here" in output
+    
+    def test_cmd_raw_show_partial_id(self, mock_kernle):
+        """Test raw show command with partial ID (prefix match)."""
+        from kernle.cli.__main__ import cmd_raw
+        import argparse
+        from io import StringIO
+        
+        # Set up mock: first get_raw returns None (no exact match), 
+        # then list_raw returns entries, then get_raw returns the entry
+        mock_kernle.get_raw.side_effect = [
+            None,  # No exact match for partial ID
+            {      # Found via list_raw, fetch full entry
+                "id": "raw123-full-uuid-here",
+                "content": "Test content here",
+                "timestamp": "2024-01-01T12:00:00+00:00",
+                "source": "cli",
+                "processed": False,
+                "processed_into": None,
+                "tags": ["dev"],
+            }
+        ]
+        mock_kernle.list_raw.return_value = [
+            {
+                "id": "raw123-full-uuid-here",
+                "content": "Test content",
+                "timestamp": "2024-01-01T12:00:00+00:00",
+                "source": "cli",
+                "processed": False,
+                "processed_into": None,
+                "tags": ["dev"],
+            }
+        ]
+        
+        args = argparse.Namespace(
+            raw_action="show",
+            id="raw123",  # Partial ID
+            json=False,
+        )
+        
+        with patch('sys.stdout', new=StringIO()) as fake_out:
+            cmd_raw(args, mock_kernle)
+        
+        # Should have called list_raw to find the match
+        mock_kernle.list_raw.assert_called()
+        output = fake_out.getvalue()
+        assert "Raw Entry: raw123-full-uuid-here" in output
         assert "Test content here" in output
     
     def test_cmd_raw_process(self, mock_kernle):

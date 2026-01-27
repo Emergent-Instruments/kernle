@@ -1562,6 +1562,32 @@ def cmd_mcp(args):
         sys.exit(1)
 
 
+def resolve_raw_id(k: Kernle, partial_id: str) -> str:
+    """Resolve a partial raw entry ID to full ID.
+    
+    Tries exact match first, then prefix match.
+    Returns full ID or raises ValueError if not found or ambiguous.
+    """
+    # First try exact match
+    entry = k.get_raw(partial_id)
+    if entry:
+        return partial_id
+    
+    # Try prefix match by listing all entries
+    entries = k.list_raw(limit=1000)  # Get enough to search
+    matches = [e for e in entries if e["id"].startswith(partial_id)]
+    
+    if len(matches) == 0:
+        raise ValueError(f"Raw entry '{partial_id}' not found")
+    elif len(matches) == 1:
+        return matches[0]["id"]
+    else:
+        # Multiple matches - show them
+        match_ids = [m["id"][:12] for m in matches[:5]]
+        suffix = "..." if len(matches) > 5 else ""
+        raise ValueError(f"Ambiguous ID '{partial_id}' matches {len(matches)} entries: {', '.join(match_ids)}{suffix}")
+
+
 def cmd_raw(args, k: Kernle):
     """Handle raw entry subcommands."""
     if args.raw_action == "capture" or args.raw_action is None:
@@ -1609,7 +1635,13 @@ def cmd_raw(args, k: Kernle):
                     print(f"  → {', '.join(e['processed_into'])}")
     
     elif args.raw_action == "show":
-        entry = k.get_raw(args.id)
+        try:
+            full_id = resolve_raw_id(k, args.id)
+        except ValueError as e:
+            print(f"✗ {e}")
+            return
+        
+        entry = k.get_raw(full_id)
         if not entry:
             print(f"Raw entry {args.id} not found.")
             return
@@ -1634,13 +1666,14 @@ def cmd_raw(args, k: Kernle):
     
     elif args.raw_action == "process":
         try:
+            full_id = resolve_raw_id(k, args.id)
             memory_id = k.process_raw(
-                raw_id=args.id,
+                raw_id=full_id,
                 as_type=args.type,
                 objective=args.objective,
                 outcome=args.outcome,
             )
-            print(f"✓ Processed raw entry {args.id[:8]}... into {args.type}:{memory_id[:8]}...")
+            print(f"✓ Processed raw entry {full_id[:8]}... into {args.type}:{memory_id[:8]}...")
         except ValueError as e:
             print(f"✗ {e}")
 

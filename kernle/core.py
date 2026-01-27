@@ -1272,6 +1272,30 @@ class Kernle:
                         explanation = f"Negation conflict: '{neg}' vs '{pos}' with {overlap} overlapping terms"
                         break
             
+            # Comparative opposition (more/less, better/worse, etc.)
+            if not contradiction_type:
+                comparative_pairs = [
+                    ("more", "less"), ("better", "worse"), ("faster", "slower"),
+                    ("higher", "lower"), ("greater", "lesser"), ("stronger", "weaker"),
+                    ("easier", "harder"), ("simpler", "more complex"), ("safer", "riskier"),
+                    ("cheaper", "more expensive"), ("larger", "smaller"), ("longer", "shorter"),
+                    ("increase", "decrease"), ("improve", "worsen"), ("enhance", "diminish"),
+                ]
+                for comp_a, comp_b in comparative_pairs:
+                    if ((comp_a in stmt_lower and comp_b in belief_stmt_lower) or
+                        (comp_b in stmt_lower and comp_a in belief_stmt_lower)):
+                        # Check word overlap for topic relevance (need high overlap for comparatives)
+                        words_stmt = set(stmt_lower.split()) - {"i", "the", "a", "an", "to", "and", "or", "is", "are", "that", "this", "than", comp_a, comp_b}
+                        words_belief = set(belief_stmt_lower.split()) - {"i", "the", "a", "an", "to", "and", "or", "is", "are", "that", "this", "than", comp_a, comp_b}
+                        overlap = len(words_stmt & words_belief)
+                        
+                        if overlap >= 2:
+                            contradiction_type = "comparative_opposition"
+                            # Higher confidence for comparative oppositions with strong topic overlap
+                            confidence = min(0.6 + overlap * 0.08 + result.score * 0.2, 0.95)
+                            explanation = f"Comparative opposition: '{comp_a}' vs '{comp_b}' with {overlap} overlapping terms"
+                            break
+            
             # Preference conflicts
             if not contradiction_type:
                 preference_pairs = [
@@ -3186,9 +3210,8 @@ class Kernle:
         
         narrative = " ".join(narrative_parts) if narrative_parts else "Identity still forming."
         
-        # Calculate confidence based on available data
-        data_points = len(values) + len(beliefs) + len(goals) + len(episodes)
-        confidence = min(1.0, data_points / 20)
+        # Calculate confidence using the comprehensive scoring method
+        confidence = self.get_identity_confidence()
         
         return {
             "narrative": narrative,
@@ -3219,20 +3242,69 @@ class Kernle:
     def get_identity_confidence(self) -> float:
         """Get overall identity confidence score.
         
+        Calculates identity coherence based on:
+        - Core values (20%): Having defined principles
+        - Beliefs (20%): Both count and confidence quality
+        - Goals (15%): Having direction and purpose
+        - Episodes (20%): Experience count and reflection (lessons) rate
+        - Drives (15%): Understanding intrinsic motivations
+        - Relationships (10%): Modeling connections to others
+        
         Returns:
-            Confidence score (0.0-1.0) based on available identity data
+            Confidence score (0.0-1.0) based on identity completeness and quality
         """
-        stats = self._storage.get_stats()
+        # Get identity data
+        values = self._storage.get_values(limit=10)
+        beliefs = self._storage.get_beliefs(limit=20)
+        goals = self._storage.get_goals(status="active", limit=10)
+        episodes = self._storage.get_episodes(limit=50)
+        drives = self._storage.get_drives()
+        relationships = self._storage.get_relationships()
         
-        # Weight different components
-        data_points = (
-            stats.get("values", 0) * 2 +
-            stats.get("beliefs", 0) +
-            stats.get("goals", 0) * 1.5 +
-            stats.get("episodes", 0) * 0.5
-        )
+        # Values (20%): quantity × quality (priority)
+        # Ideal: 3-5 values with high priority
+        if values:
+            value_count_score = min(1.0, len(values) / 5)
+            avg_priority = sum(v.priority / 100 for v in values) / len(values)
+            value_score = (value_count_score * 0.6 + avg_priority * 0.4) * 0.20
+        else:
+            value_score = 0.0
         
-        return min(1.0, data_points / 30)
+        # Beliefs (20%): quantity × quality (confidence)
+        # Ideal: 5-10 beliefs with high confidence
+        if beliefs:
+            avg_belief_conf = sum(b.confidence for b in beliefs) / len(beliefs)
+            belief_count_score = min(1.0, len(beliefs) / 10)
+            belief_score = (belief_count_score * 0.5 + avg_belief_conf * 0.5) * 0.20
+        else:
+            belief_score = 0.0
+        
+        # Goals (15%): having active direction
+        # Ideal: 2-5 active goals
+        goal_score = min(1.0, len(goals) / 5) * 0.15
+        
+        # Episodes (20%): experience × reflection
+        # Ideal: 10-20 episodes with lessons extracted
+        if episodes:
+            with_lessons = sum(1 for e in episodes if e.lessons)
+            lesson_rate = with_lessons / len(episodes)
+            episode_count_score = min(1.0, len(episodes) / 20)
+            episode_score = (episode_count_score * 0.5 + lesson_rate * 0.5) * 0.20
+        else:
+            episode_score = 0.0
+        
+        # Drives (15%): understanding motivations
+        # Ideal: 2-3 drives defined (curiosity, growth, connection, etc.)
+        drive_score = min(1.0, len(drives) / 3) * 0.15
+        
+        # Relationships (10%): modeling connections
+        # Ideal: 3-5 key relationships tracked
+        relationship_score = min(1.0, len(relationships) / 5) * 0.10
+        
+        total = (value_score + belief_score + goal_score + 
+                 episode_score + drive_score + relationship_score)
+        
+        return round(total, 3)
     
     def detect_identity_drift(self, days: int = 30) -> Dict[str, Any]:
         """Detect changes in identity over time.
