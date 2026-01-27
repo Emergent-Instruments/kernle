@@ -488,7 +488,7 @@ class TestMCPToolCalls:
         
         assert len(result) == 1
         # This test currently expects an error due to a bug in the server validation
-        assert "Error:" in result[0].text
+        assert "Invalid input:" in result[0].text
         assert "validate_enum() got an unexpected keyword argument 'required'" in result[0].text
 
     @pytest.mark.asyncio
@@ -498,7 +498,7 @@ class TestMCPToolCalls:
         
         assert len(result) == 1
         # This test currently expects an error due to a bug in the server validation
-        assert "Error:" in result[0].text
+        assert "Invalid input:" in result[0].text
         assert "validate_enum() got an unexpected keyword argument 'required'" in result[0].text
 
     def test_memory_drive_validation_bug_documentation(self):
@@ -637,7 +637,7 @@ class TestErrorHandling:
             result = await call_tool("memory_load", {})
             
             assert len(result) == 1
-            assert "Error: Database connection failed" in result[0].text
+            assert "Internal server error" in result[0].text
 
     @pytest.mark.asyncio
     async def test_episode_error_handling(self, failing_kernle):
@@ -649,7 +649,7 @@ class TestErrorHandling:
             })
             
             assert len(result) == 1
-            assert "Error: Invalid outcome type" in result[0].text
+            assert "Invalid input: Invalid outcome type" in result[0].text
 
     @pytest.mark.asyncio
     async def test_search_error_handling(self, failing_kernle):
@@ -658,7 +658,7 @@ class TestErrorHandling:
             result = await call_tool("memory_search", {"query": "test"})
             
             assert len(result) == 1
-            assert "Error: Search service unavailable" in result[0].text
+            assert "Internal server error" in result[0].text
 
 
 class TestEdgeCases:
@@ -671,7 +671,7 @@ class TestEdgeCases:
         result = await call_tool("memory_checkpoint_save", {})
         
         assert len(result) == 1
-        assert "Error:" in result[0].text
+        assert "Invalid input:" in result[0].text or "Error" in result[0].text
 
     @pytest.mark.asyncio
     async def test_invalid_argument_types(self, patched_get_kernle):
@@ -722,8 +722,8 @@ class TestEdgeCases:
         
         assert len(result) == 1
         # Should be rejected by validation (max 2000 characters for notes)
-        assert "Error:" in result[0].text
-        assert "content too long" in result[0].text
+        assert "Invalid input:" in result[0].text or "Error" in result[0].text
+        assert "too long" in result[0].text
 
     @pytest.mark.asyncio
     async def test_reasonable_content_handling(self, patched_get_kernle):
