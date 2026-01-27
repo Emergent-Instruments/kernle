@@ -1,16 +1,23 @@
 """Pytest configuration and fixtures."""
 
-import pytest
-from fastapi.testclient import TestClient
-
-# Mock the settings before importing app
 import os
-os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
-os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-key")
-os.environ.setdefault("SUPABASE_ANON_KEY", "test-anon-key")
-os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost/test")
-os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-testing-only")
+import pytest
 
+# For unit tests, set mock values ONLY if not running integration tests
+if not os.environ.get("RUN_INTEGRATION"):
+    os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+    os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-key")
+    os.environ.setdefault("SUPABASE_ANON_KEY", "test-anon-key")
+    os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost/test")
+    os.environ.setdefault("JWT_SECRET_KEY", "test-secret-key-for-testing-only")
+else:
+    # For integration tests, load from .env
+    from pathlib import Path
+    from dotenv import load_dotenv
+    env_path = Path(__file__).parent.parent / ".env"
+    load_dotenv(env_path, override=True)
+
+from fastapi.testclient import TestClient
 from app.main import app
 
 

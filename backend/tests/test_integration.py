@@ -16,13 +16,17 @@ pytestmark = pytest.mark.skipif(
 
 @pytest.fixture
 def real_client():
-    """Create a test client with real Supabase connection."""
-    # Use the real .env file
-    from dotenv import load_dotenv
-    load_dotenv("../.env")
+    """Create a test client with real Supabase connection.
     
+    Uses the shared client from conftest which loads real env when RUN_INTEGRATION=1.
+    """
     from fastapi.testclient import TestClient
     from app.main import app
+    
+    # Reset supabase client to ensure fresh connection
+    from app import database
+    database._supabase_client = None
+    
     return TestClient(app)
 
 

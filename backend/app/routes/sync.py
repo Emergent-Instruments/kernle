@@ -104,17 +104,25 @@ async def pull_changes(
     since_str = request.since.isoformat() if request.since else None
     changes = await get_changes_since(db, agent_id, since_str)
     
-    operations = [
-        SyncOperation(
+    operations = []
+    for change in changes:
+        data = change.get("data", {})
+        # Parse local_updated_at or use created_at or current time
+        local_updated = data.get("local_updated_at") or data.get("created_at") or datetime.now(timezone.utc)
+        if isinstance(local_updated, str):
+            try:
+                local_updated = datetime.fromisoformat(local_updated.replace("Z", "+00:00"))
+            except:
+                local_updated = datetime.now(timezone.utc)
+        
+        operations.append(SyncOperation(
             operation=change["operation"],
             table=change["table"],
             record_id=change["record_id"],
-            data=change["data"] if change["operation"] != "delete" else None,
-            local_updated_at=change["data"].get("local_updated_at", datetime.now(timezone.utc)),
-            version=change["data"].get("version", 1),
-        )
-        for change in changes
-    ]
+            data=data if change["operation"] != "delete" else None,
+            local_updated_at=local_updated,
+            version=data.get("version", 1),
+        ))
     
     logger.info(f"PULL COMPLETE | {agent_id} | {len(operations)} operations")
     

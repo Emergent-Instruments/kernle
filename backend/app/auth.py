@@ -4,28 +4,28 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
+import bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 
 from .config import Settings, get_settings
-
-# Password hashing
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Bearer token scheme
 security = HTTPBearer()
 
 
 def hash_secret(secret: str) -> str:
-    """Hash an agent secret."""
-    return pwd_context.hash(secret)
+    """Hash an agent secret using bcrypt."""
+    return bcrypt.hashpw(secret.encode(), bcrypt.gensalt()).decode()
 
 
 def verify_secret(plain: str, hashed: str) -> bool:
     """Verify an agent secret against hash."""
-    return pwd_context.verify(plain, hashed)
+    try:
+        return bcrypt.checkpw(plain.encode(), hashed.encode())
+    except Exception:
+        return False
 
 
 def generate_agent_secret() -> str:
