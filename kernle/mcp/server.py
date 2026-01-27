@@ -36,10 +36,23 @@ logger = logging.getLogger(__name__)
 mcp = Server("kernle")
 
 
+# Global agent_id for MCP session
+_mcp_agent_id: str = "default"
+
+
+def set_agent_id(agent_id: str) -> None:
+    """Set the agent ID for this MCP session."""
+    global _mcp_agent_id
+    _mcp_agent_id = agent_id
+    # Clear cached instance so next get_kernle uses new agent_id
+    if hasattr(get_kernle, "_instance"):
+        delattr(get_kernle, "_instance")
+
+
 def get_kernle() -> Kernle:
     """Get or create Kernle instance."""
     if not hasattr(get_kernle, "_instance"):
-        get_kernle._instance = Kernle()
+        get_kernle._instance = Kernle(_mcp_agent_id)
     return get_kernle._instance
 
 
@@ -1105,8 +1118,9 @@ async def run_server():
         )
 
 
-def main():
+def main(agent_id: str = "default"):
     """Entry point for MCP server."""
+    set_agent_id(agent_id)
     asyncio.run(run_server())
 
 

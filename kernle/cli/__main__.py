@@ -1555,7 +1555,7 @@ def cmd_mcp(args):
     """Start MCP server."""
     try:
         from kernle.mcp.server import main as mcp_main
-        mcp_main()
+        mcp_main(agent_id=args.agent)
     except ImportError as e:
         logger.error(f"MCP dependencies not installed. Run: pip install kernle[mcp]")
         logger.error(f"Error: {e}")
