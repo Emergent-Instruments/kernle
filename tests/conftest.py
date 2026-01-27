@@ -1,5 +1,7 @@
 """
 Pytest fixtures and test configuration for Kernle tests.
+
+Updated to work with the storage abstraction layer.
 """
 
 import json
@@ -7,16 +9,209 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Dict, List
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock, MagicMock, patch
 
 import pytest
 
 from kernle.core import Kernle
+from kernle.storage import SQLiteStorage, get_storage
+from kernle.storage.base import Episode, Belief, Value, Goal, Note, Drive, Relationship
 
 
 @pytest.fixture
+def temp_checkpoint_dir(tmp_path):
+    """Temporary directory for checkpoint files."""
+    checkpoint_dir = tmp_path / "checkpoints"
+    checkpoint_dir.mkdir()
+    return checkpoint_dir
+
+
+@pytest.fixture
+def temp_db_path(tmp_path):
+    """Temporary SQLite database path."""
+    return tmp_path / "test_memories.db"
+
+
+@pytest.fixture
+def sqlite_storage(temp_db_path):
+    """SQLite storage instance for testing."""
+    storage = SQLiteStorage(
+        agent_id="test_agent",
+        db_path=temp_db_path,
+    )
+    return storage
+
+
+@pytest.fixture
+def kernle_instance(temp_checkpoint_dir, temp_db_path):
+    """Kernle instance with SQLite storage for testing."""
+    storage = SQLiteStorage(
+        agent_id="test_agent",
+        db_path=temp_db_path,
+    )
+    
+    kernle = Kernle(
+        agent_id="test_agent",
+        storage=storage,
+        checkpoint_dir=temp_checkpoint_dir
+    )
+    
+    return kernle, storage
+
+
+@pytest.fixture
+def sample_episode():
+    """Sample episode for testing."""
+    return Episode(
+        id=str(uuid.uuid4()),
+        agent_id="test_agent",
+        objective="Complete unit tests for Kernle",
+        outcome="All tests passing with good coverage",
+        outcome_type="success",
+        lessons=["Always test edge cases", "Mock external dependencies"],
+        tags=["testing", "development"],
+        created_at=datetime.now(timezone.utc),
+        confidence=0.9,
+    )
+
+
+@pytest.fixture
+def sample_note():
+    """Sample note for testing."""
+    return Note(
+        id=str(uuid.uuid4()),
+        agent_id="test_agent",
+        content="**Decision**: Use pytest for testing framework",
+        note_type="decision",
+        reason="Industry standard with good plugin ecosystem",
+        tags=["testing"],
+        created_at=datetime.now(timezone.utc),
+    )
+
+
+@pytest.fixture
+def sample_belief():
+    """Sample belief for testing."""
+    return Belief(
+        id=str(uuid.uuid4()),
+        agent_id="test_agent",
+        statement="Comprehensive testing leads to more reliable software",
+        belief_type="fact",
+        confidence=0.9,
+        created_at=datetime.now(timezone.utc),
+    )
+
+
+@pytest.fixture
+def sample_value():
+    """Sample value for testing."""
+    return Value(
+        id=str(uuid.uuid4()),
+        agent_id="test_agent",
+        name="Quality",
+        statement="Software should be thoroughly tested and reliable",
+        priority=80,
+        created_at=datetime.now(timezone.utc),
+    )
+
+
+@pytest.fixture
+def sample_goal():
+    """Sample goal for testing."""
+    return Goal(
+        id=str(uuid.uuid4()),
+        agent_id="test_agent",
+        title="Achieve 80%+ test coverage",
+        description="Write comprehensive tests for the entire Kernle system",
+        priority="high",
+        status="active",
+        created_at=datetime.now(timezone.utc),
+    )
+
+
+@pytest.fixture
+def sample_drive():
+    """Sample drive for testing."""
+    return Drive(
+        id=str(uuid.uuid4()),
+        agent_id="test_agent",
+        drive_type="growth",
+        intensity=0.7,
+        focus_areas=["learning", "improvement"],
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+
+
+@pytest.fixture
+def populated_storage(kernle_instance, sample_episode, sample_note, 
+                     sample_belief, sample_value, sample_goal, sample_drive):
+    """Populate the kernle_instance storage with sample data.
+    
+    This fixture depends on kernle_instance and populates its storage.
+    Use both fixtures together: (kernle_instance, populated_storage)
+    """
+    kernle, storage = kernle_instance
+    
+    # Save sample data
+    storage.save_episode(sample_episode)
+    storage.save_note(sample_note)
+    storage.save_belief(sample_belief)
+    storage.save_value(sample_value)
+    storage.save_goal(sample_goal)
+    storage.save_drive(sample_drive)
+    
+    # Add some additional test data
+    # Episode without lessons (not reflected)
+    unreflected_episode = Episode(
+        id=str(uuid.uuid4()),
+        agent_id="test_agent",
+        objective="Debug memory leak",
+        outcome="Could not reproduce the issue",
+        outcome_type="failure",
+        lessons=["Need better monitoring tools"],
+        tags=["debugging"],
+        created_at=datetime.now(timezone.utc),
+    )
+    storage.save_episode(unreflected_episode)
+    
+    # Checkpoint episode (should be filtered from recent work)
+    checkpoint_episode = Episode(
+        id=str(uuid.uuid4()),
+        agent_id="test_agent",
+        objective="Implement caching",
+        outcome="Basic caching implemented, optimization needed",
+        outcome_type="partial",
+        lessons=["Start simple, then optimize"],
+        tags=["checkpoint"],
+        created_at=datetime.now(timezone.utc),
+    )
+    storage.save_episode(checkpoint_episode)
+    
+    # Additional note
+    insight_note = Note(
+        id=str(uuid.uuid4()),
+        agent_id="test_agent",
+        content="**Insight**: Mocking is crucial for isolated testing",
+        note_type="insight",
+        tags=["testing"],
+        created_at=datetime.now(timezone.utc),
+    )
+    storage.save_note(insight_note)
+    
+    return storage
+
+
+# Legacy fixtures for backwards compatibility with old test patterns
+# These mock the Supabase client interface
+
+@pytest.fixture
 def mock_supabase_client():
-    """Mock Supabase client that simulates database operations."""
+    """Mock Supabase client that simulates database operations.
+    
+    DEPRECATED: Use sqlite_storage fixture instead for new tests.
+    Kept for backwards compatibility with existing tests.
+    """
     client = Mock()
     
     # In-memory storage for different tables
@@ -109,6 +304,9 @@ def mock_supabase_client():
             result.execute = lambda: result
             return result
         
+        def upsert_mock(data):
+            return insert_mock(data)
+        
         def update_mock(data):
             # Returns an object that can be chained with .eq()
             update_result = Mock()
@@ -129,6 +327,7 @@ def mock_supabase_client():
         
         table_mock.select = select_mock
         table_mock.insert = insert_mock
+        table_mock.upsert = upsert_mock
         table_mock.update = update_mock
         
         return table_mock
@@ -140,34 +339,11 @@ def mock_supabase_client():
 
 
 @pytest.fixture
-def temp_checkpoint_dir(tmp_path):
-    """Temporary directory for checkpoint files."""
-    checkpoint_dir = tmp_path / "checkpoints"
-    checkpoint_dir.mkdir()
-    return checkpoint_dir
-
-
-@pytest.fixture
-def kernle_instance(mock_supabase_client, temp_checkpoint_dir):
-    """Kernle instance with mocked dependencies."""
-    client_mock, storage = mock_supabase_client
-    
-    kernle = Kernle(
-        agent_id="test_agent",
-        supabase_url="http://test.url",
-        supabase_key="test_key",
-        checkpoint_dir=temp_checkpoint_dir
-    )
-    
-    # Override the client property to return our mock
-    kernle._client = client_mock
-    
-    return kernle, storage
-
-
-@pytest.fixture
 def sample_episode_data():
-    """Sample episode data for testing."""
+    """Sample episode data as dict for testing.
+    
+    DEPRECATED: Use sample_episode fixture instead.
+    """
     return {
         "id": str(uuid.uuid4()),
         "agent_id": "test_agent",
@@ -186,7 +362,10 @@ def sample_episode_data():
 
 @pytest.fixture
 def sample_memory_data():
-    """Sample memory/note data for testing."""
+    """Sample memory/note data as dict for testing.
+    
+    DEPRECATED: Use sample_note fixture instead.
+    """
     return {
         "id": str(uuid.uuid4()),
         "owner_id": "test_agent",
@@ -207,7 +386,10 @@ def sample_memory_data():
 
 @pytest.fixture
 def sample_belief_data():
-    """Sample belief data for testing."""
+    """Sample belief data as dict for testing.
+    
+    DEPRECATED: Use sample_belief fixture instead.
+    """
     return {
         "id": str(uuid.uuid4()),
         "agent_id": "test_agent",
@@ -222,7 +404,10 @@ def sample_belief_data():
 
 @pytest.fixture
 def sample_value_data():
-    """Sample value data for testing."""
+    """Sample value data as dict for testing.
+    
+    DEPRECATED: Use sample_value fixture instead.
+    """
     return {
         "id": str(uuid.uuid4()),
         "agent_id": "test_agent",
@@ -238,7 +423,10 @@ def sample_value_data():
 
 @pytest.fixture
 def sample_goal_data():
-    """Sample goal data for testing."""
+    """Sample goal data as dict for testing.
+    
+    DEPRECATED: Use sample_goal fixture instead.
+    """
     return {
         "id": str(uuid.uuid4()),
         "agent_id": "test_agent",
@@ -253,7 +441,10 @@ def sample_goal_data():
 
 @pytest.fixture
 def sample_drive_data():
-    """Sample drive data for testing."""
+    """Sample drive data as dict for testing.
+    
+    DEPRECATED: Use sample_drive fixture instead.
+    """
     return {
         "id": str(uuid.uuid4()),
         "agent_id": "test_agent",
@@ -264,51 +455,3 @@ def sample_drive_data():
         "last_satisfied_at": datetime.now(timezone.utc).isoformat(),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-
-
-@pytest.fixture
-def populated_storage(mock_supabase_client, sample_episode_data, sample_memory_data, 
-                     sample_belief_data, sample_value_data, sample_goal_data, sample_drive_data):
-    """Storage populated with sample data."""
-    client_mock, storage = mock_supabase_client
-    
-    # Populate storage
-    storage["agent_episodes"].append(sample_episode_data)
-    storage["memories"].append(sample_memory_data)
-    storage["agent_beliefs"].append(sample_belief_data)
-    storage["agent_values"].append(sample_value_data)
-    storage["agent_goals"].append(sample_goal_data)
-    storage["agent_drives"].append(sample_drive_data)
-    
-    # Add some additional test data
-    storage["agent_episodes"].extend([
-        {
-            **sample_episode_data,
-            "id": str(uuid.uuid4()),
-            "objective": "Debug memory leak",
-            "outcome_type": "failure",
-            "outcome_description": "Could not reproduce the issue",
-            "lessons_learned": ["Need better monitoring tools"],
-            "is_reflected": False,
-        },
-        {
-            **sample_episode_data,
-            "id": str(uuid.uuid4()),
-            "objective": "Implement caching",
-            "outcome_type": "partial", 
-            "outcome_description": "Basic caching implemented, optimization needed",
-            "lessons_learned": ["Start simple, then optimize"],
-            "tags": ["checkpoint"],  # This should be filtered from recent work
-        }
-    ])
-    
-    storage["memories"].extend([
-        {
-            **sample_memory_data,
-            "id": str(uuid.uuid4()),
-            "content": "**Insight**: Mocking is crucial for isolated testing",
-            "metadata": {"note_type": "insight", "tags": ["testing"]},
-        }
-    ])
-    
-    return client_mock, storage

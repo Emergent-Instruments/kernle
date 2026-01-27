@@ -87,9 +87,19 @@ def sanitize_array(value: Any, field_name: str, item_max_length: int = 500, max_
     return sanitized
 
 
-def validate_enum(value: Any, field_name: str, valid_values: List[str], default: str = None) -> str:
-    """Validate enum values."""
+def validate_enum(value: Any, field_name: str, valid_values: List[str], default: str = None, required: bool = False) -> str:
+    """Validate enum values.
+    
+    Args:
+        value: The value to validate
+        field_name: Name of the field for error messages
+        valid_values: List of valid enum values
+        default: Default value if value is None
+        required: If True, value must be provided (no default)
+    """
     if value is None:
+        if required:
+            raise ValueError(f"{field_name} is required")
         if default is not None:
             return default
         raise ValueError(f"{field_name} is required")
@@ -182,7 +192,8 @@ def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         elif name == "memory_drive":
             sanitized["drive_type"] = validate_enum(
                 arguments.get("drive_type"), "drive_type", 
-                ["existence", "growth", "curiosity", "connection", "reproduction"], required=True
+                ["existence", "growth", "curiosity", "connection", "reproduction"], 
+                default=None, required=True
             )
             sanitized["intensity"] = validate_number(arguments.get("intensity"), "intensity", 0.0, 1.0, 0.5)
             sanitized["focus_areas"] = sanitize_array(arguments.get("focus_areas"), "focus_areas", 200, 10)
@@ -203,6 +214,64 @@ def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         elif name == "memory_auto_capture":
             sanitized["text"] = sanitize_string(arguments.get("text"), "text", 5000, required=True)
             sanitized["context"] = sanitize_string(arguments.get("context"), "context", 1000, required=False)
+        
+        elif name == "memory_belief_list":
+            sanitized["limit"] = int(validate_number(arguments.get("limit"), "limit", 1, 100, 20))
+            sanitized["format"] = validate_enum(
+                arguments.get("format"), "format", ["text", "json"], "text"
+            )
+        
+        elif name == "memory_value_list":
+            sanitized["limit"] = int(validate_number(arguments.get("limit"), "limit", 1, 100, 10))
+            sanitized["format"] = validate_enum(
+                arguments.get("format"), "format", ["text", "json"], "text"
+            )
+        
+        elif name == "memory_goal_list":
+            sanitized["status"] = validate_enum(
+                arguments.get("status"), "status", ["active", "completed", "paused", "all"], "active"
+            )
+            sanitized["limit"] = int(validate_number(arguments.get("limit"), "limit", 1, 100, 10))
+            sanitized["format"] = validate_enum(
+                arguments.get("format"), "format", ["text", "json"], "text"
+            )
+        
+        elif name == "memory_drive_list":
+            sanitized["format"] = validate_enum(
+                arguments.get("format"), "format", ["text", "json"], "text"
+            )
+        
+        elif name == "memory_episode_update":
+            sanitized["episode_id"] = sanitize_string(arguments.get("episode_id"), "episode_id", 100, required=True)
+            sanitized["outcome"] = sanitize_string(arguments.get("outcome"), "outcome", 1000, required=False)
+            sanitized["lessons"] = sanitize_array(arguments.get("lessons"), "lessons", 500, 20)
+            sanitized["tags"] = sanitize_array(arguments.get("tags"), "tags", 100, 10)
+        
+        elif name == "memory_goal_update":
+            sanitized["goal_id"] = sanitize_string(arguments.get("goal_id"), "goal_id", 100, required=True)
+            sanitized["status"] = validate_enum(
+                arguments.get("status"), "status", ["active", "completed", "paused"], None
+            ) if arguments.get("status") else None
+            sanitized["priority"] = validate_enum(
+                arguments.get("priority"), "priority", ["low", "medium", "high"], None
+            ) if arguments.get("priority") else None
+            sanitized["description"] = sanitize_string(arguments.get("description"), "description", 1000, required=False)
+        
+        elif name == "memory_belief_update":
+            sanitized["belief_id"] = sanitize_string(arguments.get("belief_id"), "belief_id", 100, required=True)
+            sanitized["confidence"] = validate_number(arguments.get("confidence"), "confidence", 0.0, 1.0, None) if arguments.get("confidence") is not None else None
+            sanitized["is_active"] = arguments.get("is_active")  # Boolean, can be None
+        
+        elif name == "memory_sync":
+            # No parameters to validate
+            pass
+        
+        elif name == "memory_note_search":
+            sanitized["query"] = sanitize_string(arguments.get("query"), "query", 500, required=True)
+            sanitized["note_type"] = validate_enum(
+                arguments.get("note_type"), "note_type", ["note", "decision", "insight", "quote", "all"], "all"
+            )
+            sanitized["limit"] = int(validate_number(arguments.get("limit"), "limit", 1, 100, 10))
         
         else:
             raise ValueError(f"Unknown tool: {name}")
@@ -527,6 +596,200 @@ TOOLS = [
             "required": ["text"],
         },
     ),
+    # List tools
+    Tool(
+        name="memory_belief_list",
+        description="List all active beliefs with their confidence levels.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum beliefs to return (default: 20)",
+                    "default": 20,
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["text", "json"],
+                    "description": "Output format. Use 'json' to get IDs for updates (default: text)",
+                    "default": "text",
+                },
+            },
+        },
+    ),
+    Tool(
+        name="memory_value_list",
+        description="List all core values ordered by priority.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum values to return (default: 10)",
+                    "default": 10,
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["text", "json"],
+                    "description": "Output format. Use 'json' to get IDs for updates (default: text)",
+                    "default": "text",
+                },
+            },
+        },
+    ),
+    Tool(
+        name="memory_goal_list",
+        description="List goals filtered by status.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["active", "completed", "paused", "all"],
+                    "description": "Filter by status (default: active)",
+                    "default": "active",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum goals to return (default: 10)",
+                    "default": 10,
+                },
+                "format": {
+                    "type": "string",
+                    "enum": ["text", "json"],
+                    "description": "Output format. Use 'json' to get IDs for updates (default: text)",
+                    "default": "text",
+                },
+            },
+        },
+    ),
+    Tool(
+        name="memory_drive_list",
+        description="List all drives/motivations with their current intensities.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "format": {
+                    "type": "string",
+                    "enum": ["text", "json"],
+                    "description": "Output format. Use 'json' to get IDs for updates (default: text)",
+                    "default": "text",
+                },
+            },
+        },
+    ),
+    # Update tools
+    Tool(
+        name="memory_episode_update",
+        description="Update an existing episode (add lessons, change outcome, add tags).",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "episode_id": {
+                    "type": "string",
+                    "description": "ID of the episode to update",
+                },
+                "outcome": {
+                    "type": "string",
+                    "description": "New outcome description",
+                },
+                "lessons": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Additional lessons to add",
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Additional tags to add",
+                },
+            },
+            "required": ["episode_id"],
+        },
+    ),
+    Tool(
+        name="memory_goal_update",
+        description="Update a goal's status, priority, or description.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "goal_id": {
+                    "type": "string",
+                    "description": "ID of the goal to update",
+                },
+                "status": {
+                    "type": "string",
+                    "enum": ["active", "completed", "paused"],
+                    "description": "New status",
+                },
+                "priority": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high"],
+                    "description": "New priority",
+                },
+                "description": {
+                    "type": "string",
+                    "description": "New description",
+                },
+            },
+            "required": ["goal_id"],
+        },
+    ),
+    Tool(
+        name="memory_belief_update",
+        description="Update a belief's confidence or deactivate it.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "belief_id": {
+                    "type": "string",
+                    "description": "ID of the belief to update",
+                },
+                "confidence": {
+                    "type": "number",
+                    "description": "New confidence level (0.0-1.0)",
+                },
+                "is_active": {
+                    "type": "boolean",
+                    "description": "Whether the belief is still active",
+                },
+            },
+            "required": ["belief_id"],
+        },
+    ),
+    Tool(
+        name="memory_sync",
+        description="Trigger synchronization with cloud storage. Pushes local changes and pulls remote updates.",
+        inputSchema={
+            "type": "object",
+            "properties": {},
+        },
+    ),
+    Tool(
+        name="memory_note_search",
+        description="Search notes by content and optionally filter by type.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query",
+                },
+                "note_type": {
+                    "type": "string",
+                    "enum": ["note", "decision", "insight", "quote", "all"],
+                    "description": "Filter by note type (default: all)",
+                    "default": "all",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum results (default: 10)",
+                    "default": 10,
+                },
+            },
+            "required": ["query"],
+        },
+    ),
 ]
 
 
@@ -676,6 +939,150 @@ Checkpoint: {'Yes' if status['checkpoint'] else 'No'}"""
                 result = f"Auto-captured: {capture_id[:8]}..."
             else:
                 result = "Not significant enough to capture."
+        
+        elif name == "memory_belief_list":
+            beliefs = k.load_beliefs(limit=sanitized_args.get("limit", 20))
+            format_type = sanitized_args.get("format", "text")
+            if not beliefs:
+                result = "No beliefs found." if format_type == "text" else json.dumps([], indent=2)
+            elif format_type == "json":
+                result = json.dumps(beliefs, indent=2, default=str)
+            else:
+                lines = [f"Found {len(beliefs)} belief(s):\n"]
+                for i, b in enumerate(beliefs, 1):
+                    conf = f" ({b['confidence']:.0%})" if b.get("confidence") else ""
+                    btype = f"[{b.get('belief_type', 'fact')}]" if b.get("belief_type") else ""
+                    lines.append(f"{i}. {btype} {b['statement']}{conf}")
+                result = "\n".join(lines)
+        
+        elif name == "memory_value_list":
+            values = k.load_values(limit=sanitized_args.get("limit", 10))
+            format_type = sanitized_args.get("format", "text")
+            if not values:
+                result = "No values found." if format_type == "text" else json.dumps([], indent=2)
+            elif format_type == "json":
+                result = json.dumps(values, indent=2, default=str)
+            else:
+                lines = [f"Found {len(values)} value(s):\n"]
+                for i, v in enumerate(values, 1):
+                    priority = f" (priority: {v.get('priority', 50)})" if v.get("priority") else ""
+                    lines.append(f"{i}. **{v['name']}**: {v['statement']}{priority}")
+                result = "\n".join(lines)
+        
+        elif name == "memory_goal_list":
+            status = sanitized_args.get("status", "active")
+            format_type = sanitized_args.get("format", "text")
+            # Pass status directly to load_goals - it now handles filtering
+            goals = k.load_goals(limit=sanitized_args.get("limit", 10), status=status)
+            
+            if not goals:
+                result = f"No {status} goals found." if format_type == "text" else json.dumps([], indent=2)
+            elif format_type == "json":
+                result = json.dumps(goals, indent=2, default=str)
+            else:
+                lines = [f"Found {len(goals)} goal(s):\n"]
+                for i, g in enumerate(goals, 1):
+                    priority = f" [{g.get('priority', 'medium')}]" if g.get("priority") else ""
+                    status_str = f" ({g.get('status', 'active')})" if g.get("status") != "active" else ""
+                    lines.append(f"{i}. {g['title']}{priority}{status_str}")
+                    if g.get("description"):
+                        lines.append(f"   {g['description'][:60]}...")
+                result = "\n".join(lines)
+        
+        elif name == "memory_drive_list":
+            drives = k.load_drives()
+            format_type = sanitized_args.get("format", "text")
+            if not drives:
+                result = "No drives configured." if format_type == "text" else json.dumps([], indent=2)
+            elif format_type == "json":
+                result = json.dumps(drives, indent=2, default=str)
+            else:
+                lines = ["Current drives:\n"]
+                for d in drives:
+                    focus = f" → {', '.join(d.get('focus_areas', []))}" if d.get("focus_areas") else ""
+                    lines.append(f"- **{d['drive_type']}**: {d['intensity']:.0%}{focus}")
+                result = "\n".join(lines)
+        
+        elif name == "memory_episode_update":
+            episode_id = sanitized_args["episode_id"]
+            updated = k.update_episode(
+                episode_id=episode_id,
+                outcome=sanitized_args.get("outcome"),
+                lessons=sanitized_args.get("lessons"),
+                tags=sanitized_args.get("tags"),
+            )
+            if updated:
+                result = f"Episode {episode_id[:8]}... updated successfully."
+            else:
+                result = f"Episode {episode_id[:8]}... not found."
+        
+        elif name == "memory_goal_update":
+            goal_id = sanitized_args["goal_id"]
+            updated = k.update_goal(
+                goal_id=goal_id,
+                status=sanitized_args.get("status"),
+                priority=sanitized_args.get("priority"),
+                description=sanitized_args.get("description"),
+            )
+            if updated:
+                result = f"Goal {goal_id[:8]}... updated successfully."
+            else:
+                result = f"Goal {goal_id[:8]}... not found."
+        
+        elif name == "memory_belief_update":
+            belief_id = sanitized_args["belief_id"]
+            updated = k.update_belief(
+                belief_id=belief_id,
+                confidence=sanitized_args.get("confidence"),
+                is_active=sanitized_args.get("is_active"),
+            )
+            if updated:
+                result = f"Belief {belief_id[:8]}... updated successfully."
+            else:
+                result = f"Belief {belief_id[:8]}... not found."
+        
+        elif name == "memory_sync":
+            sync_result = k.sync()
+            lines = ["Sync complete:"]
+            lines.append(f"  Pushed: {sync_result.get('pushed', 0)}")
+            lines.append(f"  Pulled: {sync_result.get('pulled', 0)}")
+            if sync_result.get("conflicts"):
+                lines.append(f"  Conflicts: {sync_result['conflicts']}")
+            if sync_result.get("errors"):
+                lines.append(f"  Errors: {len(sync_result['errors'])}")
+                for err in sync_result["errors"][:3]:
+                    lines.append(f"    - {err}")
+            result = "\n".join(lines)
+        
+        elif name == "memory_note_search":
+            query = sanitized_args["query"]
+            note_type = sanitized_args.get("note_type", "all")
+            limit = sanitized_args.get("limit", 10)
+            
+            # Use the general search and filter by type
+            results = k.search(query=query, limit=limit * 2)  # Get extra in case we filter
+            
+            # Filter for note types only
+            note_results = [
+                r for r in results 
+                if r.get("type") in ["note", "decision", "insight", "quote"]
+            ]
+            
+            # Further filter by specific type if not "all"
+            if note_type != "all":
+                note_results = [r for r in note_results if r.get("type") == note_type]
+            
+            note_results = note_results[:limit]
+            
+            if not note_results:
+                result = f"No notes found for '{query}'"
+            else:
+                lines = [f"Found {len(note_results)} note(s):\n"]
+                for i, n in enumerate(note_results, 1):
+                    lines.append(f"{i}. [{n['type']}] {n['title']}")
+                    if n.get("date"):
+                        lines.append(f"   {n['date']}")
+                result = "\n".join(lines)
         
         else:
             # This should never happen due to validation, but handle gracefully

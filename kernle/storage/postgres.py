@@ -1,0 +1,1083 @@
+"""PostgreSQL storage backend for Kernle using Supabase.
+
+Cloud storage with:
+- PostgreSQL for structured data
+- pgvector for semantic search (via Supabase)
+- Full compatibility with Storage protocol
+"""
+
+import logging
+import os
+import uuid
+from datetime import datetime, timezone
+from typing import Optional, List, Dict, Any
+
+from .base import (
+    Storage, SyncResult,
+    Episode, Belief, Value, Goal, Note, Drive, Relationship, SearchResult
+)
+
+logger = logging.getLogger(__name__)
+
+
+class SupabaseStorage:
+    """Supabase/PostgreSQL storage backend for Kernle.
+    
+    Cloud-based storage that wraps the existing Supabase implementation.
+    Implements the Storage protocol for compatibility with SQLiteStorage.
+    """
+    
+    def __init__(
+        self,
+        agent_id: str,
+        supabase_url: Optional[str] = None,
+        supabase_key: Optional[str] = None,
+    ):
+        self.agent_id = agent_id
+        self.supabase_url = supabase_url or os.environ.get("KERNLE_SUPABASE_URL") or os.environ.get("SUPABASE_URL")
+        self.supabase_key = supabase_key or os.environ.get("KERNLE_SUPABASE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        
+        self._client = None
+    
+    @property
+    def client(self):
+        """Lazy-load Supabase client."""
+        if self._client is None:
+            if not self.supabase_url or not self.supabase_key:
+                raise ValueError("Supabase credentials required. Set KERNLE_SUPABASE_URL and KERNLE_SUPABASE_KEY.")
+            
+            if not self.supabase_url.startswith(('http://', 'https://')):
+                raise ValueError("Invalid Supabase URL format. Must start with http:// or https://")
+            
+            if not self.supabase_key.strip():
+                raise ValueError("Supabase key cannot be empty")
+            
+            from supabase import create_client
+            self._client = create_client(self.supabase_url, self.supabase_key)
+        return self._client
+    
+    def _now(self) -> str:
+        """Get current timestamp as ISO string."""
+        return datetime.now(timezone.utc).isoformat()
+    
+    def _parse_datetime(self, s: Optional[str]) -> Optional[datetime]:
+        """Parse ISO datetime string."""
+        if not s:
+            return None
+        try:
+            return datetime.fromisoformat(s.replace('Z', '+00:00'))
+        except ValueError:
+            return None
+    
+    # === Episodes ===
+    
+    def save_episode(self, episode: Episode) -> str:
+        """Save an episode."""
+        if not episode.id:
+            episode.id = str(uuid.uuid4())
+        
+        now = self._now()
+        
+        # Map to Supabase schema (agent_episodes table)
+        data = {
+            "id": episode.id,
+            "agent_id": self.agent_id,
+            "objective": episode.objective,
+            "outcome_type": episode.outcome_type or "partial",
+            "outcome_description": episode.outcome,
+            "lessons_learned": episode.lessons or [],
+            "tags": episode.tags or [],
+            "is_reflected": True,
+            "confidence": 0.8,
+            # Emotional memory fields
+            "emotional_valence": episode.emotional_valence,
+            "emotional_arousal": episode.emotional_arousal,
+            "emotional_tags": episode.emotional_tags or [],
+            # Sync metadata
+            "local_updated_at": now,
+            "cloud_synced_at": now,
+            "version": episode.version,
+        }
+        
+        self.client.table("agent_episodes").upsert(data).execute()
+        return episode.id
+    
+    def get_episodes(
+        self, 
+        limit: int = 100, 
+        since: Optional[datetime] = None,
+        tags: Optional[List[str]] = None
+    ) -> List[Episode]:
+        """Get episodes, optionally filtered."""
+        query = self.client.table("agent_episodes").select("*").eq(
+            "agent_id", self.agent_id
+        ).order("created_at", desc=True).limit(limit)
+        
+        if since:
+            query = query.gte("created_at", since.isoformat())
+        
+        result = query.execute()
+        
+        episodes = [self._row_to_episode(row) for row in result.data]
+        
+        # Filter by tags if specified
+        if tags:
+            episodes = [
+                e for e in episodes
+                if e.tags and any(t in e.tags for t in tags)
+            ]
+        
+        return episodes
+    
+    def get_episode(self, episode_id: str) -> Optional[Episode]:
+        """Get a specific episode by ID."""
+        result = self.client.table("agent_episodes").select("*").eq(
+            "id", episode_id
+        ).eq("agent_id", self.agent_id).execute()
+        
+        if result.data:
+            return self._row_to_episode(result.data[0])
+        return None
+    
+    def _row_to_episode(self, row: Dict[str, Any]) -> Episode:
+        """Convert a Supabase row to an Episode."""
+        return Episode(
+            id=row["id"],
+            agent_id=row["agent_id"],
+            objective=row.get("objective", ""),
+            outcome=row.get("outcome_description", ""),
+            outcome_type=row.get("outcome_type"),
+            lessons=row.get("lessons_learned"),
+            tags=row.get("tags"),
+            created_at=self._parse_datetime(row.get("created_at")),
+            emotional_valence=row.get("emotional_valence", 0.0) or 0.0,
+            emotional_arousal=row.get("emotional_arousal", 0.0) or 0.0,
+            emotional_tags=row.get("emotional_tags"),
+            local_updated_at=self._parse_datetime(row.get("local_updated_at")),
+            cloud_synced_at=self._parse_datetime(row.get("cloud_synced_at")),
+            version=row.get("version", 1),
+            deleted=False,
+            # Meta-memory fields
+            confidence=row.get("confidence", 0.8),
+            source_type=row.get("source_type", "direct_experience"),
+            source_episodes=row.get("source_episodes"),
+            derived_from=row.get("derived_from"),
+            last_verified=self._parse_datetime(row.get("last_verified")),
+            verification_count=row.get("verification_count", 0),
+            confidence_history=row.get("confidence_history"),
+        )
+    
+    def update_episode_emotion(
+        self,
+        episode_id: str,
+        valence: float,
+        arousal: float,
+        tags: Optional[List[str]] = None
+    ) -> bool:
+        """Update emotional associations for an episode.
+        
+        Args:
+            episode_id: The episode to update
+            valence: Emotional valence (-1.0 to 1.0)
+            arousal: Emotional arousal (0.0 to 1.0)
+            tags: Emotional tags (e.g., ["joy", "excitement"])
+            
+        Returns:
+            True if updated, False if episode not found
+        """
+        # Clamp values to valid ranges
+        valence = max(-1.0, min(1.0, valence))
+        arousal = max(0.0, min(1.0, arousal))
+        
+        now = self._now()
+        
+        try:
+            result = self.client.table("agent_episodes").update({
+                "emotional_valence": valence,
+                "emotional_arousal": arousal,
+                "emotional_tags": tags or [],
+                "local_updated_at": now,
+            }).eq("id", episode_id).eq("agent_id", self.agent_id).execute()
+            
+            return len(result.data) > 0
+        except Exception as e:
+            logger.warning(f"Failed to update episode emotion: {e}")
+            return False
+    
+    def search_by_emotion(
+        self,
+        valence_range: Optional[tuple] = None,
+        arousal_range: Optional[tuple] = None,
+        tags: Optional[List[str]] = None,
+        limit: int = 10
+    ) -> List[Episode]:
+        """Find episodes matching emotional criteria.
+        
+        Args:
+            valence_range: (min, max) valence filter
+            arousal_range: (min, max) arousal filter
+            tags: Emotional tags to match
+            limit: Maximum results
+            
+        Returns:
+            List of matching episodes
+        """
+        query = self.client.table("agent_episodes").select("*").eq(
+            "agent_id", self.agent_id
+        ).order("created_at", desc=True)
+        
+        if valence_range:
+            query = query.gte("emotional_valence", valence_range[0])
+            query = query.lte("emotional_valence", valence_range[1])
+        
+        if arousal_range:
+            query = query.gte("emotional_arousal", arousal_range[0])
+            query = query.lte("emotional_arousal", arousal_range[1])
+        
+        query = query.limit(limit * 2 if tags else limit)
+        
+        result = query.execute()
+        episodes = [self._row_to_episode(row) for row in result.data]
+        
+        # Filter by emotional tags in Python
+        if tags:
+            episodes = [
+                e for e in episodes
+                if e.emotional_tags and any(t in e.emotional_tags for t in tags)
+            ][:limit]
+        
+        return episodes
+    
+    def get_emotional_episodes(
+        self,
+        days: int = 7,
+        limit: int = 100
+    ) -> List[Episode]:
+        """Get episodes with emotional data for summary calculations."""
+        from datetime import timedelta
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        
+        result = self.client.table("agent_episodes").select("*").eq(
+            "agent_id", self.agent_id
+        ).gte("created_at", cutoff).order("created_at", desc=True).limit(limit).execute()
+        
+        # Filter to episodes with emotional data
+        episodes = [self._row_to_episode(row) for row in result.data]
+        return [
+            e for e in episodes
+            if e.emotional_valence != 0.0 or e.emotional_arousal != 0.0 or e.emotional_tags
+        ]
+    
+    # === Beliefs ===
+    
+    def save_belief(self, belief: Belief) -> str:
+        """Save a belief."""
+        if not belief.id:
+            belief.id = str(uuid.uuid4())
+        
+        now = self._now()
+        
+        data = {
+            "id": belief.id,
+            "agent_id": self.agent_id,
+            "statement": belief.statement,
+            "belief_type": belief.belief_type,
+            "confidence": belief.confidence,
+            "is_active": True,
+            "is_foundational": False,
+            # Sync metadata
+            "local_updated_at": now,
+            "cloud_synced_at": now,
+            "version": belief.version,
+        }
+        
+        self.client.table("agent_beliefs").upsert(data).execute()
+        return belief.id
+    
+    def get_beliefs(self, limit: int = 100) -> List[Belief]:
+        """Get beliefs."""
+        result = self.client.table("agent_beliefs").select("*").eq(
+            "agent_id", self.agent_id
+        ).eq("is_active", True).order("confidence", desc=True).limit(limit).execute()
+        
+        return [self._row_to_belief(row) for row in result.data]
+    
+    def find_belief(self, statement: str) -> Optional[Belief]:
+        """Find a belief by statement (for deduplication)."""
+        result = self.client.table("agent_beliefs").select("*").eq(
+            "agent_id", self.agent_id
+        ).eq("statement", statement).eq("is_active", True).limit(1).execute()
+        
+        if result.data:
+            return self._row_to_belief(result.data[0])
+        return None
+    
+    def _row_to_belief(self, row: Dict[str, Any]) -> Belief:
+        """Convert a Supabase row to a Belief."""
+        return Belief(
+            id=row["id"],
+            agent_id=row["agent_id"],
+            statement=row.get("statement", ""),
+            belief_type=row.get("belief_type", "fact"),
+            confidence=row.get("confidence", 0.8),
+            created_at=self._parse_datetime(row.get("created_at")),
+            local_updated_at=self._parse_datetime(row.get("local_updated_at")),
+            cloud_synced_at=self._parse_datetime(row.get("cloud_synced_at")),
+            version=row.get("version", 1),
+            deleted=not row.get("is_active", True),
+            # Meta-memory fields
+            source_type=row.get("source_type", "direct_experience"),
+            source_episodes=row.get("source_episodes"),
+            derived_from=row.get("derived_from"),
+            last_verified=self._parse_datetime(row.get("last_verified")),
+            verification_count=row.get("verification_count", 0),
+            confidence_history=row.get("confidence_history"),
+        )
+    
+    # === Values ===
+    
+    def save_value(self, value: Value) -> str:
+        """Save a value."""
+        if not value.id:
+            value.id = str(uuid.uuid4())
+        
+        now = self._now()
+        
+        data = {
+            "id": value.id,
+            "agent_id": self.agent_id,
+            "name": value.name,
+            "statement": value.statement,
+            "priority": value.priority,
+            "value_type": "core_value",
+            "is_active": True,
+            "is_foundational": False,
+            # Sync metadata
+            "local_updated_at": now,
+            "cloud_synced_at": now,
+            "version": value.version,
+        }
+        
+        self.client.table("agent_values").upsert(data).execute()
+        return value.id
+    
+    def get_values(self, limit: int = 100) -> List[Value]:
+        """Get values, ordered by priority."""
+        result = self.client.table("agent_values").select("*").eq(
+            "agent_id", self.agent_id
+        ).eq("is_active", True).order("priority", desc=True).limit(limit).execute()
+        
+        return [self._row_to_value(row) for row in result.data]
+    
+    def _row_to_value(self, row: Dict[str, Any]) -> Value:
+        """Convert a Supabase row to a Value."""
+        return Value(
+            id=row["id"],
+            agent_id=row["agent_id"],
+            name=row.get("name", ""),
+            statement=row.get("statement", ""),
+            priority=row.get("priority", 50),
+            created_at=self._parse_datetime(row.get("created_at")),
+            local_updated_at=self._parse_datetime(row.get("local_updated_at")),
+            cloud_synced_at=self._parse_datetime(row.get("cloud_synced_at")),
+            version=row.get("version", 1),
+            deleted=not row.get("is_active", True),
+            # Meta-memory fields
+            confidence=row.get("confidence", 0.9),
+            source_type=row.get("source_type", "direct_experience"),
+            source_episodes=row.get("source_episodes"),
+            derived_from=row.get("derived_from"),
+            last_verified=self._parse_datetime(row.get("last_verified")),
+            verification_count=row.get("verification_count", 0),
+            confidence_history=row.get("confidence_history"),
+        )
+    
+    # === Goals ===
+    
+    def save_goal(self, goal: Goal) -> str:
+        """Save a goal."""
+        if not goal.id:
+            goal.id = str(uuid.uuid4())
+        
+        now = self._now()
+        
+        data = {
+            "id": goal.id,
+            "agent_id": self.agent_id,
+            "title": goal.title,
+            "description": goal.description or goal.title,
+            "priority": goal.priority,
+            "status": goal.status,
+            "visibility": "public",
+            # Sync metadata
+            "local_updated_at": now,
+            "cloud_synced_at": now,
+            "version": goal.version,
+        }
+        
+        self.client.table("agent_goals").upsert(data).execute()
+        return goal.id
+    
+    def get_goals(self, status: Optional[str] = "active", limit: int = 100) -> List[Goal]:
+        """Get goals, optionally filtered by status."""
+        query = self.client.table("agent_goals").select("*").eq(
+            "agent_id", self.agent_id
+        ).order("created_at", desc=True).limit(limit)
+        
+        if status:
+            query = query.eq("status", status)
+        
+        result = query.execute()
+        return [self._row_to_goal(row) for row in result.data]
+    
+    def _row_to_goal(self, row: Dict[str, Any]) -> Goal:
+        """Convert a Supabase row to a Goal."""
+        return Goal(
+            id=row["id"],
+            agent_id=row["agent_id"],
+            title=row.get("title", ""),
+            description=row.get("description"),
+            priority=row.get("priority", "medium"),
+            status=row.get("status", "active"),
+            created_at=self._parse_datetime(row.get("created_at")),
+            local_updated_at=self._parse_datetime(row.get("local_updated_at")),
+            cloud_synced_at=self._parse_datetime(row.get("cloud_synced_at")),
+            version=row.get("version", 1),
+            deleted=False,
+            # Meta-memory fields
+            confidence=row.get("confidence", 0.8),
+            source_type=row.get("source_type", "direct_experience"),
+            source_episodes=row.get("source_episodes"),
+            derived_from=row.get("derived_from"),
+            last_verified=self._parse_datetime(row.get("last_verified")),
+            verification_count=row.get("verification_count", 0),
+            confidence_history=row.get("confidence_history"),
+        )
+    
+    # === Notes ===
+    
+    def save_note(self, note: Note) -> str:
+        """Save a note."""
+        if not note.id:
+            note.id = str(uuid.uuid4())
+        
+        now = self._now()
+        
+        # Build content based on note type
+        content = note.content
+        if note.note_type == "decision" and note.reason:
+            content = f"**Decision**: {note.content}\n**Reason**: {note.reason}"
+        elif note.note_type == "quote" and note.speaker:
+            content = f'> "{note.content}"\n> — {note.speaker}'
+        elif note.note_type == "insight":
+            content = f"**Insight**: {note.content}"
+        
+        metadata = {
+            "note_type": note.note_type,
+            "tags": note.tags or [],
+        }
+        if note.speaker:
+            metadata["speaker"] = note.speaker
+        if note.reason:
+            metadata["reason"] = note.reason
+        
+        data = {
+            "id": note.id,
+            "owner_id": self.agent_id,
+            "owner_type": "agent",
+            "content": content,
+            "source": "curated",
+            "metadata": metadata,
+            "visibility": "private",
+            "is_curated": True,
+            "is_protected": False,
+            # Sync metadata
+            "local_updated_at": now,
+            "cloud_synced_at": now,
+            "version": note.version,
+        }
+        
+        self.client.table("memories").upsert(data).execute()
+        return note.id
+    
+    def get_notes(
+        self, 
+        limit: int = 100, 
+        since: Optional[datetime] = None,
+        note_type: Optional[str] = None
+    ) -> List[Note]:
+        """Get notes, optionally filtered."""
+        query = self.client.table("memories").select("*").eq(
+            "owner_id", self.agent_id
+        ).eq("source", "curated").order("created_at", desc=True).limit(limit)
+        
+        if since:
+            query = query.gte("created_at", since.isoformat())
+        
+        result = query.execute()
+        notes = [self._row_to_note(row) for row in result.data]
+        
+        # Filter by note_type if specified
+        if note_type:
+            notes = [n for n in notes if n.note_type == note_type]
+        
+        return notes
+    
+    def _row_to_note(self, row: Dict[str, Any]) -> Note:
+        """Convert a Supabase row to a Note."""
+        metadata = row.get("metadata", {}) or {}
+        return Note(
+            id=row["id"],
+            agent_id=row.get("owner_id", ""),
+            content=row.get("content", ""),
+            note_type=metadata.get("note_type", "note"),
+            speaker=metadata.get("speaker"),
+            reason=metadata.get("reason"),
+            tags=metadata.get("tags"),
+            created_at=self._parse_datetime(row.get("created_at")),
+            local_updated_at=self._parse_datetime(row.get("local_updated_at")),
+            cloud_synced_at=self._parse_datetime(row.get("cloud_synced_at")),
+            version=row.get("version", 1),
+            deleted=False,
+            # Meta-memory fields
+            confidence=row.get("confidence", 0.8),
+            source_type=row.get("source_type", "direct_experience"),
+            source_episodes=row.get("source_episodes"),
+            derived_from=row.get("derived_from"),
+            last_verified=self._parse_datetime(row.get("last_verified")),
+            verification_count=row.get("verification_count", 0),
+            confidence_history=row.get("confidence_history"),
+        )
+    
+    # === Drives ===
+    
+    def save_drive(self, drive: Drive) -> str:
+        """Save or update a drive."""
+        if not drive.id:
+            drive.id = str(uuid.uuid4())
+        
+        now = self._now()
+        
+        # Check if exists
+        existing = self.client.table("agent_drives").select("id").eq(
+            "agent_id", self.agent_id
+        ).eq("drive_type", drive.drive_type).execute()
+        
+        data = {
+            "agent_id": self.agent_id,
+            "drive_type": drive.drive_type,
+            "intensity": max(0.0, min(1.0, drive.intensity)),
+            "focus_areas": drive.focus_areas or [],
+            "last_satisfied_at": now,
+            # Sync metadata
+            "local_updated_at": now,
+            "cloud_synced_at": now,
+            "version": drive.version,
+        }
+        
+        if existing.data:
+            drive.id = existing.data[0]["id"]
+            self.client.table("agent_drives").update(data).eq("id", drive.id).execute()
+        else:
+            data["id"] = drive.id
+            self.client.table("agent_drives").insert(data).execute()
+        
+        return drive.id
+    
+    def get_drives(self) -> List[Drive]:
+        """Get all drives for the agent."""
+        result = self.client.table("agent_drives").select("*").eq(
+            "agent_id", self.agent_id
+        ).execute()
+        
+        return [self._row_to_drive(row) for row in result.data]
+    
+    def get_drive(self, drive_type: str) -> Optional[Drive]:
+        """Get a specific drive by type."""
+        result = self.client.table("agent_drives").select("*").eq(
+            "agent_id", self.agent_id
+        ).eq("drive_type", drive_type).execute()
+        
+        if result.data:
+            return self._row_to_drive(result.data[0])
+        return None
+    
+    def _row_to_drive(self, row: Dict[str, Any]) -> Drive:
+        """Convert a Supabase row to a Drive."""
+        return Drive(
+            id=row["id"],
+            agent_id=row["agent_id"],
+            drive_type=row.get("drive_type", ""),
+            intensity=row.get("intensity", 0.5),
+            focus_areas=row.get("focus_areas"),
+            created_at=self._parse_datetime(row.get("created_at")),
+            updated_at=self._parse_datetime(row.get("last_satisfied_at")),
+            local_updated_at=self._parse_datetime(row.get("local_updated_at")),
+            cloud_synced_at=self._parse_datetime(row.get("cloud_synced_at")),
+            version=row.get("version", 1),
+            deleted=False,
+            # Meta-memory fields
+            confidence=row.get("confidence", 0.8),
+            source_type=row.get("source_type", "direct_experience"),
+            source_episodes=row.get("source_episodes"),
+            derived_from=row.get("derived_from"),
+            last_verified=self._parse_datetime(row.get("last_verified")),
+            verification_count=row.get("verification_count", 0),
+            confidence_history=row.get("confidence_history"),
+        )
+    
+    # === Relationships ===
+    
+    def save_relationship(self, relationship: Relationship) -> str:
+        """Save or update a relationship."""
+        if not relationship.id:
+            relationship.id = str(uuid.uuid4())
+        
+        now = self._now()
+        
+        # Check if exists
+        try:
+            existing = self.client.table("agent_relationships").select("id, interaction_count").eq(
+                "agent_id", self.agent_id
+            ).eq("other_agent_id", relationship.entity_name).execute()
+        except Exception:
+            existing = type('obj', (object,), {'data': []})()
+        
+        data = {
+            "agent_id": self.agent_id,
+            "other_agent_id": relationship.entity_name,
+            "trust_level": relationship.sentiment,
+            "interaction_count": relationship.interaction_count,
+            "last_interaction": relationship.last_interaction.isoformat() if relationship.last_interaction else now,
+            "notes": relationship.notes,
+            # Sync metadata
+            "local_updated_at": now,
+            "cloud_synced_at": now,
+            "version": relationship.version,
+        }
+        
+        try:
+            if existing.data:
+                relationship.id = existing.data[0]["id"]
+                data["interaction_count"] = existing.data[0].get("interaction_count", 0) + 1
+                self.client.table("agent_relationships").update(data).eq("id", relationship.id).execute()
+            else:
+                data["id"] = relationship.id
+                self.client.table("agent_relationships").insert(data).execute()
+        except Exception as e:
+            logger.warning(f"Failed to save relationship to agent_relationships table: {e}")
+            # Fall back to saving as a note
+            self.save_note(Note(
+                id=relationship.id,
+                agent_id=self.agent_id,
+                content=f"Relationship with {relationship.entity_name}: {relationship.notes}",
+                note_type="note",
+                tags=["relationship", relationship.entity_name],
+            ))
+        
+        return relationship.id
+    
+    def get_relationships(self, entity_type: Optional[str] = None) -> List[Relationship]:
+        """Get relationships, optionally filtered by entity type."""
+        try:
+            result = self.client.table("agent_relationships").select("*").eq(
+                "agent_id", self.agent_id
+            ).order("last_interaction", desc=True).execute()
+            
+            return [self._row_to_relationship(row) for row in result.data]
+        except Exception:
+            # Table might not exist
+            return []
+    
+    def get_relationship(self, entity_name: str) -> Optional[Relationship]:
+        """Get a specific relationship by entity name."""
+        try:
+            result = self.client.table("agent_relationships").select("*").eq(
+                "agent_id", self.agent_id
+            ).eq("other_agent_id", entity_name).execute()
+            
+            if result.data:
+                return self._row_to_relationship(result.data[0])
+        except Exception:
+            pass
+        return None
+    
+    def _row_to_relationship(self, row: Dict[str, Any]) -> Relationship:
+        """Convert a Supabase row to a Relationship."""
+        return Relationship(
+            id=row["id"],
+            agent_id=row["agent_id"],
+            entity_name=row.get("other_agent_id", ""),
+            entity_type="agent",
+            relationship_type="interaction",
+            notes=row.get("notes"),
+            sentiment=row.get("trust_level", 0.0),
+            interaction_count=row.get("interaction_count", 0),
+            last_interaction=self._parse_datetime(row.get("last_interaction")),
+            created_at=self._parse_datetime(row.get("created_at")),
+            local_updated_at=self._parse_datetime(row.get("local_updated_at")),
+            cloud_synced_at=self._parse_datetime(row.get("cloud_synced_at")),
+            version=row.get("version", 1),
+            deleted=False,
+            # Meta-memory fields
+            confidence=row.get("confidence", 0.8),
+            source_type=row.get("source_type", "direct_experience"),
+            source_episodes=row.get("source_episodes"),
+            derived_from=row.get("derived_from"),
+            last_verified=self._parse_datetime(row.get("last_verified")),
+            verification_count=row.get("verification_count", 0),
+            confidence_history=row.get("confidence_history"),
+        )
+    
+    # === Search ===
+    
+    def search(
+        self, 
+        query: str, 
+        limit: int = 10,
+        record_types: Optional[List[str]] = None
+    ) -> List[SearchResult]:
+        """Search across memories.
+        
+        For now, uses basic text matching.
+        TODO: Use pgvector for semantic search.
+        """
+        results = []
+        types = record_types or ["episode", "note", "belief"]
+        query_lower = query.lower()
+        
+        if "episode" in types:
+            episodes = self.client.table("agent_episodes").select("*").eq(
+                "agent_id", self.agent_id
+            ).order("created_at", desc=True).limit(50).execute()
+            
+            for row in episodes.data:
+                text = f"{row.get('objective', '')} {row.get('outcome_description', '')} {' '.join(row.get('lessons_learned', []))}"
+                if query_lower in text.lower():
+                    results.append(SearchResult(
+                        record=self._row_to_episode(row),
+                        record_type="episode",
+                        score=1.0,
+                    ))
+        
+        if "note" in types:
+            notes = self.client.table("memories").select("*").eq(
+                "owner_id", self.agent_id
+            ).eq("source", "curated").order("created_at", desc=True).limit(50).execute()
+            
+            for row in notes.data:
+                if query_lower in row.get("content", "").lower():
+                    results.append(SearchResult(
+                        record=self._row_to_note(row),
+                        record_type="note",
+                        score=1.0,
+                    ))
+        
+        if "belief" in types:
+            beliefs = self.client.table("agent_beliefs").select("*").eq(
+                "agent_id", self.agent_id
+            ).eq("is_active", True).execute()
+            
+            for row in beliefs.data:
+                if query_lower in row.get("statement", "").lower():
+                    results.append(SearchResult(
+                        record=self._row_to_belief(row),
+                        record_type="belief",
+                        score=1.0,
+                    ))
+        
+        # Sort by score and limit
+        results.sort(key=lambda x: x.score, reverse=True)
+        return results[:limit]
+    
+    # === Stats ===
+    
+    def get_stats(self) -> Dict[str, int]:
+        """Get counts of each record type."""
+        stats = {}
+        
+        # Episodes
+        result = self.client.table("agent_episodes").select("id", count="exact").eq(
+            "agent_id", self.agent_id
+        ).execute()
+        stats["episodes"] = result.count or 0
+        
+        # Beliefs
+        result = self.client.table("agent_beliefs").select("id", count="exact").eq(
+            "agent_id", self.agent_id
+        ).eq("is_active", True).execute()
+        stats["beliefs"] = result.count or 0
+        
+        # Values
+        result = self.client.table("agent_values").select("id", count="exact").eq(
+            "agent_id", self.agent_id
+        ).eq("is_active", True).execute()
+        stats["values"] = result.count or 0
+        
+        # Goals
+        result = self.client.table("agent_goals").select("id", count="exact").eq(
+            "agent_id", self.agent_id
+        ).eq("status", "active").execute()
+        stats["goals"] = result.count or 0
+        
+        # Notes
+        result = self.client.table("memories").select("id", count="exact").eq(
+            "owner_id", self.agent_id
+        ).eq("source", "curated").execute()
+        stats["notes"] = result.count or 0
+        
+        # Drives
+        result = self.client.table("agent_drives").select("id", count="exact").eq(
+            "agent_id", self.agent_id
+        ).execute()
+        stats["drives"] = result.count or 0
+        
+        # Relationships
+        try:
+            result = self.client.table("agent_relationships").select("id", count="exact").eq(
+                "agent_id", self.agent_id
+            ).execute()
+            stats["relationships"] = result.count or 0
+        except Exception:
+            stats["relationships"] = 0
+        
+        return stats
+    
+    # === Sync ===
+    
+    def sync(self) -> SyncResult:
+        """Sync operation for cloud storage.
+        
+        For cloud storage, this is a no-op since data is already in the cloud.
+        """
+        return SyncResult()
+    
+    def pull_changes(self, since: Optional[datetime] = None) -> SyncResult:
+        """Pull changes from cloud.
+        
+        For cloud storage, this is a no-op since we're already in the cloud.
+        """
+        return SyncResult()
+    
+    def get_pending_sync_count(self) -> int:
+        """Get count of records pending sync.
+        
+        For cloud storage, this is always 0.
+        """
+        return 0
+    
+    def is_online(self) -> bool:
+        """Check if cloud storage is reachable.
+        
+        For cloud storage, test the connection.
+        """
+        try:
+            # Simple connectivity test
+            self.client.table("agent_episodes").select("id").limit(1).execute()
+            return True
+        except Exception:
+            return False
+    
+    # === Meta-Memory ===
+    
+    def get_memory(self, memory_type: str, memory_id: str) -> Optional[Any]:
+        """Get a memory by type and ID."""
+        table_map = {
+            "episode": ("agent_episodes", self._row_to_episode),
+            "belief": ("agent_beliefs", self._row_to_belief),
+            "value": ("agent_values", self._row_to_value),
+            "goal": ("agent_goals", self._row_to_goal),
+            "note": ("memories", self._row_to_note),
+            "drive": ("agent_drives", self._row_to_drive),
+            "relationship": ("agent_relationships", self._row_to_relationship),
+        }
+        
+        if memory_type not in table_map:
+            return None
+        
+        table, converter = table_map[memory_type]
+        
+        try:
+            # Handle notes which use owner_id instead of agent_id
+            if memory_type == "note":
+                result = self.client.table(table).select("*").eq(
+                    "id", memory_id
+                ).eq("owner_id", self.agent_id).execute()
+            else:
+                result = self.client.table(table).select("*").eq(
+                    "id", memory_id
+                ).eq("agent_id", self.agent_id).execute()
+            
+            if result.data:
+                return converter(result.data[0])
+        except Exception as e:
+            logger.warning(f"Could not get {memory_type}:{memory_id}: {e}")
+        
+        return None
+    
+    def update_memory_meta(
+        self,
+        memory_type: str,
+        memory_id: str,
+        confidence: Optional[float] = None,
+        source_type: Optional[str] = None,
+        source_episodes: Optional[List[str]] = None,
+        derived_from: Optional[List[str]] = None,
+        last_verified: Optional[datetime] = None,
+        verification_count: Optional[int] = None,
+        confidence_history: Optional[List[Dict[str, Any]]] = None,
+    ) -> bool:
+        """Update meta-memory fields for a memory."""
+        table_map = {
+            "episode": "agent_episodes",
+            "belief": "agent_beliefs",
+            "value": "agent_values",
+            "goal": "agent_goals",
+            "note": "memories",
+            "drive": "agent_drives",
+            "relationship": "agent_relationships",
+        }
+        
+        table = table_map.get(memory_type)
+        if not table:
+            return False
+        
+        update_data = {}
+        if confidence is not None:
+            update_data["confidence"] = confidence
+        if source_type is not None:
+            update_data["source_type"] = source_type
+        if source_episodes is not None:
+            update_data["source_episodes"] = source_episodes
+        if derived_from is not None:
+            update_data["derived_from"] = derived_from
+        if last_verified is not None:
+            update_data["last_verified"] = last_verified.isoformat()
+        if verification_count is not None:
+            update_data["verification_count"] = verification_count
+        if confidence_history is not None:
+            update_data["confidence_history"] = confidence_history
+        
+        if not update_data:
+            return False
+        
+        try:
+            # Handle notes which use owner_id
+            if memory_type == "note":
+                self.client.table(table).update(update_data).eq(
+                    "id", memory_id
+                ).eq("owner_id", self.agent_id).execute()
+            else:
+                self.client.table(table).update(update_data).eq(
+                    "id", memory_id
+                ).eq("agent_id", self.agent_id).execute()
+            return True
+        except Exception as e:
+            logger.warning(f"Could not update meta for {memory_type}:{memory_id}: {e}")
+            return False
+    
+    def get_memories_by_confidence(
+        self,
+        threshold: float,
+        below: bool = True,
+        memory_types: Optional[List[str]] = None,
+        limit: int = 100,
+    ) -> List[SearchResult]:
+        """Get memories filtered by confidence threshold."""
+        results = []
+        types = memory_types or ["episode", "belief", "value", "goal", "note"]
+        
+        table_map = {
+            "episode": ("agent_episodes", self._row_to_episode),
+            "belief": ("agent_beliefs", self._row_to_belief),
+            "value": ("agent_values", self._row_to_value),
+            "goal": ("agent_goals", self._row_to_goal),
+            "note": ("memories", self._row_to_note),
+        }
+        
+        for memory_type in types:
+            if memory_type not in table_map:
+                continue
+            
+            table, converter = table_map[memory_type]
+            
+            try:
+                # Handle notes which use owner_id
+                if memory_type == "note":
+                    query = self.client.table(table).select("*").eq(
+                        "owner_id", self.agent_id
+                    ).eq("source", "curated")
+                else:
+                    query = self.client.table(table).select("*").eq(
+                        "agent_id", self.agent_id
+                    )
+                
+                if below:
+                    query = query.lt("confidence", threshold)
+                else:
+                    query = query.gte("confidence", threshold)
+                
+                query = query.order("confidence", desc=not below).limit(limit)
+                result = query.execute()
+                
+                for row in result.data:
+                    results.append(SearchResult(
+                        record=converter(row),
+                        record_type=memory_type,
+                        score=row.get("confidence", 0.8)
+                    ))
+            except Exception as e:
+                logger.debug(f"Could not query {table} by confidence: {e}")
+        
+        results.sort(key=lambda x: x.score, reverse=not below)
+        return results[:limit]
+    
+    def get_memories_by_source(
+        self,
+        source_type: str,
+        memory_types: Optional[List[str]] = None,
+        limit: int = 100,
+    ) -> List[SearchResult]:
+        """Get memories filtered by source type."""
+        results = []
+        types = memory_types or ["episode", "belief", "value", "goal", "note"]
+        
+        table_map = {
+            "episode": ("agent_episodes", self._row_to_episode),
+            "belief": ("agent_beliefs", self._row_to_belief),
+            "value": ("agent_values", self._row_to_value),
+            "goal": ("agent_goals", self._row_to_goal),
+            "note": ("memories", self._row_to_note),
+        }
+        
+        for memory_type in types:
+            if memory_type not in table_map:
+                continue
+            
+            table, converter = table_map[memory_type]
+            
+            try:
+                if memory_type == "note":
+                    query = self.client.table(table).select("*").eq(
+                        "owner_id", self.agent_id
+                    ).eq("source", "curated")
+                else:
+                    query = self.client.table(table).select("*").eq(
+                        "agent_id", self.agent_id
+                    )
+                
+                query = query.eq("source_type", source_type).order(
+                    "created_at", desc=True
+                ).limit(limit)
+                result = query.execute()
+                
+                for row in result.data:
+                    results.append(SearchResult(
+                        record=converter(row),
+                        record_type=memory_type,
+                        score=row.get("confidence", 0.8)
+                    ))
+            except Exception as e:
+                logger.debug(f"Could not query {table} by source_type: {e}")
+        
+        return results[:limit]

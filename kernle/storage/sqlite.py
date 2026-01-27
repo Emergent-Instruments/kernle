@@ -6,23 +6,33 @@ Local-first storage with:
 - Sync metadata for cloud synchronization
 """
 
+import hashlib
 import json
 import logging
 import sqlite3
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, TYPE_CHECKING
 
 from .base import (
-    Storage, SyncResult, SyncStatus,
-    Episode, Belief, Value, Goal, Note, Drive, Relationship, SearchResult
+    Storage, SyncResult, SyncStatus, QueuedChange,
+    Episode, Belief, Value, Goal, Note, Drive, Relationship, SearchResult,
+    SourceType, ConfidenceChange, MemoryLineage
 )
+from .embeddings import (
+    EmbeddingProvider, HashEmbedder, get_default_embedder,
+    pack_embedding, unpack_embedding, HASH_EMBEDDING_DIM
+)
+
+if TYPE_CHECKING:
+    import sqlite_vec
+    from .base import Storage as StorageProtocol
 
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 5  # Bumped for meta-memory fields
 
 SCHEMA = """
 -- Schema version tracking
@@ -40,6 +50,18 @@ CREATE TABLE IF NOT EXISTS episodes (
     lessons TEXT,  -- JSON array
     tags TEXT,     -- JSON array
     created_at TEXT NOT NULL,
+    -- Emotional memory fields
+    emotional_valence REAL DEFAULT 0.0,  -- -1.0 (negative) to 1.0 (positive)
+    emotional_arousal REAL DEFAULT 0.0,  -- 0.0 (calm) to 1.0 (intense)
+    emotional_tags TEXT,  -- JSON array ["joy", "frustration", "curiosity"]
+    -- Meta-memory fields
+    confidence REAL DEFAULT 0.8,
+    source_type TEXT DEFAULT 'direct_experience',
+    source_episodes TEXT,  -- JSON array of episode IDs
+    derived_from TEXT,     -- JSON array of memory IDs (format: type:id)
+    last_verified TEXT,    -- ISO timestamp
+    verification_count INTEGER DEFAULT 0,
+    confidence_history TEXT,  -- JSON array of confidence changes
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -49,6 +71,10 @@ CREATE TABLE IF NOT EXISTS episodes (
 CREATE INDEX IF NOT EXISTS idx_episodes_agent ON episodes(agent_id);
 CREATE INDEX IF NOT EXISTS idx_episodes_created ON episodes(created_at);
 CREATE INDEX IF NOT EXISTS idx_episodes_sync ON episodes(cloud_synced_at);
+CREATE INDEX IF NOT EXISTS idx_episodes_valence ON episodes(emotional_valence);
+CREATE INDEX IF NOT EXISTS idx_episodes_arousal ON episodes(emotional_arousal);
+CREATE INDEX IF NOT EXISTS idx_episodes_confidence ON episodes(confidence);
+CREATE INDEX IF NOT EXISTS idx_episodes_source_type ON episodes(source_type);
 
 -- Beliefs
 CREATE TABLE IF NOT EXISTS beliefs (
@@ -58,6 +84,13 @@ CREATE TABLE IF NOT EXISTS beliefs (
     belief_type TEXT DEFAULT 'fact',
     confidence REAL DEFAULT 0.8,
     created_at TEXT NOT NULL,
+    -- Meta-memory fields
+    source_type TEXT DEFAULT 'direct_experience',
+    source_episodes TEXT,  -- JSON array of episode IDs
+    derived_from TEXT,     -- JSON array of memory IDs
+    last_verified TEXT,
+    verification_count INTEGER DEFAULT 0,
+    confidence_history TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -65,6 +98,8 @@ CREATE TABLE IF NOT EXISTS beliefs (
     deleted INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_beliefs_agent ON beliefs(agent_id);
+CREATE INDEX IF NOT EXISTS idx_beliefs_confidence ON beliefs(confidence);
+CREATE INDEX IF NOT EXISTS idx_beliefs_source_type ON beliefs(source_type);
 
 -- Values
 CREATE TABLE IF NOT EXISTS agent_values (
@@ -74,6 +109,14 @@ CREATE TABLE IF NOT EXISTS agent_values (
     statement TEXT NOT NULL,
     priority INTEGER DEFAULT 50,
     created_at TEXT NOT NULL,
+    -- Meta-memory fields
+    confidence REAL DEFAULT 0.9,
+    source_type TEXT DEFAULT 'direct_experience',
+    source_episodes TEXT,
+    derived_from TEXT,
+    last_verified TEXT,
+    verification_count INTEGER DEFAULT 0,
+    confidence_history TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -81,6 +124,7 @@ CREATE TABLE IF NOT EXISTS agent_values (
     deleted INTEGER DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_values_agent ON agent_values(agent_id);
+CREATE INDEX IF NOT EXISTS idx_values_confidence ON agent_values(confidence);
 
 -- Goals
 CREATE TABLE IF NOT EXISTS goals (
@@ -91,6 +135,14 @@ CREATE TABLE IF NOT EXISTS goals (
     priority TEXT DEFAULT 'medium',
     status TEXT DEFAULT 'active',
     created_at TEXT NOT NULL,
+    -- Meta-memory fields
+    confidence REAL DEFAULT 0.8,
+    source_type TEXT DEFAULT 'direct_experience',
+    source_episodes TEXT,
+    derived_from TEXT,
+    last_verified TEXT,
+    verification_count INTEGER DEFAULT 0,
+    confidence_history TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -99,6 +151,7 @@ CREATE TABLE IF NOT EXISTS goals (
 );
 CREATE INDEX IF NOT EXISTS idx_goals_agent ON goals(agent_id);
 CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status);
+CREATE INDEX IF NOT EXISTS idx_goals_confidence ON goals(confidence);
 
 -- Notes (memories)
 CREATE TABLE IF NOT EXISTS notes (
@@ -110,6 +163,14 @@ CREATE TABLE IF NOT EXISTS notes (
     reason TEXT,
     tags TEXT,  -- JSON array
     created_at TEXT NOT NULL,
+    -- Meta-memory fields
+    confidence REAL DEFAULT 0.8,
+    source_type TEXT DEFAULT 'direct_experience',
+    source_episodes TEXT,
+    derived_from TEXT,
+    last_verified TEXT,
+    verification_count INTEGER DEFAULT 0,
+    confidence_history TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -118,6 +179,7 @@ CREATE TABLE IF NOT EXISTS notes (
 );
 CREATE INDEX IF NOT EXISTS idx_notes_agent ON notes(agent_id);
 CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at);
+CREATE INDEX IF NOT EXISTS idx_notes_confidence ON notes(confidence);
 
 -- Drives
 CREATE TABLE IF NOT EXISTS drives (
@@ -128,6 +190,14 @@ CREATE TABLE IF NOT EXISTS drives (
     focus_areas TEXT,  -- JSON array
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
+    -- Meta-memory fields
+    confidence REAL DEFAULT 0.8,
+    source_type TEXT DEFAULT 'direct_experience',
+    source_episodes TEXT,
+    derived_from TEXT,
+    last_verified TEXT,
+    verification_count INTEGER DEFAULT 0,
+    confidence_history TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -136,6 +206,7 @@ CREATE TABLE IF NOT EXISTS drives (
     UNIQUE(agent_id, drive_type)
 );
 CREATE INDEX IF NOT EXISTS idx_drives_agent ON drives(agent_id);
+CREATE INDEX IF NOT EXISTS idx_drives_confidence ON drives(confidence);
 
 -- Relationships
 CREATE TABLE IF NOT EXISTS relationships (
@@ -149,6 +220,14 @@ CREATE TABLE IF NOT EXISTS relationships (
     interaction_count INTEGER DEFAULT 0,
     last_interaction TEXT,
     created_at TEXT NOT NULL,
+    -- Meta-memory fields
+    confidence REAL DEFAULT 0.8,
+    source_type TEXT DEFAULT 'direct_experience',
+    source_episodes TEXT,
+    derived_from TEXT,
+    last_verified TEXT,
+    verification_count INTEGER DEFAULT 0,
+    confidence_history TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -157,6 +236,7 @@ CREATE TABLE IF NOT EXISTS relationships (
     UNIQUE(agent_id, entity_name)
 );
 CREATE INDEX IF NOT EXISTS idx_relationships_agent ON relationships(agent_id);
+CREATE INDEX IF NOT EXISTS idx_relationships_confidence ON relationships(confidence);
 
 -- Sync queue for offline changes
 CREATE TABLE IF NOT EXISTS sync_queue (
@@ -164,20 +244,38 @@ CREATE TABLE IF NOT EXISTS sync_queue (
     table_name TEXT NOT NULL,
     record_id TEXT NOT NULL,
     operation TEXT NOT NULL,  -- insert, update, delete
+    payload TEXT,  -- JSON payload of the change (for offline queuing)
     queued_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_sync_queue_table ON sync_queue(table_name);
+CREATE INDEX IF NOT EXISTS idx_sync_queue_record ON sync_queue(record_id);
 
--- Vector embeddings (for semantic search)
--- This will be populated when sqlite-vec is available
-CREATE TABLE IF NOT EXISTS embeddings (
+-- Sync metadata (tracks last sync time and state)
+CREATE TABLE IF NOT EXISTS sync_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- Embedding metadata (tracks what's been embedded)
+CREATE TABLE IF NOT EXISTS embedding_meta (
     id TEXT PRIMARY KEY,
     table_name TEXT NOT NULL,
     record_id TEXT NOT NULL,
     content_hash TEXT NOT NULL,  -- To detect when re-embedding needed
-    embedding BLOB,  -- Vector stored as blob
     created_at TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS idx_embeddings_record ON embeddings(table_name, record_id);
+CREATE INDEX IF NOT EXISTS idx_embedding_meta_record ON embedding_meta(table_name, record_id);
+"""
+
+# Virtual table for vector search (created when sqlite-vec is available)
+VECTOR_SCHEMA = """
+-- Vector table using sqlite-vec
+-- dimension should match embedding provider
+CREATE VIRTUAL TABLE IF NOT EXISTS vec_embeddings USING vec0(
+    id TEXT PRIMARY KEY,
+    embedding FLOAT[{dim}]
+);
 """
 
 
@@ -188,38 +286,58 @@ class SQLiteStorage:
     - Zero-config local storage
     - Semantic search with sqlite-vec (when available)
     - Sync metadata for cloud synchronization
+    - Offline-first with automatic queue when disconnected
     """
+    
+    # Connectivity check timeout (seconds)
+    CONNECTIVITY_TIMEOUT = 5.0
     
     def __init__(
         self,
         agent_id: str,
         db_path: Optional[Path] = None,
-        cloud_storage: Optional[Storage] = None,
+        cloud_storage: Optional["StorageProtocol"] = None,
+        embedder: Optional[EmbeddingProvider] = None,
     ):
         self.agent_id = agent_id
         self.db_path = db_path or Path.home() / ".kernle" / "memories.db"
         self.cloud_storage = cloud_storage  # For sync
         
+        # Connectivity cache
+        self._last_connectivity_check: Optional[datetime] = None
+        self._is_online_cached: bool = False
+        self._connectivity_cache_ttl = 30  # seconds
+        
         # Ensure directory exists
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Check for sqlite-vec first
+        self._has_vec = self._check_sqlite_vec()
+        
+        # Initialize embedder
+        self._embedder = embedder or (HashEmbedder() if not embedder else embedder)
         
         # Initialize database
         self._init_db()
         
-        # Check for sqlite-vec
-        self._has_vec = self._check_sqlite_vec()
         if not self._has_vec:
-            logger.info("sqlite-vec not available, semantic search will use basic text matching")
+            logger.info("sqlite-vec not available, semantic search will use text matching")
     
     def _get_conn(self) -> sqlite3.Connection:
-        """Get a database connection."""
+        """Get a database connection with sqlite-vec loaded if available."""
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        if self._has_vec:
+            self._load_vec(conn)
         return conn
     
     def _init_db(self):
         """Initialize the database schema."""
         with self._get_conn() as conn:
+            # First, run migrations if needed (before executing full schema)
+            self._migrate_schema(conn)
+            
+            # Now execute full schema (CREATE TABLE IF NOT EXISTS is safe)
             conn.executescript(SCHEMA)
             
             # Check/set schema version
@@ -227,20 +345,218 @@ class SQLiteStorage:
             row = cur.fetchone()
             if row is None:
                 conn.execute("INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
+            else:
+                # Update schema version
+                conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+            
+            # Create vector table if sqlite-vec is available
+            if self._has_vec:
+                self._load_vec(conn)
+                vec_schema = VECTOR_SCHEMA.format(dim=self._embedder.dimension)
+                try:
+                    conn.executescript(vec_schema)
+                except sqlite3.OperationalError as e:
+                    if "already exists" not in str(e):
+                        logger.warning(f"Could not create vector table: {e}")
+            
             conn.commit()
+    
+    def _migrate_schema(self, conn: sqlite3.Connection):
+        """Run schema migrations for existing databases.
+        
+        Handles adding new columns to existing tables.
+        """
+        # Check if tables exist first
+        tables = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        ).fetchall()
+        table_names = {t[0] for t in tables}
+        
+        if 'episodes' not in table_names:
+            # Fresh database, no migration needed
+            return
+        
+        # Get current columns for each table
+        def get_columns(table: str) -> set:
+            try:
+                cols = conn.execute(f"PRAGMA table_info({table})").fetchall()
+                return {c[1] for c in cols}
+            except:
+                return set()
+        
+        # Migrations for episodes table
+        episode_cols = get_columns('episodes')
+        migrations = []
+        
+        if 'emotional_valence' not in episode_cols:
+            migrations.append("ALTER TABLE episodes ADD COLUMN emotional_valence REAL DEFAULT 0.0")
+        if 'emotional_arousal' not in episode_cols:
+            migrations.append("ALTER TABLE episodes ADD COLUMN emotional_arousal REAL DEFAULT 0.0")
+        if 'emotional_tags' not in episode_cols:
+            migrations.append("ALTER TABLE episodes ADD COLUMN emotional_tags TEXT")
+        if 'confidence' not in episode_cols:
+            migrations.append("ALTER TABLE episodes ADD COLUMN confidence REAL DEFAULT 0.8")
+        if 'source_type' not in episode_cols:
+            migrations.append("ALTER TABLE episodes ADD COLUMN source_type TEXT DEFAULT 'direct_experience'")
+        if 'source_episodes' not in episode_cols:
+            migrations.append("ALTER TABLE episodes ADD COLUMN source_episodes TEXT")
+        if 'derived_from' not in episode_cols:
+            migrations.append("ALTER TABLE episodes ADD COLUMN derived_from TEXT")
+        if 'last_verified' not in episode_cols:
+            migrations.append("ALTER TABLE episodes ADD COLUMN last_verified TEXT")
+        if 'verification_count' not in episode_cols:
+            migrations.append("ALTER TABLE episodes ADD COLUMN verification_count INTEGER DEFAULT 0")
+        if 'confidence_history' not in episode_cols:
+            migrations.append("ALTER TABLE episodes ADD COLUMN confidence_history TEXT")
+        
+        # Migrations for beliefs table
+        belief_cols = get_columns('beliefs')
+        if 'beliefs' in table_names:
+            if 'source_type' not in belief_cols:
+                migrations.append("ALTER TABLE beliefs ADD COLUMN source_type TEXT DEFAULT 'direct_experience'")
+            if 'source_episodes' not in belief_cols:
+                migrations.append("ALTER TABLE beliefs ADD COLUMN source_episodes TEXT")
+            if 'derived_from' not in belief_cols:
+                migrations.append("ALTER TABLE beliefs ADD COLUMN derived_from TEXT")
+            if 'last_verified' not in belief_cols:
+                migrations.append("ALTER TABLE beliefs ADD COLUMN last_verified TEXT")
+            if 'verification_count' not in belief_cols:
+                migrations.append("ALTER TABLE beliefs ADD COLUMN verification_count INTEGER DEFAULT 0")
+            if 'confidence_history' not in belief_cols:
+                migrations.append("ALTER TABLE beliefs ADD COLUMN confidence_history TEXT")
+        
+        # Migrations for values table
+        value_cols = get_columns('agent_values')
+        if 'agent_values' in table_names:
+            if 'confidence' not in value_cols:
+                migrations.append("ALTER TABLE agent_values ADD COLUMN confidence REAL DEFAULT 0.9")
+            if 'source_type' not in value_cols:
+                migrations.append("ALTER TABLE agent_values ADD COLUMN source_type TEXT DEFAULT 'direct_experience'")
+            if 'source_episodes' not in value_cols:
+                migrations.append("ALTER TABLE agent_values ADD COLUMN source_episodes TEXT")
+            if 'derived_from' not in value_cols:
+                migrations.append("ALTER TABLE agent_values ADD COLUMN derived_from TEXT")
+            if 'last_verified' not in value_cols:
+                migrations.append("ALTER TABLE agent_values ADD COLUMN last_verified TEXT")
+            if 'verification_count' not in value_cols:
+                migrations.append("ALTER TABLE agent_values ADD COLUMN verification_count INTEGER DEFAULT 0")
+            if 'confidence_history' not in value_cols:
+                migrations.append("ALTER TABLE agent_values ADD COLUMN confidence_history TEXT")
+        
+        # Migrations for goals table
+        goal_cols = get_columns('goals')
+        if 'goals' in table_names:
+            if 'confidence' not in goal_cols:
+                migrations.append("ALTER TABLE goals ADD COLUMN confidence REAL DEFAULT 0.8")
+            if 'source_type' not in goal_cols:
+                migrations.append("ALTER TABLE goals ADD COLUMN source_type TEXT DEFAULT 'direct_experience'")
+            if 'source_episodes' not in goal_cols:
+                migrations.append("ALTER TABLE goals ADD COLUMN source_episodes TEXT")
+            if 'derived_from' not in goal_cols:
+                migrations.append("ALTER TABLE goals ADD COLUMN derived_from TEXT")
+            if 'last_verified' not in goal_cols:
+                migrations.append("ALTER TABLE goals ADD COLUMN last_verified TEXT")
+            if 'verification_count' not in goal_cols:
+                migrations.append("ALTER TABLE goals ADD COLUMN verification_count INTEGER DEFAULT 0")
+            if 'confidence_history' not in goal_cols:
+                migrations.append("ALTER TABLE goals ADD COLUMN confidence_history TEXT")
+        
+        # Migrations for notes table
+        note_cols = get_columns('notes')
+        if 'notes' in table_names:
+            if 'confidence' not in note_cols:
+                migrations.append("ALTER TABLE notes ADD COLUMN confidence REAL DEFAULT 0.8")
+            if 'source_type' not in note_cols:
+                migrations.append("ALTER TABLE notes ADD COLUMN source_type TEXT DEFAULT 'direct_experience'")
+            if 'source_episodes' not in note_cols:
+                migrations.append("ALTER TABLE notes ADD COLUMN source_episodes TEXT")
+            if 'derived_from' not in note_cols:
+                migrations.append("ALTER TABLE notes ADD COLUMN derived_from TEXT")
+            if 'last_verified' not in note_cols:
+                migrations.append("ALTER TABLE notes ADD COLUMN last_verified TEXT")
+            if 'verification_count' not in note_cols:
+                migrations.append("ALTER TABLE notes ADD COLUMN verification_count INTEGER DEFAULT 0")
+            if 'confidence_history' not in note_cols:
+                migrations.append("ALTER TABLE notes ADD COLUMN confidence_history TEXT")
+        
+        # Migrations for drives table
+        drive_cols = get_columns('drives')
+        if 'drives' in table_names:
+            if 'confidence' not in drive_cols:
+                migrations.append("ALTER TABLE drives ADD COLUMN confidence REAL DEFAULT 0.8")
+            if 'source_type' not in drive_cols:
+                migrations.append("ALTER TABLE drives ADD COLUMN source_type TEXT DEFAULT 'direct_experience'")
+            if 'source_episodes' not in drive_cols:
+                migrations.append("ALTER TABLE drives ADD COLUMN source_episodes TEXT")
+            if 'derived_from' not in drive_cols:
+                migrations.append("ALTER TABLE drives ADD COLUMN derived_from TEXT")
+            if 'last_verified' not in drive_cols:
+                migrations.append("ALTER TABLE drives ADD COLUMN last_verified TEXT")
+            if 'verification_count' not in drive_cols:
+                migrations.append("ALTER TABLE drives ADD COLUMN verification_count INTEGER DEFAULT 0")
+            if 'confidence_history' not in drive_cols:
+                migrations.append("ALTER TABLE drives ADD COLUMN confidence_history TEXT")
+        
+        # Migrations for relationships table
+        rel_cols = get_columns('relationships')
+        if 'relationships' in table_names:
+            if 'confidence' not in rel_cols:
+                migrations.append("ALTER TABLE relationships ADD COLUMN confidence REAL DEFAULT 0.8")
+            if 'source_type' not in rel_cols:
+                migrations.append("ALTER TABLE relationships ADD COLUMN source_type TEXT DEFAULT 'direct_experience'")
+            if 'source_episodes' not in rel_cols:
+                migrations.append("ALTER TABLE relationships ADD COLUMN source_episodes TEXT")
+            if 'derived_from' not in rel_cols:
+                migrations.append("ALTER TABLE relationships ADD COLUMN derived_from TEXT")
+            if 'last_verified' not in rel_cols:
+                migrations.append("ALTER TABLE relationships ADD COLUMN last_verified TEXT")
+            if 'verification_count' not in rel_cols:
+                migrations.append("ALTER TABLE relationships ADD COLUMN verification_count INTEGER DEFAULT 0")
+            if 'confidence_history' not in rel_cols:
+                migrations.append("ALTER TABLE relationships ADD COLUMN confidence_history TEXT")
+        
+        # Migrations for sync_queue table
+        sync_cols = get_columns('sync_queue')
+        if 'sync_queue' in table_names:
+            if 'payload' not in sync_cols:
+                migrations.append("ALTER TABLE sync_queue ADD COLUMN payload TEXT")
+        
+        # Execute migrations
+        for migration in migrations:
+            try:
+                conn.execute(migration)
+                logger.debug(f"Migration applied: {migration}")
+            except Exception as e:
+                logger.warning(f"Migration failed (may already exist): {migration} - {e}")
+        
+        if migrations:
+            conn.commit()
+            logger.info(f"Applied {len(migrations)} schema migrations")
     
     def _check_sqlite_vec(self) -> bool:
         """Check if sqlite-vec extension is available."""
         try:
-            with self._get_conn() as conn:
-                conn.enable_load_extension(True)
-                # Try to load sqlite-vec
-                # This path may vary by installation
-                conn.load_extension("vec0")
-                return True
+            import sqlite_vec
+            conn = sqlite3.connect(":memory:")
+            conn.enable_load_extension(True)
+            sqlite_vec.load(conn)
+            conn.close()
+            return True
+        except ImportError:
+            logger.debug("sqlite-vec package not installed")
+            return False
         except Exception as e:
             logger.debug(f"sqlite-vec not available: {e}")
             return False
+    
+    def _load_vec(self, conn: sqlite3.Connection):
+        """Load sqlite-vec extension into connection."""
+        try:
+            import sqlite_vec
+            conn.enable_load_extension(True)
+            sqlite_vec.load(conn)
+        except Exception as e:
+            logger.warning(f"Could not load sqlite-vec: {e}")
     
     def _now(self) -> str:
         """Get current timestamp as ISO string."""
@@ -270,12 +586,98 @@ class SQLiteStorage:
         except json.JSONDecodeError:
             return None
     
-    def _queue_sync(self, conn: sqlite3.Connection, table: str, record_id: str, operation: str):
-        """Queue a change for sync."""
+    def _safe_get(self, row: sqlite3.Row, key: str, default: Any = None) -> Any:
+        """Safely get a value from a row, returning default if column missing.
+        
+        Useful for backwards compatibility when schema is migrated.
+        """
+        try:
+            value = row[key]
+            return value if value is not None else default
+        except (IndexError, KeyError):
+            return default
+    
+    def _queue_sync(
+        self, 
+        conn: sqlite3.Connection, 
+        table: str, 
+        record_id: str, 
+        operation: str,
+        payload: Optional[str] = None
+    ):
+        """Queue a change for sync.
+        
+        Deduplicates by (table, record_id) - only keeps latest operation.
+        """
+        # Remove any existing queue entry for this record
         conn.execute(
-            "INSERT INTO sync_queue (table_name, record_id, operation, queued_at) VALUES (?, ?, ?, ?)",
-            (table, record_id, operation, self._now())
+            "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
+            (table, record_id)
         )
+        # Insert the new entry
+        conn.execute(
+            "INSERT INTO sync_queue (table_name, record_id, operation, payload, queued_at) VALUES (?, ?, ?, ?, ?)",
+            (table, record_id, operation, payload, self._now())
+        )
+    
+    def _content_hash(self, content: str) -> str:
+        """Hash content for change detection."""
+        return hashlib.sha256(content.encode()).hexdigest()[:16]
+    
+    def _save_embedding(self, conn: sqlite3.Connection, table: str, record_id: str, content: str):
+        """Save embedding for a record."""
+        if not self._has_vec:
+            return
+        
+        content_hash = self._content_hash(content)
+        vec_id = f"{table}:{record_id}"
+        
+        # Check if embedding exists and is current
+        existing = conn.execute(
+            "SELECT content_hash FROM embedding_meta WHERE id = ?",
+            (vec_id,)
+        ).fetchone()
+        
+        if existing and existing["content_hash"] == content_hash:
+            return  # Already up to date
+        
+        # Generate embedding
+        try:
+            embedding = self._embedder.embed(content)
+            packed = pack_embedding(embedding)
+            
+            # Upsert into vector table
+            conn.execute(
+                "INSERT OR REPLACE INTO vec_embeddings (id, embedding) VALUES (?, ?)",
+                (vec_id, packed)
+            )
+            
+            # Update metadata
+            conn.execute(
+                """INSERT OR REPLACE INTO embedding_meta 
+                   (id, table_name, record_id, content_hash, created_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (vec_id, table, record_id, content_hash, self._now())
+            )
+        except Exception as e:
+            logger.warning(f"Failed to save embedding for {vec_id}: {e}")
+    
+    def _get_searchable_content(self, record_type: str, record: Any) -> str:
+        """Get searchable text content from a record."""
+        if record_type == "episode":
+            parts = [record.objective, record.outcome]
+            if record.lessons:
+                parts.extend(record.lessons)
+            return " ".join(filter(None, parts))
+        elif record_type == "note":
+            return record.content
+        elif record_type == "belief":
+            return record.statement
+        elif record_type == "value":
+            return f"{record.name}: {record.statement}"
+        elif record_type == "goal":
+            return f"{record.title} {record.description or ''}"
+        return ""
     
     # === Episodes ===
     
@@ -291,8 +693,11 @@ class SQLiteStorage:
             conn.execute("""
                 INSERT OR REPLACE INTO episodes 
                 (id, agent_id, objective, outcome, outcome_type, lessons, tags, 
+                 emotional_valence, emotional_arousal, emotional_tags,
+                 confidence, source_type, source_episodes, derived_from,
+                 last_verified, verification_count, confidence_history,
                  created_at, local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 episode.id,
                 self.agent_id,
@@ -301,6 +706,16 @@ class SQLiteStorage:
                 episode.outcome_type,
                 self._to_json(episode.lessons),
                 self._to_json(episode.tags),
+                episode.emotional_valence,
+                episode.emotional_arousal,
+                self._to_json(episode.emotional_tags),
+                episode.confidence,
+                episode.source_type,
+                self._to_json(episode.source_episodes),
+                self._to_json(episode.derived_from),
+                episode.last_verified.isoformat() if episode.last_verified else None,
+                episode.verification_count,
+                self._to_json(episode.confidence_history),
                 episode.created_at.isoformat() if episode.created_at else now,
                 now,
                 episode.cloud_synced_at.isoformat() if episode.cloud_synced_at else None,
@@ -308,6 +723,11 @@ class SQLiteStorage:
                 1 if episode.deleted else 0
             ))
             self._queue_sync(conn, "episodes", episode.id, "upsert")
+            
+            # Save embedding for search
+            content = self._get_searchable_content("episode", episode)
+            self._save_embedding(conn, "episodes", episode.id, content)
+            
             conn.commit()
         
         return episode.id
@@ -364,11 +784,138 @@ class SQLiteStorage:
             lessons=self._from_json(row["lessons"]),
             tags=self._from_json(row["tags"]),
             created_at=self._parse_datetime(row["created_at"]),
+            emotional_valence=row["emotional_valence"] if row["emotional_valence"] is not None else 0.0,
+            emotional_arousal=row["emotional_arousal"] if row["emotional_arousal"] is not None else 0.0,
+            emotional_tags=self._from_json(row["emotional_tags"]),
             local_updated_at=self._parse_datetime(row["local_updated_at"]),
             cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
             version=row["version"],
-            deleted=bool(row["deleted"])
+            deleted=bool(row["deleted"]),
+            # Meta-memory fields
+            confidence=self._safe_get(row, "confidence", 0.8),
+            source_type=self._safe_get(row, "source_type", "direct_experience"),
+            source_episodes=self._from_json(self._safe_get(row, "source_episodes", None)),
+            derived_from=self._from_json(self._safe_get(row, "derived_from", None)),
+            last_verified=self._parse_datetime(self._safe_get(row, "last_verified", None)),
+            verification_count=self._safe_get(row, "verification_count", 0),
+            confidence_history=self._from_json(self._safe_get(row, "confidence_history", None)),
         )
+    
+    def update_episode_emotion(
+        self,
+        episode_id: str,
+        valence: float,
+        arousal: float,
+        tags: Optional[List[str]] = None
+    ) -> bool:
+        """Update emotional associations for an episode.
+        
+        Args:
+            episode_id: The episode to update
+            valence: Emotional valence (-1.0 to 1.0)
+            arousal: Emotional arousal (0.0 to 1.0)
+            tags: Emotional tags (e.g., ["joy", "excitement"])
+            
+        Returns:
+            True if updated, False if episode not found
+        """
+        # Clamp values to valid ranges
+        valence = max(-1.0, min(1.0, valence))
+        arousal = max(0.0, min(1.0, arousal))
+        
+        now = self._now()
+        
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                """UPDATE episodes SET 
+                   emotional_valence = ?,
+                   emotional_arousal = ?,
+                   emotional_tags = ?,
+                   local_updated_at = ?,
+                   version = version + 1
+                   WHERE id = ? AND agent_id = ? AND deleted = 0""",
+                (valence, arousal, self._to_json(tags), now, episode_id, self.agent_id)
+            )
+            if cursor.rowcount > 0:
+                self._queue_sync(conn, "episodes", episode_id, "upsert")
+                conn.commit()
+                return True
+        return False
+    
+    def search_by_emotion(
+        self,
+        valence_range: Optional[tuple] = None,
+        arousal_range: Optional[tuple] = None,
+        tags: Optional[List[str]] = None,
+        limit: int = 10
+    ) -> List[Episode]:
+        """Find episodes matching emotional criteria.
+        
+        Args:
+            valence_range: (min, max) valence filter, e.g. (0.5, 1.0) for positive
+            arousal_range: (min, max) arousal filter, e.g. (0.7, 1.0) for high arousal
+            tags: Emotional tags to match (any match)
+            limit: Maximum results
+            
+        Returns:
+            List of matching episodes
+        """
+        query = "SELECT * FROM episodes WHERE agent_id = ? AND deleted = 0"
+        params: List[Any] = [self.agent_id]
+        
+        if valence_range:
+            query += " AND emotional_valence >= ? AND emotional_valence <= ?"
+            params.extend([valence_range[0], valence_range[1]])
+        
+        if arousal_range:
+            query += " AND emotional_arousal >= ? AND emotional_arousal <= ?"
+            params.extend([arousal_range[0], arousal_range[1]])
+        
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit * 2 if tags else limit)  # Get more if we need to filter by tags
+        
+        with self._get_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+        
+        episodes = [self._row_to_episode(row) for row in rows]
+        
+        # Filter by emotional tags in Python
+        if tags:
+            episodes = [
+                e for e in episodes
+                if e.emotional_tags and any(t in e.emotional_tags for t in tags)
+            ][:limit]
+        
+        return episodes
+    
+    def get_emotional_episodes(
+        self,
+        days: int = 7,
+        limit: int = 100
+    ) -> List[Episode]:
+        """Get episodes with emotional data for summary calculations.
+        
+        Args:
+            days: Number of days to look back
+            limit: Maximum episodes to retrieve
+            
+        Returns:
+            Episodes with non-zero emotional data
+        """
+        from datetime import timedelta
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        
+        query = """SELECT * FROM episodes 
+                   WHERE agent_id = ? AND deleted = 0 
+                   AND created_at >= ?
+                   AND (emotional_valence != 0.0 OR emotional_arousal != 0.0 OR emotional_tags IS NOT NULL)
+                   ORDER BY created_at DESC
+                   LIMIT ?"""
+        
+        with self._get_conn() as conn:
+            rows = conn.execute(query, (self.agent_id, cutoff, limit)).fetchall()
+        
+        return [self._row_to_episode(row) for row in rows]
     
     # === Beliefs ===
     
@@ -383,8 +930,10 @@ class SQLiteStorage:
             conn.execute("""
                 INSERT OR REPLACE INTO beliefs
                 (id, agent_id, statement, belief_type, confidence, created_at,
+                 source_type, source_episodes, derived_from,
+                 last_verified, verification_count, confidence_history,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 belief.id,
                 self.agent_id,
@@ -392,12 +941,22 @@ class SQLiteStorage:
                 belief.belief_type,
                 belief.confidence,
                 belief.created_at.isoformat() if belief.created_at else now,
+                belief.source_type,
+                self._to_json(belief.source_episodes),
+                self._to_json(belief.derived_from),
+                belief.last_verified.isoformat() if belief.last_verified else None,
+                belief.verification_count,
+                self._to_json(belief.confidence_history),
                 now,
                 belief.cloud_synced_at.isoformat() if belief.cloud_synced_at else None,
                 belief.version,
                 1 if belief.deleted else 0
             ))
             self._queue_sync(conn, "beliefs", belief.id, "upsert")
+            
+            # Save embedding for search
+            self._save_embedding(conn, "beliefs", belief.id, belief.statement)
+            
             conn.commit()
         
         return belief.id
@@ -434,7 +993,14 @@ class SQLiteStorage:
             local_updated_at=self._parse_datetime(row["local_updated_at"]),
             cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
             version=row["version"],
-            deleted=bool(row["deleted"])
+            deleted=bool(row["deleted"]),
+            # Meta-memory fields
+            source_type=self._safe_get(row, "source_type", "direct_experience"),
+            source_episodes=self._from_json(self._safe_get(row, "source_episodes", None)),
+            derived_from=self._from_json(self._safe_get(row, "derived_from", None)),
+            last_verified=self._parse_datetime(self._safe_get(row, "last_verified", None)),
+            verification_count=self._safe_get(row, "verification_count", 0),
+            confidence_history=self._from_json(self._safe_get(row, "confidence_history", None)),
         )
     
     # === Values ===
@@ -450,8 +1016,10 @@ class SQLiteStorage:
             conn.execute("""
                 INSERT OR REPLACE INTO agent_values
                 (id, agent_id, name, statement, priority, created_at,
+                 confidence, source_type, source_episodes, derived_from,
+                 last_verified, verification_count, confidence_history,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 value.id,
                 self.agent_id,
@@ -459,12 +1027,24 @@ class SQLiteStorage:
                 value.statement,
                 value.priority,
                 value.created_at.isoformat() if value.created_at else now,
+                value.confidence,
+                value.source_type,
+                self._to_json(value.source_episodes),
+                self._to_json(value.derived_from),
+                value.last_verified.isoformat() if value.last_verified else None,
+                value.verification_count,
+                self._to_json(value.confidence_history),
                 now,
                 value.cloud_synced_at.isoformat() if value.cloud_synced_at else None,
                 value.version,
                 1 if value.deleted else 0
             ))
             self._queue_sync(conn, "agent_values", value.id, "upsert")
+            
+            # Save embedding for search
+            content = f"{value.name}: {value.statement}"
+            self._save_embedding(conn, "agent_values", value.id, content)
+            
             conn.commit()
         
         return value.id
@@ -491,7 +1071,15 @@ class SQLiteStorage:
             local_updated_at=self._parse_datetime(row["local_updated_at"]),
             cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
             version=row["version"],
-            deleted=bool(row["deleted"])
+            deleted=bool(row["deleted"]),
+            # Meta-memory fields
+            confidence=self._safe_get(row, "confidence", 0.9),
+            source_type=self._safe_get(row, "source_type", "direct_experience"),
+            source_episodes=self._from_json(self._safe_get(row, "source_episodes", None)),
+            derived_from=self._from_json(self._safe_get(row, "derived_from", None)),
+            last_verified=self._parse_datetime(self._safe_get(row, "last_verified", None)),
+            verification_count=self._safe_get(row, "verification_count", 0),
+            confidence_history=self._from_json(self._safe_get(row, "confidence_history", None)),
         )
     
     # === Goals ===
@@ -507,8 +1095,10 @@ class SQLiteStorage:
             conn.execute("""
                 INSERT OR REPLACE INTO goals
                 (id, agent_id, title, description, priority, status, created_at,
+                 confidence, source_type, source_episodes, derived_from,
+                 last_verified, verification_count, confidence_history,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 goal.id,
                 self.agent_id,
@@ -517,12 +1107,24 @@ class SQLiteStorage:
                 goal.priority,
                 goal.status,
                 goal.created_at.isoformat() if goal.created_at else now,
+                goal.confidence,
+                goal.source_type,
+                self._to_json(goal.source_episodes),
+                self._to_json(goal.derived_from),
+                goal.last_verified.isoformat() if goal.last_verified else None,
+                goal.verification_count,
+                self._to_json(goal.confidence_history),
                 now,
                 goal.cloud_synced_at.isoformat() if goal.cloud_synced_at else None,
                 goal.version,
                 1 if goal.deleted else 0
             ))
             self._queue_sync(conn, "goals", goal.id, "upsert")
+            
+            # Save embedding for search
+            content = f"{goal.title} {goal.description or ''}"
+            self._save_embedding(conn, "goals", goal.id, content)
+            
             conn.commit()
         
         return goal.id
@@ -557,7 +1159,15 @@ class SQLiteStorage:
             local_updated_at=self._parse_datetime(row["local_updated_at"]),
             cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
             version=row["version"],
-            deleted=bool(row["deleted"])
+            deleted=bool(row["deleted"]),
+            # Meta-memory fields
+            confidence=self._safe_get(row, "confidence", 0.8),
+            source_type=self._safe_get(row, "source_type", "direct_experience"),
+            source_episodes=self._from_json(self._safe_get(row, "source_episodes", None)),
+            derived_from=self._from_json(self._safe_get(row, "derived_from", None)),
+            last_verified=self._parse_datetime(self._safe_get(row, "last_verified", None)),
+            verification_count=self._safe_get(row, "verification_count", 0),
+            confidence_history=self._from_json(self._safe_get(row, "confidence_history", None)),
         )
     
     # === Notes ===
@@ -573,8 +1183,10 @@ class SQLiteStorage:
             conn.execute("""
                 INSERT OR REPLACE INTO notes
                 (id, agent_id, content, note_type, speaker, reason, tags, created_at,
+                 confidence, source_type, source_episodes, derived_from,
+                 last_verified, verification_count, confidence_history,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 note.id,
                 self.agent_id,
@@ -584,12 +1196,23 @@ class SQLiteStorage:
                 note.reason,
                 self._to_json(note.tags),
                 note.created_at.isoformat() if note.created_at else now,
+                note.confidence,
+                note.source_type,
+                self._to_json(note.source_episodes),
+                self._to_json(note.derived_from),
+                note.last_verified.isoformat() if note.last_verified else None,
+                note.verification_count,
+                self._to_json(note.confidence_history),
                 now,
                 note.cloud_synced_at.isoformat() if note.cloud_synced_at else None,
                 note.version,
                 1 if note.deleted else 0
             ))
             self._queue_sync(conn, "notes", note.id, "upsert")
+            
+            # Save embedding for search
+            self._save_embedding(conn, "notes", note.id, note.content)
+            
             conn.commit()
         
         return note.id
@@ -634,7 +1257,15 @@ class SQLiteStorage:
             local_updated_at=self._parse_datetime(row["local_updated_at"]),
             cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
             version=row["version"],
-            deleted=bool(row["deleted"])
+            deleted=bool(row["deleted"]),
+            # Meta-memory fields
+            confidence=self._safe_get(row, "confidence", 0.8),
+            source_type=self._safe_get(row, "source_type", "direct_experience"),
+            source_episodes=self._from_json(self._safe_get(row, "source_episodes", None)),
+            derived_from=self._from_json(self._safe_get(row, "derived_from", None)),
+            last_verified=self._parse_datetime(self._safe_get(row, "last_verified", None)),
+            verification_count=self._safe_get(row, "verification_count", 0),
+            confidence_history=self._from_json(self._safe_get(row, "confidence_history", None)),
         )
     
     # === Drives ===
@@ -658,12 +1289,22 @@ class SQLiteStorage:
                 conn.execute("""
                     UPDATE drives SET
                         intensity = ?, focus_areas = ?, updated_at = ?,
+                        confidence = ?, source_type = ?, source_episodes = ?,
+                        derived_from = ?, last_verified = ?, verification_count = ?,
+                        confidence_history = ?,
                         local_updated_at = ?, version = version + 1
                     WHERE id = ?
                 """, (
                     drive.intensity,
                     self._to_json(drive.focus_areas),
                     now,
+                    drive.confidence,
+                    drive.source_type,
+                    self._to_json(drive.source_episodes),
+                    self._to_json(drive.derived_from),
+                    drive.last_verified.isoformat() if drive.last_verified else None,
+                    drive.verification_count,
+                    self._to_json(drive.confidence_history),
                     now,
                     drive.id
                 ))
@@ -671,8 +1312,10 @@ class SQLiteStorage:
                 conn.execute("""
                     INSERT INTO drives
                     (id, agent_id, drive_type, intensity, focus_areas, created_at, updated_at,
+                     confidence, source_type, source_episodes, derived_from,
+                     last_verified, verification_count, confidence_history,
                      local_updated_at, cloud_synced_at, version, deleted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     drive.id,
                     self.agent_id,
@@ -681,6 +1324,13 @@ class SQLiteStorage:
                     self._to_json(drive.focus_areas),
                     now,
                     now,
+                    drive.confidence,
+                    drive.source_type,
+                    self._to_json(drive.source_episodes),
+                    self._to_json(drive.derived_from),
+                    drive.last_verified.isoformat() if drive.last_verified else None,
+                    drive.verification_count,
+                    self._to_json(drive.confidence_history),
                     now,
                     None,
                     1,
@@ -725,7 +1375,15 @@ class SQLiteStorage:
             local_updated_at=self._parse_datetime(row["local_updated_at"]),
             cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
             version=row["version"],
-            deleted=bool(row["deleted"])
+            deleted=bool(row["deleted"]),
+            # Meta-memory fields
+            confidence=self._safe_get(row, "confidence", 0.8),
+            source_type=self._safe_get(row, "source_type", "direct_experience"),
+            source_episodes=self._from_json(self._safe_get(row, "source_episodes", None)),
+            derived_from=self._from_json(self._safe_get(row, "derived_from", None)),
+            last_verified=self._parse_datetime(self._safe_get(row, "last_verified", None)),
+            verification_count=self._safe_get(row, "verification_count", 0),
+            confidence_history=self._from_json(self._safe_get(row, "confidence_history", None)),
         )
     
     # === Relationships ===
@@ -750,6 +1408,9 @@ class SQLiteStorage:
                     UPDATE relationships SET
                         entity_type = ?, relationship_type = ?, notes = ?,
                         sentiment = ?, interaction_count = ?, last_interaction = ?,
+                        confidence = ?, source_type = ?, source_episodes = ?,
+                        derived_from = ?, last_verified = ?, verification_count = ?,
+                        confidence_history = ?,
                         local_updated_at = ?, version = version + 1
                     WHERE id = ?
                 """, (
@@ -759,6 +1420,13 @@ class SQLiteStorage:
                     relationship.sentiment,
                     relationship.interaction_count,
                     relationship.last_interaction.isoformat() if relationship.last_interaction else None,
+                    relationship.confidence,
+                    relationship.source_type,
+                    self._to_json(relationship.source_episodes),
+                    self._to_json(relationship.derived_from),
+                    relationship.last_verified.isoformat() if relationship.last_verified else None,
+                    relationship.verification_count,
+                    self._to_json(relationship.confidence_history),
                     now,
                     relationship.id
                 ))
@@ -767,8 +1435,10 @@ class SQLiteStorage:
                     INSERT INTO relationships
                     (id, agent_id, entity_name, entity_type, relationship_type, notes,
                      sentiment, interaction_count, last_interaction, created_at,
+                     confidence, source_type, source_episodes, derived_from,
+                     last_verified, verification_count, confidence_history,
                      local_updated_at, cloud_synced_at, version, deleted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     relationship.id,
                     self.agent_id,
@@ -780,6 +1450,13 @@ class SQLiteStorage:
                     relationship.interaction_count,
                     relationship.last_interaction.isoformat() if relationship.last_interaction else None,
                     now,
+                    relationship.confidence,
+                    relationship.source_type,
+                    self._to_json(relationship.source_episodes),
+                    self._to_json(relationship.derived_from),
+                    relationship.last_verified.isoformat() if relationship.last_verified else None,
+                    relationship.verification_count,
+                    self._to_json(relationship.confidence_history),
                     now,
                     None,
                     1,
@@ -831,7 +1508,15 @@ class SQLiteStorage:
             local_updated_at=self._parse_datetime(row["local_updated_at"]),
             cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
             version=row["version"],
-            deleted=bool(row["deleted"])
+            deleted=bool(row["deleted"]),
+            # Meta-memory fields
+            confidence=self._safe_get(row, "confidence", 0.8),
+            source_type=self._safe_get(row, "source_type", "direct_experience"),
+            source_episodes=self._from_json(self._safe_get(row, "source_episodes", None)),
+            derived_from=self._from_json(self._safe_get(row, "derived_from", None)),
+            last_verified=self._parse_datetime(self._safe_get(row, "last_verified", None)),
+            verification_count=self._safe_get(row, "verification_count", 0),
+            confidence_history=self._from_json(self._safe_get(row, "confidence_history", None)),
         )
     
     # === Search ===
@@ -844,14 +1529,121 @@ class SQLiteStorage:
     ) -> List[SearchResult]:
         """Search across memories.
         
-        If sqlite-vec is available, uses semantic search.
+        If sqlite-vec is available, uses semantic vector search.
         Otherwise, falls back to basic text matching.
         """
-        results = []
-        types = record_types or ["episode", "note", "belief"]
+        types = record_types or ["episode", "note", "belief", "value", "goal"]
         
-        # For now, use basic text search
-        # TODO: Implement semantic search with sqlite-vec
+        if self._has_vec:
+            return self._vector_search(query, limit, types)
+        else:
+            return self._text_search(query, limit, types)
+    
+    def _vector_search(
+        self,
+        query: str,
+        limit: int,
+        types: List[str]
+    ) -> List[SearchResult]:
+        """Semantic search using sqlite-vec."""
+        results = []
+        
+        # Embed query
+        query_embedding = self._embedder.embed(query)
+        query_packed = pack_embedding(query_embedding)
+        
+        # Map types to table names
+        table_map = {
+            "episode": "episodes",
+            "note": "notes", 
+            "belief": "beliefs",
+            "value": "agent_values",
+            "goal": "goals",
+        }
+        
+        with self._get_conn() as conn:
+            # Build table prefix filter
+            table_prefixes = [table_map[t] for t in types if t in table_map]
+            
+            # Query vector table for nearest neighbors
+            # Use KNN search with sqlite-vec
+            try:
+                rows = conn.execute(
+                    """SELECT id, distance 
+                       FROM vec_embeddings 
+                       WHERE embedding MATCH ? 
+                       ORDER BY distance 
+                       LIMIT ?""",
+                    (query_packed, limit * 2)  # Get more to filter by type
+                ).fetchall()
+            except Exception as e:
+                logger.warning(f"Vector search failed: {e}, falling back to text search")
+                return self._text_search(query, limit, types)
+            
+            # Fetch actual records
+            for row in rows:
+                vec_id = row["id"]
+                distance = row["distance"]
+                
+                # Parse table:record_id format
+                if ":" not in vec_id:
+                    continue
+                table_name, record_id = vec_id.split(":", 1)
+                
+                # Filter by requested types
+                if table_name not in table_prefixes:
+                    continue
+                
+                # Convert distance to similarity score (lower distance = higher score)
+                # For cosine distance, range is [0, 2], so we normalize
+                score = max(0.0, 1.0 - distance / 2.0)
+                
+                # Fetch the actual record
+                record, record_type = self._fetch_record(conn, table_name, record_id)
+                if record:
+                    results.append(SearchResult(
+                        record=record,
+                        record_type=record_type,
+                        score=score
+                    ))
+                
+                if len(results) >= limit:
+                    break
+        
+        return results
+    
+    def _fetch_record(self, conn: sqlite3.Connection, table: str, record_id: str) -> tuple:
+        """Fetch a record by table and ID."""
+        type_map = {
+            "episodes": ("episode", self._row_to_episode),
+            "notes": ("note", self._row_to_note),
+            "beliefs": ("belief", self._row_to_belief),
+            "agent_values": ("value", self._row_to_value),
+            "goals": ("goal", self._row_to_goal),
+        }
+        
+        if table not in type_map:
+            return None, None
+        
+        record_type, converter = type_map[table]
+        
+        row = conn.execute(
+            f"SELECT * FROM {table} WHERE id = ? AND agent_id = ? AND deleted = 0",
+            (record_id, self.agent_id)
+        ).fetchone()
+        
+        if row:
+            return converter(row), record_type
+        return None, None
+    
+    def _text_search(
+        self,
+        query: str,
+        limit: int,
+        types: List[str]
+    ) -> List[SearchResult]:
+        """Fallback text-based search using LIKE."""
+        results = []
         search_term = f"%{query}%"
         
         with self._get_conn() as conn:
@@ -867,7 +1659,7 @@ class SQLiteStorage:
                     results.append(SearchResult(
                         record=self._row_to_episode(row),
                         record_type="episode",
-                        score=1.0  # Basic match, no real score
+                        score=1.0
                     ))
             
             if "note" in types:
@@ -899,9 +1691,37 @@ class SQLiteStorage:
                         record_type="belief",
                         score=1.0
                     ))
+            
+            if "value" in types:
+                rows = conn.execute(
+                    """SELECT * FROM agent_values
+                       WHERE agent_id = ? AND deleted = 0
+                       AND (name LIKE ? OR statement LIKE ?)
+                       LIMIT ?""",
+                    (self.agent_id, search_term, search_term, limit)
+                ).fetchall()
+                for row in rows:
+                    results.append(SearchResult(
+                        record=self._row_to_value(row),
+                        record_type="value",
+                        score=1.0
+                    ))
+            
+            if "goal" in types:
+                rows = conn.execute(
+                    """SELECT * FROM goals
+                       WHERE agent_id = ? AND deleted = 0
+                       AND (title LIKE ? OR description LIKE ?)
+                       LIMIT ?""",
+                    (self.agent_id, search_term, search_term, limit)
+                ).fetchall()
+                for row in rows:
+                    results.append(SearchResult(
+                        record=self._row_to_goal(row),
+                        record_type="goal",
+                        score=1.0
+                    ))
         
-        # Sort by score and limit
-        results.sort(key=lambda x: x.score, reverse=True)
         return results[:limit]
     
     # === Stats ===
@@ -927,6 +1747,295 @@ class SQLiteStorage:
         
         return stats
     
+    # === Meta-Memory ===
+    
+    def get_memory(self, memory_type: str, memory_id: str) -> Optional[Any]:
+        """Get a memory by type and ID.
+        
+        Args:
+            memory_type: Type of memory (episode, belief, value, goal, note, drive, relationship)
+            memory_id: ID of the memory
+            
+        Returns:
+            The memory record or None if not found
+        """
+        getters = {
+            "episode": lambda: self.get_episode(memory_id),
+            "belief": lambda: self._get_belief_by_id(memory_id),
+            "value": lambda: self._get_value_by_id(memory_id),
+            "goal": lambda: self._get_goal_by_id(memory_id),
+            "note": lambda: self._get_note_by_id(memory_id),
+            "drive": lambda: self._get_drive_by_id(memory_id),
+            "relationship": lambda: self._get_relationship_by_id(memory_id),
+        }
+        
+        getter = getters.get(memory_type)
+        return getter() if getter else None
+    
+    def _get_belief_by_id(self, belief_id: str) -> Optional[Belief]:
+        """Get a belief by ID."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM beliefs WHERE id = ? AND agent_id = ? AND deleted = 0",
+                (belief_id, self.agent_id)
+            ).fetchone()
+        return self._row_to_belief(row) if row else None
+    
+    def _get_value_by_id(self, value_id: str) -> Optional[Value]:
+        """Get a value by ID."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM agent_values WHERE id = ? AND agent_id = ? AND deleted = 0",
+                (value_id, self.agent_id)
+            ).fetchone()
+        return self._row_to_value(row) if row else None
+    
+    def _get_goal_by_id(self, goal_id: str) -> Optional[Goal]:
+        """Get a goal by ID."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM goals WHERE id = ? AND agent_id = ? AND deleted = 0",
+                (goal_id, self.agent_id)
+            ).fetchone()
+        return self._row_to_goal(row) if row else None
+    
+    def _get_note_by_id(self, note_id: str) -> Optional[Note]:
+        """Get a note by ID."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM notes WHERE id = ? AND agent_id = ? AND deleted = 0",
+                (note_id, self.agent_id)
+            ).fetchone()
+        return self._row_to_note(row) if row else None
+    
+    def _get_drive_by_id(self, drive_id: str) -> Optional[Drive]:
+        """Get a drive by ID."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM drives WHERE id = ? AND agent_id = ? AND deleted = 0",
+                (drive_id, self.agent_id)
+            ).fetchone()
+        return self._row_to_drive(row) if row else None
+    
+    def _get_relationship_by_id(self, relationship_id: str) -> Optional[Relationship]:
+        """Get a relationship by ID."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM relationships WHERE id = ? AND agent_id = ? AND deleted = 0",
+                (relationship_id, self.agent_id)
+            ).fetchone()
+        return self._row_to_relationship(row) if row else None
+    
+    def update_memory_meta(
+        self,
+        memory_type: str,
+        memory_id: str,
+        confidence: Optional[float] = None,
+        source_type: Optional[str] = None,
+        source_episodes: Optional[List[str]] = None,
+        derived_from: Optional[List[str]] = None,
+        last_verified: Optional[datetime] = None,
+        verification_count: Optional[int] = None,
+        confidence_history: Optional[List[Dict[str, Any]]] = None,
+    ) -> bool:
+        """Update meta-memory fields for a memory.
+        
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            confidence: New confidence value
+            source_type: New source type
+            source_episodes: New source episodes list
+            derived_from: New derived_from list
+            last_verified: New verification timestamp
+            verification_count: New verification count
+            confidence_history: New confidence history
+            
+        Returns:
+            True if updated, False if memory not found
+        """
+        table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "agent_values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+        }
+        
+        table = table_map.get(memory_type)
+        if not table:
+            return False
+        
+        # Build update query dynamically
+        updates = []
+        params = []
+        
+        if confidence is not None:
+            updates.append("confidence = ?")
+            params.append(confidence)
+        if source_type is not None:
+            updates.append("source_type = ?")
+            params.append(source_type)
+        if source_episodes is not None:
+            updates.append("source_episodes = ?")
+            params.append(self._to_json(source_episodes))
+        if derived_from is not None:
+            updates.append("derived_from = ?")
+            params.append(self._to_json(derived_from))
+        if last_verified is not None:
+            updates.append("last_verified = ?")
+            params.append(last_verified.isoformat())
+        if verification_count is not None:
+            updates.append("verification_count = ?")
+            params.append(verification_count)
+        if confidence_history is not None:
+            updates.append("confidence_history = ?")
+            params.append(self._to_json(confidence_history))
+        
+        if not updates:
+            return False
+        
+        # Also update local_updated_at
+        updates.append("local_updated_at = ?")
+        params.append(self._now())
+        
+        # Add version increment
+        updates.append("version = version + 1")
+        
+        # Add WHERE clause params
+        params.extend([memory_id, self.agent_id])
+        
+        query = f"UPDATE {table} SET {', '.join(updates)} WHERE id = ? AND agent_id = ? AND deleted = 0"
+        
+        with self._get_conn() as conn:
+            cursor = conn.execute(query, params)
+            if cursor.rowcount > 0:
+                self._queue_sync(conn, table, memory_id, "upsert")
+                conn.commit()
+                return True
+        return False
+    
+    def get_memories_by_confidence(
+        self,
+        threshold: float,
+        below: bool = True,
+        memory_types: Optional[List[str]] = None,
+        limit: int = 100,
+    ) -> List[SearchResult]:
+        """Get memories filtered by confidence threshold.
+        
+        Args:
+            threshold: Confidence threshold
+            below: If True, get memories below threshold; if False, above
+            memory_types: Filter by type (episode, belief, etc.)
+            limit: Maximum results
+            
+        Returns:
+            List of matching memories with their types
+        """
+        results = []
+        op = "<" if below else ">="
+        types = memory_types or ["episode", "belief", "value", "goal", "note", "drive", "relationship"]
+        
+        table_map = {
+            "episode": ("episodes", self._row_to_episode),
+            "belief": ("beliefs", self._row_to_belief),
+            "value": ("agent_values", self._row_to_value),
+            "goal": ("goals", self._row_to_goal),
+            "note": ("notes", self._row_to_note),
+            "drive": ("drives", self._row_to_drive),
+            "relationship": ("relationships", self._row_to_relationship),
+        }
+        
+        with self._get_conn() as conn:
+            for memory_type in types:
+                if memory_type not in table_map:
+                    continue
+                    
+                table, converter = table_map[memory_type]
+                query = f"""
+                    SELECT * FROM {table} 
+                    WHERE agent_id = ? AND deleted = 0 
+                    AND confidence {op} ?
+                    ORDER BY confidence {'ASC' if below else 'DESC'}
+                    LIMIT ?
+                """
+                
+                try:
+                    rows = conn.execute(query, (self.agent_id, threshold, limit)).fetchall()
+                    for row in rows:
+                        results.append(SearchResult(
+                            record=converter(row),
+                            record_type=memory_type,
+                            score=self._safe_get(row, "confidence", 0.8)
+                        ))
+                except Exception as e:
+                    # Column might not exist in old schema
+                    logger.debug(f"Could not query {table} by confidence: {e}")
+        
+        # Sort by confidence
+        results.sort(key=lambda x: x.score, reverse=not below)
+        return results[:limit]
+    
+    def get_memories_by_source(
+        self,
+        source_type: str,
+        memory_types: Optional[List[str]] = None,
+        limit: int = 100,
+    ) -> List[SearchResult]:
+        """Get memories filtered by source type.
+        
+        Args:
+            source_type: Source type to filter by
+            memory_types: Filter by memory type
+            limit: Maximum results
+            
+        Returns:
+            List of matching memories
+        """
+        results = []
+        types = memory_types or ["episode", "belief", "value", "goal", "note", "drive", "relationship"]
+        
+        table_map = {
+            "episode": ("episodes", self._row_to_episode),
+            "belief": ("beliefs", self._row_to_belief),
+            "value": ("agent_values", self._row_to_value),
+            "goal": ("goals", self._row_to_goal),
+            "note": ("notes", self._row_to_note),
+            "drive": ("drives", self._row_to_drive),
+            "relationship": ("relationships", self._row_to_relationship),
+        }
+        
+        with self._get_conn() as conn:
+            for memory_type in types:
+                if memory_type not in table_map:
+                    continue
+                    
+                table, converter = table_map[memory_type]
+                query = f"""
+                    SELECT * FROM {table} 
+                    WHERE agent_id = ? AND deleted = 0 
+                    AND source_type = ?
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """
+                
+                try:
+                    rows = conn.execute(query, (self.agent_id, source_type, limit)).fetchall()
+                    for row in rows:
+                        results.append(SearchResult(
+                            record=converter(row),
+                            record_type=memory_type,
+                            score=self._safe_get(row, "confidence", 0.8)
+                        ))
+                except Exception as e:
+                    # Column might not exist in old schema
+                    logger.debug(f"Could not query {table} by source_type: {e}")
+        
+        return results[:limit]
+    
     # === Sync ===
     
     def get_pending_sync_count(self) -> int:
@@ -935,13 +2044,161 @@ class SQLiteStorage:
             count = conn.execute("SELECT COUNT(*) FROM sync_queue").fetchone()[0]
         return count
     
+    def get_queued_changes(self, limit: int = 100) -> List[QueuedChange]:
+        """Get queued changes for sync."""
+        with self._get_conn() as conn:
+            rows = conn.execute(
+                "SELECT id, table_name, record_id, operation, payload, queued_at FROM sync_queue ORDER BY id LIMIT ?",
+                (limit,)
+            ).fetchall()
+        
+        return [
+            QueuedChange(
+                id=row["id"],
+                table_name=row["table_name"],
+                record_id=row["record_id"],
+                operation=row["operation"],
+                payload=row["payload"],
+                queued_at=self._parse_datetime(row["queued_at"]),
+            )
+            for row in rows
+        ]
+    
+    def _clear_queued_change(self, conn: sqlite3.Connection, queue_id: int):
+        """Remove a change from the queue after successful sync."""
+        conn.execute("DELETE FROM sync_queue WHERE id = ?", (queue_id,))
+    
+    def _get_sync_meta(self, key: str) -> Optional[str]:
+        """Get a sync metadata value."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT value FROM sync_meta WHERE key = ?", (key,)
+            ).fetchone()
+        return row["value"] if row else None
+    
+    def _set_sync_meta(self, key: str, value: str):
+        """Set a sync metadata value."""
+        with self._get_conn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO sync_meta (key, value, updated_at) VALUES (?, ?, ?)",
+                (key, value, self._now())
+            )
+            conn.commit()
+    
+    def get_last_sync_time(self) -> Optional[datetime]:
+        """Get the timestamp of the last successful sync."""
+        value = self._get_sync_meta("last_sync_time")
+        return self._parse_datetime(value) if value else None
+    
+    def is_online(self) -> bool:
+        """Check if cloud storage is reachable.
+        
+        Uses cached result if checked recently.
+        Returns True if connected, False if offline or no cloud configured.
+        """
+        if not self.cloud_storage:
+            return False
+        
+        # Check cache
+        now = datetime.now(timezone.utc)
+        if self._last_connectivity_check:
+            elapsed = (now - self._last_connectivity_check).total_seconds()
+            if elapsed < self._connectivity_cache_ttl:
+                return self._is_online_cached
+        
+        # Perform connectivity check
+        try:
+            # Try a lightweight operation - get stats with timeout
+            import socket
+            old_timeout = socket.getdefaulttimeout()
+            try:
+                socket.setdefaulttimeout(self.CONNECTIVITY_TIMEOUT)
+                # A simple operation to verify connectivity
+                self.cloud_storage.get_stats()
+                self._is_online_cached = True
+            except Exception as e:
+                logger.debug(f"Connectivity check failed: {e}")
+                self._is_online_cached = False
+            finally:
+                socket.setdefaulttimeout(old_timeout)
+        except Exception as e:
+            logger.debug(f"Connectivity check error: {e}")
+            self._is_online_cached = False
+        
+        self._last_connectivity_check = now
+        return self._is_online_cached
+    
+    def _mark_synced(self, conn: sqlite3.Connection, table: str, record_id: str):
+        """Mark a record as synced with the cloud."""
+        now = self._now()
+        conn.execute(
+            f"UPDATE {table} SET cloud_synced_at = ? WHERE id = ?",
+            (now, record_id)
+        )
+    
+    def _get_record_for_push(self, table: str, record_id: str) -> Optional[Any]:
+        """Get a record by table and ID for pushing to cloud."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                f"SELECT * FROM {table} WHERE id = ? AND agent_id = ?",
+                (record_id, self.agent_id)
+            ).fetchone()
+        
+        if not row:
+            return None
+        
+        converters = {
+            "episodes": self._row_to_episode,
+            "notes": self._row_to_note,
+            "beliefs": self._row_to_belief,
+            "agent_values": self._row_to_value,
+            "goals": self._row_to_goal,
+            "drives": self._row_to_drive,
+            "relationships": self._row_to_relationship,
+        }
+        
+        converter = converters.get(table)
+        return converter(row) if converter else None
+    
+    def _push_record(self, table: str, record: Any) -> bool:
+        """Push a single record to cloud storage.
+        
+        Returns True if successful, False otherwise.
+        """
+        if not self.cloud_storage:
+            return False
+        
+        try:
+            if table == "episodes":
+                self.cloud_storage.save_episode(record)
+            elif table == "notes":
+                self.cloud_storage.save_note(record)
+            elif table == "beliefs":
+                self.cloud_storage.save_belief(record)
+            elif table == "agent_values":
+                self.cloud_storage.save_value(record)
+            elif table == "goals":
+                self.cloud_storage.save_goal(record)
+            elif table == "drives":
+                self.cloud_storage.save_drive(record)
+            elif table == "relationships":
+                self.cloud_storage.save_relationship(record)
+            else:
+                logger.warning(f"Unknown table for push: {table}")
+                return False
+            return True
+        except Exception as e:
+            logger.error(f"Failed to push record {table}:{record.id}: {e}")
+            return False
+    
     def sync(self) -> SyncResult:
         """Sync with cloud storage.
         
-        For now, this is a stub. Full implementation will:
-        1. Push queued changes to cloud
-        2. Pull changes from cloud
-        3. Handle conflicts
+        Pushes queued local changes to cloud, then pulls remote changes.
+        Uses last-write-wins for conflict resolution.
+        
+        Returns:
+            SyncResult with counts of pushed/pulled records and any errors.
         """
         result = SyncResult()
         
@@ -949,9 +2206,267 @@ class SQLiteStorage:
             logger.debug("No cloud storage configured, skipping sync")
             return result
         
-        # TODO: Implement full sync logic
-        # For now, just count pending
-        result.pushed = 0
-        result.pulled = 0
+        # Check connectivity first
+        if not self.is_online():
+            logger.info("Offline - sync skipped, changes queued")
+            result.errors.append("Offline - cannot reach cloud storage")
+            return result
+        
+        # Phase 1: Push queued changes
+        queued = self.get_queued_changes()
+        logger.debug(f"Pushing {len(queued)} queued changes")
+        
+        with self._get_conn() as conn:
+            for change in queued:
+                # Get the current record
+                record = self._get_record_for_push(change.table_name, change.record_id)
+                
+                if record is None:
+                    # Record was deleted or doesn't exist
+                    if change.operation == "delete":
+                        # TODO: Handle soft delete in cloud
+                        self._clear_queued_change(conn, change.id)
+                        result.pushed += 1
+                    else:
+                        # Record no longer exists locally, clear from queue
+                        self._clear_queued_change(conn, change.id)
+                    continue
+                
+                # Push to cloud
+                if self._push_record(change.table_name, record):
+                    self._mark_synced(conn, change.table_name, change.record_id)
+                    self._clear_queued_change(conn, change.id)
+                    result.pushed += 1
+                else:
+                    result.errors.append(f"Failed to push {change.table_name}:{change.record_id}")
+            
+            conn.commit()
+        
+        # Phase 2: Pull remote changes
+        pull_result = self.pull_changes()
+        result.pulled = pull_result.pulled
+        result.conflicts = pull_result.conflicts
+        result.errors.extend(pull_result.errors)
+        
+        # Update last sync time
+        if result.success or (result.pushed > 0 or result.pulled > 0):
+            self._set_sync_meta("last_sync_time", self._now())
+        
+        logger.info(f"Sync complete: pushed={result.pushed}, pulled={result.pulled}, conflicts={result.conflicts}")
+        return result
+    
+    def pull_changes(self, since: Optional[datetime] = None) -> SyncResult:
+        """Pull changes from cloud since the given timestamp.
+        
+        Uses last-write-wins for conflict resolution:
+        - If cloud record is newer (cloud_synced_at > local_updated_at), use cloud version
+        - If local record is newer, keep local version (it will be pushed on next sync)
+        
+        Args:
+            since: Pull changes since this time. If None, uses last sync time.
+        
+        Returns:
+            SyncResult with pulled count and any conflicts.
+        """
+        result = SyncResult()
+        
+        if not self.cloud_storage:
+            return result
+        
+        # Determine the since timestamp
+        if since is None:
+            since = self.get_last_sync_time()
+        
+        # Pull from each table
+        tables_and_getters = [
+            ("episodes", self.cloud_storage.get_episodes, self._merge_episode),
+            ("notes", self.cloud_storage.get_notes, self._merge_note),
+            ("beliefs", self.cloud_storage.get_beliefs, self._merge_belief),
+            ("agent_values", self.cloud_storage.get_values, self._merge_value),
+            ("goals", self.cloud_storage.get_goals, self._merge_goal),
+            ("drives", self.cloud_storage.get_drives, self._merge_drive),
+            ("relationships", self.cloud_storage.get_relationships, self._merge_relationship),
+        ]
+        
+        for table, getter, merger in tables_and_getters:
+            try:
+                # Get records from cloud (filtered by since if supported)
+                if table == "episodes":
+                    cloud_records = getter(limit=1000, since=since)
+                elif table == "notes":
+                    cloud_records = getter(limit=1000, since=since)
+                elif table == "goals":
+                    cloud_records = getter(status=None, limit=1000)  # Get all statuses
+                else:
+                    cloud_records = getter(limit=1000) if callable(getter) else getter()
+                
+                for cloud_record in cloud_records:
+                    pull_count, conflict_count = merger(cloud_record)
+                    result.pulled += pull_count
+                    result.conflicts += conflict_count
+                    
+            except Exception as e:
+                logger.error(f"Failed to pull from {table}: {e}")
+                result.errors.append(f"Failed to pull {table}: {str(e)}")
         
         return result
+    
+    def _merge_episode(self, cloud_record: Episode) -> tuple[int, int]:
+        """Merge a cloud episode with local. Returns (pulled, conflicts)."""
+        return self._merge_record("episodes", cloud_record, self.get_episode)
+    
+    def _merge_note(self, cloud_record: Note) -> tuple[int, int]:
+        """Merge a cloud note with local. Returns (pulled, conflicts)."""
+        local = None
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM notes WHERE id = ? AND agent_id = ?",
+                (cloud_record.id, self.agent_id)
+            ).fetchone()
+            if row:
+                local = self._row_to_note(row)
+        return self._merge_generic(
+            "notes", cloud_record, local, 
+            lambda: self.save_note(cloud_record)
+        )
+    
+    def _merge_belief(self, cloud_record: Belief) -> tuple[int, int]:
+        """Merge a cloud belief with local. Returns (pulled, conflicts)."""
+        local = None
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM beliefs WHERE id = ? AND agent_id = ?",
+                (cloud_record.id, self.agent_id)
+            ).fetchone()
+            if row:
+                local = self._row_to_belief(row)
+        return self._merge_generic(
+            "beliefs", cloud_record, local,
+            lambda: self.save_belief(cloud_record)
+        )
+    
+    def _merge_value(self, cloud_record: Value) -> tuple[int, int]:
+        """Merge a cloud value with local. Returns (pulled, conflicts)."""
+        local = None
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM agent_values WHERE id = ? AND agent_id = ?",
+                (cloud_record.id, self.agent_id)
+            ).fetchone()
+            if row:
+                local = self._row_to_value(row)
+        return self._merge_generic(
+            "agent_values", cloud_record, local,
+            lambda: self.save_value(cloud_record)
+        )
+    
+    def _merge_goal(self, cloud_record: Goal) -> tuple[int, int]:
+        """Merge a cloud goal with local. Returns (pulled, conflicts)."""
+        local = None
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM goals WHERE id = ? AND agent_id = ?",
+                (cloud_record.id, self.agent_id)
+            ).fetchone()
+            if row:
+                local = self._row_to_goal(row)
+        return self._merge_generic(
+            "goals", cloud_record, local,
+            lambda: self.save_goal(cloud_record)
+        )
+    
+    def _merge_drive(self, cloud_record: Drive) -> tuple[int, int]:
+        """Merge a cloud drive with local. Returns (pulled, conflicts)."""
+        local = self.get_drive(cloud_record.drive_type)
+        return self._merge_generic(
+            "drives", cloud_record, local,
+            lambda: self.save_drive(cloud_record)
+        )
+    
+    def _merge_relationship(self, cloud_record: Relationship) -> tuple[int, int]:
+        """Merge a cloud relationship with local. Returns (pulled, conflicts)."""
+        local = self.get_relationship(cloud_record.entity_name)
+        return self._merge_generic(
+            "relationships", cloud_record, local,
+            lambda: self.save_relationship(cloud_record)
+        )
+    
+    def _merge_record(self, table: str, cloud_record: Any, get_local) -> tuple[int, int]:
+        """Generic merge for records with an ID-based getter."""
+        local = get_local(cloud_record.id)
+        return self._merge_generic(
+            table, cloud_record, local,
+            lambda: self._save_from_cloud(table, cloud_record)
+        )
+    
+    def _merge_generic(
+        self, 
+        table: str, 
+        cloud_record: Any, 
+        local_record: Optional[Any],
+        save_fn
+    ) -> tuple[int, int]:
+        """Generic merge logic with last-write-wins.
+        
+        Returns (pulled_count, conflict_count).
+        """
+        if local_record is None:
+            # No local record - just save the cloud version
+            save_fn()
+            # Mark as synced (don't queue for push)
+            with self._get_conn() as conn:
+                self._mark_synced(conn, table, cloud_record.id)
+                # Remove from queue if present
+                conn.execute(
+                    "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
+                    (table, cloud_record.id)
+                )
+                conn.commit()
+            return (1, 0)
+        
+        # Both exist - use last-write-wins
+        cloud_time = cloud_record.cloud_synced_at or cloud_record.local_updated_at
+        local_time = local_record.local_updated_at
+        
+        if cloud_time and local_time:
+            if cloud_time > local_time:
+                # Cloud is newer - overwrite local
+                save_fn()
+                with self._get_conn() as conn:
+                    self._mark_synced(conn, table, cloud_record.id)
+                    conn.execute(
+                        "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
+                        (table, cloud_record.id)
+                    )
+                    conn.commit()
+                return (1, 1)  # Pulled with conflict
+            else:
+                # Local is newer - keep local, it will be pushed
+                return (0, 1)  # Conflict, but local wins
+        elif cloud_time:
+            # Only cloud has timestamp - use cloud
+            save_fn()
+            with self._get_conn() as conn:
+                self._mark_synced(conn, table, cloud_record.id)
+                conn.commit()
+            return (1, 0)
+        else:
+            # Only local has timestamp or neither - keep local
+            return (0, 0)
+    
+    def _save_from_cloud(self, table: str, record: Any):
+        """Save a record that came from cloud (used in _merge_record)."""
+        if table == "episodes":
+            self.save_episode(record)
+        elif table == "notes":
+            self.save_note(record)
+        elif table == "beliefs":
+            self.save_belief(record)
+        elif table == "agent_values":
+            self.save_value(record)
+        elif table == "goals":
+            self.save_goal(record)
+        elif table == "drives":
+            self.save_drive(record)
+        elif table == "relationships":
+            self.save_relationship(record)

@@ -173,9 +173,70 @@ From Claire's attempt to use Kernle (2026-01-27):
 
 | Phase | Target | Status |
 |-------|--------|--------|
-| 1.1 Storage abstraction | Q1 2026 | Not started |
-| 1.2 SQLite local | Q1 2026 | Not started |
-| 1.3 Sync engine | Q1 2026 | Not started |
+| 1.1 Storage abstraction | Q1 2026 | ✅ Complete |
+| 1.2 SQLite local | Q1 2026 | ✅ Complete |
+| 1.3 Sync engine | Q1 2026 | ✅ Complete |
 | 2.1 Railway API | Q2 2026 | Not started |
 | 3.x Cross-agent | Q3 2026 | Not started |
 | 4.x Premium | Q4 2026 | Not started |
+
+## Implementation Notes
+
+### Phase 1.1 & 1.2 (Completed 2026-01-27)
+
+**Storage Protocol** (`kernle/storage/base.py`):
+- `Storage` protocol with full CRUD for all memory types
+- Data classes: Episode, Belief, Value, Goal, Note, Drive, Relationship
+- Sync metadata: `local_updated_at`, `cloud_synced_at`, `version`, `deleted`
+- `SyncResult` for tracking sync operations
+
+**SQLite Storage** (`kernle/storage/sqlite.py`):
+- Zero-config local storage at `~/.kernle/memories.db`
+- Vector search using `sqlite-vec` extension
+- Hash-based embeddings for offline semantic search (no ML deps)
+- Optional OpenAI embeddings when API key available
+- Sync queue for offline-first operation
+
+**Embeddings** (`kernle/storage/embeddings.py`):
+- `HashEmbedder`: Deterministic, fast, zero-dependency (default)
+- `OpenAIEmbedder`: Cloud embeddings when available
+- 384-dimension embeddings (matches e5-small for future upgrade)
+
+### Phase 1.3 (Completed 2026-01-27)
+
+**Sync Engine** (`kernle/storage/sqlite.py`):
+- **Sync Queue**: Enhanced `sync_queue` table with payload and deduplication
+  - Auto-queues changes on every save operation
+  - Deduplicates by (table, record_id) - keeps only latest operation
+- **Connectivity Detection**: `is_online()` method with caching
+  - Pings cloud storage to check reachability
+  - Results cached for 30 seconds to avoid excessive checks
+- **Push Sync**: `sync()` method pushes queued changes to cloud
+  - Processes queue in order
+  - Marks records as synced (`cloud_synced_at`)
+  - Clears queue entries on success
+  - Continues on partial failure
+- **Pull Sync**: `pull_changes()` fetches remote updates
+  - Pulls from all tables since last sync time
+  - Merges with local records using conflict resolution
+- **Conflict Resolution**: Last-write-wins by timestamp
+  - Compares `cloud_synced_at` vs `local_updated_at`
+  - Newer record wins
+  - Conflicts counted but automatically resolved
+- **Sync Metadata**: `sync_meta` table tracks sync state
+  - `last_sync_time` persisted across sessions
+
+**Protocol Updates** (`kernle/storage/base.py`):
+- Added `QueuedChange` dataclass for queue entries
+- Added `pull_changes(since)` method to protocol
+- Added `is_online()` method to protocol
+
+**Tests** (`tests/test_sync_engine.py`):
+- 31 comprehensive tests covering:
+  - Queue basics (auto-queue, deduplication, persistence)
+  - Connectivity detection (online/offline, caching)
+  - Push sync (all record types, queue clearing, error handling)
+  - Pull sync (new records, conflict detection)
+  - Conflict resolution (cloud-wins, local-wins scenarios)
+  - Sync metadata (last sync time tracking, persistence)
+  - Edge cases (deleted records, empty queue, partial failures)

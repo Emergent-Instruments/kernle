@@ -13,6 +13,15 @@ from typing import Optional, List, Dict, Any, Protocol, runtime_checkable
 from enum import Enum
 
 
+class SourceType(Enum):
+    """How a memory was created/acquired."""
+    DIRECT_EXPERIENCE = "direct_experience"  # Directly observed/experienced
+    INFERENCE = "inference"                   # Inferred from other memories
+    TOLD_BY_AGENT = "told_by_agent"          # Told by another agent/user
+    CONSOLIDATION = "consolidation"           # Created during consolidation
+    UNKNOWN = "unknown"                       # Legacy or untracked
+
+
 class SyncStatus(Enum):
     """Sync status for a record."""
     LOCAL_ONLY = "local_only"      # Not yet synced to cloud
@@ -27,12 +36,41 @@ class SyncResult:
     """Result of a sync operation."""
     pushed: int = 0           # Records pushed to cloud
     pulled: int = 0           # Records pulled from cloud
-    conflicts: int = 0        # Conflicts encountered
+    conflicts: int = 0        # Conflicts encountered (resolved with last-write-wins)
     errors: List[str] = field(default_factory=list)
     
     @property
     def success(self) -> bool:
         return len(self.errors) == 0
+
+
+@dataclass
+class QueuedChange:
+    """A change queued for sync."""
+    id: int
+    table_name: str
+    record_id: str
+    operation: str  # 'insert', 'update', 'delete'
+    payload: Optional[str] = None  # JSON payload for the change
+    queued_at: Optional[datetime] = None
+
+
+@dataclass
+class ConfidenceChange:
+    """A record of confidence change for tracking history."""
+    timestamp: datetime
+    old_confidence: float
+    new_confidence: float
+    reason: Optional[str] = None
+
+
+@dataclass
+class MemoryLineage:
+    """Provenance chain for a memory."""
+    source_type: SourceType
+    source_episodes: List[str]  # Episode IDs that support this memory
+    derived_from: List[str]      # Memory IDs this was derived from (format: type:id)
+    confidence_history: List[ConfidenceChange]
 
 
 @dataclass
@@ -46,11 +84,23 @@ class Episode:
     lessons: Optional[List[str]] = None
     tags: Optional[List[str]] = None
     created_at: Optional[datetime] = None
+    # Emotional memory fields
+    emotional_valence: float = 0.0  # -1.0 (negative) to 1.0 (positive)
+    emotional_arousal: float = 0.0  # 0.0 (calm) to 1.0 (intense)
+    emotional_tags: Optional[List[str]] = None  # ["joy", "frustration", "curiosity"]
     # Sync metadata
     local_updated_at: Optional[datetime] = None
     cloud_synced_at: Optional[datetime] = None
     version: int = 1
     deleted: bool = False
+    # Meta-memory fields
+    confidence: float = 0.8
+    source_type: str = "direct_experience"  # SourceType value
+    source_episodes: Optional[List[str]] = None  # IDs of related episodes
+    derived_from: Optional[List[str]] = None  # Memory IDs this was derived from
+    last_verified: Optional[datetime] = None
+    verification_count: int = 0
+    confidence_history: Optional[List[Dict[str, Any]]] = None
 
 
 @dataclass 
@@ -67,6 +117,13 @@ class Belief:
     cloud_synced_at: Optional[datetime] = None
     version: int = 1
     deleted: bool = False
+    # Meta-memory fields
+    source_type: str = "direct_experience"  # SourceType value
+    source_episodes: Optional[List[str]] = None  # IDs of supporting episodes
+    derived_from: Optional[List[str]] = None  # Memory IDs this was derived from
+    last_verified: Optional[datetime] = None
+    verification_count: int = 0
+    confidence_history: Optional[List[Dict[str, Any]]] = None
 
 
 @dataclass
@@ -83,6 +140,14 @@ class Value:
     cloud_synced_at: Optional[datetime] = None
     version: int = 1
     deleted: bool = False
+    # Meta-memory fields
+    confidence: float = 0.9  # Values tend to be high-confidence
+    source_type: str = "direct_experience"  # SourceType value
+    source_episodes: Optional[List[str]] = None  # IDs of supporting episodes
+    derived_from: Optional[List[str]] = None  # Memory IDs this was derived from
+    last_verified: Optional[datetime] = None
+    verification_count: int = 0
+    confidence_history: Optional[List[Dict[str, Any]]] = None
 
 
 @dataclass
@@ -100,6 +165,14 @@ class Goal:
     cloud_synced_at: Optional[datetime] = None
     version: int = 1
     deleted: bool = False
+    # Meta-memory fields
+    confidence: float = 0.8
+    source_type: str = "direct_experience"  # SourceType value
+    source_episodes: Optional[List[str]] = None  # IDs of supporting episodes
+    derived_from: Optional[List[str]] = None  # Memory IDs this was derived from
+    last_verified: Optional[datetime] = None
+    verification_count: int = 0
+    confidence_history: Optional[List[Dict[str, Any]]] = None
 
 
 @dataclass
@@ -118,6 +191,14 @@ class Note:
     cloud_synced_at: Optional[datetime] = None
     version: int = 1
     deleted: bool = False
+    # Meta-memory fields
+    confidence: float = 0.8
+    source_type: str = "direct_experience"  # SourceType value
+    source_episodes: Optional[List[str]] = None  # IDs of supporting episodes
+    derived_from: Optional[List[str]] = None  # Memory IDs this was derived from
+    last_verified: Optional[datetime] = None
+    verification_count: int = 0
+    confidence_history: Optional[List[Dict[str, Any]]] = None
 
 
 @dataclass
@@ -135,6 +216,14 @@ class Drive:
     cloud_synced_at: Optional[datetime] = None
     version: int = 1
     deleted: bool = False
+    # Meta-memory fields
+    confidence: float = 0.8
+    source_type: str = "direct_experience"  # SourceType value
+    source_episodes: Optional[List[str]] = None  # IDs of supporting episodes
+    derived_from: Optional[List[str]] = None  # Memory IDs this was derived from
+    last_verified: Optional[datetime] = None
+    verification_count: int = 0
+    confidence_history: Optional[List[Dict[str, Any]]] = None
 
 
 @dataclass
@@ -155,6 +244,14 @@ class Relationship:
     cloud_synced_at: Optional[datetime] = None
     version: int = 1
     deleted: bool = False
+    # Meta-memory fields
+    confidence: float = 0.8
+    source_type: str = "direct_experience"  # SourceType value
+    source_episodes: Optional[List[str]] = None  # IDs of supporting episodes
+    derived_from: Optional[List[str]] = None  # Memory IDs this was derived from
+    last_verified: Optional[datetime] = None
+    verification_count: int = 0
+    confidence_history: Optional[List[Dict[str, Any]]] = None
 
 
 @dataclass
@@ -325,6 +422,112 @@ class Storage(Protocol):
         ...
     
     @abstractmethod
+    def pull_changes(self, since: Optional[datetime] = None) -> SyncResult:
+        """Pull changes from cloud since the given timestamp.
+        
+        Args:
+            since: Pull changes since this time. If None, uses last sync time.
+        
+        Returns:
+            SyncResult with pulled count and any conflicts.
+        """
+        ...
+    
+    @abstractmethod
     def get_pending_sync_count(self) -> int:
         """Get count of records pending sync."""
+        ...
+    
+    @abstractmethod
+    def is_online(self) -> bool:
+        """Check if cloud storage is reachable.
+        
+        Returns True if connected, False if offline.
+        """
+        ...
+    
+    # === Meta-Memory ===
+    
+    @abstractmethod
+    def get_memory(self, memory_type: str, memory_id: str) -> Optional[Any]:
+        """Get a memory by type and ID.
+        
+        Args:
+            memory_type: Type of memory (episode, belief, value, goal, note, drive, relationship)
+            memory_id: ID of the memory
+            
+        Returns:
+            The memory record or None if not found
+        """
+        ...
+    
+    @abstractmethod
+    def update_memory_meta(
+        self,
+        memory_type: str,
+        memory_id: str,
+        confidence: Optional[float] = None,
+        source_type: Optional[str] = None,
+        source_episodes: Optional[List[str]] = None,
+        derived_from: Optional[List[str]] = None,
+        last_verified: Optional[datetime] = None,
+        verification_count: Optional[int] = None,
+        confidence_history: Optional[List[Dict[str, Any]]] = None,
+    ) -> bool:
+        """Update meta-memory fields for a memory.
+        
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            confidence: New confidence value
+            source_type: New source type
+            source_episodes: New source episodes list
+            derived_from: New derived_from list
+            last_verified: New verification timestamp
+            verification_count: New verification count
+            confidence_history: New confidence history
+            
+        Returns:
+            True if updated, False if memory not found
+        """
+        ...
+    
+    @abstractmethod
+    def get_memories_by_confidence(
+        self,
+        threshold: float,
+        below: bool = True,
+        memory_types: Optional[List[str]] = None,
+        limit: int = 100,
+    ) -> List[SearchResult]:
+        """Get memories filtered by confidence threshold.
+        
+        Args:
+            threshold: Confidence threshold
+            below: If True, get memories below threshold; if False, above
+            memory_types: Filter by type (episode, belief, etc.)
+            limit: Maximum results
+            
+        Returns:
+            List of matching memories with their types
+        """
+        ...
+    
+    @abstractmethod
+    def get_memories_by_source(
+        self,
+        source_type: str,
+        memory_types: Optional[List[str]] = None,
+        limit: int = 100,
+    ) -> List[SearchResult]:
+        """Get memories filtered by source type.
+        
+        Args:
+            source_type: Source type to filter by
+            memory_types: Filter by memory type
+            limit: Maximum results
+            
+        Returns:
+            List of matching memories
+        """
         ...

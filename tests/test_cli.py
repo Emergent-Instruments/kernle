@@ -48,6 +48,7 @@ def mock_kernle():
     }
     kernle.clear_checkpoint.return_value = True
     kernle.episode.return_value = "episode123"
+    kernle.episode_with_emotion.return_value = "episode123"
     kernle.note.return_value = "note456" 
     kernle.search.return_value = [
         {
@@ -284,11 +285,16 @@ class TestEpisodeCommand:
         with patch('sys.stdout', new=StringIO()) as fake_out:
             cmd_episode(args, mock_kernle)
         
-        mock_kernle.episode.assert_called_once_with(
+        # With auto_emotion=True by default, episode_with_emotion is called
+        mock_kernle.episode_with_emotion.assert_called_once_with(
             objective="Implement user authentication",
             outcome="Successfully implemented with JWT",
             lessons=["Validate all inputs", "Use secure libraries"],
-            tags=["security", "feature"]
+            tags=["security", "feature"],
+            valence=None,
+            arousal=None,
+            emotional_tags=None,
+            auto_detect=True,
         )
         assert "✓ Episode saved: episode1..." in fake_out.getvalue()
         assert "Lessons: 2" in fake_out.getvalue()
@@ -305,11 +311,16 @@ class TestEpisodeCommand:
         with patch('sys.stdout', new=StringIO()) as fake_out:
             cmd_episode(args, mock_kernle)
         
-        mock_kernle.episode.assert_called_once_with(
+        # With auto_emotion=True by default, episode_with_emotion is called
+        mock_kernle.episode_with_emotion.assert_called_once_with(
             objective="Simple task",
             outcome="completed", 
             lessons=[],
-            tags=[]
+            tags=[],
+            valence=None,
+            arousal=None,
+            emotional_tags=None,
+            auto_detect=True,
         )
 
 
@@ -662,15 +673,21 @@ class TestArgumentParsing:
                 mock_kernle = Mock()
                 mock_kernle_class.return_value = mock_kernle
                 mock_kernle.episode.return_value = "episode123"
+                mock_kernle.episode_with_emotion.return_value = "episode123"
                 
                 with patch('sys.stdout', new=StringIO()):
                     main()
                 
-                mock_kernle.episode.assert_called_once_with(
+                # With auto_emotion=True by default, episode_with_emotion is called
+                mock_kernle.episode_with_emotion.assert_called_once_with(
                     objective="Complete testing",
                     outcome="success",
                     lessons=["Test early", "Test often"],
-                    tags=["testing", "quality"]
+                    tags=["testing", "quality"],
+                    valence=None,
+                    arousal=None,
+                    emotional_tags=None,
+                    auto_detect=True,
                 )
     
     def test_parse_note_args(self):

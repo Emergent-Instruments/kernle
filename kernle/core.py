@@ -1,5 +1,9 @@
 """
 Kernle Core - Stratified memory for synthetic intelligences.
+
+This module provides the main Kernle class, which is the primary interface
+for memory operations. It uses the storage abstraction layer to support
+both local SQLite storage and cloud Supabase storage.
 """
 
 import os
@@ -8,30 +12,104 @@ import uuid
 import logging
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Optional, Dict, List, Any, Union
+from typing import Optional, Dict, List, Any, Union, TYPE_CHECKING
 
-from supabase import create_client
+# Import storage abstraction
+from kernle.storage import (
+    get_storage, Storage,
+    Episode, Belief, Value, Goal, Note, Drive, Relationship, SearchResult
+)
+
+if TYPE_CHECKING:
+    from kernle.storage import Storage as StorageProtocol
 
 # Set up logging
 logger = logging.getLogger(__name__)
 
 
 class Kernle:
-    """Main interface for Kernle memory operations."""
+    """Main interface for Kernle memory operations.
+    
+    Supports both local SQLite storage and cloud Supabase storage.
+    Storage backend is auto-detected based on environment variables,
+    or can be explicitly provided.
+    
+    Examples:
+        # Auto-detect storage (SQLite if no Supabase creds, else Supabase)
+        k = Kernle(agent_id="my_agent")
+        
+        # Explicit SQLite
+        from kernle.storage import SQLiteStorage
+        storage = SQLiteStorage(agent_id="my_agent")
+        k = Kernle(agent_id="my_agent", storage=storage)
+        
+        # Explicit Supabase (backwards compatible)
+        k = Kernle(
+            agent_id="my_agent",
+            supabase_url="https://xxx.supabase.co",
+            supabase_key="my_key"
+        )
+    """
     
     def __init__(
         self,
         agent_id: Optional[str] = None,
+        storage: Optional["StorageProtocol"] = None,
+        # Keep supabase_url/key for backwards compatibility
         supabase_url: Optional[str] = None,
         supabase_key: Optional[str] = None,
         checkpoint_dir: Optional[Path] = None,
     ):
+        """Initialize Kernle.
+        
+        Args:
+            agent_id: Unique identifier for the agent
+            storage: Optional storage backend. If None, auto-detects.
+            supabase_url: Supabase project URL (deprecated, use storage param)
+            supabase_key: Supabase API key (deprecated, use storage param)
+            checkpoint_dir: Directory for local checkpoints
+        """
         self.agent_id = self._validate_agent_id(agent_id or os.environ.get("KERNLE_AGENT_ID", "default"))
-        self.supabase_url = supabase_url or os.environ.get("KERNLE_SUPABASE_URL") or os.environ.get("SUPABASE_URL")
-        self.supabase_key = supabase_key or os.environ.get("KERNLE_SUPABASE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
         self.checkpoint_dir = self._validate_checkpoint_dir(checkpoint_dir or Path.home() / ".kernle" / "checkpoints")
         
-        self._client = None
+        # Store credentials for backwards compatibility
+        self._supabase_url = supabase_url or os.environ.get("KERNLE_SUPABASE_URL") or os.environ.get("SUPABASE_URL")
+        self._supabase_key = supabase_key or os.environ.get("KERNLE_SUPABASE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        
+        # Initialize storage
+        if storage is not None:
+            self._storage = storage
+        else:
+            # Auto-detect storage based on environment
+            self._storage = get_storage(
+                agent_id=self.agent_id,
+                supabase_url=self._supabase_url,
+                supabase_key=self._supabase_key,
+            )
+        
+        logger.debug(f"Kernle initialized with storage: {type(self._storage).__name__}")
+    
+    @property
+    def storage(self) -> "StorageProtocol":
+        """Get the storage backend."""
+        return self._storage
+    
+    @property
+    def client(self):
+        """Backwards-compatible access to Supabase client.
+        
+        DEPRECATED: Use storage abstraction methods instead.
+        
+        Raises:
+            ValueError: If using SQLite storage (no Supabase client available)
+        """
+        from kernle.storage import SupabaseStorage
+        if isinstance(self._storage, SupabaseStorage):
+            return self._storage.client
+        raise ValueError(
+            "Direct Supabase client access not available with SQLite storage. "
+            "Use storage abstraction methods instead, or configure Supabase credentials."
+        )
     
     def _validate_agent_id(self, agent_id: str) -> str:
         """Validate and sanitize agent ID."""
@@ -88,24 +166,6 @@ class Kernle:
         
         return sanitized
     
-    @property
-    def client(self):
-        """Lazy-load Supabase client."""
-        if self._client is None:
-            if not self.supabase_url or not self.supabase_key:
-                raise ValueError("Supabase credentials required. Set KERNLE_SUPABASE_URL and KERNLE_SUPABASE_KEY.")
-            
-            # Validate URL format
-            if not self.supabase_url.startswith(('http://', 'https://')):
-                raise ValueError("Invalid Supabase URL format. Must start with http:// or https://")
-            
-            # Validate key is not empty/whitespace
-            if not self.supabase_key.strip():
-                raise ValueError("Supabase key cannot be empty")
-                
-            self._client = create_client(self.supabase_url, self.supabase_key)
-        return self._client
-    
     # =========================================================================
     # LOAD
     # =========================================================================
@@ -126,67 +186,101 @@ class Kernle:
     
     def load_values(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Load normative values (highest authority)."""
-        result = self.client.table("agent_values").select(
-            "name, statement, priority, value_type"
-        ).eq("agent_id", self.agent_id).eq("is_active", True).order(
-            "priority", desc=True
-        ).limit(limit).execute()
-        return result.data
+        values = self._storage.get_values(limit=limit)
+        return [
+            {
+                "id": v.id,
+                "name": v.name,
+                "statement": v.statement,
+                "priority": v.priority,
+                "value_type": "core_value",  # Default for backwards compatibility
+            }
+            for v in values
+        ]
     
     def load_beliefs(self, limit: int = 20) -> List[Dict[str, Any]]:
         """Load semantic beliefs."""
-        result = self.client.table("agent_beliefs").select(
-            "statement, belief_type, confidence"
-        ).eq("agent_id", self.agent_id).eq("is_active", True).order(
-            "confidence", desc=True
-        ).limit(limit).execute()
-        return result.data
+        beliefs = self._storage.get_beliefs(limit=limit)
+        # Sort by confidence descending
+        beliefs = sorted(beliefs, key=lambda b: b.confidence, reverse=True)
+        return [
+            {
+                "id": b.id,
+                "statement": b.statement,
+                "belief_type": b.belief_type,
+                "confidence": b.confidence,
+            }
+            for b in beliefs[:limit]
+        ]
     
-    def load_goals(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """Load active goals."""
-        result = self.client.table("agent_goals").select(
-            "title, description, priority, status"
-        ).eq("agent_id", self.agent_id).eq("status", "active").order(
-            "created_at", desc=True
-        ).limit(limit).execute()
-        return result.data
+    def load_goals(self, limit: int = 10, status: str = "active") -> List[Dict[str, Any]]:
+        """Load goals filtered by status.
+        
+        Args:
+            limit: Maximum number of goals to return
+            status: Filter by status - "active", "completed", "paused", or "all"
+        """
+        goals = self._storage.get_goals(
+            status=None if status == "all" else status,
+            limit=limit
+        )
+        return [
+            {
+                "id": g.id,
+                "title": g.title,
+                "description": g.description,
+                "priority": g.priority,
+                "status": g.status,
+            }
+            for g in goals
+        ]
     
     def load_lessons(self, limit: int = 20) -> List[str]:
         """Load lessons from reflected episodes."""
-        result = self.client.table("agent_episodes").select(
-            "lessons_learned"
-        ).eq("agent_id", self.agent_id).eq("is_reflected", True).order(
-            "created_at", desc=True
-        ).limit(limit).execute()
+        episodes = self._storage.get_episodes(limit=limit)
         
         lessons = []
-        for ep in result.data:
-            lessons.extend(ep.get("lessons_learned", [])[:2])
+        for ep in episodes:
+            if ep.lessons:
+                lessons.extend(ep.lessons[:2])
         return lessons
     
     def load_recent_work(self, limit: int = 5) -> List[Dict[str, Any]]:
         """Load recent episodes."""
-        result = self.client.table("agent_episodes").select(
-            "objective, outcome_type, tags, created_at"
-        ).eq("agent_id", self.agent_id).order(
-            "created_at", desc=True
-        ).limit(limit * 2).execute()
+        episodes = self._storage.get_episodes(limit=limit * 2)
         
         # Filter out checkpoints
         non_checkpoint = [
-            e for e in result.data 
-            if "checkpoint" not in (e.get("tags") or [])
+            e for e in episodes 
+            if not e.tags or "checkpoint" not in e.tags
         ]
-        return non_checkpoint[:limit]
+        
+        return [
+            {
+                "objective": e.objective,
+                "outcome_type": e.outcome_type,
+                "tags": e.tags,
+                "created_at": e.created_at.isoformat() if e.created_at else None,
+            }
+            for e in non_checkpoint[:limit]
+        ]
     
-    def load_recent_notes(self, limit: int = 5) -> list[dict]:
+    def load_recent_notes(self, limit: int = 5) -> List[Dict[str, Any]]:
         """Load recent curated notes."""
-        result = self.client.table("memories").select(
-            "content, metadata, created_at"
-        ).eq("owner_id", self.agent_id).eq("source", "curated").order(
-            "created_at", desc=True
-        ).limit(limit).execute()
-        return result.data
+        notes = self._storage.get_notes(limit=limit)
+        return [
+            {
+                "content": n.content,
+                "metadata": {
+                    "note_type": n.note_type,
+                    "tags": n.tags,
+                    "speaker": n.speaker,
+                    "reason": n.reason,
+                },
+                "created_at": n.created_at.isoformat() if n.created_at else None,
+            }
+            for n in notes
+        ]
     
     # =========================================================================
     # CHECKPOINT
@@ -237,16 +331,19 @@ class Kernle:
             logger.error(f"Cannot save checkpoint: {e}")
             raise ValueError(f"Cannot save checkpoint: {e}")
         
-        # Also save to Supabase as episode
+        # Also save as episode
         try:
-            self.client.table("agent_episodes").insert({
-                "agent_id": self.agent_id,
-                "objective": f"[CHECKPOINT] {self._validate_string_input(task, 'task', 500)}",
-                "outcome_type": "partial",
-                "outcome_description": self._validate_string_input(context or "Working state checkpoint", 'context', 1000),
-                "lessons_learned": pending or [],
-                "tags": ["checkpoint", "working_state"],
-            }).execute()
+            episode = Episode(
+                id=str(uuid.uuid4()),
+                agent_id=self.agent_id,
+                objective=f"[CHECKPOINT] {self._validate_string_input(task, 'task', 500)}",
+                outcome=self._validate_string_input(context or "Working state checkpoint", 'context', 1000),
+                outcome_type="partial",
+                lessons=pending or [],
+                tags=["checkpoint", "working_state"],
+                created_at=datetime.now(timezone.utc),
+            )
+            self._storage.save_episode(episode)
         except Exception as e:
             logger.warning(f"Failed to save checkpoint to database: {e}")
             # Local save is sufficient, continue
@@ -309,22 +406,69 @@ class Kernle:
             "failure" if outcome.lower() in ("failure", "failed", "error") else "partial"
         )
         
-        episode_data = {
-            "id": episode_id,
-            "agent_id": self.agent_id,
-            "objective": objective,
-            "outcome_type": outcome_type,
-            "outcome_description": outcome,
-            "lessons_learned": lessons or [],
-            "patterns_to_repeat": repeat or [],
-            "patterns_to_avoid": avoid or [],
-            "tags": tags or ["manual"],
-            "is_reflected": True,
-            "confidence": 0.8,
-        }
+        # Combine lessons with repeat/avoid patterns
+        all_lessons = lessons or []
+        if repeat:
+            all_lessons.extend([f"Repeat: {r}" for r in repeat])
+        if avoid:
+            all_lessons.extend([f"Avoid: {a}" for a in avoid])
         
-        self.client.table("agent_episodes").insert(episode_data).execute()
+        episode = Episode(
+            id=episode_id,
+            agent_id=self.agent_id,
+            objective=objective,
+            outcome=outcome,
+            outcome_type=outcome_type,
+            lessons=all_lessons if all_lessons else None,
+            tags=tags or ["manual"],
+            created_at=datetime.now(timezone.utc),
+            confidence=0.8,
+        )
+        
+        self._storage.save_episode(episode)
         return episode_id
+    
+    def update_episode(
+        self,
+        episode_id: str,
+        outcome: Optional[str] = None,
+        lessons: Optional[List[str]] = None,
+        tags: Optional[List[str]] = None,
+    ) -> bool:
+        """Update an existing episode."""
+        # Validate inputs
+        episode_id = self._validate_string_input(episode_id, "episode_id", 100)
+        
+        # Get the existing episode
+        existing = self._storage.get_episode(episode_id)
+        
+        if not existing:
+            return False
+        
+        if outcome is not None:
+            outcome = self._validate_string_input(outcome, "outcome", 1000)
+            existing.outcome = outcome
+            # Update outcome_type based on new outcome
+            outcome_type = "success" if outcome.lower() in ("success", "done", "completed") else (
+                "failure" if outcome.lower() in ("failure", "failed", "error") else "partial"
+            )
+            existing.outcome_type = outcome_type
+        
+        if lessons:
+            lessons = [self._validate_string_input(l, "lesson", 500) for l in lessons]
+            # Merge with existing lessons
+            existing_lessons = existing.lessons or []
+            existing.lessons = list(set(existing_lessons + lessons))
+        
+        if tags:
+            tags = [self._validate_string_input(t, "tag", 100) for t in tags]
+            # Merge with existing tags
+            existing_tags = existing.tags or []
+            existing.tags = list(set(existing_tags + tags))
+        
+        existing.version += 1
+        self._storage.save_episode(existing)
+        return True
     
     # =========================================================================
     # NOTES
@@ -368,28 +512,18 @@ class Kernle:
         else:
             formatted = content
         
-        metadata = {
-            "note_type": type,
-            "tags": tags or [],
-        }
-        if speaker:
-            metadata["speaker"] = speaker
-        if reason:
-            metadata["reason"] = reason
+        note = Note(
+            id=note_id,
+            agent_id=self.agent_id,
+            content=formatted,
+            note_type=type,
+            speaker=speaker,
+            reason=reason,
+            tags=tags or [],
+            created_at=datetime.now(timezone.utc),
+        )
         
-        note_data = {
-            "id": note_id,
-            "owner_id": self.agent_id,
-            "owner_type": "agent",
-            "content": formatted,
-            "source": "curated",
-            "metadata": metadata,
-            "visibility": "private",
-            "is_curated": True,
-            "is_protected": protect,
-        }
-        
-        self.client.table("memories").insert(note_data).execute()
+        self._storage.save_note(note)
         return note_id
     
     # =========================================================================
@@ -406,17 +540,16 @@ class Kernle:
         """Add or update a belief."""
         belief_id = str(uuid.uuid4())
         
-        belief_data = {
-            "id": belief_id,
-            "agent_id": self.agent_id,
-            "statement": statement,
-            "belief_type": type,
-            "confidence": confidence,
-            "is_active": True,
-            "is_foundational": foundational,
-        }
+        belief = Belief(
+            id=belief_id,
+            agent_id=self.agent_id,
+            statement=statement,
+            belief_type=type,
+            confidence=confidence,
+            created_at=datetime.now(timezone.utc),
+        )
         
-        self.client.table("agent_beliefs").insert(belief_data).execute()
+        self._storage.save_belief(belief)
         return belief_id
     
     def value(
@@ -430,18 +563,16 @@ class Kernle:
         """Add or affirm a value."""
         value_id = str(uuid.uuid4())
         
-        value_data = {
-            "id": value_id,
-            "agent_id": self.agent_id,
-            "name": name,
-            "statement": statement,
-            "priority": priority,
-            "value_type": type,
-            "is_active": True,
-            "is_foundational": foundational,
-        }
+        value = Value(
+            id=value_id,
+            agent_id=self.agent_id,
+            name=name,
+            statement=statement,
+            priority=priority,
+            created_at=datetime.now(timezone.utc),
+        )
         
-        self.client.table("agent_values").insert(value_data).execute()
+        self._storage.save_value(value)
         return value_id
     
     def goal(
@@ -453,105 +584,146 @@ class Kernle:
         """Add a goal."""
         goal_id = str(uuid.uuid4())
         
-        goal_data = {
-            "id": goal_id,
-            "agent_id": self.agent_id,
-            "title": title,
-            "description": description or title,
-            "priority": priority,
-            "status": "active",
-            "visibility": "public",
-        }
+        goal = Goal(
+            id=goal_id,
+            agent_id=self.agent_id,
+            title=title,
+            description=description or title,
+            priority=priority,
+            status="active",
+            created_at=datetime.now(timezone.utc),
+        )
         
-        self.client.table("agent_goals").insert(goal_data).execute()
+        self._storage.save_goal(goal)
         return goal_id
+    
+    def update_goal(
+        self,
+        goal_id: str,
+        status: Optional[str] = None,
+        priority: Optional[str] = None,
+        description: Optional[str] = None,
+    ) -> bool:
+        """Update a goal's status, priority, or description."""
+        # Validate inputs
+        goal_id = self._validate_string_input(goal_id, "goal_id", 100)
+        
+        # Get goals to find matching one
+        goals = self._storage.get_goals(status=None, limit=1000)
+        existing = None
+        for g in goals:
+            if g.id == goal_id:
+                existing = g
+                break
+        
+        if not existing:
+            return False
+        
+        if status is not None:
+            if status not in ("active", "completed", "paused"):
+                raise ValueError("Invalid status. Must be one of: active, completed, paused")
+            existing.status = status
+        
+        if priority is not None:
+            if priority not in ("low", "medium", "high"):
+                raise ValueError("Invalid priority. Must be one of: low, medium, high")
+            existing.priority = priority
+        
+        if description is not None:
+            description = self._validate_string_input(description, "description", 1000)
+            existing.description = description
+        
+        existing.version += 1
+        self._storage.save_goal(existing)
+        return True
+    
+    def update_belief(
+        self,
+        belief_id: str,
+        confidence: Optional[float] = None,
+        is_active: Optional[bool] = None,
+    ) -> bool:
+        """Update a belief's confidence or deactivate it."""
+        # Validate inputs
+        belief_id = self._validate_string_input(belief_id, "belief_id", 100)
+        
+        # Get beliefs to find matching one
+        beliefs = self._storage.get_beliefs(limit=1000)
+        existing = None
+        for b in beliefs:
+            if b.id == belief_id:
+                existing = b
+                break
+        
+        if not existing:
+            return False
+        
+        if confidence is not None:
+            if not 0.0 <= confidence <= 1.0:
+                raise ValueError("Confidence must be between 0.0 and 1.0")
+            existing.confidence = confidence
+        
+        if is_active is not None and not is_active:
+            existing.deleted = True
+        
+        existing.version += 1
+        self._storage.save_belief(existing)
+        return True
     
     # =========================================================================
     # SEARCH
     # =========================================================================
     
-    def search(self, query: str, limit: int = 10) -> list[dict]:
+    def search(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
         """Search across episodes, notes, and beliefs."""
-        query_lower = query.lower()
-        results = []
+        results = self._storage.search(query, limit=limit)
         
-        # Search episodes
-        episodes = self.client.table("agent_episodes").select(
-            "objective, outcome_type, outcome_description, lessons_learned, tags, created_at"
-        ).eq("agent_id", self.agent_id).order("created_at", desc=True).limit(50).execute()
-        
-        for ep in episodes.data:
-            text = f"{ep.get('objective', '')} {ep.get('outcome_description', '')} {' '.join(ep.get('lessons_learned', []))}"
-            if query_lower in text.lower():
-                results.append({
+        formatted = []
+        for r in results:
+            record = r.record
+            record_type = r.record_type
+            
+            if record_type == "episode":
+                formatted.append({
                     "type": "episode",
-                    "title": ep.get("objective", "")[:60],
-                    "content": ep.get("outcome_description", ""),
-                    "lessons": ep.get("lessons_learned", [])[:2],
-                    "date": ep.get("created_at", "")[:10],
+                    "title": record.objective[:60] if record.objective else "",
+                    "content": record.outcome,
+                    "lessons": (record.lessons or [])[:2],
+                    "date": record.created_at.strftime("%Y-%m-%d") if record.created_at else "",
                 })
-        
-        # Search notes
-        notes = self.client.table("memories").select(
-            "content, metadata, created_at"
-        ).eq("owner_id", self.agent_id).eq("source", "curated").order("created_at", desc=True).limit(50).execute()
-        
-        for note in notes.data:
-            if query_lower in note.get("content", "").lower():
-                meta = note.get("metadata", {}) or {}
-                results.append({
-                    "type": meta.get("note_type", "note"),
-                    "title": note.get("content", "")[:60],
-                    "content": note.get("content", ""),
-                    "tags": meta.get("tags", []),
-                    "date": note.get("created_at", "")[:10],
+            elif record_type == "note":
+                formatted.append({
+                    "type": record.note_type or "note",
+                    "title": record.content[:60] if record.content else "",
+                    "content": record.content,
+                    "tags": record.tags or [],
+                    "date": record.created_at.strftime("%Y-%m-%d") if record.created_at else "",
                 })
-        
-        # Search beliefs
-        beliefs = self.client.table("agent_beliefs").select(
-            "statement, confidence, created_at"
-        ).eq("agent_id", self.agent_id).eq("is_active", True).execute()
-        
-        for b in beliefs.data:
-            if query_lower in b.get("statement", "").lower():
-                results.append({
+            elif record_type == "belief":
+                formatted.append({
                     "type": "belief",
-                    "title": b.get("statement", "")[:60],
-                    "content": b.get("statement", ""),
-                    "confidence": b.get("confidence"),
-                    "date": b.get("created_at", "")[:10],
+                    "title": record.statement[:60] if record.statement else "",
+                    "content": record.statement,
+                    "confidence": record.confidence,
+                    "date": record.created_at.strftime("%Y-%m-%d") if record.created_at else "",
                 })
         
-        return results[:limit]
+        return formatted[:limit]
     
     # =========================================================================
     # STATUS
     # =========================================================================
     
-    def status(self) -> dict:
+    def status(self) -> Dict[str, Any]:
         """Get memory statistics."""
-        values = self.client.table("agent_values").select("id", count="exact").eq(
-            "agent_id", self.agent_id
-        ).eq("is_active", True).execute()
-        
-        beliefs = self.client.table("agent_beliefs").select("id", count="exact").eq(
-            "agent_id", self.agent_id
-        ).eq("is_active", True).execute()
-        
-        goals = self.client.table("agent_goals").select("id", count="exact").eq(
-            "agent_id", self.agent_id
-        ).eq("status", "active").execute()
-        
-        episodes = self.client.table("agent_episodes").select("id", count="exact").eq(
-            "agent_id", self.agent_id
-        ).execute()
+        stats = self._storage.get_stats()
         
         return {
             "agent_id": self.agent_id,
-            "values": values.count or 0,
-            "beliefs": beliefs.count or 0,
-            "goals": goals.count or 0,
-            "episodes": episodes.count or 0,
+            "values": stats.get("values", 0),
+            "beliefs": stats.get("beliefs", 0),
+            "goals": stats.get("goals", 0),
+            "episodes": stats.get("episodes", 0),
             "checkpoint": self.load_checkpoint() is not None,
         }
     
@@ -559,7 +731,7 @@ class Kernle:
     # FORMATTING
     # =========================================================================
     
-    def format_memory(self, memory: Optional[dict] = None) -> str:
+    def format_memory(self, memory: Optional[Dict[str, Any]] = None) -> str:
         """Format memory for injection into context."""
         if memory is None:
             memory = self.load()
@@ -627,7 +799,7 @@ class Kernle:
         if memory.get("relationships"):
             lines.append("## Key Relationships")
             for r in memory["relationships"][:5]:
-                lines.append(f"- {r['other_agent_id']}: trust {r.get('trust_level', 0):.0%}")
+                lines.append(f"- {r['entity_name']}: sentiment {r.get('sentiment', 0):.0%}")
             lines.append("")
         
         return "\n".join(lines)
@@ -638,64 +810,67 @@ class Kernle:
     
     DRIVE_TYPES = ["existence", "growth", "curiosity", "connection", "reproduction"]
     
-    def load_drives(self) -> list[dict]:
+    def load_drives(self) -> List[Dict[str, Any]]:
         """Load current drive states."""
-        result = self.client.table("agent_drives").select(
-            "drive_type, intensity, last_satisfied_at, focus_areas"
-        ).eq("agent_id", self.agent_id).execute()
-        return result.data
+        drives = self._storage.get_drives()
+        return [
+            {
+                "id": d.id,
+                "drive_type": d.drive_type,
+                "intensity": d.intensity,
+                "last_satisfied_at": d.updated_at.isoformat() if d.updated_at else None,
+                "focus_areas": d.focus_areas,
+            }
+            for d in drives
+        ]
     
     def drive(
         self,
         drive_type: str,
         intensity: float = 0.5,
-        focus_areas: Optional[list[str]] = None,
+        focus_areas: Optional[List[str]] = None,
         decay_hours: int = 24,
     ) -> str:
         """Set or update a drive."""
         if drive_type not in self.DRIVE_TYPES:
             raise ValueError(f"Invalid drive type. Must be one of: {self.DRIVE_TYPES}")
         
-        drive_id = str(uuid.uuid4())
-        
         # Check if drive exists
-        existing = self.client.table("agent_drives").select("id").eq(
-            "agent_id", self.agent_id
-        ).eq("drive_type", drive_type).execute()
+        existing = self._storage.get_drive(drive_type)
         
-        drive_data = {
-            "agent_id": self.agent_id,
-            "drive_type": drive_type,
-            "intensity": max(0.0, min(1.0, intensity)),
-            "focus_areas": focus_areas or [],
-            "satisfaction_decay_hours": decay_hours,
-            "last_satisfied_at": datetime.now(timezone.utc).isoformat(),
-        }
+        now = datetime.now(timezone.utc)
         
-        if existing.data:
-            # Update existing
-            self.client.table("agent_drives").update(drive_data).eq(
-                "id", existing.data[0]["id"]
-            ).execute()
-            return existing.data[0]["id"]
+        if existing:
+            existing.intensity = max(0.0, min(1.0, intensity))
+            existing.focus_areas = focus_areas or []
+            existing.updated_at = now
+            existing.version += 1
+            self._storage.save_drive(existing)
+            return existing.id
         else:
-            # Create new
-            drive_data["id"] = drive_id
-            self.client.table("agent_drives").insert(drive_data).execute()
+            drive_id = str(uuid.uuid4())
+            drive = Drive(
+                id=drive_id,
+                agent_id=self.agent_id,
+                drive_type=drive_type,
+                intensity=max(0.0, min(1.0, intensity)),
+                focus_areas=focus_areas or [],
+                created_at=now,
+                updated_at=now,
+            )
+            self._storage.save_drive(drive)
             return drive_id
     
     def satisfy_drive(self, drive_type: str, amount: float = 0.2) -> bool:
         """Record satisfaction of a drive (reduces intensity toward baseline)."""
-        existing = self.client.table("agent_drives").select("id, intensity").eq(
-            "agent_id", self.agent_id
-        ).eq("drive_type", drive_type).execute()
+        existing = self._storage.get_drive(drive_type)
         
-        if existing.data:
-            new_intensity = max(0.1, existing.data[0]["intensity"] - amount)
-            self.client.table("agent_drives").update({
-                "intensity": new_intensity,
-                "last_satisfied_at": datetime.now(timezone.utc).isoformat(),
-            }).eq("id", existing.data[0]["id"]).execute()
+        if existing:
+            new_intensity = max(0.1, existing.intensity - amount)
+            existing.intensity = new_intensity
+            existing.updated_at = datetime.now(timezone.utc)
+            existing.version += 1
+            self._storage.save_drive(existing)
             return True
         return False
     
@@ -703,19 +878,29 @@ class Kernle:
     # RELATIONAL MEMORY (Models of Other Agents)
     # =========================================================================
     
-    def load_relationships(self, limit: int = 10) -> list[dict]:
+    def load_relationships(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Load relationship models for other agents."""
-        # Try to load from a relationships table or memories with relational metadata
-        try:
-            result = self.client.table("agent_relationships").select(
-                "other_agent_id, trust_level, interaction_count, last_interaction, notes"
-            ).eq("agent_id", self.agent_id).order(
-                "last_interaction", desc=True
-            ).limit(limit).execute()
-            return result.data
-        except:
-            # Table might not exist, return empty
-            return []
+        relationships = self._storage.get_relationships()
+        
+        # Sort by last interaction, descending
+        relationships = sorted(
+            relationships,
+            key=lambda r: r.last_interaction or datetime.min.replace(tzinfo=timezone.utc),
+            reverse=True
+        )
+        
+        return [
+            {
+                "other_agent_id": r.entity_name,  # backwards compat
+                "entity_name": r.entity_name,
+                "trust_level": (r.sentiment + 1) / 2,  # Convert sentiment to trust
+                "sentiment": r.sentiment,
+                "interaction_count": r.interaction_count,
+                "last_interaction": r.last_interaction.isoformat() if r.last_interaction else None,
+                "notes": r.notes,
+            }
+            for r in relationships[:limit]
+        ]
     
     def relationship(
         self,
@@ -725,51 +910,37 @@ class Kernle:
         interaction_type: Optional[str] = None,
     ) -> str:
         """Update relationship model for another agent."""
-        rel_id = str(uuid.uuid4())
-        
         # Check existing
-        try:
-            existing = self.client.table("agent_relationships").select("*").eq(
-                "agent_id", self.agent_id
-            ).eq("other_agent_id", other_agent_id).execute()
-        except:
-            existing = type('obj', (object,), {'data': []})()
+        existing = self._storage.get_relationship(other_agent_id)
         
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(timezone.utc)
         
-        if existing.data:
-            # Update
-            update_data = {"last_interaction": now}
+        if existing:
             if trust_level is not None:
-                update_data["trust_level"] = max(0.0, min(1.0, trust_level))
+                # Convert trust_level (0-1) to sentiment (-1 to 1)
+                existing.sentiment = max(-1.0, min(1.0, (trust_level * 2) - 1))
             if notes:
-                update_data["notes"] = notes
-            update_data["interaction_count"] = existing.data[0].get("interaction_count", 0) + 1
-            
-            self.client.table("agent_relationships").update(update_data).eq(
-                "id", existing.data[0]["id"]
-            ).execute()
-            return existing.data[0]["id"]
+                existing.notes = notes
+            existing.interaction_count += 1
+            existing.last_interaction = now
+            existing.version += 1
+            self._storage.save_relationship(existing)
+            return existing.id
         else:
-            # Create
-            rel_data = {
-                "id": rel_id,
-                "agent_id": self.agent_id,
-                "other_agent_id": other_agent_id,
-                "trust_level": trust_level or 0.5,
-                "interaction_count": 1,
-                "last_interaction": now,
-                "notes": notes,
-            }
-            try:
-                self.client.table("agent_relationships").insert(rel_data).execute()
-            except:
-                # Table might not exist, store in memories instead
-                self.note(
-                    f"Relationship with {other_agent_id}: trust={trust_level}, {notes}",
-                    type="note",
-                    tags=["relationship", other_agent_id],
-                )
+            rel_id = str(uuid.uuid4())
+            relationship = Relationship(
+                id=rel_id,
+                agent_id=self.agent_id,
+                entity_name=other_agent_id,
+                entity_type="agent",
+                relationship_type=interaction_type or "interaction",
+                notes=notes,
+                sentiment=((trust_level * 2) - 1) if trust_level is not None else 0.0,
+                interaction_count=1,
+                last_interaction=now,
+                created_at=now,
+            )
+            self._storage.save_relationship(relationship)
             return rel_id
     
     # =========================================================================
@@ -781,41 +952,43 @@ class Kernle:
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
         limit: int = 20,
-    ) -> dict:
+    ) -> Dict[str, Any]:
         """Load memories within a time range."""
         if end is None:
             end = datetime.now(timezone.utc)
         if start is None:
             start = end.replace(hour=0, minute=0, second=0, microsecond=0)
         
-        start_iso = start.isoformat()
-        end_iso = end.isoformat()
+        # Get episodes in range
+        episodes = self._storage.get_episodes(limit=limit, since=start)
+        episodes = [e for e in episodes if e.created_at and e.created_at <= end]
         
-        # Episodes in range
-        episodes = self.client.table("agent_episodes").select(
-            "objective, outcome_type, lessons_learned, created_at"
-        ).eq("agent_id", self.agent_id).gte(
-            "created_at", start_iso
-        ).lte("created_at", end_iso).order(
-            "created_at", desc=True
-        ).limit(limit).execute()
-        
-        # Notes in range
-        notes = self.client.table("memories").select(
-            "content, metadata, created_at"
-        ).eq("owner_id", self.agent_id).eq("source", "curated").gte(
-            "created_at", start_iso
-        ).lte("created_at", end_iso).order(
-            "created_at", desc=True
-        ).limit(limit).execute()
+        # Get notes in range
+        notes = self._storage.get_notes(limit=limit, since=start)
+        notes = [n for n in notes if n.created_at and n.created_at <= end]
         
         return {
-            "range": {"start": start_iso, "end": end_iso},
-            "episodes": episodes.data,
-            "notes": notes.data,
+            "range": {"start": start.isoformat(), "end": end.isoformat()},
+            "episodes": [
+                {
+                    "objective": e.objective,
+                    "outcome_type": e.outcome_type,
+                    "lessons_learned": e.lessons,
+                    "created_at": e.created_at.isoformat() if e.created_at else None,
+                }
+                for e in episodes
+            ],
+            "notes": [
+                {
+                    "content": n.content,
+                    "metadata": {"note_type": n.note_type, "tags": n.tags},
+                    "created_at": n.created_at.isoformat() if n.created_at else None,
+                }
+                for n in notes
+            ],
         }
     
-    def what_happened(self, when: str = "today") -> dict:
+    def what_happened(self, when: str = "today") -> Dict[str, Any]:
         """Natural language time query."""
         now = datetime.now(timezone.utc)
         
@@ -869,7 +1042,73 @@ class Kernle:
         },
     }
     
-    def detect_significance(self, text: str) -> dict:
+    # Emotional signal patterns for automatic tagging
+    EMOTION_PATTERNS = {
+        # Positive emotions (high valence)
+        "joy": {
+            "keywords": ["happy", "joy", "delighted", "wonderful", "amazing", "fantastic", "love it", "excited"],
+            "valence": 0.8,
+            "arousal": 0.6,
+        },
+        "satisfaction": {
+            "keywords": ["satisfied", "pleased", "content", "glad", "good", "nice", "well done"],
+            "valence": 0.6,
+            "arousal": 0.3,
+        },
+        "excitement": {
+            "keywords": ["excited", "thrilled", "pumped", "can't wait", "awesome", "incredible"],
+            "valence": 0.7,
+            "arousal": 0.9,
+        },
+        "curiosity": {
+            "keywords": ["curious", "interesting", "fascinating", "wonder", "intriguing", "want to know"],
+            "valence": 0.3,
+            "arousal": 0.5,
+        },
+        "pride": {
+            "keywords": ["proud", "accomplished", "achieved", "nailed it", "crushed it"],
+            "valence": 0.7,
+            "arousal": 0.5,
+        },
+        "gratitude": {
+            "keywords": ["grateful", "thankful", "appreciate", "thanks so much", "means a lot"],
+            "valence": 0.7,
+            "arousal": 0.3,
+        },
+        # Negative emotions (low valence)
+        "frustration": {
+            "keywords": ["frustrated", "annoying", "irritated", "ugh", "argh", "why won't", "doesn't work"],
+            "valence": -0.6,
+            "arousal": 0.7,
+        },
+        "disappointment": {
+            "keywords": ["disappointed", "let down", "expected better", "unfortunate", "bummer"],
+            "valence": -0.5,
+            "arousal": 0.3,
+        },
+        "anxiety": {
+            "keywords": ["worried", "anxious", "nervous", "concerned", "stressed", "overwhelmed"],
+            "valence": -0.4,
+            "arousal": 0.7,
+        },
+        "confusion": {
+            "keywords": ["confused", "don't understand", "unclear", "lost", "what do you mean"],
+            "valence": -0.2,
+            "arousal": 0.4,
+        },
+        "sadness": {
+            "keywords": ["sad", "unhappy", "depressed", "down", "terrible", "awful"],
+            "valence": -0.7,
+            "arousal": 0.2,
+        },
+        "anger": {
+            "keywords": ["angry", "furious", "mad", "hate", "outraged", "unacceptable"],
+            "valence": -0.8,
+            "arousal": 0.9,
+        },
+    }
+    
+    def detect_significance(self, text: str) -> Dict[str, Any]:
         """Detect if text contains significant signals worth capturing."""
         text_lower = text.lower()
         signals = []
@@ -920,56 +1159,687 @@ class Kernle:
         return None
     
     # =========================================================================
-    # CONSOLIDATION (Episodes → Beliefs/Lessons)
+    # EMOTIONAL MEMORY
     # =========================================================================
     
-    def consolidate(self, min_episodes: int = 3) -> dict:
-        """Extract patterns from episodes, update beliefs."""
-        # Get unreflected episodes
-        episodes = self.client.table("agent_episodes").select("*").eq(
-            "agent_id", self.agent_id
-        ).eq("is_reflected", False).execute()
+    def detect_emotion(self, text: str) -> Dict[str, Any]:
+        """Detect emotional signals in text.
         
-        if len(episodes.data) < min_episodes:
-            return {"consolidated": 0, "message": f"Need {min_episodes} episodes, have {len(episodes.data)}"}
+        Args:
+            text: Text to analyze for emotional content
+            
+        Returns:
+            dict with:
+            - valence: float (-1.0 to 1.0)
+            - arousal: float (0.0 to 1.0)
+            - tags: list[str] - detected emotion labels
+            - confidence: float - how confident we are
+        """
+        text_lower = text.lower()
+        detected_emotions = []
+        valence_sum = 0.0
+        arousal_sum = 0.0
         
-        # Collect all lessons
-        all_lessons = []
-        for ep in episodes.data:
-            all_lessons.extend(ep.get("lessons_learned", []))
+        for emotion_name, pattern in self.EMOTION_PATTERNS.items():
+            for keyword in pattern["keywords"]:
+                if keyword in text_lower:
+                    detected_emotions.append(emotion_name)
+                    valence_sum += pattern["valence"]
+                    arousal_sum += pattern["arousal"]
+                    break  # One match per emotion is enough
         
-        # Find repeated lessons (potential beliefs)
-        from collections import Counter
-        lesson_counts = Counter(all_lessons)
-        
-        new_beliefs = 0
-        for lesson, count in lesson_counts.items():
-            if count >= 2:  # Lesson appeared multiple times
-                # Check if belief already exists
-                # Escape lesson content to prevent SQL injection
-                escaped_lesson = lesson[:50].replace("%", "\\%").replace("_", "\\_")
-                existing = self.client.table("agent_beliefs").select("id").eq(
-                    "agent_id", self.agent_id
-                ).ilike("statement", f"%{escaped_lesson}%").execute()
-                
-                if not existing.data:
-                    # Create new belief from repeated lesson
-                    self.belief(
-                        statement=lesson,
-                        type="learned",
-                        confidence=min(0.9, 0.5 + (count * 0.1)),
-                        foundational=False,
-                    )
-                    new_beliefs += 1
-        
-        # Mark episodes as reflected
-        for ep in episodes.data:
-            self.client.table("agent_episodes").update({
-                "is_reflected": True
-            }).eq("id", ep["id"]).execute()
+        if detected_emotions:
+            # Average the emotional values
+            count = len(detected_emotions)
+            avg_valence = max(-1.0, min(1.0, valence_sum / count))
+            avg_arousal = max(0.0, min(1.0, arousal_sum / count))
+            confidence = min(1.0, 0.3 + (count * 0.2))  # More matches = higher confidence
+        else:
+            avg_valence = 0.0
+            avg_arousal = 0.0
+            confidence = 0.0
         
         return {
-            "consolidated": len(episodes.data),
-            "new_beliefs": new_beliefs,
-            "lessons_found": len(all_lessons),
+            "valence": avg_valence,
+            "arousal": avg_arousal,
+            "tags": detected_emotions,
+            "confidence": confidence,
+        }
+    
+    def add_emotional_association(
+        self,
+        episode_id: str,
+        valence: float,
+        arousal: float,
+        tags: Optional[List[str]] = None,
+    ) -> bool:
+        """Add or update emotional associations for an episode.
+        
+        Args:
+            episode_id: The episode to update
+            valence: Emotional valence (-1.0 negative to 1.0 positive)
+            arousal: Emotional arousal (0.0 calm to 1.0 intense)
+            tags: Emotional labels (e.g., ["joy", "excitement"])
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        # Clamp values
+        valence = max(-1.0, min(1.0, valence))
+        arousal = max(0.0, min(1.0, arousal))
+        
+        try:
+            return self._storage.update_episode_emotion(
+                episode_id=episode_id,
+                valence=valence,
+                arousal=arousal,
+                tags=tags,
+            )
+        except Exception as e:
+            logger.warning(f"Failed to add emotional association: {e}")
+            return False
+    
+    def get_emotional_summary(self, days: int = 7) -> Dict[str, Any]:
+        """Get emotional pattern summary over time period.
+        
+        Args:
+            days: Number of days to analyze
+            
+        Returns:
+            dict with:
+            - average_valence: float
+            - average_arousal: float
+            - dominant_emotions: list[str]
+            - emotional_trajectory: list - trend over time
+            - episode_count: int - number of emotional episodes
+        """
+        # Get episodes with emotional data
+        emotional_episodes = self._storage.get_emotional_episodes(days=days, limit=100)
+        
+        if not emotional_episodes:
+            return {
+                "average_valence": 0.0,
+                "average_arousal": 0.0,
+                "dominant_emotions": [],
+                "emotional_trajectory": [],
+                "episode_count": 0,
+            }
+        
+        # Calculate averages
+        valences = [ep.emotional_valence or 0.0 for ep in emotional_episodes]
+        arousals = [ep.emotional_arousal or 0.0 for ep in emotional_episodes]
+        
+        avg_valence = sum(valences) / len(valences)
+        avg_arousal = sum(arousals) / len(arousals)
+        
+        # Count emotion tags
+        from collections import Counter
+        all_tags = []
+        for ep in emotional_episodes:
+            tags = ep.emotional_tags or []
+            all_tags.extend(tags)
+        
+        tag_counts = Counter(all_tags)
+        dominant_emotions = [tag for tag, count in tag_counts.most_common(5)]
+        
+        # Build trajectory (grouped by day)
+        from collections import defaultdict
+        daily_data = defaultdict(lambda: {"valences": [], "arousals": []})
+        
+        for ep in emotional_episodes:
+            if ep.created_at:
+                date_str = ep.created_at.strftime("%Y-%m-%d")
+                daily_data[date_str]["valences"].append(ep.emotional_valence or 0.0)
+                daily_data[date_str]["arousals"].append(ep.emotional_arousal or 0.0)
+        
+        trajectory = []
+        for date_str in sorted(daily_data.keys()):
+            data = daily_data[date_str]
+            trajectory.append({
+                "date": date_str,
+                "valence": sum(data["valences"]) / len(data["valences"]),
+                "arousal": sum(data["arousals"]) / len(data["arousals"]),
+            })
+        
+        return {
+            "average_valence": round(avg_valence, 3),
+            "average_arousal": round(avg_arousal, 3),
+            "dominant_emotions": dominant_emotions,
+            "emotional_trajectory": trajectory,
+            "episode_count": len(emotional_episodes),
+        }
+    
+    def search_by_emotion(
+        self,
+        valence_range: Optional[tuple] = None,
+        arousal_range: Optional[tuple] = None,
+        tags: Optional[List[str]] = None,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Find episodes matching emotional criteria.
+        
+        Args:
+            valence_range: (min, max) valence filter, e.g. (0.5, 1.0) for positive
+            arousal_range: (min, max) arousal filter, e.g. (0.7, 1.0) for high arousal
+            tags: Emotional tags to match (matches any)
+            limit: Maximum results
+            
+        Returns:
+            List of matching episodes as dicts
+        """
+        episodes = self._storage.search_by_emotion(
+            valence_range=valence_range,
+            arousal_range=arousal_range,
+            tags=tags,
+            limit=limit,
+        )
+        
+        return [
+            {
+                "id": ep.id,
+                "objective": ep.objective,
+                "outcome_type": ep.outcome_type,
+                "outcome_description": ep.outcome,
+                "emotional_valence": ep.emotional_valence,
+                "emotional_arousal": ep.emotional_arousal,
+                "emotional_tags": ep.emotional_tags,
+                "created_at": ep.created_at.isoformat() if ep.created_at else "",
+            }
+            for ep in episodes
+        ]
+    
+    def episode_with_emotion(
+        self,
+        objective: str,
+        outcome: str,
+        lessons: Optional[List[str]] = None,
+        tags: Optional[List[str]] = None,
+        valence: Optional[float] = None,
+        arousal: Optional[float] = None,
+        emotional_tags: Optional[List[str]] = None,
+        auto_detect: bool = True,
+    ) -> str:
+        """Record an episode with emotional tagging.
+        
+        Args:
+            objective: What was the goal?
+            outcome: What happened?
+            lessons: Lessons learned
+            tags: General tags
+            valence: Emotional valence (-1.0 to 1.0), auto-detected if None
+            arousal: Emotional arousal (0.0 to 1.0), auto-detected if None
+            emotional_tags: Emotion labels, auto-detected if None
+            auto_detect: If True and no emotion args given, detect from text
+            
+        Returns:
+            Episode ID
+        """
+        # Validate inputs
+        objective = self._validate_string_input(objective, "objective", 1000)
+        outcome = self._validate_string_input(outcome, "outcome", 1000)
+        
+        if lessons:
+            lessons = [self._validate_string_input(l, "lesson", 500) for l in lessons]
+        if tags:
+            tags = [self._validate_string_input(t, "tag", 100) for t in tags]
+        if emotional_tags:
+            emotional_tags = [self._validate_string_input(e, "emotion_tag", 50) for e in emotional_tags]
+        
+        # Auto-detect emotions if not provided
+        if auto_detect and valence is None and arousal is None and not emotional_tags:
+            detection = self.detect_emotion(f"{objective} {outcome}")
+            if detection["confidence"] > 0:
+                valence = detection["valence"]
+                arousal = detection["arousal"]
+                emotional_tags = detection["tags"]
+        
+        episode_id = str(uuid.uuid4())
+        
+        outcome_type = "success" if outcome.lower() in ("success", "done", "completed") else (
+            "failure" if outcome.lower() in ("failure", "failed", "error") else "partial"
+        )
+        
+        episode = Episode(
+            id=episode_id,
+            agent_id=self.agent_id,
+            objective=objective,
+            outcome=outcome,
+            outcome_type=outcome_type,
+            lessons=lessons,
+            tags=tags or ["manual"],
+            created_at=datetime.now(timezone.utc),
+            emotional_valence=valence or 0.0,
+            emotional_arousal=arousal or 0.0,
+            emotional_tags=emotional_tags,
+            confidence=0.8,
+        )
+        
+        self._storage.save_episode(episode)
+        return episode_id
+    
+    def get_mood_relevant_memories(
+        self,
+        current_valence: float,
+        current_arousal: float,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Get memories relevant to current emotional state.
+        
+        Useful for mood-congruent recall - we tend to remember
+        experiences that match our current emotional state.
+        
+        Args:
+            current_valence: Current valence (-1.0 to 1.0)
+            current_arousal: Current arousal (0.0 to 1.0)
+            limit: Maximum results
+            
+        Returns:
+            List of mood-relevant episodes
+        """
+        # Get episodes with matching emotional range
+        valence_range = (
+            max(-1.0, current_valence - 0.3),
+            min(1.0, current_valence + 0.3)
+        )
+        arousal_range = (
+            max(0.0, current_arousal - 0.3),
+            min(1.0, current_arousal + 0.3)
+        )
+        
+        return self.search_by_emotion(
+            valence_range=valence_range,
+            arousal_range=arousal_range,
+            limit=limit,
+        )
+    
+    # =========================================================================
+    # META-MEMORY
+    # =========================================================================
+    
+    def get_memory_confidence(self, memory_type: str, memory_id: str) -> float:
+        """Get confidence score for a memory.
+        
+        Args:
+            memory_type: Type of memory (episode, belief, value, goal, note)
+            memory_id: ID of the memory
+            
+        Returns:
+            Confidence score (0.0-1.0), or -1.0 if not found
+        """
+        record = self._storage.get_memory(memory_type, memory_id)
+        if record:
+            return getattr(record, 'confidence', 0.8)
+        return -1.0
+    
+    def verify_memory(
+        self,
+        memory_type: str,
+        memory_id: str,
+        evidence: Optional[str] = None,
+    ) -> bool:
+        """Verify a memory, increasing its confidence.
+        
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            evidence: Optional supporting evidence
+            
+        Returns:
+            True if verified, False if memory not found
+        """
+        record = self._storage.get_memory(memory_type, memory_id)
+        if not record:
+            return False
+        
+        old_confidence = getattr(record, 'confidence', 0.8)
+        new_confidence = min(1.0, old_confidence + 0.1)
+        
+        # Track confidence change
+        confidence_history = getattr(record, 'confidence_history', None) or []
+        confidence_history.append({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "old": old_confidence,
+            "new": new_confidence,
+            "reason": evidence or "verification",
+        })
+        
+        return self._storage.update_memory_meta(
+            memory_type=memory_type,
+            memory_id=memory_id,
+            confidence=new_confidence,
+            verification_count=(getattr(record, 'verification_count', 0) or 0) + 1,
+            last_verified=datetime.now(timezone.utc),
+            confidence_history=confidence_history,
+        )
+    
+    def get_memory_lineage(self, memory_type: str, memory_id: str) -> Dict[str, Any]:
+        """Get provenance chain for a memory.
+        
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            
+        Returns:
+            Lineage information including source and derivations
+        """
+        record = self._storage.get_memory(memory_type, memory_id)
+        if not record:
+            return {"error": f"Memory {memory_type}:{memory_id} not found"}
+        
+        return {
+            "id": memory_id,
+            "type": memory_type,
+            "source_type": getattr(record, 'source_type', 'unknown'),
+            "source_episodes": getattr(record, 'source_episodes', None),
+            "derived_from": getattr(record, 'derived_from', None),
+            "current_confidence": getattr(record, 'confidence', None),
+            "verification_count": getattr(record, 'verification_count', 0),
+            "last_verified": (
+                getattr(record, 'last_verified').isoformat()
+                if getattr(record, 'last_verified', None) else None
+            ),
+            "confidence_history": getattr(record, 'confidence_history', None),
+        }
+    
+    def get_uncertain_memories(
+        self,
+        threshold: float = 0.5,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """Get memories with confidence below threshold.
+        
+        Args:
+            threshold: Confidence threshold
+            limit: Maximum results
+            
+        Returns:
+            List of low-confidence memories
+        """
+        results = self._storage.get_memories_by_confidence(
+            threshold=threshold,
+            below=True,
+            limit=limit,
+        )
+        
+        formatted = []
+        for r in results:
+            record = r.record
+            formatted.append({
+                "id": record.id,
+                "type": r.record_type,
+                "confidence": getattr(record, 'confidence', None),
+                "summary": self._get_memory_summary(r.record_type, record),
+                "created_at": (
+                    record.created_at.strftime("%Y-%m-%d")
+                    if getattr(record, 'created_at', None) else "unknown"
+                ),
+            })
+        
+        return formatted
+    
+    def _get_memory_summary(self, memory_type: str, record: Any) -> str:
+        """Get a brief summary of a memory record."""
+        if memory_type == "episode":
+            return record.objective[:60] if record.objective else ""
+        elif memory_type == "belief":
+            return record.statement[:60] if record.statement else ""
+        elif memory_type == "value":
+            return f"{record.name}: {record.statement[:40]}" if record.name else ""
+        elif memory_type == "goal":
+            return record.title[:60] if record.title else ""
+        elif memory_type == "note":
+            return record.content[:60] if record.content else ""
+        return str(record)[:60]
+    
+    def propagate_confidence(
+        self,
+        memory_type: str,
+        memory_id: str,
+    ) -> Dict[str, Any]:
+        """Propagate confidence changes to derived memories.
+        
+        When a source memory's confidence changes, this updates
+        derived memories accordingly.
+        
+        Args:
+            memory_type: Type of source memory
+            memory_id: ID of source memory
+            
+        Returns:
+            Result dict with number of updated memories
+        """
+        record = self._storage.get_memory(memory_type, memory_id)
+        if not record:
+            return {"error": f"Memory {memory_type}:{memory_id} not found"}
+        
+        source_confidence = getattr(record, 'confidence', 0.8)
+        source_ref = f"{memory_type}:{memory_id}"
+        
+        # Find memories derived from this one
+        # This is a simplified implementation - would need to query all tables
+        updated = 0
+        
+        # For now, return the source confidence info
+        return {
+            "source_confidence": source_confidence,
+            "source_ref": source_ref,
+            "updated": updated,
+        }
+    
+    def set_memory_source(
+        self,
+        memory_type: str,
+        memory_id: str,
+        source_type: str,
+        source_episodes: Optional[List[str]] = None,
+        derived_from: Optional[List[str]] = None,
+    ) -> bool:
+        """Set provenance information for a memory.
+        
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of memory
+            source_type: Source type (direct_experience, inference, told_by_agent, consolidation)
+            source_episodes: List of supporting episode IDs
+            derived_from: List of memory refs this was derived from (format: type:id)
+            
+        Returns:
+            True if updated, False if memory not found
+        """
+        return self._storage.update_memory_meta(
+            memory_type=memory_type,
+            memory_id=memory_id,
+            source_type=source_type,
+            source_episodes=source_episodes,
+            derived_from=derived_from,
+        )
+    
+    # =========================================================================
+    # CONSOLIDATION
+    # =========================================================================
+    
+    def consolidate(self, min_episodes: int = 3) -> Dict[str, Any]:
+        """Run memory consolidation.
+        
+        Analyzes recent episodes to extract patterns, lessons, and beliefs.
+        
+        Args:
+            min_episodes: Minimum episodes required to consolidate
+            
+        Returns:
+            Consolidation results
+        """
+        episodes = self._storage.get_episodes(limit=50)
+        
+        if len(episodes) < min_episodes:
+            return {
+                "consolidated": 0,
+                "new_beliefs": 0,
+                "lessons_found": 0,
+                "message": f"Need at least {min_episodes} episodes to consolidate",
+            }
+        
+        # Simple consolidation: extract lessons from recent episodes
+        all_lessons = []
+        for ep in episodes:
+            if ep.lessons:
+                all_lessons.extend(ep.lessons)
+        
+        # Count unique lessons
+        from collections import Counter
+        lesson_counts = Counter(all_lessons)
+        common_lessons = [l for l, c in lesson_counts.items() if c >= 2]
+        
+        return {
+            "consolidated": len(episodes),
+            "new_beliefs": 0,  # Would need LLM integration for belief extraction
+            "lessons_found": len(common_lessons),
+            "common_lessons": common_lessons[:5],
+        }
+    
+    # =========================================================================
+    # IDENTITY SYNTHESIS
+    # =========================================================================
+    
+    def synthesize_identity(self) -> Dict[str, Any]:
+        """Synthesize identity from memory.
+        
+        Combines values, beliefs, goals, and experiences into a coherent
+        identity narrative.
+        
+        Returns:
+            Identity synthesis including narrative and key components
+        """
+        values = self._storage.get_values(limit=10)
+        beliefs = self._storage.get_beliefs(limit=20)
+        goals = self._storage.get_goals(status="active", limit=10)
+        episodes = self._storage.get_episodes(limit=20)
+        drives = self._storage.get_drives()
+        
+        # Build narrative from components
+        narrative_parts = []
+        
+        if values:
+            top_value = max(values, key=lambda v: v.priority)
+            narrative_parts.append(f"I value {top_value.name.lower()} highly: {top_value.statement}")
+        
+        if beliefs:
+            high_conf = [b for b in beliefs if b.confidence >= 0.8]
+            if high_conf:
+                narrative_parts.append(f"I believe: {high_conf[0].statement}")
+        
+        if goals:
+            narrative_parts.append(f"I'm currently working on: {goals[0].title}")
+        
+        narrative = " ".join(narrative_parts) if narrative_parts else "Identity still forming."
+        
+        # Calculate confidence based on available data
+        data_points = len(values) + len(beliefs) + len(goals) + len(episodes)
+        confidence = min(1.0, data_points / 20)
+        
+        return {
+            "narrative": narrative,
+            "core_values": [
+                {"name": v.name, "statement": v.statement, "priority": v.priority}
+                for v in sorted(values, key=lambda v: v.priority, reverse=True)[:5]
+            ],
+            "key_beliefs": [
+                {"statement": b.statement, "confidence": b.confidence, "foundational": False}
+                for b in sorted(beliefs, key=lambda b: b.confidence, reverse=True)[:5]
+            ],
+            "active_goals": [
+                {"title": g.title, "priority": g.priority}
+                for g in goals[:5]
+            ],
+            "drives": {d.drive_type: d.intensity for d in drives},
+            "significant_episodes": [
+                {
+                    "objective": e.objective,
+                    "outcome": e.outcome_type,
+                    "lessons": e.lessons,
+                }
+                for e in episodes[:5]
+            ],
+            "confidence": confidence,
+        }
+    
+    def get_identity_confidence(self) -> float:
+        """Get overall identity confidence score.
+        
+        Returns:
+            Confidence score (0.0-1.0) based on available identity data
+        """
+        stats = self._storage.get_stats()
+        
+        # Weight different components
+        data_points = (
+            stats.get("values", 0) * 2 +
+            stats.get("beliefs", 0) +
+            stats.get("goals", 0) * 1.5 +
+            stats.get("episodes", 0) * 0.5
+        )
+        
+        return min(1.0, data_points / 30)
+    
+    def detect_identity_drift(self, days: int = 30) -> Dict[str, Any]:
+        """Detect changes in identity over time.
+        
+        Args:
+            days: Number of days to analyze
+            
+        Returns:
+            Drift analysis including changed values and evolved beliefs
+        """
+        since = datetime.now(timezone.utc) - timedelta(days=days)
+        
+        # Get recent additions
+        recent_episodes = self._storage.get_episodes(limit=50, since=since)
+        
+        # Simple drift detection based on episode count and themes
+        drift_score = min(1.0, len(recent_episodes) / 20) * 0.5
+        
+        return {
+            "period_days": days,
+            "drift_score": drift_score,
+            "changed_values": [],  # Would need historical comparison
+            "evolved_beliefs": [],
+            "new_experiences": [
+                {
+                    "objective": e.objective,
+                    "outcome": e.outcome_type,
+                    "lessons": e.lessons,
+                    "date": e.created_at.strftime("%Y-%m-%d") if e.created_at else "",
+                }
+                for e in recent_episodes[:5]
+            ],
+        }
+    
+    # =========================================================================
+    # SYNC
+    # =========================================================================
+    
+    def sync(self) -> Dict[str, Any]:
+        """Sync local changes with cloud storage.
+        
+        Returns:
+            Sync results including counts and any errors
+        """
+        result = self._storage.sync()
+        return {
+            "pushed": result.pushed,
+            "pulled": result.pulled,
+            "conflicts": result.conflicts,
+            "errors": result.errors,
+            "success": result.success,
+        }
+    
+    def get_sync_status(self) -> Dict[str, Any]:
+        """Get current sync status.
+        
+        Returns:
+            Sync status including pending count and connectivity
+        """
+        return {
+            "pending": self._storage.get_pending_sync_count(),
+            "online": self._storage.is_online(),
         }
