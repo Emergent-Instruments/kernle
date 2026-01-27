@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     supabase_url: str
     supabase_service_role_key: str
     supabase_anon_key: str
-    database_url: str
+    database_url: str | None = None  # Optional - for direct Postgres access
     
     # JWT
     jwt_secret_key: str = "kernle-dev-secret-change-in-production"
