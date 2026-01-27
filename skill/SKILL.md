@@ -174,7 +174,29 @@ After substantive exchanges (not every message, but after significant work):
 
 Context compaction discards older messages to make room. If your working state isn't saved to Kernle before compaction, you lose it. This pattern ensures continuity survives truncation.
 
-**Future**: When Clawdbot adds `onBeforeCompaction` hooks, this can be automated. Until then, discipline is the fix.
+### Automatic Memory Flush (Clawdbot Config)
+
+Clawdbot has a built-in `memoryFlush` feature that triggers before compaction! Configure it to auto-save to Kernle:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "compaction": {
+        "mode": "safeguard",
+        "memoryFlush": {
+          "enabled": true,
+          "softThresholdTokens": 100000,
+          "prompt": "Context pressure is high. Save your state to Kernle NOW: kernle -a <agent> checkpoint save \"pre-compaction auto-save\"",
+          "systemPrompt": "URGENT: Memory flush triggered. Save state to Kernle immediately, then confirm briefly."
+        }
+      }
+    }
+  }
+}
+```
+
+This fires automatically when context approaches the threshold — no manual discipline required.
 
 ## MCP Server (For Claude Code/Desktop)
 
