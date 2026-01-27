@@ -1,17 +1,18 @@
 # Kernle
 
-**Stratified memory for synthetic intelligences.**
+**Local-first memory for synthetic intelligences.**
 
-Kernle provides persistent, layered memory for AI agents — enabling memory sovereignty, identity continuity, and learning from experience across sessions.
+Kernle provides persistent, layered memory for AI agents — enabling memory sovereignty, identity continuity, and learning from experience across sessions. Works offline with SQLite, syncs to cloud when connected.
 
 ## Why Kernle?
 
 AI agents lose context when sessions end or context windows fill up. Kernle solves this with:
 
+- **Local-First**: Zero-config SQLite storage, works immediately offline
 - **Stratified Memory**: Values → Beliefs → Goals → Episodes → Notes (hierarchical authority)
-- **Checkpoint/Resume**: Save working state, pick up where you left off
-- **Episode Capture**: Learn from experiences automatically
+- **Sync When Online**: Push to Supabase when connected, queue changes when offline
 - **Memory Sovereignty**: Agents control their own memory
+- **Trust Through Readability**: `kernle dump` exports everything as readable markdown
 
 ## Installation
 
@@ -21,10 +22,17 @@ pip install kernle
 
 ## Quick Start
 
+```bash
+# Works immediately - no setup required!
+kernle -a my-agent status
+
+# Memory Status for my-agent: Values: 0, Beliefs: 0, Goals: 0, Episodes: 0
+```
+
 ```python
 from kernle import Kernle
 
-# Initialize with your agent ID
+# Initialize - uses SQLite by default, syncs to cloud if configured
 k = Kernle(agent_id="my-agent")
 
 # Load your memory at session start
@@ -45,73 +53,116 @@ k.episode(
 k.note("Decided to use PostgreSQL for persistence", type="decision")
 k.note("Simple is better than complex", type="insight", speaker="Sean")
 
-# Search your memory
+# Search your memory (works offline with hash embeddings)
 results = k.search("auth")
 
 # Set drives (motivation)
 k.drive("curiosity", intensity=0.8, focus_areas=["memory systems", "AI architecture"])
-k.drive("growth", intensity=0.7)
 
-# Auto-capture significant moments
-k.auto_capture("Fixed the authentication bug!", context="Auth system work")
+# Check anxiety level
+anxiety = k.anxiety()  # Returns 0-100
+if anxiety > 85:
+    k.emergency_save()  # Save everything immediately
+
+# Generate identity narrative from your memories
+narrative = k.identity()
+
+# Export everything as readable markdown
+k.dump()  # Trust through readability
 
 # Consolidate episodes into beliefs
 k.consolidate()
-
-# Temporal queries
-k.what_happened("today")
-k.what_happened("yesterday")
 ```
+
+## Architecture: Local-First
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                          YOUR AGENT                                     │
+│                                                                         │
+│  ┌──────────────────────────────────────────────────────────────────┐  │
+│  │                    KERNLE (Local Storage)                        │  │
+│  │                                                                  │  │
+│  │  ~/.kernle/memories.db                                          │  │
+│  │  • SQLite + sqlite-vec (vector search)                          │  │
+│  │  • Hash embeddings (fast, zero dependencies)                    │  │
+│  │  • Works completely offline                                      │  │
+│  └──────────────────────┬───────────────────────────────────────────┘  │
+│                         │ sync when online                              │
+└─────────────────────────┼──────────────────────────────────────────────┘
+                          ▼
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    SUPABASE (Cloud Sync - Optional)                     │
+│                                                                         │
+│  • Backup and cross-device sync                                        │
+│  • Better embeddings (OpenAI) when available                           │
+│  • Cross-agent collaboration (future)                                  │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Sync behavior:**
+- **Online**: Push changes immediately
+- **Offline**: Queue in `sync_queue`, push on reconnect
+- **Conflicts**: Last-write-wins by timestamp
 
 ## CLI
 
 ```bash
-# Load memory context
-kernle load
+# Specify agent with -a (can also use KERNLE_AGENT_ID env var)
+kernle -a my-agent <command>
+
+# Load and display memory
+kernle -a my-agent load
+
+# Status overview
+kernle -a my-agent status
 
 # Save checkpoint
-kernle checkpoint save "Working on auth" --pending "add tests"
+kernle -a my-agent checkpoint "Working on auth" --pending "add tests"
 
 # Record episode
-kernle episode "Fixed bug" "success" --lesson "Always check null"
+kernle -a my-agent episode "Fixed bug" "success" --lesson "Always check null"
 
 # Quick notes
-kernle note "Chose React over Vue" --type decision --reason "Team familiarity"
+kernle -a my-agent note "Chose React over Vue" --type decision
 
 # Search
-kernle search "authentication"
+kernle -a my-agent search "authentication"
 
 # Drives (motivation)
-kernle drive list
-kernle drive set curiosity 0.8 --focus "AI" --focus "memory"
-kernle drive satisfy curiosity
+kernle -a my-agent drive list
+kernle -a my-agent drive set curiosity 0.8 --focus "AI" --focus "memory"
+
+# Anxiety monitoring
+kernle -a my-agent anxiety
+kernle -a my-agent anxiety --emergency  # Save everything when critical
+
+# Identity synthesis
+kernle -a my-agent identity
+
+# Export readable dump (trust through readability)
+kernle -a my-agent dump
 
 # Consolidation (episodes → beliefs)
-kernle consolidate
-
-# Temporal queries
-kernle when today
-kernle when yesterday
-kernle when "this week"
-
-# Status
-kernle status
+kernle -a my-agent consolidate
 ```
 
 ## MCP Integration
 
-Kernle works with Claude Code, Cline, and other MCP-compatible tools:
+Kernle provides an MCP server with 23+ tools for memory operations:
 
 ```json
 {
   "mcpServers": {
     "kernle": {
       "command": "kernle",
-      "args": ["mcp"]
+      "args": ["mcp", "-a", "my-agent"]
     }
   }
 }
 ```
+
+Works with Claude Code, Cline, and other MCP-compatible tools.
 
 ## Memory Hierarchy
 
@@ -126,32 +177,76 @@ Kernle uses stratified memory with clear authority levels:
 | **Relationships** | Models of other agents | Trust levels, interaction history |
 | **Episodes** | Experiences with lessons | Task completions, failures, decisions |
 | **Notes** | Quick captures | Decisions, insights, quotes |
-| **Checkpoint** | Current working state | What you're doing, what's pending |
+| **Playbooks** | Procedural memory | "How I debug", "How I review PRs" |
 
 Higher layers have authority over lower ones. Values override beliefs; beliefs inform goals.
 
-**Additional Features:**
-- **Signal Detection**: Automatically detect significant moments worth capturing
-- **Consolidation**: Extract beliefs from repeated episode patterns
-- **Temporal Memory**: Query by time ("what happened today?")
+## Features
 
-## Backend
+### Implemented ✅
 
-Kernle uses Supabase as the persistence layer. You'll need:
+| Feature | Description |
+|---------|-------------|
+| **Storage Abstraction** | Protocol supporting SQLite (local) and Supabase (cloud) |
+| **SQLite Local Storage** | Zero-config, works immediately |
+| **Vector Search** | sqlite-vec with hash embeddings (fast, offline) |
+| **Sync Engine** | Queue offline, push online, last-write-wins |
+| **MCP Server** | 23 tools for full memory CRUD |
+| **Identity Synthesis** | Generate coherent self-narrative from memories |
+| **Emotional Memory** | Valence/arousal tags, mood-congruent retrieval |
+| **Meta-Memory** | Confidence tracking, source attribution, lineage |
+| **Anxiety Tracking** | 5-dimension model with emergency save |
+| **Raw Layer** | Zero-friction capture + readable export |
+| **Playbooks** | Procedural memory with trigger conditions |
+| **Controlled Forgetting** | Salience decay, tombstoning, protection |
+| **Belief Revision** | Contradiction detection, supersession chains |
+| **Meta-cognition** | Knowledge gaps, competence boundaries |
+
+### Anxiety Model
+
+Kernle tracks "memory anxiety" across 5 dimensions:
+
+| Dimension | Weight | Measures |
+|-----------|--------|----------|
+| Context Pressure | 35% | Token usage vs limit |
+| Unsaved Work | 25% | Time since checkpoint |
+| Consolidation Debt | 20% | Unreflected episodes |
+| Identity Coherence | 10% | Synthesis confidence |
+| Memory Uncertainty | 10% | Low-confidence beliefs |
+
+Levels: Calm (0-30) → Aware (31-50) → Elevated (51-70) → High (71-85) → Critical (86-100)
+
+## Configuration
+
+### Local-Only (Default)
+
+No configuration needed! Kernle stores everything in `~/.kernle/memories.db`.
+
+### With Cloud Sync
 
 ```bash
 export KERNLE_SUPABASE_URL=https://xxx.supabase.co
 export KERNLE_SUPABASE_KEY=your-service-role-key
-export KERNLE_AGENT_ID=your-agent-id
+```
+
+When Supabase is configured, Kernle automatically syncs to the cloud.
+
+## Testing
+
+```bash
+# Run all tests (497 passing)
+pytest
+
+# Quick test
+pytest tests/test_storage.py -v
 ```
 
 ## Documentation
 
-- [Getting Started](docs/getting-started.md)
-- [CLI Reference](docs/cli.md)
-- [Python SDK](docs/python-sdk.md)
-- [MCP Server](docs/mcp.md)
-- [Memory Architecture](docs/architecture.md)
+- [Architecture](docs/architecture.md) - Memory layer design
+- [Anxiety Tracking](docs/ANXIETY_TRACKING.md) - The 5-dimension anxiety model
+- [Raw Memory Layer](docs/RAW_MEMORY_LAYER.md) - Trust through readability
+- [MCP Audit](docs/MCP_AUDIT.md) - MCP server tool reference
 
 ## About
 

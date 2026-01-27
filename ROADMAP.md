@@ -176,9 +176,21 @@ From Claire's attempt to use Kernle (2026-01-27):
 | 1.1 Storage abstraction | Q1 2026 | ✅ Complete |
 | 1.2 SQLite local | Q1 2026 | ✅ Complete |
 | 1.3 Sync engine | Q1 2026 | ✅ Complete |
+| **P0 MCP Server** | Q1 2026 | ✅ Complete (23 tools) |
+| **P1 Identity Synthesis** | Q1 2026 | ✅ Complete |
+| **P1 Emotional Memory** | Q1 2026 | ✅ Complete |
+| **P1 Meta-Memory** | Q1 2026 | ✅ Complete |
+| **Anxiety Tracking** | Q1 2026 | ✅ Complete (5-dimension model) |
+| **Raw Layer + Dump** | Q1 2026 | ✅ Complete |
+| **Playbooks** | Q1 2026 | ✅ Complete |
+| **Controlled Forgetting** | Q1 2026 | ✅ Complete |
+| **Belief Revision** | Q1 2026 | ✅ Complete |
+| **Meta-cognition** | Q1 2026 | ✅ Complete |
 | 2.1 Railway API | Q2 2026 | Not started |
 | 3.x Cross-agent | Q3 2026 | Not started |
 | 4.x Premium | Q4 2026 | Not started |
+
+**Test count: 497 passing** (as of January 27, 2026)
 
 ## Implementation Notes
 
