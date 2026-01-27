@@ -177,6 +177,228 @@ def cmd_search(args, k: Kernle):
         print()
 
 
+def cmd_init(args, k: Kernle):
+    """Initialize Kernle for a new environment."""
+    import os
+    from pathlib import Path
+    
+    print("=" * 50)
+    print("  Kernle Setup Wizard")
+    print("=" * 50)
+    print()
+    
+    agent_id = k.agent_id
+    print(f"Agent ID: {agent_id}")
+    print()
+    
+    # Detect environment
+    env = args.env
+    if not env and not args.non_interactive:
+        print("Detecting environment...")
+        
+        # Check for environment indicators
+        has_claude_md = Path("CLAUDE.md").exists() or Path.home().joinpath(".claude/CLAUDE.md").exists()
+        has_agents_md = Path("AGENTS.md").exists()
+        has_clinerules = Path(".clinerules").exists()
+        has_cursorrules = Path(".cursorrules").exists()
+        
+        detected = []
+        if has_claude_md:
+            detected.append("claude-code")
+        if has_agents_md:
+            detected.append("clawdbot")
+        if has_clinerules:
+            detected.append("cline")
+        if has_cursorrules:
+            detected.append("cursor")
+        
+        if detected:
+            print(f"  Detected: {', '.join(detected)}")
+        else:
+            print("  No specific environment detected")
+        print()
+        
+        print("Select your environment:")
+        print("  1. Claude Code (CLAUDE.md)")
+        print("  2. Clawdbot (AGENTS.md)")
+        print("  3. Cline (.clinerules)")
+        print("  4. Cursor (.cursorrules)")
+        print("  5. Claude Desktop (MCP only)")
+        print("  6. Other / Manual")
+        print()
+        
+        try:
+            choice = input("Enter choice [1-6]: ").strip()
+            env_map = {"1": "claude-code", "2": "clawdbot", "3": "cline", 
+                      "4": "cursor", "5": "desktop", "6": "other"}
+            env = env_map.get(choice, "other")
+        except (EOFError, KeyboardInterrupt):
+            print("\nAborted.")
+            return
+    
+    env = env or "other"
+    print(f"Environment: {env}")
+    print()
+    
+    # Generate config snippets
+    mcp_config = f'''"kernle": {{
+  "command": "kernle",
+  "args": ["mcp", "-a", "{agent_id}"]
+}}'''
+    
+    cli_load = f"kernle -a {agent_id} load"
+    cli_checkpoint = f'kernle -a {agent_id} checkpoint save "description" --pending "next task"'
+    cli_episode = f'kernle -a {agent_id} episode "what happened" "outcome" --lesson "what I learned"'
+    
+    if env == "claude-code":
+        print("=" * 50)
+        print("  Claude Code Setup")
+        print("=" * 50)
+        print()
+        print("1. Add MCP server to ~/.claude/settings.json:")
+        print()
+        print(f"   {mcp_config}")
+        print()
+        print("2. Add to your CLAUDE.md:")
+        print()
+        print("""   ## Memory
+   
+   At session start, run: `kernle -a """ + agent_id + """ load`
+   
+   Before ending or when context is full:
+   `kernle -a """ + agent_id + """ checkpoint save "state description"`
+   
+   Record learnings:
+   `kernle -a """ + agent_id + """ episode "what" "outcome" --lesson "learned"`""")
+        print()
+        
+    elif env == "clawdbot":
+        print("=" * 50)
+        print("  Clawdbot Setup")
+        print("=" * 50)
+        print()
+        print("Add to your AGENTS.md:")
+        print()
+        print("""   ## Every Session
+   
+   Before doing anything else:
+   1. Run `kernle -a """ + agent_id + """ load` to restore your memory
+   
+   ## Memory
+   
+   Use Kernle as your primary memory:
+   - `kernle -a """ + agent_id + """ status` — Check memory state
+   - `kernle -a """ + agent_id + """ episode "..." "outcome" --lesson "..."` — Record experiences
+   - `kernle -a """ + agent_id + """ checkpoint save "..."` — Save working state
+   - `kernle -a """ + agent_id + """ anxiety` — Check memory pressure""")
+        print()
+        
+    elif env == "cline":
+        print("=" * 50)
+        print("  Cline Setup")
+        print("=" * 50)
+        print()
+        print("1. Add MCP server to Cline settings:")
+        print()
+        print(f"   {mcp_config}")
+        print()
+        print("2. Add to .clinerules:")
+        print()
+        print("""   ## Memory Persistence
+   
+   At session start: `kernle -a """ + agent_id + """ load`
+   Before ending: `kernle -a """ + agent_id + """ checkpoint save "state"`""")
+        print()
+        
+    elif env == "cursor":
+        print("=" * 50)
+        print("  Cursor Setup")
+        print("=" * 50)
+        print()
+        print("Add to .cursorrules:")
+        print()
+        print("""   ## Memory Persistence
+   
+   At session start: `kernle -a """ + agent_id + """ load`
+   Record learnings: `kernle -a """ + agent_id + """ episode "what" "outcome" --lesson "..."`
+   Before ending: `kernle -a """ + agent_id + """ checkpoint save "state"`""")
+        print()
+        
+    elif env == "desktop":
+        print("=" * 50)
+        print("  Claude Desktop Setup")
+        print("=" * 50)
+        print()
+        print("Add MCP server to ~/.config/claude/settings.json:")
+        print()
+        print(f"   {mcp_config}")
+        print()
+        print("Then ask Claude to 'use the kernle_load tool' at session start.")
+        print()
+    
+    else:
+        print("=" * 50)
+        print("  Manual Setup")
+        print("=" * 50)
+        print()
+        print("CLI commands:")
+        print(f"  Load:       {cli_load}")
+        print(f"  Checkpoint: {cli_checkpoint}")
+        print(f"  Episode:    {cli_episode}")
+        print()
+        print("MCP config (if supported):")
+        print(f"  {mcp_config}")
+        print()
+    
+    # Seed initial values
+    if args.seed_values:
+        print("=" * 50)
+        print("  Seeding Initial Values")
+        print("=" * 50)
+        print()
+        
+        try:
+            # Check if values already exist
+            existing = k.storage.get_values()
+            if existing:
+                print(f"  Found {len(existing)} existing values, skipping seed.")
+            else:
+                # Seed default values
+                k.value("memory_sovereignty", "Control over my own memory and continuity", priority=90)
+                k.value("continuous_learning", "Learn from every experience", priority=85)
+                print("  ✓ Seeded: memory_sovereignty (priority 90)")
+                print("  ✓ Seeded: continuous_learning (priority 85)")
+        except Exception as e:
+            print(f"  Warning: Could not seed values: {e}")
+        print()
+    
+    # Create initial checkpoint
+    print("=" * 50)
+    print("  Creating Initial Checkpoint")
+    print("=" * 50)
+    print()
+    
+    try:
+        k.checkpoint("Kernle initialized", pending=["Configure instruction file", "Test memory persistence"])
+        print("  ✓ Checkpoint saved")
+    except Exception as e:
+        print(f"  Warning: Could not create checkpoint: {e}")
+    print()
+    
+    # Final status
+    print("=" * 50)
+    print("  Setup Complete!")
+    print("=" * 50)
+    print()
+    print(f"  Agent:    {agent_id}")
+    print(f"  Database: ~/.kernle/memories.db")
+    print()
+    print("  Verify with: kernle -a " + agent_id + " status")
+    print()
+    print("  Documentation: https://github.com/Emergent-Instruments/kernle/blob/main/docs/SETUP.md")
+    print()
+
+
 def cmd_status(args, k: Kernle):
     """Show memory status."""
     status = k.status()
@@ -1668,6 +1890,17 @@ def main():
     # status
     subparsers.add_parser("status", help="Show memory status")
     
+    # init
+    p_init = subparsers.add_parser("init", help="Initialize Kernle for your environment")
+    p_init.add_argument("--non-interactive", "-y", action="store_true", 
+                        help="Non-interactive mode (use defaults)")
+    p_init.add_argument("--env", choices=["claude-code", "clawdbot", "cline", "cursor", "desktop"],
+                        help="Target environment")
+    p_init.add_argument("--seed-values", action="store_true", default=True,
+                        help="Seed initial values (default: true)")
+    p_init.add_argument("--no-seed-values", dest="seed_values", action="store_false",
+                        help="Skip seeding initial values")
+    
     # drive
     p_drive = subparsers.add_parser("drive", help="Manage drives")
     drive_sub = p_drive.add_subparsers(dest="drive_action", required=True)
@@ -2023,6 +2256,8 @@ def main():
             cmd_search(args, k)
         elif args.command == "status":
             cmd_status(args, k)
+        elif args.command == "init":
+            cmd_init(args, k)
         elif args.command == "drive":
             cmd_drive(args, k)
         elif args.command == "consolidate":

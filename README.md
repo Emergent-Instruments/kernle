@@ -23,11 +23,20 @@ pip install kernle
 ## Quick Start
 
 ```bash
-# Works immediately - no setup required!
-kernle -a my-agent status
+# Initialize Kernle for your environment
+kernle -a my-agent init
 
-# Memory Status for my-agent: Values: 0, Beliefs: 0, Goals: 0, Episodes: 0
+# Or just start using it - works immediately!
+kernle -a my-agent status
 ```
+
+The `init` wizard will:
+- Detect your environment (Claude Code, Clawdbot, Cline, Cursor)
+- Generate the right config snippets
+- Seed initial values
+- Create your first checkpoint
+
+See [docs/SETUP.md](docs/SETUP.md) for detailed setup instructions for each environment.
 
 ```python
 from kernle import Kernle
