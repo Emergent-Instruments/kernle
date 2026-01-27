@@ -8,9 +8,26 @@ Currently supported:
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, List, Dict, Any, Protocol, runtime_checkable
 from enum import Enum
+
+
+# === Shared Utility Functions ===
+
+def utc_now() -> str:
+    """Get current timestamp as ISO string in UTC."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def parse_datetime(s: Optional[str]) -> Optional[datetime]:
+    """Parse ISO datetime string."""
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace('Z', '+00:00'))
+    except ValueError:
+        return None
 
 
 class SourceType(Enum):
@@ -164,11 +181,6 @@ class Belief:
     is_forgotten: bool = False
     forgotten_at: Optional[datetime] = None
     forgotten_reason: Optional[str] = None
-    # Belief revision fields
-    supersedes: Optional[str] = None  # ID of belief this replaced
-    superseded_by: Optional[str] = None  # ID of belief that replaced this
-    times_reinforced: int = 0  # How many times confirmed
-    is_active: bool = True  # False if superseded/archived
 
 
 @dataclass
@@ -590,6 +602,40 @@ class Storage(Protocol):
     def get_stats(self) -> Dict[str, int]:
         """Get counts of each record type."""
         ...
+    
+    # === Batch Loading ===
+    
+    def load_all(
+        self,
+        values_limit: int = 10,
+        beliefs_limit: int = 20,
+        goals_limit: int = 10,
+        goals_status: str = "active",
+        episodes_limit: int = 20,
+        notes_limit: int = 5,
+    ) -> Dict[str, Any]:
+        """Load all memory types in a single operation (optional optimization).
+        
+        This is an optional method that storage backends can implement to
+        batch multiple queries into a single database connection, avoiding
+        N+1 query patterns.
+        
+        Default implementation returns None, indicating the caller should
+        fall back to individual get_* methods.
+        
+        Args:
+            values_limit: Max values to load
+            beliefs_limit: Max beliefs to load
+            goals_limit: Max goals to load
+            goals_status: Goal status filter
+            episodes_limit: Max episodes to load
+            notes_limit: Max notes to load
+            
+        Returns:
+            Dict with keys: values, beliefs, goals, drives, episodes, notes, relationships
+            Or None if not implemented (caller should use individual methods)
+        """
+        return None  # Default: not implemented, use individual methods
     
     # === Sync ===
     

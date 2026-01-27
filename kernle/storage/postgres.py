@@ -4,6 +4,42 @@ Cloud storage with:
 - PostgreSQL for structured data
 - pgvector for semantic search (via Supabase)
 - Full compatibility with Storage protocol
+
+SCHEMA DIVERGENCE FROM SQLiteStorage:
+--------------------------------------
+The Supabase/Postgres schema differs from SQLite in several ways:
+
+1. TABLE NAMES:
+   - SQLite: episodes, beliefs, values, goals, notes, drives, relationships, playbooks, raw_entries
+   - Postgres: agent_episodes, agent_beliefs, agent_values, agent_goals, memories (for notes),
+               agent_drives, agent_relationships
+
+2. NOTES TABLE:
+   - SQLite: Dedicated 'notes' table with note_type, speaker, reason fields
+   - Postgres: Uses 'memories' table with source='curated', metadata JSON for note fields
+
+3. MISSING TABLES IN POSTGRES:
+   - playbooks: No procedural memory support yet (SQLite has full support)
+   - raw_entries: No raw entry processing support yet
+
+4. COLUMN DIFFERENCES:
+   - Episodes: outcome_description (Postgres) vs outcome (SQLite)
+   - Notes: owner_id (Postgres) vs agent_id (SQLite)
+   - Relationships: other_agent_id (Postgres) vs entity_name (SQLite)
+   - Drives: last_satisfied_at (Postgres) vs updated_at (SQLite)
+
+5. FORGETTING FIELDS:
+   - SQLite: Full support (times_accessed, last_accessed, is_protected, is_forgotten, etc.)
+   - Postgres: Fields may exist but forgetting operations not implemented
+
+6. FEATURES NOT YET SUPPORTED IN POSTGRES:
+   - Playbook storage (procedural memory)
+   - Raw entry processing
+   - Forgetting/tombstoning operations
+   - Memory access tracking
+
+Use SQLiteStorage for full functionality. SupabaseStorage is suitable for
+cloud sync of core memories (episodes, beliefs, values, goals, notes, drives, relationships).
 """
 
 import logging
@@ -14,7 +50,9 @@ from typing import Optional, List, Dict, Any
 
 from .base import (
     Storage, SyncResult,
-    Episode, Belief, Value, Goal, Note, Drive, Relationship, SearchResult
+    Episode, Belief, Value, Goal, Note, Drive, Relationship, SearchResult,
+    Playbook, RawEntry,
+    utc_now, parse_datetime
 )
 
 logger = logging.getLogger(__name__)
@@ -46,28 +84,74 @@ class SupabaseStorage:
             if not self.supabase_url or not self.supabase_key:
                 raise ValueError("Supabase credentials required. Set KERNLE_SUPABASE_URL and KERNLE_SUPABASE_KEY.")
             
-            if not self.supabase_url.startswith(('http://', 'https://')):
-                raise ValueError("Invalid Supabase URL format. Must start with http:// or https://")
+            # Validate URL structure
+            self._validate_supabase_url(self.supabase_url)
             
             if not self.supabase_key.strip():
                 raise ValueError("Supabase key cannot be empty")
+            
+            # Basic key format validation (Supabase keys are JWT-like)
+            if len(self.supabase_key) < 100:
+                raise ValueError("Supabase key appears to be invalid (too short)")
             
             from supabase import create_client
             self._client = create_client(self.supabase_url, self.supabase_key)
         return self._client
     
+    def _validate_supabase_url(self, url: str) -> None:
+        """Validate Supabase URL for proper structure and safety."""
+        from urllib.parse import urlparse
+        
+        if not url:
+            raise ValueError("Supabase URL cannot be empty")
+        
+        # Must be HTTPS (security requirement)
+        if not url.startswith('https://'):
+            raise ValueError("Supabase URL must use HTTPS")
+        
+        try:
+            parsed = urlparse(url)
+        except Exception as e:
+            raise ValueError(f"Invalid URL format: {e}")
+        
+        # Validate URL components
+        if not parsed.netloc:
+            raise ValueError("Invalid Supabase URL: missing host")
+        
+        if parsed.path and parsed.path not in ('', '/'):
+            raise ValueError("Invalid Supabase URL: unexpected path component")
+        
+        # Check for valid Supabase domain patterns
+        host = parsed.netloc.lower()
+        valid_patterns = [
+            '.supabase.co',      # Standard Supabase hosted
+            '.supabase.in',      # Alternative Supabase domain
+            'localhost',          # Local development
+            '127.0.0.1',         # Local development
+        ]
+        
+        is_valid_host = any(
+            host.endswith(pattern) or host == pattern.lstrip('.')
+            for pattern in valid_patterns
+        )
+        
+        # Also allow custom self-hosted domains (check for reasonable structure)
+        if not is_valid_host:
+            # For self-hosted, at minimum ensure it looks like a valid hostname
+            if not all(c.isalnum() or c in '.-:' for c in host):
+                raise ValueError("Invalid Supabase URL: hostname contains invalid characters")
+            if '..' in host or host.startswith('.') or host.endswith('.'):
+                raise ValueError("Invalid Supabase URL: malformed hostname")
+            # Log a warning for non-standard hosts
+            logger.warning(f"Using non-standard Supabase host: {host}. Ensure this is intentional.")
+    
     def _now(self) -> str:
         """Get current timestamp as ISO string."""
-        return datetime.now(timezone.utc).isoformat()
+        return utc_now()
     
     def _parse_datetime(self, s: Optional[str]) -> Optional[datetime]:
         """Parse ISO datetime string."""
-        if not s:
-            return None
-        try:
-            return datetime.fromisoformat(s.replace('Z', '+00:00'))
-        except ValueError:
-            return None
+        return parse_datetime(s)
     
     # === Episodes ===
     
@@ -1081,3 +1165,131 @@ class SupabaseStorage:
                 logger.debug(f"Could not query {table} by source_type: {e}")
         
         return results[:limit]
+    
+    # === Playbooks (Procedural Memory) - NOT YET SUPPORTED ===
+    
+    def save_playbook(self, playbook: "Playbook") -> str:
+        """Save a playbook. Returns the playbook ID."""
+        raise NotImplementedError(
+            "SupabaseStorage does not yet support save_playbook. "
+            "Use SQLiteStorage for full functionality."
+        )
+    
+    def get_playbook(self, playbook_id: str) -> Optional["Playbook"]:
+        """Get a specific playbook by ID."""
+        raise NotImplementedError(
+            "SupabaseStorage does not yet support get_playbook. "
+            "Use SQLiteStorage for full functionality."
+        )
+    
+    def list_playbooks(
+        self,
+        tags: Optional[List[str]] = None,
+        limit: int = 100,
+    ) -> List["Playbook"]:
+        """Get playbooks, optionally filtered by tags."""
+        raise NotImplementedError(
+            "SupabaseStorage does not yet support list_playbooks. "
+            "Use SQLiteStorage for full functionality."
+        )
+    
+    def search_playbooks(self, query: str, limit: int = 10) -> List["Playbook"]:
+        """Search playbooks by name, description, or triggers."""
+        raise NotImplementedError(
+            "SupabaseStorage does not yet support search_playbooks. "
+            "Use SQLiteStorage for full functionality."
+        )
+    
+    def update_playbook_usage(self, playbook_id: str, success: bool) -> bool:
+        """Update playbook usage statistics."""
+        raise NotImplementedError(
+            "SupabaseStorage does not yet support update_playbook_usage. "
+            "Use SQLiteStorage for full functionality."
+        )
+    
+    # === Raw Entries - NOT YET SUPPORTED ===
+    
+    def save_raw(self, content: str, source: str = "manual", tags: Optional[List[str]] = None) -> str:
+        """Save a raw entry for later processing. Returns the entry ID."""
+        raise NotImplementedError(
+            "SupabaseStorage does not yet support save_raw. "
+            "Use SQLiteStorage for full functionality."
+        )
+    
+    def get_raw(self, raw_id: str) -> Optional["RawEntry"]:
+        """Get a specific raw entry by ID."""
+        raise NotImplementedError(
+            "SupabaseStorage does not yet support get_raw. "
+            "Use SQLiteStorage for full functionality."
+        )
+    
+    def list_raw(self, processed: Optional[bool] = None, limit: int = 100) -> List["RawEntry"]:
+        """Get raw entries, optionally filtered by processed state."""
+        raise NotImplementedError(
+            "SupabaseStorage does not yet support list_raw. "
+            "Use SQLiteStorage for full functionality."
+        )
+    
+    def mark_raw_processed(self, raw_id: str, processed_into: List[str]) -> bool:
+        """Mark a raw entry as processed into other memories."""
+        raise NotImplementedError(
+            "SupabaseStorage does not yet support mark_raw_processed. "
+            "Use SQLiteStorage for full functionality."
+        )
+    
+    # === Forgetting - NOT YET SUPPORTED ===
+    
+    def record_access(self, memory_type: str, memory_id: str) -> bool:
+        """Record that a memory was accessed (for salience tracking)."""
+        raise NotImplementedError(
+            "SupabaseStorage does not yet support record_access. "
+            "Use SQLiteStorage for full functionality."
+        )
+    
+    def forget_memory(
+        self,
+        memory_type: str,
+        memory_id: str,
+        reason: Optional[str] = None,
+    ) -> bool:
+        """Tombstone a memory (mark as forgotten, don't delete)."""
+        raise NotImplementedError(
+            "SupabaseStorage does not yet support forget_memory. "
+            "Use SQLiteStorage for full functionality."
+        )
+    
+    def recover_memory(self, memory_type: str, memory_id: str) -> bool:
+        """Recover a forgotten memory."""
+        raise NotImplementedError(
+            "SupabaseStorage does not yet support recover_memory. "
+            "Use SQLiteStorage for full functionality."
+        )
+    
+    def protect_memory(self, memory_type: str, memory_id: str, protected: bool = True) -> bool:
+        """Mark a memory as protected from forgetting."""
+        raise NotImplementedError(
+            "SupabaseStorage does not yet support protect_memory. "
+            "Use SQLiteStorage for full functionality."
+        )
+    
+    def get_forgetting_candidates(
+        self,
+        memory_types: Optional[List[str]] = None,
+        limit: int = 100,
+    ) -> List[SearchResult]:
+        """Get memories that are candidates for forgetting."""
+        raise NotImplementedError(
+            "SupabaseStorage does not yet support get_forgetting_candidates. "
+            "Use SQLiteStorage for full functionality."
+        )
+    
+    def get_forgotten_memories(
+        self,
+        memory_types: Optional[List[str]] = None,
+        limit: int = 100,
+    ) -> List[SearchResult]:
+        """Get all forgotten (tombstoned) memories."""
+        raise NotImplementedError(
+            "SupabaseStorage does not yet support get_forgotten_memories. "
+            "Use SQLiteStorage for full functionality."
+        )

@@ -41,7 +41,9 @@ def temp_db():
 @pytest.fixture
 def storage(temp_db):
     """Create a SQLiteStorage instance for testing."""
-    return SQLiteStorage(agent_id="test-agent", db_path=temp_db)
+    storage = SQLiteStorage(agent_id="test-agent", db_path=temp_db)
+    yield storage
+    storage.close()
 
 
 @pytest.fixture
@@ -66,11 +68,13 @@ def mock_cloud_storage():
 @pytest.fixture
 def storage_with_cloud(temp_db, mock_cloud_storage):
     """Create a SQLiteStorage with a mock cloud storage."""
-    return SQLiteStorage(
+    storage = SQLiteStorage(
         agent_id="test-agent",
         db_path=temp_db,
         cloud_storage=mock_cloud_storage
     )
+    yield storage
+    storage.close()
 
 
 class TestSyncQueueBasics:
@@ -418,6 +422,7 @@ class TestSyncMetadata:
         storage1.sync()
         
         sync_time = storage1.get_last_sync_time()
+        storage1.close()
         
         # Second instance
         storage2 = SQLiteStorage(
@@ -428,6 +433,7 @@ class TestSyncMetadata:
         
         # Should have same last sync time
         assert storage2.get_last_sync_time() == sync_time
+        storage2.close()
 
 
 class TestSyncAllRecordTypes:
@@ -559,12 +565,14 @@ class TestOfflineQueuing:
         ))
         
         pending_before = storage1.get_pending_sync_count()
+        storage1.close()
         
         # Create new instance
         storage2 = SQLiteStorage(agent_id="test-agent", db_path=temp_db)
         
         # Queue should still be there
         assert storage2.get_pending_sync_count() == pending_before
+        storage2.close()
 
 
 class TestSyncEdgeCases:

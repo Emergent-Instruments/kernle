@@ -12,12 +12,12 @@ import uuid
 import logging
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from typing import Optional, Dict, List, Any, Union, TYPE_CHECKING
+from typing import Optional, Dict, List, Any, TYPE_CHECKING
 
 # Import storage abstraction
 from kernle.storage import (
-    get_storage, Storage,
-    Episode, Belief, Value, Goal, Note, Drive, Relationship, SearchResult, RawEntry
+    get_storage,
+    Episode, Belief, Value, Goal, Note, Drive, Relationship
 )
 
 if TYPE_CHECKING:
@@ -139,12 +139,27 @@ class Kernle:
             tmp_path = Path("/tmp").resolve()
             system_temp = Path(tempfile.gettempdir()).resolve()
             
-            safe_paths = [str(home_path), str(tmp_path), str(system_temp)]
-            # Also allow /var/folders on macOS (where tempfile creates dirs)
-            safe_paths.append("/var/folders")
-            safe_paths.append("/private/var/folders")
+            # Use is_relative_to() for secure path validation (Python 3.9+)
+            # This properly handles edge cases like /home/user/../etc that startswith() misses
+            is_safe = (
+                resolved_path.is_relative_to(home_path) or
+                resolved_path.is_relative_to(tmp_path) or
+                resolved_path.is_relative_to(system_temp)
+            )
             
-            if not any(str(resolved_path).startswith(safe) for safe in safe_paths):
+            # Also allow /var/folders on macOS (where tempfile creates dirs)
+            if not is_safe:
+                try:
+                    var_folders = Path("/var/folders").resolve()
+                    private_var_folders = Path("/private/var/folders").resolve()
+                    is_safe = (
+                        resolved_path.is_relative_to(var_folders) or
+                        resolved_path.is_relative_to(private_var_folders)
+                    )
+                except (OSError, ValueError):
+                    pass
+            
+            if not is_safe:
                 raise ValueError("Checkpoint directory must be within user home or temp directory")
                 
             return resolved_path
@@ -171,7 +186,118 @@ class Kernle:
     # =========================================================================
     
     def load(self, budget: int = 6000) -> Dict[str, Any]:
-        """Load working memory context."""
+        """Load working memory context.
+        
+        Uses batched loading when available to optimize database queries,
+        reducing 9 sequential queries to a single batched operation.
+        """
+        # Try batched loading first (available in SQLiteStorage)
+        batched = self._storage.load_all(
+            values_limit=10,
+            beliefs_limit=20,
+            goals_limit=10,
+            goals_status="active",
+            episodes_limit=20,  # For both lessons and recent_work
+            notes_limit=5,
+        )
+        
+        if batched is not None:
+            # Use batched results - format for API compatibility
+            episodes = batched.get("episodes", [])
+            
+            # Extract lessons from episodes
+            lessons = []
+            for ep in episodes:
+                if ep.lessons:
+                    lessons.extend(ep.lessons[:2])
+            
+            # Filter recent work (non-checkpoint episodes)
+            recent_work = [
+                {
+                    "objective": e.objective,
+                    "outcome_type": e.outcome_type,
+                    "tags": e.tags,
+                    "created_at": e.created_at.isoformat() if e.created_at else None,
+                }
+                for e in episodes
+                if not e.tags or "checkpoint" not in e.tags
+            ][:5]
+            
+            return {
+                "checkpoint": self.load_checkpoint(),
+                "values": [
+                    {
+                        "id": v.id,
+                        "name": v.name,
+                        "statement": v.statement,
+                        "priority": v.priority,
+                        "value_type": "core_value",
+                    }
+                    for v in batched.get("values", [])
+                ],
+                "beliefs": [
+                    {
+                        "id": b.id,
+                        "statement": b.statement,
+                        "belief_type": b.belief_type,
+                        "confidence": b.confidence,
+                    }
+                    for b in sorted(batched.get("beliefs", []), key=lambda x: x.confidence, reverse=True)
+                ],
+                "goals": [
+                    {
+                        "id": g.id,
+                        "title": g.title,
+                        "description": g.description,
+                        "priority": g.priority,
+                        "status": g.status,
+                    }
+                    for g in batched.get("goals", [])
+                ],
+                "drives": [
+                    {
+                        "id": d.id,
+                        "drive_type": d.drive_type,
+                        "intensity": d.intensity,
+                        "last_satisfied_at": d.updated_at.isoformat() if d.updated_at else None,
+                        "focus_areas": d.focus_areas,
+                    }
+                    for d in batched.get("drives", [])
+                ],
+                "lessons": lessons,
+                "recent_work": recent_work,
+                "recent_notes": [
+                    {
+                        "content": n.content,
+                        "metadata": {
+                            "note_type": n.note_type,
+                            "tags": n.tags,
+                            "speaker": n.speaker,
+                            "reason": n.reason,
+                        },
+                        "created_at": n.created_at.isoformat() if n.created_at else None,
+                    }
+                    for n in batched.get("notes", [])
+                ],
+                "relationships": [
+                    {
+                        "other_agent_id": r.entity_name,
+                        "entity_name": r.entity_name,
+                        "trust_level": (r.sentiment + 1) / 2,
+                        "sentiment": r.sentiment,
+                        "interaction_count": r.interaction_count,
+                        "last_interaction": r.last_interaction.isoformat() if r.last_interaction else None,
+                        "notes": r.notes,
+                    }
+                    for r in sorted(
+                        batched.get("relationships", []),
+                        key=lambda x: x.last_interaction or datetime.min.replace(tzinfo=timezone.utc),
+                        reverse=True
+                    )
+                ],
+            }
+        
+        # Fallback to individual queries (for backends without load_all)
         return {
             "checkpoint": self.load_checkpoint(),
             "values": self.load_values(),
@@ -350,11 +476,20 @@ class Kernle:
         
         return checkpoint_data
     
+    # Maximum checkpoint file size (10MB) to prevent DoS via large files
+    MAX_CHECKPOINT_SIZE = 10 * 1024 * 1024
+    
     def load_checkpoint(self) -> Optional[Dict[str, Any]]:
         """Load most recent checkpoint."""
         checkpoint_file = self.checkpoint_dir / f"{self.agent_id}.json"
         if checkpoint_file.exists():
             try:
+                # Check file size before loading to prevent DoS
+                file_size = checkpoint_file.stat().st_size
+                if file_size > self.MAX_CHECKPOINT_SIZE:
+                    logger.error(f"Checkpoint file too large ({file_size} bytes, max {self.MAX_CHECKPOINT_SIZE})")
+                    raise ValueError(f"Checkpoint file too large ({file_size} bytes)")
+                
                 with open(checkpoint_file, 'r', encoding='utf-8') as f:
                     checkpoints = json.load(f)
                     if isinstance(checkpoints, list) and checkpoints:

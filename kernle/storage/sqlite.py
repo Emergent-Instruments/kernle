@@ -6,6 +6,7 @@ Local-first storage with:
 - Sync metadata for cloud synchronization
 """
 
+import contextlib
 import hashlib
 import json
 import logging
@@ -18,7 +19,8 @@ from typing import Optional, List, Dict, Any, TYPE_CHECKING
 from .base import (
     Storage, SyncResult, SyncStatus, QueuedChange,
     Episode, Belief, Value, Goal, Note, Drive, Relationship, Playbook, SearchResult,
-    SourceType, ConfidenceChange, MemoryLineage, RawEntry
+    SourceType, ConfidenceChange, MemoryLineage, RawEntry,
+    utc_now, parse_datetime
 )
 from .embeddings import (
     EmbeddingProvider, HashEmbedder, get_default_embedder,
@@ -424,7 +426,7 @@ class SQLiteStorage:
         embedder: Optional[EmbeddingProvider] = None,
     ):
         self.agent_id = agent_id
-        self.db_path = db_path or Path.home() / ".kernle" / "memories.db"
+        self.db_path = self._validate_db_path(db_path or Path.home() / ".kernle" / "memories.db")
         self.cloud_storage = cloud_storage  # For sync
         
         # Connectivity cache
@@ -447,17 +449,96 @@ class SQLiteStorage:
         if not self._has_vec:
             logger.info("sqlite-vec not available, semantic search will use text matching")
     
+    def _validate_db_path(self, db_path: Path) -> Path:
+        """Validate database path to prevent path traversal attacks."""
+        import tempfile
+        try:
+            # Resolve to absolute path to prevent directory traversal
+            resolved_path = db_path.resolve()
+            
+            # Ensure it's within a safe directory (user's home, system temp, or /tmp)
+            home_path = Path.home().resolve()
+            tmp_path = Path("/tmp").resolve()
+            system_temp = Path(tempfile.gettempdir()).resolve()
+            
+            # Use is_relative_to() for secure path validation (Python 3.9+)
+            is_safe = (
+                resolved_path.is_relative_to(home_path) or
+                resolved_path.is_relative_to(tmp_path) or
+                resolved_path.is_relative_to(system_temp)
+            )
+            
+            # Also allow /var/folders on macOS (where tempfile creates dirs)
+            if not is_safe:
+                try:
+                    var_folders = Path("/var/folders").resolve()
+                    private_var_folders = Path("/private/var/folders").resolve()
+                    is_safe = (
+                        resolved_path.is_relative_to(var_folders) or
+                        resolved_path.is_relative_to(private_var_folders)
+                    )
+                except (OSError, ValueError):
+                    pass
+            
+            if not is_safe:
+                raise ValueError("Database path must be within user home or temp directory")
+            
+            return resolved_path
+            
+        except (OSError, ValueError) as e:
+            logger.error(f"Invalid database path: {e}")
+            raise ValueError(f"Invalid database path: {e}")
+    
     def _get_conn(self) -> sqlite3.Connection:
-        """Get a database connection with sqlite-vec loaded if available."""
+        """Get a database connection with sqlite-vec loaded if available.
+        
+        IMPORTANT: Callers should use this with contextlib.closing() or
+        call conn.close() explicitly to avoid resource warnings:
+        
+            from contextlib import closing
+            with closing(self._get_conn()) as conn:
+                ...
+        
+        Or use the _connect() context manager which handles both
+        commit/rollback and close.
+        """
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
         if self._has_vec:
             self._load_vec(conn)
         return conn
     
+    @contextlib.contextmanager
+    def _connect(self):
+        """Context manager that handles transactions AND closes connection.
+        
+        Use this instead of `with self._connect() as conn:` to avoid
+        unclosed connection warnings. This handles:
+        - Transaction commit on success
+        - Transaction rollback on exception
+        - Connection close in all cases
+        """
+        conn = self._get_conn()
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+    
+    def close(self):
+        """Close any resources.
+        
+        Since we create connections per-operation with context managers,
+        this primarily exists for API compatibility and explicit cleanup.
+        """
+        pass  # No persistent connections to close
+    
     def _init_db(self):
         """Initialize the database schema."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             # First, run migrations if needed (before executing full schema)
             self._migrate_schema(conn)
             
@@ -505,7 +586,7 @@ class SQLiteStorage:
             try:
                 cols = conn.execute(f"PRAGMA table_info({table})").fetchall()
                 return {c[1] for c in cols}
-            except:
+            except (TypeError, ValueError):
                 return set()
         
         # Migrations for episodes table
@@ -724,16 +805,11 @@ class SQLiteStorage:
     
     def _now(self) -> str:
         """Get current timestamp as ISO string."""
-        return datetime.now(timezone.utc).isoformat()
+        return utc_now()
     
     def _parse_datetime(self, s: Optional[str]) -> Optional[datetime]:
         """Parse ISO datetime string."""
-        if not s:
-            return None
-        try:
-            return datetime.fromisoformat(s.replace('Z', '+00:00'))
-        except ValueError:
-            return None
+        return parse_datetime(s)
     
     def _to_json(self, data: Any) -> Optional[str]:
         """Convert to JSON string."""
@@ -772,16 +848,23 @@ class SQLiteStorage:
         """Queue a change for sync.
         
         Deduplicates by (table, record_id) - only keeps latest operation.
+        
+        IMPORTANT: Caller must ensure this runs within a transaction for atomicity.
+        The connection should be used as a context manager: `with conn:` or 
+        explicit BEGIN/COMMIT to prevent race conditions between DELETE and INSERT.
         """
-        # Remove any existing queue entry for this record
+        now = self._now()
+        
+        # Delete any existing entry for this record, then insert fresh
+        # Atomicity is guaranteed by SQLite's transaction handling when
+        # the caller uses `with conn:` or explicit transaction control
         conn.execute(
             "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
             (table, record_id)
         )
-        # Insert the new entry
         conn.execute(
             "INSERT INTO sync_queue (table_name, record_id, operation, payload, queued_at) VALUES (?, ?, ?, ?, ?)",
-            (table, record_id, operation, payload, self._now())
+            (table, record_id, operation, payload, now)
         )
     
     def _content_hash(self, content: str) -> str:
@@ -853,7 +936,7 @@ class SQLiteStorage:
         now = self._now()
         episode.local_updated_at = self._parse_datetime(now)
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO episodes 
                 (id, agent_id, objective, outcome, outcome_type, lessons, tags, 
@@ -921,7 +1004,7 @@ class SQLiteStorage:
         query += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit)
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
         
         episodes = [self._row_to_episode(row) for row in rows]
@@ -937,7 +1020,7 @@ class SQLiteStorage:
     
     def get_episode(self, episode_id: str) -> Optional[Episode]:
         """Get a specific episode."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM episodes WHERE id = ? AND agent_id = ?",
                 (episode_id, self.agent_id)
@@ -1004,7 +1087,7 @@ class SQLiteStorage:
         
         now = self._now()
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             cursor = conn.execute(
                 """UPDATE episodes SET 
                    emotional_valence = ?,
@@ -1053,7 +1136,7 @@ class SQLiteStorage:
         query += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit * 2 if tags else limit)  # Get more if we need to filter by tags
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
         
         episodes = [self._row_to_episode(row) for row in rows]
@@ -1091,7 +1174,7 @@ class SQLiteStorage:
                    ORDER BY created_at DESC
                    LIMIT ?"""
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             rows = conn.execute(query, (self.agent_id, cutoff, limit)).fetchall()
         
         return [self._row_to_episode(row) for row in rows]
@@ -1105,7 +1188,7 @@ class SQLiteStorage:
         
         now = self._now()
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO beliefs
                 (id, agent_id, statement, belief_type, confidence, created_at,
@@ -1152,7 +1235,7 @@ class SQLiteStorage:
             limit: Maximum number of beliefs to return
             include_inactive: If True, include superseded/archived beliefs
         """
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             if include_inactive:
                 rows = conn.execute(
                     "SELECT * FROM beliefs WHERE agent_id = ? AND deleted = 0 ORDER BY created_at DESC LIMIT ?",
@@ -1168,7 +1251,7 @@ class SQLiteStorage:
     
     def find_belief(self, statement: str) -> Optional[Belief]:
         """Find a belief by statement."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM beliefs WHERE agent_id = ? AND statement = ? AND deleted = 0",
                 (self.agent_id, statement)
@@ -1220,7 +1303,7 @@ class SQLiteStorage:
         
         now = self._now()
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO agent_values
                 (id, agent_id, name, statement, priority, created_at,
@@ -1259,7 +1342,7 @@ class SQLiteStorage:
     
     def get_values(self, limit: int = 100) -> List[Value]:
         """Get values ordered by priority."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM agent_values WHERE agent_id = ? AND deleted = 0 ORDER BY priority DESC LIMIT ?",
                 (self.agent_id, limit)
@@ -1306,7 +1389,7 @@ class SQLiteStorage:
         
         now = self._now()
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO goals
                 (id, agent_id, title, description, priority, status, created_at,
@@ -1356,7 +1439,7 @@ class SQLiteStorage:
         query += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit)
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
         
         return [self._row_to_goal(row) for row in rows]
@@ -1401,7 +1484,7 @@ class SQLiteStorage:
         
         now = self._now()
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO notes
                 (id, agent_id, content, note_type, speaker, reason, tags, created_at,
@@ -1460,7 +1543,7 @@ class SQLiteStorage:
         query += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit)
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
         
         return [self._row_to_note(row) for row in rows]
@@ -1506,7 +1589,7 @@ class SQLiteStorage:
         
         now = self._now()
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             # Check if exists
             existing = conn.execute(
                 "SELECT id FROM drives WHERE agent_id = ? AND drive_type = ?",
@@ -1573,7 +1656,7 @@ class SQLiteStorage:
     
     def get_drives(self) -> List[Drive]:
         """Get all drives."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM drives WHERE agent_id = ? AND deleted = 0",
                 (self.agent_id,)
@@ -1583,7 +1666,7 @@ class SQLiteStorage:
     
     def get_drive(self, drive_type: str) -> Optional[Drive]:
         """Get a specific drive."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM drives WHERE agent_id = ? AND drive_type = ? AND deleted = 0",
                 (self.agent_id, drive_type)
@@ -1631,7 +1714,7 @@ class SQLiteStorage:
         
         now = self._now()
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             # Check if exists
             existing = conn.execute(
                 "SELECT id FROM relationships WHERE agent_id = ? AND entity_name = ?",
@@ -1713,14 +1796,14 @@ class SQLiteStorage:
             query += " AND entity_type = ?"
             params.append(entity_type)
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
         
         return [self._row_to_relationship(row) for row in rows]
     
     def get_relationship(self, entity_name: str) -> Optional[Relationship]:
         """Get a specific relationship."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM relationships WHERE agent_id = ? AND entity_name = ? AND deleted = 0",
                 (self.agent_id, entity_name)
@@ -1768,7 +1851,7 @@ class SQLiteStorage:
         """Save a playbook. Returns the playbook ID."""
         now = self._now()
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             conn.execute("""
                 INSERT OR REPLACE INTO playbooks
                 (id, agent_id, name, description, trigger_conditions, steps, failure_modes,
@@ -1811,7 +1894,7 @@ class SQLiteStorage:
     
     def get_playbook(self, playbook_id: str) -> Optional[Playbook]:
         """Get a specific playbook by ID."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             cur = conn.execute(
                 "SELECT * FROM playbooks WHERE id = ? AND agent_id = ? AND deleted = 0",
                 (playbook_id, self.agent_id)
@@ -1826,7 +1909,7 @@ class SQLiteStorage:
         limit: int = 100,
     ) -> List[Playbook]:
         """Get playbooks, optionally filtered by tags."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             query = """
                 SELECT * FROM playbooks 
                 WHERE agent_id = ? AND deleted = 0
@@ -1855,7 +1938,7 @@ class SQLiteStorage:
             embedding = self._embedder.embed(query)
             packed = pack_embedding(embedding)
             
-            with self._get_conn() as conn:
+            with self._connect() as conn:
                 cur = conn.execute("""
                     SELECT e.id, e.embedding, distance
                     FROM vec_embeddings e
@@ -1879,7 +1962,7 @@ class SQLiteStorage:
             return playbooks
         else:
             # Fall back to text search
-            with self._get_conn() as conn:
+            with self._connect() as conn:
                 search_pattern = f"%{query}%"
                 cur = conn.execute("""
                     SELECT * FROM playbooks 
@@ -1919,7 +2002,7 @@ class SQLiteStorage:
         elif new_times_used >= 5 and new_success_rate >= 0.7:
             new_mastery = "competent"
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             conn.execute("""
                 UPDATE playbooks SET
                     times_used = ?,
@@ -1976,7 +2059,7 @@ class SQLiteStorage:
         raw_id = str(uuid.uuid4())
         now = self._now()
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             conn.execute("""
                 INSERT INTO raw_entries
                 (id, agent_id, content, timestamp, source, processed, processed_into, tags,
@@ -2009,7 +2092,7 @@ class SQLiteStorage:
     
     def get_raw(self, raw_id: str) -> Optional[RawEntry]:
         """Get a specific raw entry by ID."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM raw_entries WHERE id = ? AND agent_id = ? AND deleted = 0",
                 (raw_id, self.agent_id)
@@ -2029,7 +2112,7 @@ class SQLiteStorage:
         query += " ORDER BY timestamp DESC LIMIT ?"
         params.append(limit)
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
         
         return [self._row_to_raw_entry(row) for row in rows]
@@ -2038,7 +2121,7 @@ class SQLiteStorage:
         """Mark a raw entry as processed into other memories."""
         now = self._now()
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             cursor = conn.execute("""
                 UPDATE raw_entries SET
                     processed = 1,
@@ -2119,7 +2202,7 @@ class SQLiteStorage:
             "goal": "goals",
         }
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             # Build table prefix filter
             table_prefixes = [table_map[t] for t in types if t in table_map]
             
@@ -2204,7 +2287,7 @@ class SQLiteStorage:
         results = []
         search_term = f"%{query}%"
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             if "episode" in types:
                 rows = conn.execute(
                     """SELECT * FROM episodes 
@@ -2286,7 +2369,7 @@ class SQLiteStorage:
     
     def get_stats(self) -> Dict[str, int]:
         """Get counts of each record type."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             stats = {}
             for table, key in [
                 ("episodes", "episodes"),
@@ -2305,6 +2388,102 @@ class SQLiteStorage:
                 stats[key] = count
         
         return stats
+    
+    # === Batch Loading ===
+    
+    def load_all(
+        self,
+        values_limit: int = 10,
+        beliefs_limit: int = 20,
+        goals_limit: int = 10,
+        goals_status: str = "active",
+        episodes_limit: int = 20,
+        notes_limit: int = 5,
+    ) -> Dict[str, Any]:
+        """Load all memory types in a single database connection.
+        
+        This optimizes the common pattern of loading working memory context
+        by batching all queries into a single connection, avoiding N+1 query
+        patterns where each memory type requires a separate connection.
+        
+        Args:
+            values_limit: Max values to load
+            beliefs_limit: Max beliefs to load  
+            goals_limit: Max goals to load
+            goals_status: Goal status filter ("active", "all", etc.)
+            episodes_limit: Max episodes to load
+            notes_limit: Max notes to load
+            
+        Returns:
+            Dict with keys: values, beliefs, goals, drives, episodes, notes, relationships
+        """
+        result = {
+            "values": [],
+            "beliefs": [],
+            "goals": [],
+            "drives": [],
+            "episodes": [],
+            "notes": [],
+            "relationships": [],
+        }
+        
+        with self._connect() as conn:
+            # Values - ordered by priority
+            rows = conn.execute(
+                "SELECT * FROM agent_values WHERE agent_id = ? AND deleted = 0 ORDER BY priority DESC LIMIT ?",
+                (self.agent_id, values_limit)
+            ).fetchall()
+            result["values"] = [self._row_to_value(row) for row in rows]
+            
+            # Beliefs - ordered by confidence (will be sorted in caller)
+            rows = conn.execute(
+                "SELECT * FROM beliefs WHERE agent_id = ? AND deleted = 0 AND (is_active = 1 OR is_active IS NULL) ORDER BY confidence DESC LIMIT ?",
+                (self.agent_id, beliefs_limit)
+            ).fetchall()
+            result["beliefs"] = [self._row_to_belief(row) for row in rows]
+            
+            # Goals - filtered by status
+            if goals_status and goals_status != "all":
+                rows = conn.execute(
+                    "SELECT * FROM goals WHERE agent_id = ? AND deleted = 0 AND status = ? ORDER BY created_at DESC LIMIT ?",
+                    (self.agent_id, goals_status, goals_limit)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM goals WHERE agent_id = ? AND deleted = 0 ORDER BY created_at DESC LIMIT ?",
+                    (self.agent_id, goals_limit)
+                ).fetchall()
+            result["goals"] = [self._row_to_goal(row) for row in rows]
+            
+            # Drives - all for agent
+            rows = conn.execute(
+                "SELECT * FROM drives WHERE agent_id = ? AND deleted = 0",
+                (self.agent_id,)
+            ).fetchall()
+            result["drives"] = [self._row_to_drive(row) for row in rows]
+            
+            # Episodes - most recent
+            rows = conn.execute(
+                "SELECT * FROM episodes WHERE agent_id = ? AND deleted = 0 ORDER BY created_at DESC LIMIT ?",
+                (self.agent_id, episodes_limit)
+            ).fetchall()
+            result["episodes"] = [self._row_to_episode(row) for row in rows]
+            
+            # Notes - most recent  
+            rows = conn.execute(
+                "SELECT * FROM notes WHERE agent_id = ? AND deleted = 0 ORDER BY created_at DESC LIMIT ?",
+                (self.agent_id, notes_limit)
+            ).fetchall()
+            result["notes"] = [self._row_to_note(row) for row in rows]
+            
+            # Relationships - all for agent
+            rows = conn.execute(
+                "SELECT * FROM relationships WHERE agent_id = ? AND deleted = 0",
+                (self.agent_id,)
+            ).fetchall()
+            result["relationships"] = [self._row_to_relationship(row) for row in rows]
+        
+        return result
     
     # === Meta-Memory ===
     
@@ -2333,7 +2512,7 @@ class SQLiteStorage:
     
     def _get_belief_by_id(self, belief_id: str) -> Optional[Belief]:
         """Get a belief by ID."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM beliefs WHERE id = ? AND agent_id = ? AND deleted = 0",
                 (belief_id, self.agent_id)
@@ -2342,7 +2521,7 @@ class SQLiteStorage:
     
     def _get_value_by_id(self, value_id: str) -> Optional[Value]:
         """Get a value by ID."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM agent_values WHERE id = ? AND agent_id = ? AND deleted = 0",
                 (value_id, self.agent_id)
@@ -2351,7 +2530,7 @@ class SQLiteStorage:
     
     def _get_goal_by_id(self, goal_id: str) -> Optional[Goal]:
         """Get a goal by ID."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM goals WHERE id = ? AND agent_id = ? AND deleted = 0",
                 (goal_id, self.agent_id)
@@ -2360,7 +2539,7 @@ class SQLiteStorage:
     
     def _get_note_by_id(self, note_id: str) -> Optional[Note]:
         """Get a note by ID."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM notes WHERE id = ? AND agent_id = ? AND deleted = 0",
                 (note_id, self.agent_id)
@@ -2369,7 +2548,7 @@ class SQLiteStorage:
     
     def _get_drive_by_id(self, drive_id: str) -> Optional[Drive]:
         """Get a drive by ID."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM drives WHERE id = ? AND agent_id = ? AND deleted = 0",
                 (drive_id, self.agent_id)
@@ -2378,7 +2557,7 @@ class SQLiteStorage:
     
     def _get_relationship_by_id(self, relationship_id: str) -> Optional[Relationship]:
         """Get a relationship by ID."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM relationships WHERE id = ? AND agent_id = ? AND deleted = 0",
                 (relationship_id, self.agent_id)
@@ -2468,7 +2647,7 @@ class SQLiteStorage:
         
         query = f"UPDATE {table} SET {', '.join(updates)} WHERE id = ? AND agent_id = ? AND deleted = 0"
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             cursor = conn.execute(query, params)
             if cursor.rowcount > 0:
                 self._queue_sync(conn, table, memory_id, "upsert")
@@ -2508,7 +2687,7 @@ class SQLiteStorage:
             "relationship": ("relationships", self._row_to_relationship),
         }
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             for memory_type in types:
                 if memory_type not in table_map:
                     continue
@@ -2567,7 +2746,7 @@ class SQLiteStorage:
             "relationship": ("relationships", self._row_to_relationship),
         }
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             for memory_type in types:
                 if memory_type not in table_map:
                     continue
@@ -2625,7 +2804,7 @@ class SQLiteStorage:
         
         now = self._now()
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             cursor = conn.execute(
                 f"""UPDATE {table} 
                    SET times_accessed = COALESCE(times_accessed, 0) + 1,
@@ -2669,7 +2848,7 @@ class SQLiteStorage:
         
         now = self._now()
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             # Check if memory exists and is not protected
             row = conn.execute(
                 f"SELECT is_protected, is_forgotten FROM {table} WHERE id = ? AND agent_id = ?",
@@ -2725,7 +2904,7 @@ class SQLiteStorage:
         
         now = self._now()
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             # Check if memory is forgotten
             row = conn.execute(
                 f"SELECT is_forgotten FROM {table} WHERE id = ? AND agent_id = ?",
@@ -2775,7 +2954,7 @@ class SQLiteStorage:
         
         now = self._now()
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             cursor = conn.execute(
                 f"""UPDATE {table} 
                    SET is_protected = ?,
@@ -2830,7 +3009,7 @@ class SQLiteStorage:
         now = datetime.now(timezone.utc)
         half_life = 30.0  # days
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             for memory_type in types:
                 if memory_type not in table_map:
                     continue
@@ -2915,7 +3094,7 @@ class SQLiteStorage:
             "relationship": ("relationships", self._row_to_relationship),
         }
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             for memory_type in types:
                 if memory_type not in table_map:
                     continue
@@ -2947,13 +3126,13 @@ class SQLiteStorage:
     
     def get_pending_sync_count(self) -> int:
         """Get count of records pending sync."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             count = conn.execute("SELECT COUNT(*) FROM sync_queue").fetchone()[0]
         return count
     
     def get_queued_changes(self, limit: int = 100) -> List[QueuedChange]:
         """Get queued changes for sync."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             rows = conn.execute(
                 "SELECT id, table_name, record_id, operation, payload, queued_at FROM sync_queue ORDER BY id LIMIT ?",
                 (limit,)
@@ -2977,7 +3156,7 @@ class SQLiteStorage:
     
     def _get_sync_meta(self, key: str) -> Optional[str]:
         """Get a sync metadata value."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             row = conn.execute(
                 "SELECT value FROM sync_meta WHERE key = ?", (key,)
             ).fetchone()
@@ -2985,7 +3164,7 @@ class SQLiteStorage:
     
     def _set_sync_meta(self, key: str, value: str):
         """Set a sync metadata value."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO sync_meta (key, value, updated_at) VALUES (?, ?, ?)",
                 (key, value, self._now())
@@ -3045,7 +3224,7 @@ class SQLiteStorage:
     
     def _get_record_for_push(self, table: str, record_id: str) -> Optional[Any]:
         """Get a record by table and ID for pushing to cloud."""
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             row = conn.execute(
                 f"SELECT * FROM {table} WHERE id = ? AND agent_id = ?",
                 (record_id, self.agent_id)
@@ -3123,7 +3302,7 @@ class SQLiteStorage:
         queued = self.get_queued_changes()
         logger.debug(f"Pushing {len(queued)} queued changes")
         
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             for change in queued:
                 # Get the current record
                 record = self._get_record_for_push(change.table_name, change.record_id)
@@ -3225,7 +3404,7 @@ class SQLiteStorage:
     def _merge_note(self, cloud_record: Note) -> tuple[int, int]:
         """Merge a cloud note with local. Returns (pulled, conflicts)."""
         local = None
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM notes WHERE id = ? AND agent_id = ?",
                 (cloud_record.id, self.agent_id)
@@ -3240,7 +3419,7 @@ class SQLiteStorage:
     def _merge_belief(self, cloud_record: Belief) -> tuple[int, int]:
         """Merge a cloud belief with local. Returns (pulled, conflicts)."""
         local = None
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM beliefs WHERE id = ? AND agent_id = ?",
                 (cloud_record.id, self.agent_id)
@@ -3255,7 +3434,7 @@ class SQLiteStorage:
     def _merge_value(self, cloud_record: Value) -> tuple[int, int]:
         """Merge a cloud value with local. Returns (pulled, conflicts)."""
         local = None
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM agent_values WHERE id = ? AND agent_id = ?",
                 (cloud_record.id, self.agent_id)
@@ -3270,7 +3449,7 @@ class SQLiteStorage:
     def _merge_goal(self, cloud_record: Goal) -> tuple[int, int]:
         """Merge a cloud goal with local. Returns (pulled, conflicts)."""
         local = None
-        with self._get_conn() as conn:
+        with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM goals WHERE id = ? AND agent_id = ?",
                 (cloud_record.id, self.agent_id)
@@ -3321,7 +3500,7 @@ class SQLiteStorage:
             # No local record - just save the cloud version
             save_fn()
             # Mark as synced (don't queue for push)
-            with self._get_conn() as conn:
+            with self._connect() as conn:
                 self._mark_synced(conn, table, cloud_record.id)
                 # Remove from queue if present
                 conn.execute(
@@ -3339,7 +3518,7 @@ class SQLiteStorage:
             if cloud_time > local_time:
                 # Cloud is newer - overwrite local
                 save_fn()
-                with self._get_conn() as conn:
+                with self._connect() as conn:
                     self._mark_synced(conn, table, cloud_record.id)
                     conn.execute(
                         "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
@@ -3353,7 +3532,7 @@ class SQLiteStorage:
         elif cloud_time:
             # Only cloud has timestamp - use cloud
             save_fn()
-            with self._get_conn() as conn:
+            with self._connect() as conn:
                 self._mark_synced(conn, table, cloud_record.id)
                 conn.commit()
             return (1, 0)

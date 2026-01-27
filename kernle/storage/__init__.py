@@ -15,7 +15,8 @@ from typing import Optional, Literal
 from .base import (
     Storage, SyncResult, SyncStatus, QueuedChange,
     Episode, Belief, Value, Goal, Note, Drive, Relationship, Playbook, SearchResult,
-    SourceType, ConfidenceChange, MemoryLineage, RawEntry
+    SourceType, ConfidenceChange, MemoryLineage, RawEntry,
+    utc_now, parse_datetime
 )
 from .sqlite import SQLiteStorage
 from .postgres import SupabaseStorage
@@ -124,6 +125,9 @@ __all__ = [
     "SourceType",
     "ConfidenceChange",
     "MemoryLineage",
+    # Utilities
+    "utc_now",
+    "parse_datetime",
     # Implementations
     "SQLiteStorage",
     "SupabaseStorage",

@@ -87,7 +87,7 @@ def cmd_episode(args, k: Kernle):
     """Record an episode."""
     objective = validate_input(args.objective, "objective", 1000)
     outcome = validate_input(args.outcome, "outcome", 1000)
-    lessons = [validate_input(l, "lesson", 500) for l in (args.lesson or [])]
+    lessons = [validate_input(lesson, "lesson", 500) for lesson in (args.lesson or [])]
     tags = [validate_input(t, "tag", 100) for t in (args.tag or [])]
     
     # Get emotional arguments with defaults for backwards compatibility
@@ -128,7 +128,7 @@ def cmd_episode(args, k: Kernle):
         a = arousal or 0.0
         print(f"  Emotion: valence={v:+.2f}, arousal={a:.2f}")
     elif auto_emotion and not has_emotion_args:
-        print(f"  (emotions auto-detected)")
+        print("  (emotions auto-detected)")
 
 
 def cmd_note(args, k: Kernle):
@@ -217,7 +217,7 @@ def cmd_drive(args, k: Kernle):
 def cmd_consolidate(args, k: Kernle):
     """Run memory consolidation."""
     result = k.consolidate(args.min_episodes)
-    print(f"Consolidation complete:")
+    print("Consolidation complete:")
     print(f"  Episodes processed: {result['consolidated']}")
     print(f"  New beliefs: {result.get('new_beliefs', 0)}")
     print(f"  Lessons found: {result.get('lessons_found', 0)}")
@@ -645,7 +645,7 @@ def cmd_anxiety(args, k: Kernle):
     else:
         # Suggest running with --auto
         if report["overall_score"] > 50:
-            print(f"\nRun `kernle anxiety --auto` to execute recommended actions.")
+            print("\nRun `kernle anxiety --auto` to execute recommended actions.")
 
 
 def cmd_forget(args, k: Kernle):

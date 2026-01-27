@@ -39,7 +39,8 @@ def sqlite_storage(temp_db_path):
         agent_id="test_agent",
         db_path=temp_db_path,
     )
-    return storage
+    yield storage
+    storage.close()
 
 
 @pytest.fixture
@@ -56,7 +57,8 @@ def kernle_instance(temp_checkpoint_dir, temp_db_path):
         checkpoint_dir=temp_checkpoint_dir
     )
     
-    return kernle, storage
+    yield kernle, storage
+    storage.close()
 
 
 @pytest.fixture
@@ -264,7 +266,7 @@ def mock_supabase_client():
                     reverse = desc
                     try:
                         result.data.sort(key=lambda x: x.get(field, ''), reverse=reverse)
-                    except:
+                    except (TypeError, KeyError):
                         pass  # Skip sorting if comparison fails
                 return result
             
