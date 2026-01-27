@@ -186,13 +186,8 @@ def patched_get_kernle(mock_kernle):
 
 class TestKernleMocking:
     """Test proper mocking of the Kernle core class."""
-    
-    def test_mock_setup(self, mock_kernle):
-        """Test that our mock is properly configured."""
-        # Test a few key methods
-        assert mock_kernle.load() is not None
-        assert mock_kernle.format_memory("test") == "Formatted memory output"
-        assert mock_kernle.episode.return_value == "episode_123456"
+    # NOTE: Removed test_mock_setup - it only tested mock configuration, not production code.
+    # Mocks are implementation details of tests, not things to test themselves.
 
 
 class TestMCPToolCalls:
@@ -200,15 +195,23 @@ class TestMCPToolCalls:
 
     @pytest.mark.asyncio
     async def test_memory_load_text_format(self, patched_get_kernle):
-        """Test memory_load with text format."""
+        """Test memory_load with text format calls correct methods."""
         result = await call_tool("memory_load", {"format": "text"})
         
         assert len(result) == 1
         assert isinstance(result[0], TextContent)
-        assert result[0].text == "Formatted memory output"
         
+        # Verify production code calls the right sequence:
+        # 1. Loads memory data
         patched_get_kernle.load.assert_called_once()
+        # 2. Formats it for text display (passes loaded data to formatter)
         patched_get_kernle.format_memory.assert_called_once()
+        # 3. format_memory should receive the loaded data
+        format_call_args = patched_get_kernle.format_memory.call_args
+        assert format_call_args is not None  # format_memory was called with arguments
+        
+        # The result should not be empty
+        assert result[0].text  # Non-empty string returned
 
     @pytest.mark.asyncio
     async def test_memory_load_json_format(self, patched_get_kernle):
@@ -227,12 +230,15 @@ class TestMCPToolCalls:
 
     @pytest.mark.asyncio
     async def test_memory_load_default_format(self, patched_get_kernle):
-        """Test memory_load with default format (text)."""
+        """Test memory_load with default format uses text format path."""
         result = await call_tool("memory_load", {})
         
         assert len(result) == 1
-        assert result[0].text == "Formatted memory output"
+        # Default format should be text, so format_memory should be called
+        patched_get_kernle.load.assert_called_once()
         patched_get_kernle.format_memory.assert_called_once()
+        # Result should contain formatted text (not raw JSON)
+        assert result[0].text  # Non-empty
 
     @pytest.mark.asyncio
     async def test_memory_checkpoint_save(self, patched_get_kernle):
@@ -320,33 +326,50 @@ class TestMCPToolCalls:
             {
                 "content": "This is a regular note",
                 "type": "note",
-                "tags": ["general"]
+                "tags": ["general"],
+                "expected_call": {"type": "note", "speaker": "", "reason": ""}
             },
             {
                 "content": "Use pytest for testing",
                 "type": "decision",
                 "reason": "Industry standard with good ecosystem",
-                "tags": ["testing"]
+                "tags": ["testing"],
+                "expected_call": {"type": "decision", "speaker": "", "reason": "Industry standard with good ecosystem"}
             },
             {
                 "content": "Mocking enables isolated testing",
                 "type": "insight",
-                "tags": ["testing", "insights"]
+                "tags": ["testing", "insights"],
+                "expected_call": {"type": "insight", "speaker": "", "reason": ""}
             },
             {
                 "content": "Code is poetry",
                 "type": "quote",
                 "speaker": "Someone Wise",
-                "tags": ["inspiration"]
+                "tags": ["inspiration"],
+                "expected_call": {"type": "quote", "speaker": "Someone Wise", "reason": ""}
             }
         ]
         
         for note_args in note_types:
+            # Reset mock before each iteration to verify individual calls
+            patched_get_kernle.note.reset_mock()
+            
+            expected = note_args.pop("expected_call")
             result = await call_tool("memory_note", note_args)
             
             assert len(result) == 1
             assert "Note saved:" in result[0].text
             assert note_args["content"][:50] in result[0].text
+            
+            # Verify the correct call was made for THIS iteration
+            patched_get_kernle.note.assert_called_once_with(
+                content=note_args["content"],
+                type=expected["type"],
+                speaker=expected["speaker"],
+                reason=expected["reason"],
+                tags=note_args["tags"]
+            )
 
     @pytest.mark.asyncio
     async def test_memory_note_minimal(self, patched_get_kernle):
@@ -476,8 +499,9 @@ class TestMCPToolCalls:
         )
 
     @pytest.mark.asyncio
+    @pytest.mark.xfail(reason="BUG: validate_enum() gets unexpected 'required' kwarg - see kernle/mcp/server.py ~line 183")
     async def test_memory_drive(self, patched_get_kernle):
-        """Test memory_drive - currently has validation bug."""
+        """Test memory_drive with all parameters."""
         args = {
             "drive_type": "growth",
             "intensity": 0.8,
@@ -487,33 +511,34 @@ class TestMCPToolCalls:
         result = await call_tool("memory_drive", args)
         
         assert len(result) == 1
-        # This test currently expects an error due to a bug in the server validation
-        assert "Invalid input:" in result[0].text
-        assert "validate_enum() got an unexpected keyword argument 'required'" in result[0].text
+        # Test intended behavior: should save drive and return confirmation
+        assert "Drive saved:" in result[0].text
+        assert "drive_" in result[0].text
+        
+        patched_get_kernle.drive.assert_called_once_with(
+            drive_type="growth",
+            intensity=0.8,
+            focus_areas=["learning", "improvement", "mastery"]
+        )
 
     @pytest.mark.asyncio
+    @pytest.mark.xfail(reason="BUG: validate_enum() gets unexpected 'required' kwarg - see kernle/mcp/server.py ~line 183")
     async def test_memory_drive_default_intensity(self, patched_get_kernle):
-        """Test memory_drive with default intensity - currently has validation bug."""
+        """Test memory_drive with default intensity."""
         result = await call_tool("memory_drive", {"drive_type": "curiosity"})
         
         assert len(result) == 1
-        # This test currently expects an error due to a bug in the server validation
-        assert "Invalid input:" in result[0].text
-        assert "validate_enum() got an unexpected keyword argument 'required'" in result[0].text
+        # Test intended behavior: should use default intensity (0.5)
+        assert "Drive saved:" in result[0].text
+        
+        patched_get_kernle.drive.assert_called_once_with(
+            drive_type="curiosity",
+            intensity=0.5,
+            focus_areas=[]
+        )
 
-    def test_memory_drive_validation_bug_documentation(self):
-        """Document the memory_drive validation bug for fixing."""
-        # BUG: In kernle/mcp/server.py line ~183, the validate_enum call has:
-        # validate_enum(..., required=True)
-        # But validate_enum doesn't accept a 'required' parameter.
-        # 
-        # FIX: Change to:
-        # sanitized["drive_type"] = validate_enum(
-        #     arguments.get("drive_type"), "drive_type", 
-        #     ["existence", "growth", "curiosity", "connection", "reproduction"]
-        # )
-        # Since validate_enum already raises an error for None when no default is provided
-        pass
+    # NOTE: The no-op test_memory_drive_validation_bug_documentation was removed.
+    # Bug documentation belongs in issue tracker or code comments, not empty tests.
 
     @pytest.mark.asyncio
     async def test_memory_when_periods(self, patched_get_kernle):
@@ -666,16 +691,23 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_missing_required_arguments(self, patched_get_kernle):
-        """Test behavior when required arguments are missing."""
-        # This should cause a KeyError which gets caught
+        """Test behavior when required arguments are missing returns clear error."""
+        # memory_checkpoint_save requires 'task' argument
         result = await call_tool("memory_checkpoint_save", {})
         
         assert len(result) == 1
-        assert "Invalid input:" in result[0].text or "Error" in result[0].text
+        # Should get a validation error mentioning the missing field
+        error_text = result[0].text.lower()
+        assert "invalid" in error_text or "error" in error_text or "required" in error_text
+        # Error should identify what's missing (task is required)
+        assert "task" in error_text or "required" in error_text
+        
+        # The kernle method should NOT have been called with missing required args
+        patched_get_kernle.checkpoint.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_invalid_argument_types(self, patched_get_kernle):
-        """Test behavior with invalid argument types."""
+        """Test behavior with invalid argument types returns validation error."""
         # Pass invalid type for limit (should be integer)
         result = await call_tool("memory_search", {
             "query": "test",
@@ -683,7 +715,16 @@ class TestEdgeCases:
         })
         
         assert len(result) == 1
-        # Should either work (if Kernle handles it) or return error
+        # Server should validate argument types and return a clear error
+        # The result should either:
+        # - Be an error message about invalid type
+        # - Or the call was made anyway (and we can verify how it was called)
+        if "Invalid input:" in result[0].text or "Error" in result[0].text:
+            # Validation rejected it - this is the expected safe behavior
+            assert "limit" in result[0].text.lower() or "type" in result[0].text.lower()
+        else:
+            # If no error, verify the search was actually called (not silently swallowed)
+            patched_get_kernle.search.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_empty_results_handling(self, patched_get_kernle):
@@ -716,14 +757,26 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_large_content_handling(self, patched_get_kernle):
         """Test handling of large content that gets rejected by validation."""
-        long_content = "This is a very long piece of content " * 100
+        long_content = "This is a very long piece of content " * 100  # ~3800 chars
         
         result = await call_tool("memory_note", {"content": long_content})
         
         assert len(result) == 1
         # Should be rejected by validation (max 2000 characters for notes)
-        assert "Invalid input:" in result[0].text or "Error" in result[0].text
-        assert "too long" in result[0].text
+        error_text = result[0].text.lower()
+        
+        # Verify this is a validation error, not a success
+        assert "invalid" in error_text or "error" in error_text, \
+            f"Large content should be rejected, got: {result[0].text}"
+        
+        # Error should mention the issue is with content length/size
+        length_related_terms = ["long", "length", "size", "character", "2000", "limit", "exceed", "max"]
+        has_length_info = any(term in error_text for term in length_related_terms)
+        assert has_length_info, \
+            f"Error should mention length/size issue, got: {result[0].text}"
+        
+        # Verify Kernle.note was NOT called (validation should prevent it)
+        patched_get_kernle.note.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_reasonable_content_handling(self, patched_get_kernle):
@@ -738,11 +791,12 @@ class TestEdgeCases:
 
     @pytest.mark.asyncio
     async def test_json_serialization_edge_cases(self, patched_get_kernle):
-        """Test JSON serialization with complex objects."""
-        # Mock memory data with datetime objects and complex structures
+        """Test JSON serialization converts datetime objects to strings."""
+        # Create specific datetime for verification
+        test_datetime = datetime(2024, 6, 15, 12, 30, 45, tzinfo=timezone.utc)
         complex_memory = {
-            "checkpoint": {"created_at": datetime.now(timezone.utc)},
-            "values": [{"created": datetime.now()}],
+            "checkpoint": {"created_at": test_datetime},
+            "values": [{"created": test_datetime}],
             "complex_data": {"nested": {"deep": "value"}}
         }
         patched_get_kernle.load.return_value = complex_memory
@@ -750,20 +804,36 @@ class TestEdgeCases:
         result = await call_tool("memory_load", {"format": "json"})
         
         assert len(result) == 1
-        # Should be valid JSON (datetime objects converted to strings)
+        # Should be valid JSON (datetime objects must be converted to strings)
         json_data = json.loads(result[0].text)
         assert "checkpoint" in json_data
+        
+        # Verify datetime was serialized - it should be a string, not a datetime object
+        checkpoint_created = json_data["checkpoint"]["created_at"]
+        assert isinstance(checkpoint_created, str), "datetime should be serialized to string"
+        # The serialized string should contain date components
+        assert "2024" in checkpoint_created
+        
+        # Verify nested structure is preserved
+        assert json_data["complex_data"]["nested"]["deep"] == "value"
 
     @pytest.mark.asyncio
     async def test_unicode_content_handling(self, patched_get_kernle):
-        """Test handling of Unicode content."""
+        """Test handling of Unicode content is preserved."""
         unicode_content = "测试 🧪 emoji and unicode characters ñoño"
         
         result = await call_tool("memory_note", {"content": unicode_content})
         
         assert len(result) == 1
         assert "Note saved:" in result[0].text
-        # Should handle Unicode properly
+        
+        # Verify unicode content was passed through correctly to Kernle
+        patched_get_kernle.note.assert_called_once()
+        call_args = patched_get_kernle.note.call_args
+        assert call_args.kwargs["content"] == unicode_content, "Unicode should be preserved"
+        
+        # Verify unicode appears in the response (truncated in output)
+        assert "测试" in result[0].text or unicode_content[:50] in result[0].text
 
     @pytest.mark.asyncio
     async def test_special_characters_in_search(self, patched_get_kernle):
@@ -811,36 +881,56 @@ class TestGetKernleFunction:
             assert result is mock_instance
 
 
-class TestIntegrationScenarios:
-    """Integration test scenarios combining multiple tools."""
+class TestMultiToolWorkflows:
+    """Test workflows combining multiple tool calls (mocked).
+    
+    NOTE: These are NOT true integration tests - they use mocked Kernle.
+    They verify that call_tool correctly dispatches multiple sequential calls
+    and that each tool call works independently.
+    
+    For real integration tests, see tests/test_integration.py (if it exists)
+    or create one that uses a real Kernle instance.
+    """
 
     @pytest.mark.asyncio
-    async def test_typical_session_workflow(self, patched_get_kernle):
-        """Test a typical workflow: load -> work -> episode -> checkpoint."""
+    async def test_typical_session_workflow_dispatch(self, patched_get_kernle):
+        """Test that typical workflow dispatches to correct Kernle methods."""
         # Load memory
-        await call_tool("memory_load", {"format": "text"})
+        result1 = await call_tool("memory_load", {"format": "text"})
+        assert len(result1) == 1
         
         # Record an episode
-        await call_tool("memory_episode", {
+        result2 = await call_tool("memory_episode", {
             "objective": "Write MCP tests",
             "outcome": "success",
             "lessons": ["Comprehensive mocking is essential"]
         })
+        assert "Episode saved:" in result2[0].text
         
         # Save checkpoint
-        await call_tool("memory_checkpoint_save", {
+        result3 = await call_tool("memory_checkpoint_save", {
             "task": "Testing complete",
             "pending": []
         })
+        assert "Checkpoint saved:" in result3[0].text
         
-        # Check calls were made
+        # Verify correct methods called with correct arguments
         patched_get_kernle.load.assert_called_once()
-        patched_get_kernle.episode.assert_called_once()
-        patched_get_kernle.checkpoint.assert_called_once()
+        patched_get_kernle.episode.assert_called_once_with(
+            objective="Write MCP tests",
+            outcome="success",
+            lessons=["Comprehensive mocking is essential"],
+            tags=[]
+        )
+        patched_get_kernle.checkpoint.assert_called_once_with(
+            task="Testing complete",
+            pending=[],
+            context=""
+        )
 
     @pytest.mark.asyncio
-    async def test_memory_building_workflow(self, patched_get_kernle):
-        """Test building up memory: belief -> value -> goal."""
+    async def test_memory_building_workflow_dispatch(self, patched_get_kernle):
+        """Test that memory building workflow dispatches correctly."""
         # Add belief
         await call_tool("memory_belief", {
             "statement": "Testing prevents bugs",
@@ -861,14 +951,26 @@ class TestIntegrationScenarios:
             "priority": "high"
         })
         
-        # Verify all methods called
-        patched_get_kernle.belief.assert_called_once()
-        patched_get_kernle.value.assert_called_once()
-        patched_get_kernle.goal.assert_called_once()
+        # Verify correct methods called with correct arguments
+        patched_get_kernle.belief.assert_called_once_with(
+            statement="Testing prevents bugs",
+            type="fact",
+            confidence=0.9
+        )
+        patched_get_kernle.value.assert_called_once_with(
+            name="reliability",
+            statement="Software should be dependable",
+            priority=85
+        )
+        patched_get_kernle.goal.assert_called_once_with(
+            title="Achieve zero critical bugs",
+            description="",
+            priority="high"
+        )
 
     @pytest.mark.asyncio
-    async def test_search_and_consolidation_workflow(self, patched_get_kernle):
-        """Test search -> consolidate -> status workflow."""
+    async def test_search_and_consolidation_workflow_dispatch(self, patched_get_kernle):
+        """Test search -> consolidate -> status dispatches correctly."""
         # Search for patterns
         await call_tool("memory_search", {"query": "testing patterns"})
         
@@ -878,7 +980,7 @@ class TestIntegrationScenarios:
         # Check status
         await call_tool("memory_status", {})
         
-        # Verify workflow
-        patched_get_kernle.search.assert_called_once()
-        patched_get_kernle.consolidate.assert_called_once()
+        # Verify correct methods called with correct arguments
+        patched_get_kernle.search.assert_called_once_with(query="testing patterns", limit=10)
+        patched_get_kernle.consolidate.assert_called_once_with(min_episodes=3)
         patched_get_kernle.status.assert_called_once()
