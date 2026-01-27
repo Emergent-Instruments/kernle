@@ -14,8 +14,8 @@ from typing import Optional, Literal
 
 from .base import (
     Storage, SyncResult, SyncStatus, QueuedChange,
-    Episode, Belief, Value, Goal, Note, Drive, Relationship, SearchResult,
-    SourceType, ConfidenceChange, MemoryLineage
+    Episode, Belief, Value, Goal, Note, Drive, Relationship, Playbook, SearchResult,
+    SourceType, ConfidenceChange, MemoryLineage, RawEntry
 )
 from .sqlite import SQLiteStorage
 from .postgres import SupabaseStorage
@@ -117,7 +117,9 @@ __all__ = [
     "Note",
     "Drive",
     "Relationship",
+    "Playbook",
     "SearchResult",
+    "RawEntry",
     # Meta-memory types
     "SourceType",
     "ConfidenceChange",

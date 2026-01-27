@@ -17,8 +17,8 @@ from typing import Optional, List, Dict, Any, TYPE_CHECKING
 
 from .base import (
     Storage, SyncResult, SyncStatus, QueuedChange,
-    Episode, Belief, Value, Goal, Note, Drive, Relationship, SearchResult,
-    SourceType, ConfidenceChange, MemoryLineage
+    Episode, Belief, Value, Goal, Note, Drive, Relationship, Playbook, SearchResult,
+    SourceType, ConfidenceChange, MemoryLineage, RawEntry
 )
 from .embeddings import (
     EmbeddingProvider, HashEmbedder, get_default_embedder,
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 5  # Bumped for meta-memory fields
+SCHEMA_VERSION = 9  # Bumped for forgetting fields
 
 SCHEMA = """
 -- Schema version tracking
@@ -62,6 +62,13 @@ CREATE TABLE IF NOT EXISTS episodes (
     last_verified TEXT,    -- ISO timestamp
     verification_count INTEGER DEFAULT 0,
     confidence_history TEXT,  -- JSON array of confidence changes
+    -- Forgetting fields
+    times_accessed INTEGER DEFAULT 0,
+    last_accessed TEXT,
+    is_protected INTEGER DEFAULT 0,
+    is_forgotten INTEGER DEFAULT 0,
+    forgotten_at TEXT,
+    forgotten_reason TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -75,6 +82,8 @@ CREATE INDEX IF NOT EXISTS idx_episodes_valence ON episodes(emotional_valence);
 CREATE INDEX IF NOT EXISTS idx_episodes_arousal ON episodes(emotional_arousal);
 CREATE INDEX IF NOT EXISTS idx_episodes_confidence ON episodes(confidence);
 CREATE INDEX IF NOT EXISTS idx_episodes_source_type ON episodes(source_type);
+CREATE INDEX IF NOT EXISTS idx_episodes_is_forgotten ON episodes(is_forgotten);
+CREATE INDEX IF NOT EXISTS idx_episodes_is_protected ON episodes(is_protected);
 
 -- Beliefs
 CREATE TABLE IF NOT EXISTS beliefs (
@@ -91,6 +100,18 @@ CREATE TABLE IF NOT EXISTS beliefs (
     last_verified TEXT,
     verification_count INTEGER DEFAULT 0,
     confidence_history TEXT,
+    -- Belief revision fields
+    supersedes TEXT,           -- ID of belief this replaced
+    superseded_by TEXT,        -- ID of belief that replaced this
+    times_reinforced INTEGER DEFAULT 0,  -- How many times confirmed
+    is_active INTEGER DEFAULT 1,  -- 0 if superseded/archived
+    -- Forgetting fields
+    times_accessed INTEGER DEFAULT 0,
+    last_accessed TEXT,
+    is_protected INTEGER DEFAULT 0,
+    is_forgotten INTEGER DEFAULT 0,
+    forgotten_at TEXT,
+    forgotten_reason TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -100,6 +121,11 @@ CREATE TABLE IF NOT EXISTS beliefs (
 CREATE INDEX IF NOT EXISTS idx_beliefs_agent ON beliefs(agent_id);
 CREATE INDEX IF NOT EXISTS idx_beliefs_confidence ON beliefs(confidence);
 CREATE INDEX IF NOT EXISTS idx_beliefs_source_type ON beliefs(source_type);
+CREATE INDEX IF NOT EXISTS idx_beliefs_is_active ON beliefs(is_active);
+CREATE INDEX IF NOT EXISTS idx_beliefs_supersedes ON beliefs(supersedes);
+CREATE INDEX IF NOT EXISTS idx_beliefs_superseded_by ON beliefs(superseded_by);
+CREATE INDEX IF NOT EXISTS idx_beliefs_is_forgotten ON beliefs(is_forgotten);
+CREATE INDEX IF NOT EXISTS idx_beliefs_is_protected ON beliefs(is_protected);
 
 -- Values
 CREATE TABLE IF NOT EXISTS agent_values (
@@ -117,6 +143,13 @@ CREATE TABLE IF NOT EXISTS agent_values (
     last_verified TEXT,
     verification_count INTEGER DEFAULT 0,
     confidence_history TEXT,
+    -- Forgetting fields
+    times_accessed INTEGER DEFAULT 0,
+    last_accessed TEXT,
+    is_protected INTEGER DEFAULT 1,  -- Values protected by default
+    is_forgotten INTEGER DEFAULT 0,
+    forgotten_at TEXT,
+    forgotten_reason TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -125,6 +158,8 @@ CREATE TABLE IF NOT EXISTS agent_values (
 );
 CREATE INDEX IF NOT EXISTS idx_values_agent ON agent_values(agent_id);
 CREATE INDEX IF NOT EXISTS idx_values_confidence ON agent_values(confidence);
+CREATE INDEX IF NOT EXISTS idx_values_is_forgotten ON agent_values(is_forgotten);
+CREATE INDEX IF NOT EXISTS idx_values_is_protected ON agent_values(is_protected);
 
 -- Goals
 CREATE TABLE IF NOT EXISTS goals (
@@ -143,6 +178,13 @@ CREATE TABLE IF NOT EXISTS goals (
     last_verified TEXT,
     verification_count INTEGER DEFAULT 0,
     confidence_history TEXT,
+    -- Forgetting fields
+    times_accessed INTEGER DEFAULT 0,
+    last_accessed TEXT,
+    is_protected INTEGER DEFAULT 0,
+    is_forgotten INTEGER DEFAULT 0,
+    forgotten_at TEXT,
+    forgotten_reason TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -152,6 +194,8 @@ CREATE TABLE IF NOT EXISTS goals (
 CREATE INDEX IF NOT EXISTS idx_goals_agent ON goals(agent_id);
 CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status);
 CREATE INDEX IF NOT EXISTS idx_goals_confidence ON goals(confidence);
+CREATE INDEX IF NOT EXISTS idx_goals_is_forgotten ON goals(is_forgotten);
+CREATE INDEX IF NOT EXISTS idx_goals_is_protected ON goals(is_protected);
 
 -- Notes (memories)
 CREATE TABLE IF NOT EXISTS notes (
@@ -171,6 +215,13 @@ CREATE TABLE IF NOT EXISTS notes (
     last_verified TEXT,
     verification_count INTEGER DEFAULT 0,
     confidence_history TEXT,
+    -- Forgetting fields
+    times_accessed INTEGER DEFAULT 0,
+    last_accessed TEXT,
+    is_protected INTEGER DEFAULT 0,
+    is_forgotten INTEGER DEFAULT 0,
+    forgotten_at TEXT,
+    forgotten_reason TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -180,6 +231,8 @@ CREATE TABLE IF NOT EXISTS notes (
 CREATE INDEX IF NOT EXISTS idx_notes_agent ON notes(agent_id);
 CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at);
 CREATE INDEX IF NOT EXISTS idx_notes_confidence ON notes(confidence);
+CREATE INDEX IF NOT EXISTS idx_notes_is_forgotten ON notes(is_forgotten);
+CREATE INDEX IF NOT EXISTS idx_notes_is_protected ON notes(is_protected);
 
 -- Drives
 CREATE TABLE IF NOT EXISTS drives (
@@ -198,6 +251,13 @@ CREATE TABLE IF NOT EXISTS drives (
     last_verified TEXT,
     verification_count INTEGER DEFAULT 0,
     confidence_history TEXT,
+    -- Forgetting fields
+    times_accessed INTEGER DEFAULT 0,
+    last_accessed TEXT,
+    is_protected INTEGER DEFAULT 1,  -- Drives protected by default
+    is_forgotten INTEGER DEFAULT 0,
+    forgotten_at TEXT,
+    forgotten_reason TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -207,6 +267,8 @@ CREATE TABLE IF NOT EXISTS drives (
 );
 CREATE INDEX IF NOT EXISTS idx_drives_agent ON drives(agent_id);
 CREATE INDEX IF NOT EXISTS idx_drives_confidence ON drives(confidence);
+CREATE INDEX IF NOT EXISTS idx_drives_is_forgotten ON drives(is_forgotten);
+CREATE INDEX IF NOT EXISTS idx_drives_is_protected ON drives(is_protected);
 
 -- Relationships
 CREATE TABLE IF NOT EXISTS relationships (
@@ -228,6 +290,13 @@ CREATE TABLE IF NOT EXISTS relationships (
     last_verified TEXT,
     verification_count INTEGER DEFAULT 0,
     confidence_history TEXT,
+    -- Forgetting fields
+    times_accessed INTEGER DEFAULT 0,
+    last_accessed TEXT,
+    is_protected INTEGER DEFAULT 0,
+    is_forgotten INTEGER DEFAULT 0,
+    forgotten_at TEXT,
+    forgotten_reason TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -237,6 +306,61 @@ CREATE TABLE IF NOT EXISTS relationships (
 );
 CREATE INDEX IF NOT EXISTS idx_relationships_agent ON relationships(agent_id);
 CREATE INDEX IF NOT EXISTS idx_relationships_confidence ON relationships(confidence);
+CREATE INDEX IF NOT EXISTS idx_relationships_is_forgotten ON relationships(is_forgotten);
+CREATE INDEX IF NOT EXISTS idx_relationships_is_protected ON relationships(is_protected);
+
+-- Playbooks (procedural memory - "how I do things")
+CREATE TABLE IF NOT EXISTS playbooks (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL,
+    trigger_conditions TEXT NOT NULL,  -- JSON array
+    steps TEXT NOT NULL,               -- JSON array of {action, details, adaptations}
+    failure_modes TEXT NOT NULL,       -- JSON array
+    recovery_steps TEXT,               -- JSON array (optional)
+    mastery_level TEXT DEFAULT 'novice',  -- novice/competent/proficient/expert
+    times_used INTEGER DEFAULT 0,
+    success_rate REAL DEFAULT 0.0,
+    source_episodes TEXT,              -- JSON array of episode IDs
+    tags TEXT,                         -- JSON array
+    -- Meta-memory fields
+    confidence REAL DEFAULT 0.8,
+    last_used TEXT,
+    created_at TEXT NOT NULL,
+    -- Sync metadata
+    local_updated_at TEXT NOT NULL,
+    cloud_synced_at TEXT,
+    version INTEGER DEFAULT 1,
+    deleted INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_playbooks_agent ON playbooks(agent_id);
+CREATE INDEX IF NOT EXISTS idx_playbooks_mastery ON playbooks(mastery_level);
+CREATE INDEX IF NOT EXISTS idx_playbooks_times_used ON playbooks(times_used);
+CREATE INDEX IF NOT EXISTS idx_playbooks_confidence ON playbooks(confidence);
+
+-- Raw entries (unstructured capture for later processing)
+CREATE TABLE IF NOT EXISTS raw_entries (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    content TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    source TEXT DEFAULT 'manual',
+    processed INTEGER DEFAULT 0,
+    processed_into TEXT,  -- JSON array of memory refs (type:id)
+    tags TEXT,  -- JSON array
+    -- Meta-memory fields
+    confidence REAL DEFAULT 1.0,
+    source_type TEXT DEFAULT 'direct_experience',
+    -- Sync metadata
+    local_updated_at TEXT NOT NULL,
+    cloud_synced_at TEXT,
+    version INTEGER DEFAULT 1,
+    deleted INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_raw_agent ON raw_entries(agent_id);
+CREATE INDEX IF NOT EXISTS idx_raw_processed ON raw_entries(agent_id, processed);
+CREATE INDEX IF NOT EXISTS idx_raw_timestamp ON raw_entries(agent_id, timestamp);
 
 -- Sync queue for offline changes
 CREATE TABLE IF NOT EXISTS sync_queue (
@@ -424,6 +548,15 @@ class SQLiteStorage:
                 migrations.append("ALTER TABLE beliefs ADD COLUMN verification_count INTEGER DEFAULT 0")
             if 'confidence_history' not in belief_cols:
                 migrations.append("ALTER TABLE beliefs ADD COLUMN confidence_history TEXT")
+            # Belief revision fields
+            if 'supersedes' not in belief_cols:
+                migrations.append("ALTER TABLE beliefs ADD COLUMN supersedes TEXT")
+            if 'superseded_by' not in belief_cols:
+                migrations.append("ALTER TABLE beliefs ADD COLUMN superseded_by TEXT")
+            if 'times_reinforced' not in belief_cols:
+                migrations.append("ALTER TABLE beliefs ADD COLUMN times_reinforced INTEGER DEFAULT 0")
+            if 'is_active' not in belief_cols:
+                migrations.append("ALTER TABLE beliefs ADD COLUMN is_active INTEGER DEFAULT 1")
         
         # Migrations for values table
         value_cols = get_columns('agent_values')
@@ -520,6 +653,37 @@ class SQLiteStorage:
         if 'sync_queue' in table_names:
             if 'payload' not in sync_cols:
                 migrations.append("ALTER TABLE sync_queue ADD COLUMN payload TEXT")
+        
+        # === Forgetting field migrations ===
+        # Add forgetting fields to all memory tables
+        forgetting_tables = [
+            ('episodes', False),  # (table_name, protected_by_default)
+            ('beliefs', False),
+            ('agent_values', True),  # Values protected by default
+            ('goals', False),
+            ('notes', False),
+            ('drives', True),  # Drives protected by default
+            ('relationships', False),
+        ]
+        
+        for table, protected_default in forgetting_tables:
+            if table not in table_names:
+                continue
+            cols = get_columns(table)
+            protected_val = 1 if protected_default else 0
+            
+            if 'times_accessed' not in cols:
+                migrations.append(f"ALTER TABLE {table} ADD COLUMN times_accessed INTEGER DEFAULT 0")
+            if 'last_accessed' not in cols:
+                migrations.append(f"ALTER TABLE {table} ADD COLUMN last_accessed TEXT")
+            if 'is_protected' not in cols:
+                migrations.append(f"ALTER TABLE {table} ADD COLUMN is_protected INTEGER DEFAULT {protected_val}")
+            if 'is_forgotten' not in cols:
+                migrations.append(f"ALTER TABLE {table} ADD COLUMN is_forgotten INTEGER DEFAULT 0")
+            if 'forgotten_at' not in cols:
+                migrations.append(f"ALTER TABLE {table} ADD COLUMN forgotten_at TEXT")
+            if 'forgotten_reason' not in cols:
+                migrations.append(f"ALTER TABLE {table} ADD COLUMN forgotten_reason TEXT")
         
         # Execute migrations
         for migration in migrations:
@@ -696,8 +860,10 @@ class SQLiteStorage:
                  emotional_valence, emotional_arousal, emotional_tags,
                  confidence, source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
+                 times_accessed, last_accessed, is_protected, is_forgotten,
+                 forgotten_at, forgotten_reason,
                  created_at, local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 episode.id,
                 self.agent_id,
@@ -716,6 +882,12 @@ class SQLiteStorage:
                 episode.last_verified.isoformat() if episode.last_verified else None,
                 episode.verification_count,
                 self._to_json(episode.confidence_history),
+                episode.times_accessed,
+                episode.last_accessed.isoformat() if episode.last_accessed else None,
+                1 if episode.is_protected else 0,
+                1 if episode.is_forgotten else 0,
+                episode.forgotten_at.isoformat() if episode.forgotten_at else None,
+                episode.forgotten_reason,
                 episode.created_at.isoformat() if episode.created_at else now,
                 now,
                 episode.cloud_synced_at.isoformat() if episode.cloud_synced_at else None,
@@ -799,6 +971,13 @@ class SQLiteStorage:
             last_verified=self._parse_datetime(self._safe_get(row, "last_verified", None)),
             verification_count=self._safe_get(row, "verification_count", 0),
             confidence_history=self._from_json(self._safe_get(row, "confidence_history", None)),
+            # Forgetting fields
+            times_accessed=self._safe_get(row, "times_accessed", 0),
+            last_accessed=self._parse_datetime(self._safe_get(row, "last_accessed", None)),
+            is_protected=bool(self._safe_get(row, "is_protected", 0)),
+            is_forgotten=bool(self._safe_get(row, "is_forgotten", 0)),
+            forgotten_at=self._parse_datetime(self._safe_get(row, "forgotten_at", None)),
+            forgotten_reason=self._safe_get(row, "forgotten_reason", None),
         )
     
     def update_episode_emotion(
@@ -932,8 +1111,9 @@ class SQLiteStorage:
                 (id, agent_id, statement, belief_type, confidence, created_at,
                  source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
+                 supersedes, superseded_by, times_reinforced, is_active,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 belief.id,
                 self.agent_id,
@@ -947,6 +1127,10 @@ class SQLiteStorage:
                 belief.last_verified.isoformat() if belief.last_verified else None,
                 belief.verification_count,
                 self._to_json(belief.confidence_history),
+                belief.supersedes,
+                belief.superseded_by,
+                belief.times_reinforced,
+                1 if belief.is_active else 0,
                 now,
                 belief.cloud_synced_at.isoformat() if belief.cloud_synced_at else None,
                 belief.version,
@@ -961,13 +1145,24 @@ class SQLiteStorage:
         
         return belief.id
     
-    def get_beliefs(self, limit: int = 100) -> List[Belief]:
-        """Get beliefs."""
+    def get_beliefs(self, limit: int = 100, include_inactive: bool = False) -> List[Belief]:
+        """Get beliefs.
+        
+        Args:
+            limit: Maximum number of beliefs to return
+            include_inactive: If True, include superseded/archived beliefs
+        """
         with self._get_conn() as conn:
-            rows = conn.execute(
-                "SELECT * FROM beliefs WHERE agent_id = ? AND deleted = 0 ORDER BY created_at DESC LIMIT ?",
-                (self.agent_id, limit)
-            ).fetchall()
+            if include_inactive:
+                rows = conn.execute(
+                    "SELECT * FROM beliefs WHERE agent_id = ? AND deleted = 0 ORDER BY created_at DESC LIMIT ?",
+                    (self.agent_id, limit)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM beliefs WHERE agent_id = ? AND deleted = 0 AND (is_active = 1 OR is_active IS NULL) ORDER BY created_at DESC LIMIT ?",
+                    (self.agent_id, limit)
+                ).fetchall()
         
         return [self._row_to_belief(row) for row in rows]
     
@@ -983,6 +1178,7 @@ class SQLiteStorage:
     
     def _row_to_belief(self, row: sqlite3.Row) -> Belief:
         """Convert a row to a Belief."""
+        is_active_val = self._safe_get(row, "is_active", 1)
         return Belief(
             id=row["id"],
             agent_id=row["agent_id"],
@@ -1001,6 +1197,18 @@ class SQLiteStorage:
             last_verified=self._parse_datetime(self._safe_get(row, "last_verified", None)),
             verification_count=self._safe_get(row, "verification_count", 0),
             confidence_history=self._from_json(self._safe_get(row, "confidence_history", None)),
+            # Belief revision fields
+            supersedes=self._safe_get(row, "supersedes", None),
+            superseded_by=self._safe_get(row, "superseded_by", None),
+            times_reinforced=self._safe_get(row, "times_reinforced", 0),
+            is_active=bool(is_active_val) if is_active_val is not None else True,
+            # Forgetting fields
+            times_accessed=self._safe_get(row, "times_accessed", 0),
+            last_accessed=self._parse_datetime(self._safe_get(row, "last_accessed", None)),
+            is_protected=bool(self._safe_get(row, "is_protected", 0)),
+            is_forgotten=bool(self._safe_get(row, "is_forgotten", 0)),
+            forgotten_at=self._parse_datetime(self._safe_get(row, "forgotten_at", None)),
+            forgotten_reason=self._safe_get(row, "forgotten_reason", None),
         )
     
     # === Values ===
@@ -1080,6 +1288,13 @@ class SQLiteStorage:
             last_verified=self._parse_datetime(self._safe_get(row, "last_verified", None)),
             verification_count=self._safe_get(row, "verification_count", 0),
             confidence_history=self._from_json(self._safe_get(row, "confidence_history", None)),
+            # Forgetting fields (values protected by default)
+            times_accessed=self._safe_get(row, "times_accessed", 0),
+            last_accessed=self._parse_datetime(self._safe_get(row, "last_accessed", None)),
+            is_protected=bool(self._safe_get(row, "is_protected", 1)),  # Default protected
+            is_forgotten=bool(self._safe_get(row, "is_forgotten", 0)),
+            forgotten_at=self._parse_datetime(self._safe_get(row, "forgotten_at", None)),
+            forgotten_reason=self._safe_get(row, "forgotten_reason", None),
         )
     
     # === Goals ===
@@ -1168,6 +1383,13 @@ class SQLiteStorage:
             last_verified=self._parse_datetime(self._safe_get(row, "last_verified", None)),
             verification_count=self._safe_get(row, "verification_count", 0),
             confidence_history=self._from_json(self._safe_get(row, "confidence_history", None)),
+            # Forgetting fields
+            times_accessed=self._safe_get(row, "times_accessed", 0),
+            last_accessed=self._parse_datetime(self._safe_get(row, "last_accessed", None)),
+            is_protected=bool(self._safe_get(row, "is_protected", 0)),
+            is_forgotten=bool(self._safe_get(row, "is_forgotten", 0)),
+            forgotten_at=self._parse_datetime(self._safe_get(row, "forgotten_at", None)),
+            forgotten_reason=self._safe_get(row, "forgotten_reason", None),
         )
     
     # === Notes ===
@@ -1266,6 +1488,13 @@ class SQLiteStorage:
             last_verified=self._parse_datetime(self._safe_get(row, "last_verified", None)),
             verification_count=self._safe_get(row, "verification_count", 0),
             confidence_history=self._from_json(self._safe_get(row, "confidence_history", None)),
+            # Forgetting fields
+            times_accessed=self._safe_get(row, "times_accessed", 0),
+            last_accessed=self._parse_datetime(self._safe_get(row, "last_accessed", None)),
+            is_protected=bool(self._safe_get(row, "is_protected", 0)),
+            is_forgotten=bool(self._safe_get(row, "is_forgotten", 0)),
+            forgotten_at=self._parse_datetime(self._safe_get(row, "forgotten_at", None)),
+            forgotten_reason=self._safe_get(row, "forgotten_reason", None),
         )
     
     # === Drives ===
@@ -1384,6 +1613,13 @@ class SQLiteStorage:
             last_verified=self._parse_datetime(self._safe_get(row, "last_verified", None)),
             verification_count=self._safe_get(row, "verification_count", 0),
             confidence_history=self._from_json(self._safe_get(row, "confidence_history", None)),
+            # Forgetting fields (drives protected by default)
+            times_accessed=self._safe_get(row, "times_accessed", 0),
+            last_accessed=self._parse_datetime(self._safe_get(row, "last_accessed", None)),
+            is_protected=bool(self._safe_get(row, "is_protected", 1)),  # Default protected
+            is_forgotten=bool(self._safe_get(row, "is_forgotten", 0)),
+            forgotten_at=self._parse_datetime(self._safe_get(row, "forgotten_at", None)),
+            forgotten_reason=self._safe_get(row, "forgotten_reason", None),
         )
     
     # === Relationships ===
@@ -1517,6 +1753,328 @@ class SQLiteStorage:
             last_verified=self._parse_datetime(self._safe_get(row, "last_verified", None)),
             verification_count=self._safe_get(row, "verification_count", 0),
             confidence_history=self._from_json(self._safe_get(row, "confidence_history", None)),
+            # Forgetting fields
+            times_accessed=self._safe_get(row, "times_accessed", 0),
+            last_accessed=self._parse_datetime(self._safe_get(row, "last_accessed", None)),
+            is_protected=bool(self._safe_get(row, "is_protected", 0)),
+            is_forgotten=bool(self._safe_get(row, "is_forgotten", 0)),
+            forgotten_at=self._parse_datetime(self._safe_get(row, "forgotten_at", None)),
+            forgotten_reason=self._safe_get(row, "forgotten_reason", None),
+        )
+    
+    # === Playbooks (Procedural Memory) ===
+    
+    def save_playbook(self, playbook: Playbook) -> str:
+        """Save a playbook. Returns the playbook ID."""
+        now = self._now()
+        
+        with self._get_conn() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO playbooks
+                (id, agent_id, name, description, trigger_conditions, steps, failure_modes,
+                 recovery_steps, mastery_level, times_used, success_rate, source_episodes, tags,
+                 confidence, last_used, created_at, local_updated_at, cloud_synced_at, version, deleted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                playbook.id,
+                self.agent_id,
+                playbook.name,
+                playbook.description,
+                self._to_json(playbook.trigger_conditions),
+                self._to_json(playbook.steps),
+                self._to_json(playbook.failure_modes),
+                self._to_json(playbook.recovery_steps),
+                playbook.mastery_level,
+                playbook.times_used,
+                playbook.success_rate,
+                self._to_json(playbook.source_episodes),
+                self._to_json(playbook.tags),
+                playbook.confidence,
+                playbook.last_used.isoformat() if playbook.last_used else None,
+                playbook.created_at.isoformat() if playbook.created_at else now,
+                now,
+                None,  # cloud_synced_at
+                playbook.version,
+                0,  # deleted
+            ))
+            
+            # Queue for sync
+            self._queue_sync(conn, "playbooks", playbook.id, "upsert")
+            
+            # Add embedding for search
+            content = f"{playbook.name} {playbook.description} {' '.join(playbook.trigger_conditions)}"
+            self._save_embedding(conn, "playbooks", playbook.id, content)
+            
+            conn.commit()
+        
+        return playbook.id
+    
+    def get_playbook(self, playbook_id: str) -> Optional[Playbook]:
+        """Get a specific playbook by ID."""
+        with self._get_conn() as conn:
+            cur = conn.execute(
+                "SELECT * FROM playbooks WHERE id = ? AND agent_id = ? AND deleted = 0",
+                (playbook_id, self.agent_id)
+            )
+            row = cur.fetchone()
+        
+        return self._row_to_playbook(row) if row else None
+    
+    def list_playbooks(
+        self,
+        tags: Optional[List[str]] = None,
+        limit: int = 100,
+    ) -> List[Playbook]:
+        """Get playbooks, optionally filtered by tags."""
+        with self._get_conn() as conn:
+            query = """
+                SELECT * FROM playbooks 
+                WHERE agent_id = ? AND deleted = 0
+                ORDER BY times_used DESC, created_at DESC
+                LIMIT ?
+            """
+            cur = conn.execute(query, (self.agent_id, limit))
+            rows = cur.fetchall()
+        
+        playbooks = [self._row_to_playbook(row) for row in rows]
+        
+        # Filter by tags if provided
+        if tags:
+            tags_set = set(tags)
+            playbooks = [
+                p for p in playbooks 
+                if p.tags and tags_set.intersection(p.tags)
+            ]
+        
+        return playbooks
+    
+    def search_playbooks(self, query: str, limit: int = 10) -> List[Playbook]:
+        """Search playbooks by name, description, or triggers using semantic search."""
+        if self._has_vec:
+            # Use vector search
+            embedding = self._embedder.embed(query)
+            packed = pack_embedding(embedding)
+            
+            with self._get_conn() as conn:
+                cur = conn.execute("""
+                    SELECT e.id, e.embedding, distance
+                    FROM vec_embeddings e
+                    WHERE e.id LIKE 'playbooks:%'
+                    ORDER BY distance
+                    LIMIT ?
+                """.replace("distance", f"vec_distance_L2(e.embedding, X'{packed.hex()}')"), (limit * 2,))
+                
+                vec_results = cur.fetchall()
+            
+            playbook_ids = [r[0].replace("playbooks:", "") for r in vec_results]
+            
+            playbooks = []
+            for pid in playbook_ids:
+                playbook = self.get_playbook(pid)
+                if playbook:
+                    playbooks.append(playbook)
+                if len(playbooks) >= limit:
+                    break
+            
+            return playbooks
+        else:
+            # Fall back to text search
+            with self._get_conn() as conn:
+                search_pattern = f"%{query}%"
+                cur = conn.execute("""
+                    SELECT * FROM playbooks 
+                    WHERE agent_id = ? AND deleted = 0
+                    AND (name LIKE ? OR description LIKE ? OR trigger_conditions LIKE ?)
+                    ORDER BY times_used DESC
+                    LIMIT ?
+                """, (self.agent_id, search_pattern, search_pattern, search_pattern, limit))
+                rows = cur.fetchall()
+            
+            return [self._row_to_playbook(row) for row in rows]
+    
+    def update_playbook_usage(self, playbook_id: str, success: bool) -> bool:
+        """Update playbook usage statistics."""
+        playbook = self.get_playbook(playbook_id)
+        if not playbook:
+            return False
+        
+        now = self._now()
+        
+        # Calculate new success rate
+        new_times_used = playbook.times_used + 1
+        if playbook.times_used == 0:
+            new_success_rate = 1.0 if success else 0.0
+        else:
+            # Running average
+            total_successes = playbook.success_rate * playbook.times_used
+            total_successes += 1.0 if success else 0.0
+            new_success_rate = total_successes / new_times_used
+        
+        # Update mastery level based on usage and success rate
+        new_mastery = playbook.mastery_level
+        if new_times_used >= 20 and new_success_rate >= 0.9:
+            new_mastery = "expert"
+        elif new_times_used >= 10 and new_success_rate >= 0.8:
+            new_mastery = "proficient"
+        elif new_times_used >= 5 and new_success_rate >= 0.7:
+            new_mastery = "competent"
+        
+        with self._get_conn() as conn:
+            conn.execute("""
+                UPDATE playbooks SET
+                    times_used = ?,
+                    success_rate = ?,
+                    mastery_level = ?,
+                    last_used = ?,
+                    local_updated_at = ?,
+                    version = version + 1
+                WHERE id = ? AND agent_id = ?
+            """, (
+                new_times_used,
+                new_success_rate,
+                new_mastery,
+                now,
+                now,
+                playbook_id,
+                self.agent_id,
+            ))
+            
+            self._queue_sync(conn, "playbooks", playbook_id, "upsert")
+            conn.commit()
+        
+        return True
+    
+    def _row_to_playbook(self, row: sqlite3.Row) -> Playbook:
+        """Convert a row to a Playbook."""
+        return Playbook(
+            id=row["id"],
+            agent_id=row["agent_id"],
+            name=row["name"],
+            description=row["description"],
+            trigger_conditions=self._from_json(row["trigger_conditions"]) or [],
+            steps=self._from_json(row["steps"]) or [],
+            failure_modes=self._from_json(row["failure_modes"]) or [],
+            recovery_steps=self._from_json(row["recovery_steps"]),
+            mastery_level=row["mastery_level"],
+            times_used=row["times_used"],
+            success_rate=row["success_rate"],
+            source_episodes=self._from_json(row["source_episodes"]),
+            tags=self._from_json(row["tags"]),
+            confidence=self._safe_get(row, "confidence", 0.8),
+            last_used=self._parse_datetime(self._safe_get(row, "last_used", None)),
+            created_at=self._parse_datetime(row["created_at"]),
+            local_updated_at=self._parse_datetime(row["local_updated_at"]),
+            cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
+            version=row["version"],
+            deleted=bool(row["deleted"]),
+        )
+    
+    # === Raw Entries ===
+    
+    def save_raw(self, content: str, source: str = "manual", tags: Optional[List[str]] = None) -> str:
+        """Save a raw entry for later processing."""
+        raw_id = str(uuid.uuid4())
+        now = self._now()
+        
+        with self._get_conn() as conn:
+            conn.execute("""
+                INSERT INTO raw_entries
+                (id, agent_id, content, timestamp, source, processed, processed_into, tags,
+                 confidence, source_type, local_updated_at, cloud_synced_at, version, deleted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                raw_id,
+                self.agent_id,
+                content,
+                now,
+                source,
+                0,  # processed = False
+                None,  # processed_into
+                self._to_json(tags),
+                1.0,  # confidence
+                "direct_experience",
+                now,
+                None,
+                1,
+                0
+            ))
+            self._queue_sync(conn, "raw_entries", raw_id, "upsert")
+            
+            # Save embedding for search
+            self._save_embedding(conn, "raw_entries", raw_id, content)
+            
+            conn.commit()
+        
+        return raw_id
+    
+    def get_raw(self, raw_id: str) -> Optional[RawEntry]:
+        """Get a specific raw entry by ID."""
+        with self._get_conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM raw_entries WHERE id = ? AND agent_id = ? AND deleted = 0",
+                (raw_id, self.agent_id)
+            ).fetchone()
+        
+        return self._row_to_raw_entry(row) if row else None
+    
+    def list_raw(self, processed: Optional[bool] = None, limit: int = 100) -> List[RawEntry]:
+        """Get raw entries, optionally filtered by processed state."""
+        query = "SELECT * FROM raw_entries WHERE agent_id = ? AND deleted = 0"
+        params: List[Any] = [self.agent_id]
+        
+        if processed is not None:
+            query += " AND processed = ?"
+            params.append(1 if processed else 0)
+        
+        query += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(limit)
+        
+        with self._get_conn() as conn:
+            rows = conn.execute(query, params).fetchall()
+        
+        return [self._row_to_raw_entry(row) for row in rows]
+    
+    def mark_raw_processed(self, raw_id: str, processed_into: List[str]) -> bool:
+        """Mark a raw entry as processed into other memories."""
+        now = self._now()
+        
+        with self._get_conn() as conn:
+            cursor = conn.execute("""
+                UPDATE raw_entries SET
+                    processed = 1,
+                    processed_into = ?,
+                    local_updated_at = ?,
+                    version = version + 1
+                WHERE id = ? AND agent_id = ? AND deleted = 0
+            """, (
+                self._to_json(processed_into),
+                now,
+                raw_id,
+                self.agent_id
+            ))
+            if cursor.rowcount > 0:
+                self._queue_sync(conn, "raw_entries", raw_id, "upsert")
+                conn.commit()
+                return True
+        return False
+    
+    def _row_to_raw_entry(self, row: sqlite3.Row) -> RawEntry:
+        """Convert a row to a RawEntry."""
+        return RawEntry(
+            id=row["id"],
+            agent_id=row["agent_id"],
+            content=row["content"],
+            timestamp=self._parse_datetime(row["timestamp"]),
+            source=row["source"],
+            processed=bool(row["processed"]),
+            processed_into=self._from_json(row["processed_into"]),
+            tags=self._from_json(row["tags"]),
+            confidence=self._safe_get(row, "confidence", 1.0),
+            source_type=self._safe_get(row, "source_type", "direct_experience"),
+            local_updated_at=self._parse_datetime(row["local_updated_at"]),
+            cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
+            version=row["version"],
+            deleted=bool(row["deleted"]),
         )
     
     # === Search ===
@@ -1738,6 +2296,7 @@ class SQLiteStorage:
                 ("notes", "notes"),
                 ("drives", "drives"),
                 ("relationships", "relationships"),
+                ("raw_entries", "raw"),
             ]:
                 count = conn.execute(
                     f"SELECT COUNT(*) FROM {table} WHERE agent_id = ? AND deleted = 0",
@@ -2033,6 +2592,354 @@ class SQLiteStorage:
                 except Exception as e:
                     # Column might not exist in old schema
                     logger.debug(f"Could not query {table} by source_type: {e}")
+        
+        return results[:limit]
+    
+    # === Forgetting ===
+    
+    def record_access(self, memory_type: str, memory_id: str) -> bool:
+        """Record that a memory was accessed (for salience tracking).
+        
+        Increments times_accessed and updates last_accessed timestamp.
+        
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            
+        Returns:
+            True if updated, False if memory not found
+        """
+        table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "agent_values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+        }
+        
+        table = table_map.get(memory_type)
+        if not table:
+            return False
+        
+        now = self._now()
+        
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                f"""UPDATE {table} 
+                   SET times_accessed = COALESCE(times_accessed, 0) + 1,
+                       last_accessed = ?,
+                       local_updated_at = ?
+                   WHERE id = ? AND agent_id = ?""",
+                (now, now, memory_id, self.agent_id)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    def forget_memory(
+        self,
+        memory_type: str,
+        memory_id: str,
+        reason: Optional[str] = None,
+    ) -> bool:
+        """Tombstone a memory (mark as forgotten, don't delete).
+        
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            reason: Optional reason for forgetting
+            
+        Returns:
+            True if forgotten, False if not found, already forgotten, or protected
+        """
+        table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "agent_values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+        }
+        
+        table = table_map.get(memory_type)
+        if not table:
+            return False
+        
+        now = self._now()
+        
+        with self._get_conn() as conn:
+            # Check if memory exists and is not protected
+            row = conn.execute(
+                f"SELECT is_protected, is_forgotten FROM {table} WHERE id = ? AND agent_id = ?",
+                (memory_id, self.agent_id)
+            ).fetchone()
+            
+            if not row:
+                return False
+            
+            if self._safe_get(row, "is_protected", 0):
+                logger.debug(f"Cannot forget protected memory {memory_type}:{memory_id}")
+                return False
+            
+            if self._safe_get(row, "is_forgotten", 0):
+                return False  # Already forgotten
+            
+            cursor = conn.execute(
+                f"""UPDATE {table} 
+                   SET is_forgotten = 1,
+                       forgotten_at = ?,
+                       forgotten_reason = ?,
+                       local_updated_at = ?
+                   WHERE id = ? AND agent_id = ?""",
+                (now, reason, now, memory_id, self.agent_id)
+            )
+            self._queue_sync(conn, table, memory_id, "update")
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    def recover_memory(self, memory_type: str, memory_id: str) -> bool:
+        """Recover a forgotten memory.
+        
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            
+        Returns:
+            True if recovered, False if not found or not forgotten
+        """
+        table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "agent_values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+        }
+        
+        table = table_map.get(memory_type)
+        if not table:
+            return False
+        
+        now = self._now()
+        
+        with self._get_conn() as conn:
+            # Check if memory is forgotten
+            row = conn.execute(
+                f"SELECT is_forgotten FROM {table} WHERE id = ? AND agent_id = ?",
+                (memory_id, self.agent_id)
+            ).fetchone()
+            
+            if not row or not self._safe_get(row, "is_forgotten", 0):
+                return False
+            
+            cursor = conn.execute(
+                f"""UPDATE {table} 
+                   SET is_forgotten = 0,
+                       forgotten_at = NULL,
+                       forgotten_reason = NULL,
+                       local_updated_at = ?
+                   WHERE id = ? AND agent_id = ?""",
+                (now, memory_id, self.agent_id)
+            )
+            self._queue_sync(conn, table, memory_id, "update")
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    def protect_memory(self, memory_type: str, memory_id: str, protected: bool = True) -> bool:
+        """Mark a memory as protected from forgetting.
+        
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            protected: True to protect, False to unprotect
+            
+        Returns:
+            True if updated, False if memory not found
+        """
+        table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "agent_values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+        }
+        
+        table = table_map.get(memory_type)
+        if not table:
+            return False
+        
+        now = self._now()
+        
+        with self._get_conn() as conn:
+            cursor = conn.execute(
+                f"""UPDATE {table} 
+                   SET is_protected = ?,
+                       local_updated_at = ?
+                   WHERE id = ? AND agent_id = ?""",
+                (1 if protected else 0, now, memory_id, self.agent_id)
+            )
+            self._queue_sync(conn, table, memory_id, "update")
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    def get_forgetting_candidates(
+        self,
+        memory_types: Optional[List[str]] = None,
+        limit: int = 100,
+    ) -> List[SearchResult]:
+        """Get memories that are candidates for forgetting.
+        
+        Returns memories that are:
+        - Not protected
+        - Not already forgotten
+        - Sorted by computed salience (lowest first)
+        
+        Salience formula:
+        salience = (confidence × reinforcement_weight) / (age_factor + 1)
+        where:
+            reinforcement_weight = log(times_accessed + 1)
+            age_factor = days_since_last_access / half_life (30 days)
+        
+        Args:
+            memory_types: Filter by memory type
+            limit: Maximum results
+            
+        Returns:
+            List of candidate memories with computed salience scores
+        """
+        import math
+        results = []
+        types = memory_types or ["episode", "belief", "goal", "note", "relationship"]
+        # Exclude values and drives by default since they're protected by default
+        
+        table_map = {
+            "episode": ("episodes", self._row_to_episode),
+            "belief": ("beliefs", self._row_to_belief),
+            "value": ("agent_values", self._row_to_value),
+            "goal": ("goals", self._row_to_goal),
+            "note": ("notes", self._row_to_note),
+            "drive": ("drives", self._row_to_drive),
+            "relationship": ("relationships", self._row_to_relationship),
+        }
+        
+        now = datetime.now(timezone.utc)
+        half_life = 30.0  # days
+        
+        with self._get_conn() as conn:
+            for memory_type in types:
+                if memory_type not in table_map:
+                    continue
+                    
+                table, converter = table_map[memory_type]
+                query = f"""
+                    SELECT * FROM {table} 
+                    WHERE agent_id = ? 
+                    AND deleted = 0 
+                    AND COALESCE(is_protected, 0) = 0
+                    AND COALESCE(is_forgotten, 0) = 0
+                    ORDER BY created_at ASC
+                    LIMIT ?
+                """
+                
+                try:
+                    rows = conn.execute(query, (self.agent_id, limit * 2)).fetchall()
+                    for row in rows:
+                        record = converter(row)
+                        
+                        # Calculate salience
+                        confidence = self._safe_get(row, "confidence", 0.8)
+                        times_accessed = self._safe_get(row, "times_accessed", 0) or 0
+                        
+                        # Get last access time
+                        last_accessed_str = self._safe_get(row, "last_accessed", None)
+                        if last_accessed_str:
+                            last_accessed = self._parse_datetime(last_accessed_str)
+                        else:
+                            # Use created_at if never accessed
+                            created_at_str = row["created_at"]
+                            last_accessed = self._parse_datetime(created_at_str)
+                        
+                        # Calculate age factor
+                        if last_accessed:
+                            days_since = (now - last_accessed).total_seconds() / 86400
+                        else:
+                            days_since = 365  # Very old if unknown
+                        
+                        age_factor = days_since / half_life
+                        reinforcement_weight = math.log(times_accessed + 1)
+                        
+                        # Salience calculation
+                        salience = (confidence * (reinforcement_weight + 0.1)) / (age_factor + 1)
+                        
+                        results.append(SearchResult(
+                            record=record,
+                            record_type=memory_type,
+                            score=salience
+                        ))
+                except Exception as e:
+                    logger.debug(f"Could not get forgetting candidates from {table}: {e}")
+        
+        # Sort by salience (lowest first = best candidates for forgetting)
+        results.sort(key=lambda x: x.score)
+        return results[:limit]
+    
+    def get_forgotten_memories(
+        self,
+        memory_types: Optional[List[str]] = None,
+        limit: int = 100,
+    ) -> List[SearchResult]:
+        """Get all forgotten (tombstoned) memories.
+        
+        Args:
+            memory_types: Filter by memory type
+            limit: Maximum results
+            
+        Returns:
+            List of forgotten memories
+        """
+        results = []
+        types = memory_types or ["episode", "belief", "value", "goal", "note", "drive", "relationship"]
+        
+        table_map = {
+            "episode": ("episodes", self._row_to_episode),
+            "belief": ("beliefs", self._row_to_belief),
+            "value": ("agent_values", self._row_to_value),
+            "goal": ("goals", self._row_to_goal),
+            "note": ("notes", self._row_to_note),
+            "drive": ("drives", self._row_to_drive),
+            "relationship": ("relationships", self._row_to_relationship),
+        }
+        
+        with self._get_conn() as conn:
+            for memory_type in types:
+                if memory_type not in table_map:
+                    continue
+                    
+                table, converter = table_map[memory_type]
+                query = f"""
+                    SELECT * FROM {table} 
+                    WHERE agent_id = ? 
+                    AND deleted = 0 
+                    AND COALESCE(is_forgotten, 0) = 1
+                    ORDER BY forgotten_at DESC
+                    LIMIT ?
+                """
+                
+                try:
+                    rows = conn.execute(query, (self.agent_id, limit)).fetchall()
+                    for row in rows:
+                        results.append(SearchResult(
+                            record=converter(row),
+                            record_type=memory_type,
+                            score=0.0  # Forgotten memories have 0 active salience
+                        ))
+                except Exception as e:
+                    logger.debug(f"Could not get forgotten memories from {table}: {e}")
         
         return results[:limit]
     

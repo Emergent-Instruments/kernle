@@ -17,7 +17,7 @@ from typing import Optional, Dict, List, Any, Union, TYPE_CHECKING
 # Import storage abstraction
 from kernle.storage import (
     get_storage, Storage,
-    Episode, Belief, Value, Goal, Note, Drive, Relationship, SearchResult
+    Episode, Belief, Value, Goal, Note, Drive, Relationship, SearchResult, RawEntry
 )
 
 if TYPE_CHECKING:
@@ -527,6 +527,400 @@ class Kernle:
         return note_id
     
     # =========================================================================
+    # RAW ENTRIES (Zero-friction capture)
+    # =========================================================================
+    
+    def raw(
+        self,
+        content: str,
+        tags: Optional[List[str]] = None,
+        source: str = "manual",
+    ) -> str:
+        """Quick capture of unstructured thought for later processing.
+        
+        Args:
+            content: Free-form text to capture
+            tags: Optional quick tags for categorization
+            source: Source of the entry (manual, auto_capture, voice, etc.)
+            
+        Returns:
+            Raw entry ID
+        """
+        content = self._validate_string_input(content, "content", 5000)
+        if tags:
+            tags = [self._validate_string_input(t, "tag", 100) for t in tags]
+        
+        return self._storage.save_raw(content, source, tags)
+    
+    def list_raw(self, processed: Optional[bool] = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """List raw entries, optionally filtered by processed state.
+        
+        Args:
+            processed: Filter by processed state (None = all, True = processed, False = unprocessed)
+            limit: Maximum entries to return
+            
+        Returns:
+            List of raw entry dicts
+        """
+        entries = self._storage.list_raw(processed=processed, limit=limit)
+        return [
+            {
+                "id": e.id,
+                "content": e.content,
+                "timestamp": e.timestamp.isoformat() if e.timestamp else None,
+                "source": e.source,
+                "processed": e.processed,
+                "processed_into": e.processed_into,
+                "tags": e.tags,
+            }
+            for e in entries
+        ]
+    
+    def get_raw(self, raw_id: str) -> Optional[Dict[str, Any]]:
+        """Get a specific raw entry by ID.
+        
+        Args:
+            raw_id: ID of the raw entry
+            
+        Returns:
+            Raw entry dict or None if not found
+        """
+        entry = self._storage.get_raw(raw_id)
+        if entry:
+            return {
+                "id": entry.id,
+                "content": entry.content,
+                "timestamp": entry.timestamp.isoformat() if entry.timestamp else None,
+                "source": entry.source,
+                "processed": entry.processed,
+                "processed_into": entry.processed_into,
+                "tags": entry.tags,
+            }
+        return None
+    
+    def process_raw(
+        self,
+        raw_id: str,
+        as_type: str,
+        **kwargs,
+    ) -> str:
+        """Convert a raw entry into a structured memory.
+        
+        Args:
+            raw_id: ID of the raw entry to process
+            as_type: Type to convert to (episode, note, belief)
+            **kwargs: Additional arguments for the target type
+            
+        Returns:
+            ID of the created memory
+            
+        Raises:
+            ValueError: If raw entry not found or invalid as_type
+        """
+        entry = self._storage.get_raw(raw_id)
+        if not entry:
+            raise ValueError(f"Raw entry {raw_id} not found")
+        
+        if entry.processed:
+            raise ValueError(f"Raw entry {raw_id} already processed")
+        
+        # Create the appropriate memory type
+        memory_id = None
+        memory_ref = None
+        
+        if as_type == "episode":
+            # Extract or use provided objective/outcome
+            objective = kwargs.get("objective") or entry.content[:100]
+            outcome = kwargs.get("outcome", "completed")
+            lessons = kwargs.get("lessons") or ([entry.content] if len(entry.content) > 100 else None)
+            tags = kwargs.get("tags") or entry.tags or []
+            if "raw" not in tags:
+                tags.append("raw")
+            
+            memory_id = self.episode(
+                objective=objective,
+                outcome=outcome,
+                lessons=lessons,
+                tags=tags,
+            )
+            memory_ref = f"episode:{memory_id}"
+        
+        elif as_type == "note":
+            note_type = kwargs.get("type", "note")
+            tags = kwargs.get("tags") or entry.tags or []
+            if "raw" not in tags:
+                tags.append("raw")
+            
+            memory_id = self.note(
+                content=entry.content,
+                type=note_type,
+                speaker=kwargs.get("speaker"),
+                reason=kwargs.get("reason"),
+                tags=tags,
+            )
+            memory_ref = f"note:{memory_id}"
+        
+        elif as_type == "belief":
+            confidence = kwargs.get("confidence", 0.7)
+            belief_type = kwargs.get("type", "observation")
+            
+            memory_id = self.belief(
+                statement=entry.content,
+                type=belief_type,
+                confidence=confidence,
+            )
+            memory_ref = f"belief:{memory_id}"
+        
+        else:
+            raise ValueError(f"Invalid as_type: {as_type}. Must be one of: episode, note, belief")
+        
+        # Mark the raw entry as processed
+        self._storage.mark_raw_processed(raw_id, [memory_ref])
+        
+        return memory_id
+    
+    # =========================================================================
+    # DUMP / EXPORT
+    # =========================================================================
+    
+    def dump(self, include_raw: bool = True, format: str = "markdown") -> str:
+        """Export all memory to a readable format.
+        
+        Args:
+            include_raw: Include raw entries in the dump
+            format: Output format ("markdown" or "json")
+            
+        Returns:
+            Formatted string of all memory
+        """
+        if format == "json":
+            return self._dump_json(include_raw)
+        else:
+            return self._dump_markdown(include_raw)
+    
+    def _dump_markdown(self, include_raw: bool) -> str:
+        """Export memory as markdown."""
+        lines = []
+        lines.append(f"# Memory Dump for {self.agent_id}")
+        lines.append(f"_Exported at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}_")
+        lines.append("")
+        
+        # Values
+        values = self._storage.get_values(limit=100)
+        if values:
+            lines.append("## Values")
+            for v in sorted(values, key=lambda x: x.priority, reverse=True):
+                lines.append(f"- **{v.name}** (priority {v.priority}): {v.statement}")
+            lines.append("")
+        
+        # Beliefs
+        beliefs = self._storage.get_beliefs(limit=100)
+        if beliefs:
+            lines.append("## Beliefs")
+            for b in sorted(beliefs, key=lambda x: x.confidence, reverse=True):
+                lines.append(f"- [{b.confidence:.0%}] {b.statement}")
+            lines.append("")
+        
+        # Goals
+        goals = self._storage.get_goals(status=None, limit=100)
+        if goals:
+            lines.append("## Goals")
+            for g in goals:
+                status_icon = "✓" if g.status == "completed" else "○" if g.status == "active" else "⏸"
+                lines.append(f"- {status_icon} [{g.priority}] {g.title}")
+                if g.description and g.description != g.title:
+                    lines.append(f"  {g.description}")
+            lines.append("")
+        
+        # Episodes
+        episodes = self._storage.get_episodes(limit=100)
+        if episodes:
+            lines.append("## Episodes")
+            for e in episodes:
+                date_str = e.created_at.strftime("%Y-%m-%d") if e.created_at else "unknown"
+                outcome_icon = "✓" if e.outcome_type == "success" else "✗" if e.outcome_type == "failure" else "○"
+                lines.append(f"### {outcome_icon} {e.objective}")
+                lines.append(f"*{date_str}* | {e.outcome}")
+                if e.lessons:
+                    lines.append("**Lessons:**")
+                    for lesson in e.lessons:
+                        lines.append(f"  - {lesson}")
+                if e.tags:
+                    lines.append(f"Tags: {', '.join(e.tags)}")
+                lines.append("")
+        
+        # Notes
+        notes = self._storage.get_notes(limit=100)
+        if notes:
+            lines.append("## Notes")
+            for n in notes:
+                date_str = n.created_at.strftime("%Y-%m-%d") if n.created_at else "unknown"
+                lines.append(f"### [{n.note_type}] {date_str}")
+                lines.append(n.content)
+                if n.tags:
+                    lines.append(f"Tags: {', '.join(n.tags)}")
+                lines.append("")
+        
+        # Drives
+        drives = self._storage.get_drives()
+        if drives:
+            lines.append("## Drives")
+            for d in drives:
+                bar = "█" * int(d.intensity * 10) + "░" * (10 - int(d.intensity * 10))
+                focus = f" → {', '.join(d.focus_areas)}" if d.focus_areas else ""
+                lines.append(f"- {d.drive_type}: [{bar}] {d.intensity:.0%}{focus}")
+            lines.append("")
+        
+        # Relationships
+        relationships = self._storage.get_relationships()
+        if relationships:
+            lines.append("## Relationships")
+            for r in relationships:
+                sentiment_str = f"{r.sentiment:+.2f}" if r.sentiment else "neutral"
+                lines.append(f"- **{r.entity_name}** ({r.entity_type}): {sentiment_str}")
+                if r.notes:
+                    lines.append(f"  {r.notes}")
+            lines.append("")
+        
+        # Raw entries
+        if include_raw:
+            raw_entries = self._storage.list_raw(limit=100)
+            if raw_entries:
+                lines.append("## Raw Entries")
+                for r in raw_entries:
+                    date_str = r.timestamp.strftime("%Y-%m-%d %H:%M") if r.timestamp else "unknown"
+                    status = "✓" if r.processed else "○"
+                    lines.append(f"### {status} {date_str}")
+                    lines.append(r.content)
+                    if r.tags:
+                        lines.append(f"Tags: {', '.join(r.tags)}")
+                    if r.processed and r.processed_into:
+                        lines.append(f"Processed into: {', '.join(r.processed_into)}")
+                    lines.append("")
+        
+        return "\n".join(lines)
+    
+    def _dump_json(self, include_raw: bool) -> str:
+        """Export memory as JSON."""
+        data = {
+            "agent_id": self.agent_id,
+            "exported_at": datetime.now(timezone.utc).isoformat(),
+            "values": [
+                {
+                    "id": v.id,
+                    "name": v.name,
+                    "statement": v.statement,
+                    "priority": v.priority,
+                    "created_at": v.created_at.isoformat() if v.created_at else None,
+                }
+                for v in self._storage.get_values(limit=100)
+            ],
+            "beliefs": [
+                {
+                    "id": b.id,
+                    "statement": b.statement,
+                    "type": b.belief_type,
+                    "confidence": b.confidence,
+                    "created_at": b.created_at.isoformat() if b.created_at else None,
+                }
+                for b in self._storage.get_beliefs(limit=100)
+            ],
+            "goals": [
+                {
+                    "id": g.id,
+                    "title": g.title,
+                    "description": g.description,
+                    "priority": g.priority,
+                    "status": g.status,
+                    "created_at": g.created_at.isoformat() if g.created_at else None,
+                }
+                for g in self._storage.get_goals(status=None, limit=100)
+            ],
+            "episodes": [
+                {
+                    "id": e.id,
+                    "objective": e.objective,
+                    "outcome": e.outcome,
+                    "outcome_type": e.outcome_type,
+                    "lessons": e.lessons,
+                    "tags": e.tags,
+                    "created_at": e.created_at.isoformat() if e.created_at else None,
+                }
+                for e in self._storage.get_episodes(limit=100)
+            ],
+            "notes": [
+                {
+                    "id": n.id,
+                    "content": n.content,
+                    "type": n.note_type,
+                    "speaker": n.speaker,
+                    "reason": n.reason,
+                    "tags": n.tags,
+                    "created_at": n.created_at.isoformat() if n.created_at else None,
+                }
+                for n in self._storage.get_notes(limit=100)
+            ],
+            "drives": [
+                {
+                    "id": d.id,
+                    "type": d.drive_type,
+                    "intensity": d.intensity,
+                    "focus_areas": d.focus_areas,
+                }
+                for d in self._storage.get_drives()
+            ],
+            "relationships": [
+                {
+                    "id": r.id,
+                    "entity_name": r.entity_name,
+                    "entity_type": r.entity_type,
+                    "relationship_type": r.relationship_type,
+                    "sentiment": r.sentiment,
+                    "notes": r.notes,
+                }
+                for r in self._storage.get_relationships()
+            ],
+        }
+        
+        if include_raw:
+            data["raw_entries"] = [
+                {
+                    "id": r.id,
+                    "content": r.content,
+                    "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+                    "source": r.source,
+                    "processed": r.processed,
+                    "processed_into": r.processed_into,
+                    "tags": r.tags,
+                }
+                for r in self._storage.list_raw(limit=100)
+            ]
+        
+        return json.dumps(data, indent=2, default=str)
+    
+    def export(self, path: str, include_raw: bool = True, format: str = "markdown"):
+        """Export memory to a file.
+        
+        Args:
+            path: Path to export file
+            include_raw: Include raw entries
+            format: Output format ("markdown" or "json")
+        """
+        content = self.dump(include_raw=include_raw, format=format)
+        
+        # Determine format from extension if not specified
+        if format == "markdown" and path.endswith(".json"):
+            format = "json"
+            content = self.dump(include_raw=include_raw, format="json")
+        elif format == "json" and (path.endswith(".md") or path.endswith(".markdown")):
+            format = "markdown"
+            content = self.dump(include_raw=include_raw, format="markdown")
+        
+        export_path = Path(path)
+        export_path.parent.mkdir(parents=True, exist_ok=True)
+        export_path.write_text(content, encoding="utf-8")
+    
+    # =========================================================================
     # BELIEFS & VALUES
     # =========================================================================
     
@@ -647,8 +1041,8 @@ class Kernle:
         # Validate inputs
         belief_id = self._validate_string_input(belief_id, "belief_id", 100)
         
-        # Get beliefs to find matching one
-        beliefs = self._storage.get_beliefs(limit=1000)
+        # Get beliefs to find matching one (include inactive to allow reactivation)
+        beliefs = self._storage.get_beliefs(limit=1000, include_inactive=True)
         existing = None
         for b in beliefs:
             if b.id == belief_id:
@@ -663,12 +1057,444 @@ class Kernle:
                 raise ValueError("Confidence must be between 0.0 and 1.0")
             existing.confidence = confidence
         
-        if is_active is not None and not is_active:
-            existing.deleted = True
+        if is_active is not None:
+            existing.is_active = is_active
+            if not is_active:
+                existing.deleted = True
         
         existing.version += 1
         self._storage.save_belief(existing)
         return True
+    
+    # =========================================================================
+    # BELIEF REVISION
+    # =========================================================================
+    
+    def find_contradictions(
+        self,
+        belief_statement: str,
+        similarity_threshold: float = 0.6,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """Find beliefs that might contradict a statement.
+        
+        Uses semantic similarity to find related beliefs, then checks for
+        potential contradictions using heuristic pattern matching.
+        
+        Args:
+            belief_statement: The statement to check for contradictions
+            similarity_threshold: Minimum similarity score (0-1) for related beliefs
+            limit: Maximum number of potential contradictions to return
+            
+        Returns:
+            List of dicts with belief info and contradiction analysis
+        """
+        # Search for semantically similar beliefs
+        search_results = self._storage.search(
+            belief_statement,
+            limit=limit * 2,  # Get more to filter
+            record_types=["belief"]
+        )
+        
+        contradictions = []
+        stmt_lower = belief_statement.lower().strip()
+        
+        for result in search_results:
+            if result.record_type != "belief":
+                continue
+            
+            belief = result.record
+            belief_stmt_lower = belief.statement.lower().strip()
+            
+            # Skip exact matches
+            if belief_stmt_lower == stmt_lower:
+                continue
+            
+            # Check for contradiction patterns
+            contradiction_type = None
+            confidence = 0.0
+            explanation = ""
+            
+            # Negation patterns
+            negation_pairs = [
+                ("never", "always"), ("should not", "should"), ("cannot", "can"),
+                ("don't", "do"), ("avoid", "prefer"), ("reject", "accept"),
+                ("false", "true"), ("dislike", "like"), ("hate", "love"),
+                ("wrong", "right"), ("bad", "good"),
+            ]
+            
+            for neg, pos in negation_pairs:
+                if ((neg in stmt_lower and pos in belief_stmt_lower) or
+                    (pos in stmt_lower and neg in belief_stmt_lower)):
+                    # Check word overlap for topic relevance
+                    words_stmt = set(stmt_lower.split()) - {"i", "the", "a", "an", "to", "and", "or", "is", "are", "that", "this"}
+                    words_belief = set(belief_stmt_lower.split()) - {"i", "the", "a", "an", "to", "and", "or", "is", "are", "that", "this"}
+                    overlap = len(words_stmt & words_belief)
+                    
+                    if overlap >= 2:
+                        contradiction_type = "direct_negation"
+                        confidence = min(0.5 + overlap * 0.1 + result.score * 0.2, 0.95)
+                        explanation = f"Negation conflict: '{neg}' vs '{pos}' with {overlap} overlapping terms"
+                        break
+            
+            # Preference conflicts
+            if not contradiction_type:
+                preference_pairs = [
+                    ("prefer", "avoid"), ("like", "dislike"), ("enjoy", "hate"),
+                    ("favor", "oppose"), ("support", "reject"), ("want", "don't want"),
+                ]
+                for pref, anti in preference_pairs:
+                    if ((pref in stmt_lower and anti in belief_stmt_lower) or
+                        (anti in stmt_lower and pref in belief_stmt_lower)):
+                        words_stmt = set(stmt_lower.split()) - {"i", "the", "a", "an", "to", "and", "or"}
+                        words_belief = set(belief_stmt_lower.split()) - {"i", "the", "a", "an", "to", "and", "or"}
+                        overlap = len(words_stmt & words_belief)
+                        
+                        if overlap >= 2:
+                            contradiction_type = "preference_conflict"
+                            confidence = min(0.4 + overlap * 0.1 + result.score * 0.2, 0.85)
+                            explanation = f"Preference conflict: '{pref}' vs '{anti}'"
+                            break
+            
+            if contradiction_type:
+                contradictions.append({
+                    "belief_id": belief.id,
+                    "statement": belief.statement,
+                    "confidence": belief.confidence,
+                    "times_reinforced": belief.times_reinforced,
+                    "is_active": belief.is_active,
+                    "contradiction_type": contradiction_type,
+                    "contradiction_confidence": round(confidence, 2),
+                    "explanation": explanation,
+                    "semantic_similarity": round(result.score, 2),
+                })
+        
+        # Sort by contradiction confidence
+        contradictions.sort(key=lambda x: x["contradiction_confidence"], reverse=True)
+        return contradictions[:limit]
+    
+    def reinforce_belief(self, belief_id: str) -> bool:
+        """Increase reinforcement count when a belief is confirmed.
+        
+        Also slightly increases confidence (with diminishing returns).
+        
+        Args:
+            belief_id: ID of the belief to reinforce
+            
+        Returns:
+            True if reinforced, False if belief not found
+        """
+        belief_id = self._validate_string_input(belief_id, "belief_id", 100)
+        
+        # Get the belief (include inactive to allow reinforcing superseded beliefs back)
+        beliefs = self._storage.get_beliefs(limit=1000, include_inactive=True)
+        existing = None
+        for b in beliefs:
+            if b.id == belief_id:
+                existing = b
+                break
+        
+        if not existing:
+            return False
+        
+        # Increment reinforcement count
+        existing.times_reinforced += 1
+        
+        # Slightly increase confidence (diminishing returns)
+        # Each reinforcement adds less confidence, capped at 0.99
+        confidence_boost = 0.05 * (1.0 / (1 + existing.times_reinforced * 0.1))
+        room_to_grow = 0.99 - existing.confidence
+        existing.confidence = min(0.99, existing.confidence + room_to_grow * confidence_boost)
+        
+        # Update confidence history
+        history = existing.confidence_history or []
+        history.append({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "old": round(existing.confidence - confidence_boost, 3),
+            "new": round(existing.confidence, 3),
+            "reason": f"Reinforced (count: {existing.times_reinforced})"
+        })
+        existing.confidence_history = history[-20:]  # Keep last 20 entries
+        
+        existing.last_verified = datetime.now(timezone.utc)
+        existing.verification_count += 1
+        existing.version += 1
+        
+        self._storage.save_belief(existing)
+        return True
+    
+    def supersede_belief(
+        self,
+        old_id: str,
+        new_statement: str,
+        confidence: float = 0.8,
+        reason: Optional[str] = None,
+    ) -> str:
+        """Replace an old belief with a new one, maintaining the revision chain.
+        
+        Args:
+            old_id: ID of the belief being superseded
+            new_statement: The new belief statement
+            confidence: Confidence in the new belief
+            reason: Optional reason for the supersession
+            
+        Returns:
+            ID of the new belief
+            
+        Raises:
+            ValueError: If old belief not found
+        """
+        old_id = self._validate_string_input(old_id, "old_id", 100)
+        new_statement = self._validate_string_input(new_statement, "new_statement", 2000)
+        
+        # Get the old belief
+        beliefs = self._storage.get_beliefs(limit=1000, include_inactive=True)
+        old_belief = None
+        for b in beliefs:
+            if b.id == old_id:
+                old_belief = b
+                break
+        
+        if not old_belief:
+            raise ValueError(f"Belief {old_id} not found")
+        
+        # Create the new belief
+        new_id = str(uuid.uuid4())
+        new_belief = Belief(
+            id=new_id,
+            agent_id=self.agent_id,
+            statement=new_statement,
+            belief_type=old_belief.belief_type,
+            confidence=confidence,
+            created_at=datetime.now(timezone.utc),
+            source_type="inference",
+            supersedes=old_id,
+            superseded_by=None,
+            times_reinforced=0,
+            is_active=True,
+            # Inherit source episodes from old belief
+            source_episodes=old_belief.source_episodes,
+            derived_from=[f"belief:{old_id}"],
+            confidence_history=[{
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "old": 0.0,
+                "new": confidence,
+                "reason": reason or f"Superseded belief {old_id[:8]}"
+            }],
+        )
+        self._storage.save_belief(new_belief)
+        
+        # Update the old belief
+        old_belief.superseded_by = new_id
+        old_belief.is_active = False
+        
+        # Add to confidence history
+        history = old_belief.confidence_history or []
+        history.append({
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "old": old_belief.confidence,
+            "new": old_belief.confidence,
+            "reason": f"Superseded by belief {new_id[:8]}: {reason or 'no reason given'}"
+        })
+        old_belief.confidence_history = history[-20:]
+        old_belief.version += 1
+        self._storage.save_belief(old_belief)
+        
+        return new_id
+    
+    def revise_beliefs_from_episode(self, episode_id: str) -> Dict[str, Any]:
+        """Analyze an episode and update relevant beliefs.
+        
+        Extracts lessons and patterns from the episode, then:
+        1. Reinforces beliefs that were confirmed
+        2. Identifies beliefs that may be contradicted
+        3. Suggests new beliefs based on lessons
+        
+        Args:
+            episode_id: ID of the episode to analyze
+            
+        Returns:
+            Dict with keys: reinforced, contradicted, suggested_new
+        """
+        episode_id = self._validate_string_input(episode_id, "episode_id", 100)
+        
+        # Get the episode
+        episode = self._storage.get_episode(episode_id)
+        if not episode:
+            return {"error": "Episode not found", "reinforced": [], "contradicted": [], "suggested_new": []}
+        
+        result = {
+            "episode_id": episode_id,
+            "reinforced": [],
+            "contradicted": [],
+            "suggested_new": [],
+        }
+        
+        # Build evidence text from episode
+        evidence_parts = []
+        if episode.outcome_type == "success":
+            evidence_parts.append(f"Successfully: {episode.objective}")
+        elif episode.outcome_type == "failure":
+            evidence_parts.append(f"Failed: {episode.objective}")
+        
+        evidence_parts.append(episode.outcome)
+        
+        if episode.lessons:
+            evidence_parts.extend(episode.lessons)
+        
+        evidence_text = " ".join(evidence_parts)
+        
+        # Get all active beliefs
+        beliefs = self._storage.get_beliefs(limit=500)
+        
+        for belief in beliefs:
+            belief_stmt_lower = belief.statement.lower()
+            evidence_lower = evidence_text.lower()
+            
+            # Check for word overlap
+            belief_words = set(belief_stmt_lower.split()) - {"i", "the", "a", "an", "to", "and", "or", "is", "are", "should", "can"}
+            evidence_words = set(evidence_lower.split()) - {"i", "the", "a", "an", "to", "and", "or", "is", "are", "should", "can"}
+            overlap = belief_words & evidence_words
+            
+            if len(overlap) < 2:
+                continue  # Not related enough
+            
+            # Determine if evidence supports or contradicts
+            is_supporting = False
+            is_contradicting = False
+            
+            if episode.outcome_type == "success":
+                # Success supports "should" beliefs about what worked
+                if any(word in belief_stmt_lower for word in ["should", "prefer", "good", "important", "effective"]):
+                    is_supporting = True
+                # Success contradicts "avoid" beliefs about what worked
+                elif any(word in belief_stmt_lower for word in ["avoid", "never", "don't", "bad"]):
+                    is_contradicting = True
+            
+            elif episode.outcome_type == "failure":
+                # Failure contradicts "should" beliefs about what failed
+                if any(word in belief_stmt_lower for word in ["should", "prefer", "good", "important", "effective"]):
+                    is_contradicting = True
+                # Failure supports "avoid" beliefs
+                elif any(word in belief_stmt_lower for word in ["avoid", "never", "don't", "bad"]):
+                    is_supporting = True
+            
+            if is_supporting:
+                # Reinforce the belief
+                self.reinforce_belief(belief.id)
+                result["reinforced"].append({
+                    "belief_id": belief.id,
+                    "statement": belief.statement,
+                    "overlap": list(overlap),
+                })
+            
+            elif is_contradicting:
+                # Flag as potentially contradicted
+                result["contradicted"].append({
+                    "belief_id": belief.id,
+                    "statement": belief.statement,
+                    "overlap": list(overlap),
+                    "evidence": evidence_text[:200],
+                })
+        
+        # Suggest new beliefs from lessons
+        if episode.lessons:
+            for lesson in episode.lessons:
+                # Check if a similar belief already exists
+                existing = self._storage.find_belief(lesson)
+                if not existing:
+                    # Check for similar beliefs via search
+                    similar = self._storage.search(lesson, limit=3, record_types=["belief"])
+                    if not any(r.score > 0.9 for r in similar):
+                        result["suggested_new"].append({
+                            "statement": lesson,
+                            "source_episode": episode_id,
+                            "suggested_confidence": 0.7 if episode.outcome_type == "success" else 0.6,
+                        })
+        
+        # Link episode to affected beliefs
+        for reinforced in result["reinforced"]:
+            belief = next((b for b in beliefs if b.id == reinforced["belief_id"]), None)
+            if belief:
+                source_eps = belief.source_episodes or []
+                if episode_id not in source_eps:
+                    belief.source_episodes = source_eps + [episode_id]
+                    self._storage.save_belief(belief)
+        
+        return result
+    
+    def get_belief_history(self, belief_id: str) -> List[Dict[str, Any]]:
+        """Get the supersession chain for a belief.
+        
+        Walks both backwards (what this belief superseded) and forwards
+        (what superseded this belief) to build the full revision history.
+        
+        Args:
+            belief_id: ID of the belief to trace
+            
+        Returns:
+            List of beliefs in chronological order, with revision metadata
+        """
+        belief_id = self._validate_string_input(belief_id, "belief_id", 100)
+        
+        # Get all beliefs including inactive ones
+        all_beliefs = self._storage.get_beliefs(limit=1000, include_inactive=True)
+        belief_map = {b.id: b for b in all_beliefs}
+        
+        if belief_id not in belief_map:
+            return []
+        
+        history = []
+        visited = set()
+        
+        # Walk backwards to find the original belief
+        def walk_back(bid: str) -> Optional[str]:
+            if bid in visited or bid not in belief_map:
+                return None
+            belief = belief_map[bid]
+            if belief.supersedes and belief.supersedes in belief_map:
+                return belief.supersedes
+            return None
+        
+        # Find the root
+        root_id = belief_id
+        while True:
+            prev = walk_back(root_id)
+            if prev:
+                root_id = prev
+            else:
+                break
+        
+        # Walk forward from root
+        current_id = root_id
+        while current_id and current_id not in visited and current_id in belief_map:
+            visited.add(current_id)
+            belief = belief_map[current_id]
+            
+            entry = {
+                "id": belief.id,
+                "statement": belief.statement,
+                "confidence": belief.confidence,
+                "times_reinforced": belief.times_reinforced,
+                "is_active": belief.is_active,
+                "is_current": belief.id == belief_id,
+                "created_at": belief.created_at.isoformat() if belief.created_at else None,
+                "supersedes": belief.supersedes,
+                "superseded_by": belief.superseded_by,
+            }
+            
+            # Add supersession reason if available from confidence history
+            if belief.confidence_history:
+                for h in reversed(belief.confidence_history):
+                    reason = h.get("reason", "")
+                    if "Superseded" in reason:
+                        entry["supersession_reason"] = reason
+                        break
+            
+            history.append(entry)
+            current_id = belief.superseded_by
+        
+        return history
     
     # =========================================================================
     # SEARCH
@@ -724,6 +1550,7 @@ class Kernle:
             "beliefs": stats.get("beliefs", 0),
             "goals": stats.get("goals", 0),
             "episodes": stats.get("episodes", 0),
+            "raw": stats.get("raw", 0),
             "checkpoint": self.load_checkpoint() is not None,
         }
     
@@ -942,6 +1769,237 @@ class Kernle:
             )
             self._storage.save_relationship(relationship)
             return rel_id
+    
+    # =========================================================================
+    # PLAYBOOKS (Procedural Memory)
+    # =========================================================================
+    
+    MASTERY_LEVELS = ["novice", "competent", "proficient", "expert"]
+    
+    def playbook(
+        self,
+        name: str,
+        description: str,
+        steps: Union[List[Dict[str, Any]], List[str]],
+        triggers: Optional[List[str]] = None,
+        failure_modes: Optional[List[str]] = None,
+        recovery_steps: Optional[List[str]] = None,
+        source_episodes: Optional[List[str]] = None,
+        tags: Optional[List[str]] = None,
+        confidence: float = 0.8,
+    ) -> str:
+        """Create a new playbook (procedural memory).
+        
+        Args:
+            name: Short name for the playbook (e.g., "Deploy to production")
+            description: What this playbook does
+            steps: List of steps - can be dicts with {action, details, adaptations} 
+                   or simple strings
+            triggers: When to use this playbook (situation descriptions)
+            failure_modes: What can go wrong
+            recovery_steps: How to recover from failures
+            source_episodes: Episode IDs this was learned from
+            tags: Tags for categorization
+            confidence: Initial confidence (0.0-1.0)
+            
+        Returns:
+            Playbook ID
+        """
+        from kernle.storage import Playbook
+        
+        # Validate inputs
+        name = self._validate_string_input(name, "name", 200)
+        description = self._validate_string_input(description, "description", 2000)
+        
+        # Normalize steps to dict format
+        normalized_steps = []
+        for i, step in enumerate(steps):
+            if isinstance(step, str):
+                normalized_steps.append({
+                    "action": step,
+                    "details": None,
+                    "adaptations": None,
+                })
+            elif isinstance(step, dict):
+                normalized_steps.append({
+                    "action": step.get("action", f"Step {i + 1}"),
+                    "details": step.get("details"),
+                    "adaptations": step.get("adaptations"),
+                })
+            else:
+                raise ValueError(f"Invalid step format at index {i}")
+        
+        # Validate optional lists
+        if triggers:
+            triggers = [self._validate_string_input(t, "trigger", 500) for t in triggers]
+        if failure_modes:
+            failure_modes = [self._validate_string_input(f, "failure_mode", 500) for f in failure_modes]
+        if recovery_steps:
+            recovery_steps = [self._validate_string_input(r, "recovery_step", 500) for r in recovery_steps]
+        if tags:
+            tags = [self._validate_string_input(t, "tag", 100) for t in tags]
+        
+        playbook_id = str(uuid.uuid4())
+        
+        playbook = Playbook(
+            id=playbook_id,
+            agent_id=self.agent_id,
+            name=name,
+            description=description,
+            trigger_conditions=triggers or [],
+            steps=normalized_steps,
+            failure_modes=failure_modes or [],
+            recovery_steps=recovery_steps,
+            mastery_level="novice",
+            times_used=0,
+            success_rate=0.0,
+            source_episodes=source_episodes,
+            tags=tags,
+            confidence=max(0.0, min(1.0, confidence)),
+            last_used=None,
+            created_at=datetime.now(timezone.utc),
+        )
+        
+        self._storage.save_playbook(playbook)
+        return playbook_id
+    
+    def load_playbooks(self, limit: int = 10, tags: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+        """Load playbooks (procedural memories).
+        
+        Args:
+            limit: Maximum number of playbooks to return
+            tags: Filter by tags
+            
+        Returns:
+            List of playbook dicts
+        """
+        playbooks = self._storage.list_playbooks(tags=tags, limit=limit)
+        
+        return [
+            {
+                "id": p.id,
+                "name": p.name,
+                "description": p.description,
+                "triggers": p.trigger_conditions,
+                "steps": p.steps,
+                "failure_modes": p.failure_modes,
+                "recovery_steps": p.recovery_steps,
+                "mastery_level": p.mastery_level,
+                "times_used": p.times_used,
+                "success_rate": p.success_rate,
+                "confidence": p.confidence,
+                "tags": p.tags,
+                "last_used": p.last_used.isoformat() if p.last_used else None,
+                "created_at": p.created_at.isoformat() if p.created_at else None,
+            }
+            for p in playbooks
+        ]
+    
+    def find_playbook(self, situation: str) -> Optional[Dict[str, Any]]:
+        """Find the most relevant playbook for a given situation.
+        
+        Uses semantic search to match the situation against playbook
+        triggers and descriptions.
+        
+        Args:
+            situation: Description of the current situation/task
+            
+        Returns:
+            Best matching playbook dict, or None if no good match
+        """
+        # Search for relevant playbooks
+        playbooks = self._storage.search_playbooks(situation, limit=5)
+        
+        if not playbooks:
+            return None
+        
+        # Return the best match (first result from search)
+        p = playbooks[0]
+        return {
+            "id": p.id,
+            "name": p.name,
+            "description": p.description,
+            "triggers": p.trigger_conditions,
+            "steps": p.steps,
+            "failure_modes": p.failure_modes,
+            "recovery_steps": p.recovery_steps,
+            "mastery_level": p.mastery_level,
+            "times_used": p.times_used,
+            "success_rate": p.success_rate,
+            "confidence": p.confidence,
+            "tags": p.tags,
+        }
+    
+    def record_playbook_use(self, playbook_id: str, success: bool) -> bool:
+        """Record a playbook usage and update statistics.
+        
+        Call this after executing a playbook to track its effectiveness.
+        
+        Args:
+            playbook_id: ID of the playbook that was used
+            success: Whether the execution was successful
+            
+        Returns:
+            True if updated, False if playbook not found
+        """
+        return self._storage.update_playbook_usage(playbook_id, success)
+    
+    def get_playbook(self, playbook_id: str) -> Optional[Dict[str, Any]]:
+        """Get a specific playbook by ID.
+        
+        Args:
+            playbook_id: ID of the playbook
+            
+        Returns:
+            Playbook dict or None if not found
+        """
+        p = self._storage.get_playbook(playbook_id)
+        if not p:
+            return None
+        
+        return {
+            "id": p.id,
+            "name": p.name,
+            "description": p.description,
+            "triggers": p.trigger_conditions,
+            "steps": p.steps,
+            "failure_modes": p.failure_modes,
+            "recovery_steps": p.recovery_steps,
+            "mastery_level": p.mastery_level,
+            "times_used": p.times_used,
+            "success_rate": p.success_rate,
+            "source_episodes": p.source_episodes,
+            "confidence": p.confidence,
+            "tags": p.tags,
+            "last_used": p.last_used.isoformat() if p.last_used else None,
+            "created_at": p.created_at.isoformat() if p.created_at else None,
+        }
+    
+    def search_playbooks(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Search playbooks by query.
+        
+        Args:
+            query: Search query
+            limit: Maximum results
+            
+        Returns:
+            List of matching playbook dicts
+        """
+        playbooks = self._storage.search_playbooks(query, limit=limit)
+        
+        return [
+            {
+                "id": p.id,
+                "name": p.name,
+                "description": p.description,
+                "triggers": p.trigger_conditions,
+                "mastery_level": p.mastery_level,
+                "times_used": p.times_used,
+                "success_rate": p.success_rate,
+                "tags": p.tags,
+            }
+            for p in playbooks
+        ]
     
     # =========================================================================
     # TEMPORAL MEMORY (Time-Aware Retrieval)
@@ -1655,6 +2713,266 @@ class Kernle:
         )
     
     # =========================================================================
+    # CONTROLLED FORGETTING
+    # =========================================================================
+    
+    # Default half-life for salience decay (in days)
+    DEFAULT_HALF_LIFE = 30.0
+    
+    def calculate_salience(self, memory_type: str, memory_id: str) -> float:
+        """Calculate current salience score for a memory.
+        
+        Salience formula:
+        salience = (confidence × reinforcement_weight) / (age_factor + 1)
+        where:
+            reinforcement_weight = log(times_accessed + 1)
+            age_factor = days_since_last_access / half_life
+        
+        Args:
+            memory_type: Type of memory (episode, belief, value, goal, note, drive, relationship)
+            memory_id: ID of the memory
+            
+        Returns:
+            Salience score (0.0-1.0 typical range, can exceed 1.0 for very active memories)
+            Returns -1.0 if memory not found
+        """
+        import math
+        
+        record = self._storage.get_memory(memory_type, memory_id)
+        if not record:
+            return -1.0
+        
+        confidence = getattr(record, 'confidence', 0.8)
+        times_accessed = getattr(record, 'times_accessed', 0) or 0
+        last_accessed = getattr(record, 'last_accessed', None)
+        created_at = getattr(record, 'created_at', None)
+        
+        # Use last_accessed if available, otherwise created_at
+        reference_time = last_accessed or created_at
+        
+        now = datetime.now(timezone.utc)
+        if reference_time:
+            days_since = (now - reference_time).total_seconds() / 86400
+        else:
+            days_since = 365  # Very old if unknown
+        
+        age_factor = days_since / self.DEFAULT_HALF_LIFE
+        reinforcement_weight = math.log(times_accessed + 1)
+        
+        # Salience calculation with minimum base value
+        salience = (confidence * (reinforcement_weight + 0.1)) / (age_factor + 1)
+        
+        return salience
+    
+    def get_forgetting_candidates(
+        self,
+        threshold: float = 0.3,
+        limit: int = 20,
+        memory_types: Optional[List[str]] = None,
+    ) -> List[dict]:
+        """Find low-salience memories eligible for forgetting.
+        
+        Returns memories that are:
+        - Not protected (is_protected = False)
+        - Not already forgotten (is_forgotten = False)
+        - Have salience below the threshold
+        
+        Args:
+            threshold: Salience threshold (memories below this are candidates)
+            limit: Maximum candidates to return
+            memory_types: Filter by memory type (default: episode, belief, goal, note, relationship)
+            
+        Returns:
+            List of dicts with memory info and salience score, sorted by salience (lowest first)
+        """
+        results = self._storage.get_forgetting_candidates(
+            memory_types=memory_types,
+            limit=limit * 2,  # Get more to filter by threshold
+        )
+        
+        candidates = []
+        for r in results:
+            if r.score < threshold:
+                record = r.record
+                candidates.append({
+                    "type": r.record_type,
+                    "id": record.id,
+                    "salience": round(r.score, 4),
+                    "summary": self._get_memory_summary(r.record_type, record),
+                    "confidence": getattr(record, 'confidence', 0.8),
+                    "times_accessed": getattr(record, 'times_accessed', 0),
+                    "last_accessed": (
+                        getattr(record, 'last_accessed').isoformat()
+                        if getattr(record, 'last_accessed', None) else None
+                    ),
+                    "created_at": (
+                        getattr(record, 'created_at').strftime("%Y-%m-%d")
+                        if getattr(record, 'created_at', None) else "unknown"
+                    ),
+                })
+        
+        return candidates[:limit]
+    
+    def forget(
+        self,
+        memory_type: str,
+        memory_id: str,
+        reason: Optional[str] = None,
+    ) -> bool:
+        """Tombstone a memory (mark forgotten, don't delete).
+        
+        Forgotten memories are not deleted - they can be recovered later.
+        Protected memories cannot be forgotten.
+        
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            reason: Optional reason for forgetting (for audit trail)
+            
+        Returns:
+            True if forgotten, False if not found, already forgotten, or protected
+        """
+        return self._storage.forget_memory(memory_type, memory_id, reason)
+    
+    def recover(self, memory_type: str, memory_id: str) -> bool:
+        """Recover a forgotten memory.
+        
+        Restores a tombstoned memory back to active status.
+        
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            
+        Returns:
+            True if recovered, False if not found or not forgotten
+        """
+        return self._storage.recover_memory(memory_type, memory_id)
+    
+    def protect(self, memory_type: str, memory_id: str, protected: bool = True) -> bool:
+        """Mark memory as protected from forgetting.
+        
+        Protected memories never decay and cannot be forgotten.
+        Use this for core identity memories.
+        
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            protected: True to protect, False to unprotect
+            
+        Returns:
+            True if updated, False if memory not found
+        """
+        return self._storage.protect_memory(memory_type, memory_id, protected)
+    
+    def run_forgetting_cycle(
+        self,
+        threshold: float = 0.3,
+        limit: int = 10,
+        dry_run: bool = True,
+    ) -> dict:
+        """Review and optionally forget low-salience memories.
+        
+        This is the main forgetting maintenance function. It:
+        1. Finds memories below the salience threshold
+        2. Optionally forgets them (if dry_run=False)
+        3. Returns a report of what was/would be forgotten
+        
+        Args:
+            threshold: Salience threshold (memories below this are candidates)
+            limit: Maximum memories to forget in one cycle
+            dry_run: If True, only report what would be forgotten (don't actually forget)
+            
+        Returns:
+            Report dict with:
+            - candidates: List of forgetting candidates
+            - forgotten: Number actually forgotten (0 if dry_run)
+            - protected: Number skipped because protected
+            - dry_run: Whether this was a dry run
+        """
+        candidates = self.get_forgetting_candidates(threshold=threshold, limit=limit)
+        
+        report = {
+            "threshold": threshold,
+            "candidates": candidates,
+            "candidate_count": len(candidates),
+            "forgotten": 0,
+            "protected": 0,
+            "dry_run": dry_run,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        
+        if not dry_run:
+            for candidate in candidates:
+                success = self.forget(
+                    memory_type=candidate["type"],
+                    memory_id=candidate["id"],
+                    reason=f"Low salience ({candidate['salience']:.4f}) in forgetting cycle",
+                )
+                if success:
+                    report["forgotten"] += 1
+                else:
+                    # Likely protected or already forgotten
+                    report["protected"] += 1
+        
+        return report
+    
+    def get_forgotten_memories(
+        self,
+        memory_types: Optional[List[str]] = None,
+        limit: int = 50,
+    ) -> List[dict]:
+        """Get all forgotten (tombstoned) memories.
+        
+        These can be recovered using the recover() method.
+        
+        Args:
+            memory_types: Filter by memory type
+            limit: Maximum results
+            
+        Returns:
+            List of forgotten memory info dicts
+        """
+        results = self._storage.get_forgotten_memories(
+            memory_types=memory_types,
+            limit=limit,
+        )
+        
+        forgotten = []
+        for r in results:
+            record = r.record
+            forgotten.append({
+                "type": r.record_type,
+                "id": record.id,
+                "summary": self._get_memory_summary(r.record_type, record),
+                "forgotten_at": (
+                    getattr(record, 'forgotten_at').isoformat()
+                    if getattr(record, 'forgotten_at', None) else None
+                ),
+                "forgotten_reason": getattr(record, 'forgotten_reason', None),
+                "created_at": (
+                    getattr(record, 'created_at').strftime("%Y-%m-%d")
+                    if getattr(record, 'created_at', None) else "unknown"
+                ),
+            })
+        
+        return forgotten
+    
+    def record_access(self, memory_type: str, memory_id: str) -> bool:
+        """Record that a memory was accessed (for salience tracking).
+        
+        Call this when retrieving a memory to update its access statistics.
+        This helps the salience calculation favor frequently-accessed memories.
+        
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            
+        Returns:
+            True if updated, False if memory not found
+        """
+        return self._storage.record_access(memory_type, memory_id)
+    
+    # =========================================================================
     # CONSOLIDATION
     # =========================================================================
     
@@ -2296,3 +3614,447 @@ class Kernle:
         
         results["success"] = len(results["errors"]) == 0
         return results
+    
+    # =========================================================================
+    # META-COGNITION (Self-Awareness of Knowledge)
+    # =========================================================================
+    
+    def _extract_domains_from_tags(self) -> Dict[str, Dict[str, Any]]:
+        """Extract knowledge domains from tags across all memory types.
+        
+        Returns a dict mapping domain names to their statistics.
+        """
+        from collections import defaultdict
+        
+        domain_stats = defaultdict(lambda: {
+            "belief_count": 0,
+            "belief_confidences": [],
+            "episode_count": 0,
+            "episode_outcomes": [],
+            "note_count": 0,
+            "goal_count": 0,
+            "last_updated": None,
+            "tags": set(),
+        })
+        
+        # Process beliefs
+        beliefs = self._storage.get_beliefs(limit=1000)
+        for belief in beliefs:
+            # Use belief_type as a domain indicator
+            domain = belief.belief_type or "general"
+            domain_stats[domain]["belief_count"] += 1
+            domain_stats[domain]["belief_confidences"].append(belief.confidence)
+            if belief.created_at:
+                if domain_stats[domain]["last_updated"] is None or belief.created_at > domain_stats[domain]["last_updated"]:
+                    domain_stats[domain]["last_updated"] = belief.created_at
+        
+        # Process episodes - extract domains from tags
+        episodes = self._storage.get_episodes(limit=1000)
+        for episode in episodes:
+            tags = episode.tags or []
+            # Skip checkpoint tags
+            tags = [t for t in tags if t not in ("checkpoint", "working_state", "auto-captured", "manual")]
+            
+            if tags:
+                for tag in tags:
+                    domain_stats[tag]["episode_count"] += 1
+                    domain_stats[tag]["episode_outcomes"].append(episode.outcome_type or "partial")
+                    domain_stats[tag]["tags"].add(tag)
+                    if episode.created_at:
+                        if domain_stats[tag]["last_updated"] is None or episode.created_at > domain_stats[tag]["last_updated"]:
+                            domain_stats[tag]["last_updated"] = episode.created_at
+            else:
+                # No tags - count in general
+                domain_stats["general"]["episode_count"] += 1
+                domain_stats["general"]["episode_outcomes"].append(episode.outcome_type or "partial")
+        
+        # Process notes
+        notes = self._storage.get_notes(limit=1000)
+        for note in notes:
+            tags = note.tags or []
+            if tags:
+                for tag in tags:
+                    domain_stats[tag]["note_count"] += 1
+                    domain_stats[tag]["tags"].add(tag)
+                    if note.created_at:
+                        if domain_stats[tag]["last_updated"] is None or note.created_at > domain_stats[tag]["last_updated"]:
+                            domain_stats[tag]["last_updated"] = note.created_at
+            else:
+                domain_stats["general"]["note_count"] += 1
+        
+        # Process goals
+        goals = self._storage.get_goals(status=None, limit=1000)
+        for goal in goals:
+            # Extract domain from goal title (simplified)
+            words = goal.title.lower().split()[:2]  # First two words as domain hint
+            if words:
+                domain = words[0]
+                domain_stats[domain]["goal_count"] += 1
+        
+        return dict(domain_stats)
+    
+    def _calculate_coverage(self, stats: Dict[str, Any]) -> str:
+        """Calculate coverage level based on domain statistics."""
+        total_items = (
+            stats["belief_count"] +
+            stats["episode_count"] +
+            stats["note_count"]
+        )
+        
+        if total_items == 0:
+            return "none"
+        elif total_items < 3:
+            return "low"
+        elif total_items < 10:
+            return "medium"
+        else:
+            return "high"
+    
+    def get_knowledge_map(self) -> Dict[str, Any]:
+        """Map of knowledge domains with coverage assessment.
+        
+        Analyzes beliefs, episodes, and notes to understand what
+        domains I have knowledge about and how confident I am.
+        
+        Returns:
+            {
+                "domains": [
+                    {
+                        "name": "Python programming",
+                        "belief_count": 15,
+                        "avg_confidence": 0.82,
+                        "episode_count": 23,
+                        "note_count": 5,
+                        "goal_count": 2,
+                        "coverage": "high",  # high/medium/low/none
+                        "last_updated": datetime
+                    },
+                    ...
+                ],
+                "blind_spots": ["GraphQL", "Kubernetes"],  # domains with nothing
+                "uncertain_areas": ["Docker networking"]  # low confidence
+            }
+        """
+        domain_stats = self._extract_domains_from_tags()
+        
+        domains = []
+        uncertain_areas = []
+        
+        for name, stats in domain_stats.items():
+            confidences = stats["belief_confidences"]
+            avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+            coverage = self._calculate_coverage(stats)
+            
+            domain_info = {
+                "name": name,
+                "belief_count": stats["belief_count"],
+                "avg_confidence": round(avg_confidence, 2),
+                "episode_count": stats["episode_count"],
+                "note_count": stats["note_count"],
+                "goal_count": stats["goal_count"],
+                "coverage": coverage,
+                "last_updated": stats["last_updated"].isoformat() if stats["last_updated"] else None,
+            }
+            domains.append(domain_info)
+            
+            # Track uncertain areas (has beliefs but low confidence)
+            if stats["belief_count"] > 0 and avg_confidence < 0.5:
+                uncertain_areas.append(name)
+        
+        # Sort domains by coverage (high first) then by item count
+        coverage_order = {"high": 0, "medium": 1, "low": 2, "none": 3}
+        domains.sort(key=lambda d: (
+            coverage_order.get(d["coverage"], 3),
+            -(d["belief_count"] + d["episode_count"] + d["note_count"])
+        ))
+        
+        # Blind spots are harder to detect without a reference list
+        # For now, we identify domains with very little data that were mentioned
+        blind_spots = [
+            d["name"] for d in domains
+            if d["coverage"] == "none" or (d["coverage"] == "low" and d["avg_confidence"] == 0)
+        ]
+        
+        return {
+            "domains": domains,
+            "blind_spots": blind_spots,
+            "uncertain_areas": uncertain_areas,
+            "total_domains": len(domains),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    
+    def detect_knowledge_gaps(self, query: str) -> Dict[str, Any]:
+        """Analyze if I have knowledge relevant to a query.
+        
+        Searches memory to determine what I know about a topic
+        and identifies gaps in my knowledge.
+        
+        Args:
+            query: The query to check knowledge for
+            
+        Returns:
+            {
+                "has_relevant_knowledge": bool,
+                "relevant_beliefs": [...],
+                "relevant_episodes": [...],
+                "relevant_notes": [...],
+                "confidence": float,
+                "gaps": ["specific thing I don't know about"],
+                "recommendation": "I can help" | "I should learn more" | "Ask someone else"
+            }
+        """
+        # Search for relevant memories
+        results = self._storage.search(query, limit=20)
+        
+        relevant_beliefs = []
+        relevant_episodes = []
+        relevant_notes = []
+        confidences = []
+        
+        for result in results:
+            record = result.record
+            record_type = result.record_type
+            
+            if record_type == "belief":
+                relevant_beliefs.append({
+                    "statement": record.statement,
+                    "confidence": record.confidence,
+                    "type": record.belief_type,
+                })
+                confidences.append(record.confidence)
+            elif record_type == "episode":
+                relevant_episodes.append({
+                    "objective": record.objective,
+                    "outcome": record.outcome,
+                    "outcome_type": record.outcome_type,
+                    "lessons": record.lessons,
+                })
+                confidences.append(getattr(record, 'confidence', 0.8))
+            elif record_type == "note":
+                relevant_notes.append({
+                    "content": record.content[:200],
+                    "type": record.note_type,
+                    "tags": record.tags,
+                })
+                confidences.append(getattr(record, 'confidence', 0.8))
+        
+        # Calculate overall confidence
+        has_relevant = len(results) > 0
+        avg_confidence = sum(confidences) / len(confidences) if confidences else 0.0
+        
+        # Identify gaps based on query analysis vs what we found
+        gaps = []
+        query_words = set(query.lower().split())
+        found_topics = set()
+        
+        for b in relevant_beliefs:
+            found_topics.update(b["statement"].lower().split())
+        for e in relevant_episodes:
+            found_topics.update(e["objective"].lower().split())
+        
+        # Words in query not found in results might indicate gaps
+        potential_gaps = query_words - found_topics - {"how", "do", "i", "what", "is", "the", "a", "to", "for", "and", "or"}
+        if potential_gaps and len(results) < 3:
+            gaps = list(potential_gaps)[:3]
+        
+        # Determine recommendation
+        if not has_relevant:
+            recommendation = "Ask someone else"
+        elif avg_confidence < 0.5:
+            recommendation = "I should learn more"
+        elif len(results) < 3:
+            recommendation = "I have limited knowledge - proceed with caution"
+        else:
+            recommendation = "I can help"
+        
+        return {
+            "has_relevant_knowledge": has_relevant,
+            "relevant_beliefs": relevant_beliefs[:5],
+            "relevant_episodes": relevant_episodes[:5],
+            "relevant_notes": relevant_notes[:5],
+            "confidence": round(avg_confidence, 2),
+            "gaps": gaps,
+            "recommendation": recommendation,
+            "search_results_count": len(results),
+        }
+    
+    def get_competence_boundaries(self) -> Dict[str, Any]:
+        """What am I good at vs not good at?
+        
+        Analyzes belief confidence distribution, episode outcomes,
+        and domain coverage to identify areas of strength and weakness.
+        
+        Returns:
+            {
+                "strengths": [
+                    {"domain": "Python", "confidence": 0.9, "success_rate": 0.85},
+                    ...
+                ],
+                "weaknesses": [
+                    {"domain": "Docker", "confidence": 0.3, "success_rate": 0.4},
+                    ...
+                ],
+                "overall_confidence": float,
+                "success_rate": float,
+                "experience_depth": int,  # total episodes
+                "knowledge_breadth": int,  # number of domains
+            }
+        """
+        domain_stats = self._extract_domains_from_tags()
+        
+        strengths = []
+        weaknesses = []
+        all_confidences = []
+        all_outcomes = []
+        
+        for domain_name, stats in domain_stats.items():
+            # Skip meta domains
+            if domain_name in ("general", "manual", "auto-captured"):
+                continue
+            
+            confidences = stats["belief_confidences"]
+            outcomes = stats["episode_outcomes"]
+            
+            avg_confidence = sum(confidences) / len(confidences) if confidences else 0.5
+            success_count = outcomes.count("success")
+            success_rate = success_count / len(outcomes) if outcomes else 0.5
+            
+            all_confidences.extend(confidences)
+            all_outcomes.extend(outcomes)
+            
+            total_items = stats["belief_count"] + stats["episode_count"] + stats["note_count"]
+            
+            # Need at least some data to make a judgment
+            if total_items < 2:
+                continue
+            
+            domain_info = {
+                "domain": domain_name,
+                "confidence": round(avg_confidence, 2),
+                "success_rate": round(success_rate, 2),
+                "episode_count": stats["episode_count"],
+                "belief_count": stats["belief_count"],
+            }
+            
+            # Classify as strength or weakness
+            if avg_confidence >= 0.7 and success_rate >= 0.6:
+                strengths.append(domain_info)
+            elif avg_confidence < 0.5 or success_rate < 0.4:
+                weaknesses.append(domain_info)
+        
+        # Sort by confidence/success
+        strengths.sort(key=lambda x: (x["confidence"], x["success_rate"]), reverse=True)
+        weaknesses.sort(key=lambda x: (x["confidence"], x["success_rate"]))
+        
+        # Calculate overall metrics
+        overall_confidence = sum(all_confidences) / len(all_confidences) if all_confidences else 0.5
+        overall_success = all_outcomes.count("success") / len(all_outcomes) if all_outcomes else 0.5
+        
+        return {
+            "strengths": strengths[:10],
+            "weaknesses": weaknesses[:10],
+            "overall_confidence": round(overall_confidence, 2),
+            "success_rate": round(overall_success, 2),
+            "experience_depth": len(all_outcomes),
+            "knowledge_breadth": len([d for d in domain_stats if d not in ("general", "manual", "auto-captured")]),
+        }
+    
+    def identify_learning_opportunities(self, limit: int = 5) -> List[Dict[str, Any]]:
+        """What should I learn next?
+        
+        Identifies learning opportunities based on:
+        - Low-coverage domains that are referenced often
+        - Uncertain beliefs that affect decisions
+        - Failed episodes that could benefit from more knowledge
+        
+        Args:
+            limit: Maximum opportunities to return
+            
+        Returns:
+            List of learning opportunities with priority and reasoning
+        """
+        opportunities = []
+        
+        domain_stats = self._extract_domains_from_tags()
+        
+        # 1. Low-coverage but frequently referenced domains
+        for domain_name, stats in domain_stats.items():
+            if domain_name in ("general", "manual", "auto-captured"):
+                continue
+            
+            coverage = self._calculate_coverage(stats)
+            reference_count = stats["episode_count"] + stats["note_count"]
+            
+            if coverage in ("low", "none") and reference_count > 0:
+                opportunities.append({
+                    "type": "low_coverage_domain",
+                    "domain": domain_name,
+                    "reason": f"Referenced {reference_count} times but only {stats['belief_count']} beliefs",
+                    "priority": "high" if reference_count > 3 else "medium",
+                    "suggested_action": f"Research and form beliefs about {domain_name}",
+                })
+        
+        # 2. Uncertain beliefs that might affect decisions
+        beliefs = self._storage.get_beliefs(limit=1000)
+        low_confidence_beliefs = [
+            b for b in beliefs
+            if b.confidence < 0.5 and not getattr(b, 'deleted', False)
+        ]
+        
+        for belief in low_confidence_beliefs[:3]:
+            opportunities.append({
+                "type": "uncertain_belief",
+                "domain": belief.belief_type or "general",
+                "reason": f"Belief with only {belief.confidence:.0%} confidence: '{belief.statement[:50]}...'",
+                "priority": "medium",
+                "suggested_action": "Verify or update this belief with evidence",
+            })
+        
+        # 3. Failed episodes indicating knowledge gaps
+        episodes = self._storage.get_episodes(limit=100)
+        failed_episodes = [
+            e for e in episodes
+            if e.outcome_type == "failure" and e.tags and "checkpoint" not in e.tags
+        ]
+        
+        # Group failures by domain
+        failure_domains = {}
+        for ep in failed_episodes:
+            for tag in (ep.tags or []):
+                if tag not in ("manual", "auto-captured"):
+                    failure_domains[tag] = failure_domains.get(tag, 0) + 1
+        
+        for domain, count in sorted(failure_domains.items(), key=lambda x: -x[1])[:3]:
+            opportunities.append({
+                "type": "repeated_failures",
+                "domain": domain,
+                "reason": f"{count} failed episodes in {domain}",
+                "priority": "high" if count > 2 else "medium",
+                "suggested_action": f"Study {domain} to improve success rate",
+            })
+        
+        # 4. Areas with no recent activity (might be getting stale)
+        now = datetime.now(timezone.utc)
+        stale_threshold = timedelta(days=30)
+        
+        for domain_name, stats in domain_stats.items():
+            if domain_name in ("general", "manual", "auto-captured"):
+                continue
+            
+            coverage = self._calculate_coverage(stats)
+            if coverage in ("medium", "high") and stats["last_updated"]:
+                age = now - stats["last_updated"]
+                if age > stale_threshold:
+                    opportunities.append({
+                        "type": "stale_knowledge",
+                        "domain": domain_name,
+                        "reason": f"No updates in {age.days} days - knowledge may be outdated",
+                        "priority": "low",
+                        "suggested_action": f"Review and refresh knowledge about {domain_name}",
+                    })
+        
+        # Sort by priority
+        priority_order = {"high": 0, "medium": 1, "low": 2}
+        opportunities.sort(key=lambda x: priority_order.get(x["priority"], 2))
+        
+        return opportunities[:limit]

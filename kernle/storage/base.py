@@ -65,6 +65,27 @@ class ConfidenceChange:
 
 
 @dataclass
+class RawEntry:
+    """A raw memory entry - unstructured capture for later processing."""
+    id: str
+    agent_id: str
+    content: str
+    timestamp: datetime
+    source: str = "manual"
+    processed: bool = False
+    processed_into: Optional[List[str]] = None
+    tags: Optional[List[str]] = None
+    # Standard meta-memory fields
+    confidence: float = 1.0
+    source_type: str = "direct_experience"
+    # Sync fields
+    local_updated_at: Optional[datetime] = None
+    cloud_synced_at: Optional[datetime] = None
+    version: int = 1
+    deleted: bool = False
+
+
+@dataclass
 class MemoryLineage:
     """Provenance chain for a memory."""
     source_type: SourceType
@@ -101,6 +122,13 @@ class Episode:
     last_verified: Optional[datetime] = None
     verification_count: int = 0
     confidence_history: Optional[List[Dict[str, Any]]] = None
+    # Forgetting fields
+    times_accessed: int = 0  # Number of times this memory was retrieved
+    last_accessed: Optional[datetime] = None  # When last accessed/retrieved
+    is_protected: bool = False  # Never decay (core identity memories)
+    is_forgotten: bool = False  # Tombstoned, not deleted
+    forgotten_at: Optional[datetime] = None  # When it was forgotten
+    forgotten_reason: Optional[str] = None  # Why it was forgotten
 
 
 @dataclass 
@@ -124,6 +152,23 @@ class Belief:
     last_verified: Optional[datetime] = None
     verification_count: int = 0
     confidence_history: Optional[List[Dict[str, Any]]] = None
+    # Belief revision fields
+    supersedes: Optional[str] = None  # ID of belief this replaced
+    superseded_by: Optional[str] = None  # ID of belief that replaced this
+    times_reinforced: int = 0  # How many times confirmed
+    is_active: bool = True  # False if superseded/archived
+    # Forgetting fields
+    times_accessed: int = 0
+    last_accessed: Optional[datetime] = None
+    is_protected: bool = False
+    is_forgotten: bool = False
+    forgotten_at: Optional[datetime] = None
+    forgotten_reason: Optional[str] = None
+    # Belief revision fields
+    supersedes: Optional[str] = None  # ID of belief this replaced
+    superseded_by: Optional[str] = None  # ID of belief that replaced this
+    times_reinforced: int = 0  # How many times confirmed
+    is_active: bool = True  # False if superseded/archived
 
 
 @dataclass
@@ -148,6 +193,13 @@ class Value:
     last_verified: Optional[datetime] = None
     verification_count: int = 0
     confidence_history: Optional[List[Dict[str, Any]]] = None
+    # Forgetting fields
+    times_accessed: int = 0
+    last_accessed: Optional[datetime] = None
+    is_protected: bool = True  # Values are protected by default
+    is_forgotten: bool = False
+    forgotten_at: Optional[datetime] = None
+    forgotten_reason: Optional[str] = None
 
 
 @dataclass
@@ -173,6 +225,13 @@ class Goal:
     last_verified: Optional[datetime] = None
     verification_count: int = 0
     confidence_history: Optional[List[Dict[str, Any]]] = None
+    # Forgetting fields
+    times_accessed: int = 0
+    last_accessed: Optional[datetime] = None
+    is_protected: bool = False
+    is_forgotten: bool = False
+    forgotten_at: Optional[datetime] = None
+    forgotten_reason: Optional[str] = None
 
 
 @dataclass
@@ -199,6 +258,13 @@ class Note:
     last_verified: Optional[datetime] = None
     verification_count: int = 0
     confidence_history: Optional[List[Dict[str, Any]]] = None
+    # Forgetting fields
+    times_accessed: int = 0
+    last_accessed: Optional[datetime] = None
+    is_protected: bool = False
+    is_forgotten: bool = False
+    forgotten_at: Optional[datetime] = None
+    forgotten_reason: Optional[str] = None
 
 
 @dataclass
@@ -224,6 +290,13 @@ class Drive:
     last_verified: Optional[datetime] = None
     verification_count: int = 0
     confidence_history: Optional[List[Dict[str, Any]]] = None
+    # Forgetting fields
+    times_accessed: int = 0
+    last_accessed: Optional[datetime] = None
+    is_protected: bool = True  # Drives are protected by default
+    is_forgotten: bool = False
+    forgotten_at: Optional[datetime] = None
+    forgotten_reason: Optional[str] = None
 
 
 @dataclass
@@ -252,12 +325,51 @@ class Relationship:
     last_verified: Optional[datetime] = None
     verification_count: int = 0
     confidence_history: Optional[List[Dict[str, Any]]] = None
+    # Forgetting fields
+    times_accessed: int = 0
+    last_accessed: Optional[datetime] = None
+    is_protected: bool = False
+    is_forgotten: bool = False
+    forgotten_at: Optional[datetime] = None
+    forgotten_reason: Optional[str] = None
+
+
+@dataclass
+class Playbook:
+    """A playbook/procedural memory record.
+    
+    Playbooks are "how I do things" memory - executable procedures
+    learned from experience. They encode successful workflows as
+    reusable step sequences with applicability conditions and failure modes.
+    """
+    id: str
+    agent_id: str
+    name: str                              # "Deploy to production"
+    description: str                       # What this playbook does
+    trigger_conditions: List[str]          # When to use this
+    steps: List[Dict[str, Any]]            # [{action, details, adaptations}]
+    failure_modes: List[str]               # What can go wrong
+    recovery_steps: Optional[List[str]] = None    # How to recover
+    mastery_level: str = "novice"          # novice/competent/proficient/expert
+    times_used: int = 0
+    success_rate: float = 0.0
+    source_episodes: Optional[List[str]] = None  # Where this was learned
+    tags: Optional[List[str]] = None
+    # Meta-memory fields
+    confidence: float = 0.8
+    last_used: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    # Sync metadata
+    local_updated_at: Optional[datetime] = None
+    cloud_synced_at: Optional[datetime] = None
+    version: int = 1
+    deleted: bool = False
 
 
 @dataclass
 class SearchResult:
     """A search result with relevance score."""
-    record: Any  # Episode, Note, Belief, etc.
+    record: Any  # Episode, Note, Belief, Playbook, etc.
     record_type: str
     score: float
     
@@ -383,6 +495,75 @@ class Storage(Protocol):
     @abstractmethod
     def get_relationship(self, entity_name: str) -> Optional[Relationship]:
         """Get a specific relationship by entity name."""
+        ...
+    
+    # === Playbooks (Procedural Memory) ===
+    
+    @abstractmethod
+    def save_playbook(self, playbook: "Playbook") -> str:
+        """Save a playbook. Returns the playbook ID."""
+        ...
+    
+    @abstractmethod
+    def get_playbook(self, playbook_id: str) -> Optional["Playbook"]:
+        """Get a specific playbook by ID."""
+        ...
+    
+    @abstractmethod
+    def list_playbooks(
+        self,
+        tags: Optional[List[str]] = None,
+        limit: int = 100,
+    ) -> List["Playbook"]:
+        """Get playbooks, optionally filtered by tags."""
+        ...
+    
+    @abstractmethod
+    def search_playbooks(self, query: str, limit: int = 10) -> List["Playbook"]:
+        """Search playbooks by name, description, or triggers."""
+        ...
+    
+    @abstractmethod
+    def update_playbook_usage(self, playbook_id: str, success: bool) -> bool:
+        """Update playbook usage statistics.
+        
+        Args:
+            playbook_id: ID of the playbook
+            success: Whether the usage was successful
+            
+        Returns:
+            True if updated, False if playbook not found
+        """
+        ...
+    
+    # === Raw Entries ===
+    
+    @abstractmethod
+    def save_raw(self, content: str, source: str = "manual", tags: Optional[List[str]] = None) -> str:
+        """Save a raw entry for later processing. Returns the entry ID."""
+        ...
+    
+    @abstractmethod
+    def get_raw(self, raw_id: str) -> Optional[RawEntry]:
+        """Get a specific raw entry by ID."""
+        ...
+    
+    @abstractmethod
+    def list_raw(self, processed: Optional[bool] = None, limit: int = 100) -> List[RawEntry]:
+        """Get raw entries, optionally filtered by processed state."""
+        ...
+    
+    @abstractmethod
+    def mark_raw_processed(self, raw_id: str, processed_into: List[str]) -> bool:
+        """Mark a raw entry as processed into other memories.
+        
+        Args:
+            raw_id: ID of the raw entry
+            processed_into: List of memory refs (format: type:id)
+            
+        Returns:
+            True if updated, False if not found
+        """
         ...
     
     # === Search ===
@@ -529,5 +710,107 @@ class Storage(Protocol):
             
         Returns:
             List of matching memories
+        """
+        ...
+    
+    # === Forgetting ===
+    
+    @abstractmethod
+    def record_access(self, memory_type: str, memory_id: str) -> bool:
+        """Record that a memory was accessed (for salience tracking).
+        
+        Increments times_accessed and updates last_accessed timestamp.
+        
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            
+        Returns:
+            True if updated, False if memory not found
+        """
+        ...
+    
+    @abstractmethod
+    def forget_memory(
+        self,
+        memory_type: str,
+        memory_id: str,
+        reason: Optional[str] = None,
+    ) -> bool:
+        """Tombstone a memory (mark as forgotten, don't delete).
+        
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            reason: Optional reason for forgetting
+            
+        Returns:
+            True if forgotten, False if not found or already forgotten
+        """
+        ...
+    
+    @abstractmethod
+    def recover_memory(self, memory_type: str, memory_id: str) -> bool:
+        """Recover a forgotten memory.
+        
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            
+        Returns:
+            True if recovered, False if not found or not forgotten
+        """
+        ...
+    
+    @abstractmethod
+    def protect_memory(self, memory_type: str, memory_id: str, protected: bool = True) -> bool:
+        """Mark a memory as protected from forgetting.
+        
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            protected: True to protect, False to unprotect
+            
+        Returns:
+            True if updated, False if memory not found
+        """
+        ...
+    
+    @abstractmethod
+    def get_forgetting_candidates(
+        self,
+        memory_types: Optional[List[str]] = None,
+        limit: int = 100,
+    ) -> List[SearchResult]:
+        """Get memories that are candidates for forgetting.
+        
+        Returns memories that are:
+        - Not protected
+        - Not already forgotten
+        - Sorted by salience (lowest first)
+        
+        Args:
+            memory_types: Filter by memory type
+            limit: Maximum results
+            
+        Returns:
+            List of candidate memories with computed salience scores
+        """
+        ...
+    
+    @abstractmethod
+    def get_forgotten_memories(
+        self,
+        memory_types: Optional[List[str]] = None,
+        limit: int = 100,
+    ) -> List[SearchResult]:
+        """Get all forgotten (tombstoned) memories.
+        
+        Args:
+            memory_types: Filter by memory type
+            limit: Maximum results
+            
+        Returns:
+            List of forgotten memories
         """
         ...

@@ -186,6 +186,8 @@ def cmd_status(args, k: Kernle):
     print(f"Beliefs:    {status['beliefs']}")
     print(f"Goals:      {status['goals']} active")
     print(f"Episodes:   {status['episodes']}")
+    if 'raw' in status:
+        print(f"Raw:        {status['raw']}")
     print(f"Checkpoint: {'Yes' if status['checkpoint'] else 'No'}")
 
 
@@ -646,6 +648,192 @@ def cmd_anxiety(args, k: Kernle):
             print(f"\nRun `kernle anxiety --auto` to execute recommended actions.")
 
 
+def cmd_forget(args, k: Kernle):
+    """Handle controlled forgetting subcommands."""
+    if args.forget_action == "candidates":
+        threshold = getattr(args, 'threshold', 0.3)
+        limit = getattr(args, 'limit', 20)
+        
+        candidates = k.get_forgetting_candidates(threshold=threshold, limit=limit)
+        
+        if args.json:
+            print(json.dumps(candidates, indent=2, default=str))
+        else:
+            if not candidates:
+                print(f"No forgetting candidates found below threshold {threshold}")
+                return
+            
+            print(f"Forgetting Candidates (salience < {threshold})")
+            print("=" * 60)
+            print()
+            
+            for i, c in enumerate(candidates, 1):
+                salience_bar = "░" * 5  # Low salience = empty bar
+                if c['salience'] > 0.1:
+                    filled = min(5, int(c['salience'] * 10))
+                    salience_bar = "█" * filled + "░" * (5 - filled)
+                
+                print(f"{i}. [{c['type']:<10}] {c['id'][:8]}...")
+                print(f"   Salience: [{salience_bar}] {c['salience']:.4f}")
+                print(f"   Summary: {c['summary'][:50]}...")
+                print(f"   Confidence: {c['confidence']:.0%} | Accessed: {c['times_accessed']} times")
+                print(f"   Created: {c['created_at']}")
+                if c['last_accessed']:
+                    print(f"   Last accessed: {c['last_accessed'][:10]}")
+                print()
+            
+            print(f"Run `kernle forget run --dry-run` to preview forgetting")
+            print(f"Run `kernle forget run` to actually forget these memories")
+    
+    elif args.forget_action == "run":
+        threshold = getattr(args, 'threshold', 0.3)
+        limit = getattr(args, 'limit', 10)
+        dry_run = getattr(args, 'dry_run', False)
+        
+        result = k.run_forgetting_cycle(
+            threshold=threshold,
+            limit=limit,
+            dry_run=dry_run,
+        )
+        
+        if args.json:
+            print(json.dumps(result, indent=2, default=str))
+        else:
+            mode = "DRY RUN" if dry_run else "LIVE"
+            print(f"Forgetting Cycle [{mode}]")
+            print("=" * 60)
+            print()
+            print(f"Threshold: {result['threshold']}")
+            print(f"Candidates: {result['candidate_count']}")
+            
+            if dry_run:
+                print(f"\n⚠️  DRY RUN - No memories were actually forgotten")
+                print(f"Run without --dry-run to forget these memories")
+            else:
+                print(f"Forgotten: {result['forgotten']}")
+                print(f"Protected (skipped): {result['protected']}")
+            
+            print()
+            
+            if result['candidates']:
+                print("Affected memories:")
+                for c in result['candidates'][:10]:
+                    status = "🔴 forgotten" if not dry_run and result['forgotten'] > 0 else "⚪ candidate"
+                    print(f"  {status} [{c['type']:<10}] {c['summary'][:40]}...")
+            
+            if not dry_run and result['forgotten'] > 0:
+                print(f"\n✓ Forgotten {result['forgotten']} memories")
+                print(f"Run `kernle forget list` to see all forgotten memories")
+                print(f"Run `kernle forget recover <type> <id>` to recover if needed")
+    
+    elif args.forget_action == "protect":
+        memory_type = args.type
+        memory_id = args.id
+        unprotect = getattr(args, 'unprotect', False)
+        
+        success = k.protect(memory_type, memory_id, protected=not unprotect)
+        
+        if success:
+            if unprotect:
+                print(f"✓ Removed protection from {memory_type} {memory_id[:8]}...")
+            else:
+                print(f"✓ Protected {memory_type} {memory_id[:8]}... from forgetting")
+        else:
+            print(f"Memory not found: {memory_type} {memory_id}")
+    
+    elif args.forget_action == "recover":
+        memory_type = args.type
+        memory_id = args.id
+        
+        success = k.recover(memory_type, memory_id)
+        
+        if success:
+            print(f"✓ Recovered {memory_type} {memory_id[:8]}...")
+        else:
+            print(f"Memory not found or not forgotten: {memory_type} {memory_id}")
+    
+    elif args.forget_action == "list":
+        limit = getattr(args, 'limit', 50)
+        
+        forgotten = k.get_forgotten_memories(limit=limit)
+        
+        if args.json:
+            print(json.dumps(forgotten, indent=2, default=str))
+        else:
+            if not forgotten:
+                print("No forgotten memories found.")
+                return
+            
+            print(f"Forgotten Memories ({len(forgotten)} total)")
+            print("=" * 60)
+            print()
+            
+            for i, f in enumerate(forgotten, 1):
+                print(f"{i}. [{f['type']:<10}] {f['id'][:8]}...")
+                print(f"   Summary: {f['summary'][:50]}...")
+                print(f"   Forgotten at: {f['forgotten_at'][:10] if f['forgotten_at'] else 'unknown'}")
+                if f['forgotten_reason']:
+                    print(f"   Reason: {f['forgotten_reason'][:50]}...")
+                print(f"   Created: {f['created_at']}")
+                print()
+            
+            print(f"To recover a memory: kernle forget recover <type> <id>")
+    
+    elif args.forget_action == "salience":
+        memory_type = args.type
+        memory_id = args.id
+        
+        salience = k.calculate_salience(memory_type, memory_id)
+        
+        if salience < 0:
+            print(f"Memory not found: {memory_type} {memory_id}")
+            return
+        
+        # Get the memory for more info
+        record = k._storage.get_memory(memory_type, memory_id)
+        
+        print(f"Salience Analysis: {memory_type} {memory_id[:8]}...")
+        print("=" * 50)
+        print()
+        
+        # Visual salience bar
+        filled = min(10, int(salience * 10))
+        salience_bar = "█" * filled + "░" * (10 - filled)
+        print(f"Salience: [{salience_bar}] {salience:.4f}")
+        print()
+        
+        # Component breakdown
+        confidence = getattr(record, 'confidence', 0.8)
+        times_accessed = getattr(record, 'times_accessed', 0) or 0
+        is_protected = getattr(record, 'is_protected', False)
+        
+        print("Components:")
+        print(f"  Confidence: {confidence:.0%}")
+        print(f"  Times accessed: {times_accessed}")
+        print(f"  Protected: {'Yes ✓' if is_protected else 'No'}")
+        
+        last_accessed = getattr(record, 'last_accessed', None)
+        created_at = getattr(record, 'created_at', None)
+        if last_accessed:
+            print(f"  Last accessed: {last_accessed.isoformat()[:10]}")
+        elif created_at:
+            print(f"  Created: {created_at.isoformat()[:10]} (never accessed)")
+        
+        print()
+        
+        # Interpretation
+        if is_protected:
+            print("Status: 🛡️  PROTECTED - Will never be forgotten")
+        elif salience < 0.1:
+            print("Status: 🔴 CRITICAL - Very low salience, prime forgetting candidate")
+        elif salience < 0.3:
+            print("Status: 🟠 LOW - Below default threshold, forgetting candidate")
+        elif salience < 0.5:
+            print("Status: 🟡 MODERATE - May decay over time")
+        else:
+            print("Status: 🟢 HIGH - Well-reinforced memory")
+
+
 def cmd_meta(args, k: Kernle):
     """Handle meta-memory subcommands."""
     if args.meta_action == "confidence":
@@ -753,6 +941,392 @@ def cmd_meta(args, k: Kernle):
                 print(f"  Derived from: {', '.join(args.derived)}")
         else:
             print(f"✗ Could not set source for {memory_type}:{memory_id[:8]}...")
+    
+    # Meta-cognition commands
+    elif args.meta_action == "knowledge":
+        knowledge_map = k.get_knowledge_map()
+        
+        if args.json:
+            print(json.dumps(knowledge_map, indent=2, default=str))
+        else:
+            print("Knowledge Map")
+            print("=" * 60)
+            print()
+            
+            domains = knowledge_map.get("domains", [])
+            if not domains:
+                print("No knowledge domains found yet.")
+                print("Add beliefs, episodes, and notes to build your knowledge base.")
+                return
+            
+            # Coverage icons
+            coverage_icons = {"high": "🟢", "medium": "🟡", "low": "🟠", "none": "⚫"}
+            
+            print("## Domains")
+            print()
+            for domain in domains[:15]:
+                icon = coverage_icons.get(domain["coverage"], "⚫")
+                conf_bar = "█" * int(domain["avg_confidence"] * 5) + "░" * (5 - int(domain["avg_confidence"] * 5))
+                print(f"{icon} {domain['name']:<20} [{conf_bar}] {domain['avg_confidence']:.0%}")
+                print(f"   Beliefs: {domain['belief_count']:>3}  Episodes: {domain['episode_count']:>3}  Notes: {domain['note_count']:>3}")
+                if domain.get("last_updated"):
+                    print(f"   Last updated: {domain['last_updated'][:10]}")
+                print()
+            
+            # Blind spots
+            blind_spots = knowledge_map.get("blind_spots", [])
+            if blind_spots:
+                print("## Blind Spots (little/no knowledge)")
+                for spot in blind_spots[:5]:
+                    print(f"  ⚫ {spot}")
+                print()
+            
+            # Uncertain areas
+            uncertain = knowledge_map.get("uncertain_areas", [])
+            if uncertain:
+                print("## Uncertain Areas (low confidence)")
+                for area in uncertain[:5]:
+                    print(f"  🟠 {area}")
+                print()
+            
+            print(f"Total domains: {knowledge_map.get('total_domains', 0)}")
+    
+    elif args.meta_action == "gaps":
+        query = validate_input(args.query, "query", 500)
+        result = k.detect_knowledge_gaps(query)
+        
+        if args.json:
+            print(json.dumps(result, indent=2, default=str))
+        else:
+            print(f"Knowledge Gap Analysis: \"{query}\"")
+            print("=" * 60)
+            print()
+            
+            # Recommendation with icon
+            rec = result["recommendation"]
+            if rec == "I can help":
+                rec_icon = "🟢"
+            elif rec == "I have limited knowledge - proceed with caution":
+                rec_icon = "🟡"
+            elif rec == "I should learn more":
+                rec_icon = "🟠"
+            else:  # Ask someone else
+                rec_icon = "🔴"
+            
+            print(f"Recommendation: {rec_icon} {rec}")
+            print(f"Confidence: {result['confidence']:.0%}")
+            print(f"Relevant results: {result['search_results_count']}")
+            print()
+            
+            # Relevant beliefs
+            if result.get("relevant_beliefs"):
+                print("## Relevant Beliefs")
+                for belief in result["relevant_beliefs"]:
+                    conf = belief.get("confidence", 0)
+                    bar = "█" * int(conf * 5) + "░" * (5 - int(conf * 5))
+                    print(f"  [{bar}] {belief['statement'][:60]}...")
+                print()
+            
+            # Relevant episodes
+            if result.get("relevant_episodes"):
+                print("## Relevant Episodes")
+                for ep in result["relevant_episodes"]:
+                    outcome = "✓" if ep.get("outcome_type") == "success" else "○"
+                    print(f"  {outcome} {ep['objective'][:55]}...")
+                    if ep.get("lessons"):
+                        print(f"      → {ep['lessons'][0][:50]}..." if ep["lessons"] else "")
+                print()
+            
+            # Knowledge gaps
+            if result.get("gaps"):
+                print("## Potential Gaps")
+                for gap in result["gaps"]:
+                    print(f"  ❓ {gap}")
+                print()
+    
+    elif args.meta_action == "boundaries":
+        boundaries = k.get_competence_boundaries()
+        
+        if args.json:
+            print(json.dumps(boundaries, indent=2, default=str))
+        else:
+            print("Competence Boundaries")
+            print("=" * 60)
+            print()
+            
+            # Overall stats
+            conf = boundaries["overall_confidence"]
+            success = boundaries["success_rate"]
+            conf_bar = "█" * int(conf * 10) + "░" * (10 - int(conf * 10))
+            success_bar = "█" * int(success * 10) + "░" * (10 - int(success * 10))
+            
+            print(f"Overall Confidence:  [{conf_bar}] {conf:.0%}")
+            print(f"Overall Success:     [{success_bar}] {success:.0%}")
+            print(f"Experience Depth:    {boundaries['experience_depth']} episodes")
+            print(f"Knowledge Breadth:   {boundaries['knowledge_breadth']} domains")
+            print()
+            
+            # Strengths
+            strengths = boundaries.get("strengths", [])
+            if strengths:
+                print("## Strengths 💪")
+                for s in strengths[:5]:
+                    conf_bar = "█" * int(s["confidence"] * 5) + "░" * (5 - int(s["confidence"] * 5))
+                    print(f"  🟢 {s['domain']:<20} [{conf_bar}] {s['confidence']:.0%} conf, {s['success_rate']:.0%} success")
+                print()
+            
+            # Weaknesses
+            weaknesses = boundaries.get("weaknesses", [])
+            if weaknesses:
+                print("## Weaknesses 📚 (learning opportunities)")
+                for w in weaknesses[:5]:
+                    conf_bar = "█" * int(w["confidence"] * 5) + "░" * (5 - int(w["confidence"] * 5))
+                    print(f"  🟠 {w['domain']:<20} [{conf_bar}] {w['confidence']:.0%} conf, {w['success_rate']:.0%} success")
+                print()
+            
+            if not strengths and not weaknesses:
+                print("Not enough data to determine strengths and weaknesses yet.")
+                print("Record more episodes and beliefs to build your competence profile.")
+    
+    elif args.meta_action == "learn":
+        opportunities = k.identify_learning_opportunities(limit=args.limit)
+        
+        if args.json:
+            print(json.dumps(opportunities, indent=2, default=str))
+        else:
+            print("Learning Opportunities")
+            print("=" * 60)
+            print()
+            
+            if not opportunities:
+                print("✨ No urgent learning needs identified!")
+                print("Your knowledge base appears well-maintained.")
+                return
+            
+            priority_icons = {"high": "🔴", "medium": "🟡", "low": "🟢"}
+            type_icons = {
+                "low_coverage_domain": "📚",
+                "uncertain_belief": "❓",
+                "repeated_failures": "⚠️",
+                "stale_knowledge": "📅",
+            }
+            
+            for i, opp in enumerate(opportunities, 1):
+                priority_icon = priority_icons.get(opp["priority"], "⚪")
+                type_icon = type_icons.get(opp["type"], "•")
+                
+                print(f"{i}. {priority_icon} [{opp['priority'].upper():>6}] {type_icon} {opp['domain']}")
+                print(f"   Reason: {opp['reason']}")
+                print(f"   Action: {opp['suggested_action']}")
+                print()
+
+
+def cmd_playbook(args, k: Kernle):
+    """Handle playbook (procedural memory) commands."""
+    if args.playbook_action == "create":
+        name = validate_input(args.name, "name", 200)
+        description = validate_input(args.description or f"Playbook for {name}", "description", 2000)
+        
+        # Parse steps - support both comma-separated and multiple --step flags
+        steps = []
+        if args.steps:
+            if "," in args.steps:
+                steps = [s.strip() for s in args.steps.split(",")]
+            else:
+                steps = [args.steps]
+        if args.step:
+            steps.extend(args.step)
+        
+        # Parse triggers
+        triggers = []
+        if args.triggers:
+            if "," in args.triggers:
+                triggers = [t.strip() for t in args.triggers.split(",")]
+            else:
+                triggers = [args.triggers]
+        if args.trigger:
+            triggers.extend(args.trigger)
+        
+        # Parse failure modes
+        failure_modes = []
+        if args.failure_mode:
+            failure_modes.extend(args.failure_mode)
+        
+        # Parse recovery steps
+        recovery_steps = []
+        if args.recovery:
+            recovery_steps.extend(args.recovery)
+        
+        # Parse tags
+        tags = []
+        if args.tag:
+            tags.extend(args.tag)
+        
+        playbook_id = k.playbook(
+            name=name,
+            description=description,
+            steps=steps,
+            triggers=triggers if triggers else None,
+            failure_modes=failure_modes if failure_modes else None,
+            recovery_steps=recovery_steps if recovery_steps else None,
+            tags=tags if tags else None,
+        )
+        
+        print(f"✓ Playbook created: {playbook_id[:8]}...")
+        print(f"  Name: {name}")
+        print(f"  Steps: {len(steps)}")
+        if triggers:
+            print(f"  Triggers: {len(triggers)}")
+        if failure_modes:
+            print(f"  Failure modes: {len(failure_modes)}")
+    
+    elif args.playbook_action == "list":
+        tags = args.tag if args.tag else None
+        playbooks = k.load_playbooks(limit=args.limit, tags=tags)
+        
+        if not playbooks:
+            print("No playbooks found.")
+            return
+        
+        if args.json:
+            print(json.dumps(playbooks, indent=2, default=str))
+        else:
+            print(f"Playbooks ({len(playbooks)} total)")
+            print("=" * 60)
+            
+            mastery_icons = {"novice": "🌱", "competent": "🌿", "proficient": "🌳", "expert": "🏆"}
+            
+            for p in playbooks:
+                icon = mastery_icons.get(p["mastery_level"], "•")
+                success_pct = f"{p['success_rate']:.0%}" if p["times_used"] > 0 else "n/a"
+                print(f"\n{icon} [{p['id'][:8]}] {p['name']}")
+                print(f"   {p['description'][:60]}{'...' if len(p['description']) > 60 else ''}")
+                print(f"   Mastery: {p['mastery_level']} | Used: {p['times_used']}x | Success: {success_pct}")
+                if p.get("tags"):
+                    print(f"   Tags: {', '.join(p['tags'])}")
+    
+    elif args.playbook_action == "search":
+        query = validate_input(args.query, "query", 500)
+        playbooks = k.search_playbooks(query, limit=args.limit)
+        
+        if not playbooks:
+            print(f"No playbooks found for '{query}'")
+            return
+        
+        if args.json:
+            print(json.dumps(playbooks, indent=2, default=str))
+        else:
+            print(f"Found {len(playbooks)} playbook(s) for '{query}':\n")
+            
+            mastery_icons = {"novice": "🌱", "competent": "🌿", "proficient": "🌳", "expert": "🏆"}
+            
+            for i, p in enumerate(playbooks, 1):
+                icon = mastery_icons.get(p["mastery_level"], "•")
+                success_pct = f"{p['success_rate']:.0%}" if p["times_used"] > 0 else "n/a"
+                print(f"{i}. {icon} {p['name']}")
+                print(f"   {p['description'][:60]}{'...' if len(p['description']) > 60 else ''}")
+                print(f"   Mastery: {p['mastery_level']} | Used: {p['times_used']}x | Success: {success_pct}")
+                print()
+    
+    elif args.playbook_action == "show":
+        playbook = k.get_playbook(args.id)
+        
+        if not playbook:
+            print(f"Playbook {args.id} not found.")
+            return
+        
+        if args.json:
+            print(json.dumps(playbook, indent=2, default=str))
+        else:
+            mastery_icons = {"novice": "🌱", "competent": "🌿", "proficient": "🌳", "expert": "🏆"}
+            icon = mastery_icons.get(playbook["mastery_level"], "•")
+            
+            print(f"{icon} Playbook: {playbook['name']}")
+            print("=" * 60)
+            print(f"ID: {playbook['id']}")
+            print(f"Description: {playbook['description']}")
+            print()
+            
+            print("## Triggers (when to use)")
+            if playbook.get("triggers"):
+                for t in playbook["triggers"]:
+                    print(f"  • {t}")
+            else:
+                print("  (none specified)")
+            print()
+            
+            print("## Steps")
+            for i, step in enumerate(playbook["steps"], 1):
+                if isinstance(step, dict):
+                    print(f"  {i}. {step.get('action', 'Unknown step')}")
+                    if step.get('details'):
+                        print(f"     Details: {step['details']}")
+                    if step.get('adaptations'):
+                        print(f"     Adaptations: {step['adaptations']}")
+                else:
+                    print(f"  {i}. {step}")
+            print()
+            
+            print("## Failure Modes (what can go wrong)")
+            if playbook.get("failure_modes"):
+                for f in playbook["failure_modes"]:
+                    print(f"  ⚠️  {f}")
+            else:
+                print("  (none specified)")
+            
+            if playbook.get("recovery_steps"):
+                print()
+                print("## Recovery Steps")
+                for i, r in enumerate(playbook["recovery_steps"], 1):
+                    print(f"  {i}. {r}")
+            
+            print()
+            print("## Statistics")
+            success_pct = f"{playbook['success_rate']:.0%}" if playbook["times_used"] > 0 else "n/a"
+            print(f"  Mastery Level: {playbook['mastery_level']}")
+            print(f"  Times Used: {playbook['times_used']}")
+            print(f"  Success Rate: {success_pct}")
+            print(f"  Confidence: {playbook['confidence']:.0%}")
+            
+            if playbook.get("tags"):
+                print(f"  Tags: {', '.join(playbook['tags'])}")
+            if playbook.get("last_used"):
+                print(f"  Last Used: {playbook['last_used'][:10]}")
+            if playbook.get("created_at"):
+                print(f"  Created: {playbook['created_at'][:10]}")
+    
+    elif args.playbook_action == "find":
+        situation = validate_input(args.situation, "situation", 1000)
+        playbook = k.find_playbook(situation)
+        
+        if not playbook:
+            print(f"No relevant playbook found for: {situation}")
+            return
+        
+        if args.json:
+            print(json.dumps(playbook, indent=2, default=str))
+        else:
+            print(f"Recommended Playbook: {playbook['name']}")
+            print(f"  {playbook['description'][:80]}")
+            print()
+            print("Steps:")
+            for i, step in enumerate(playbook["steps"], 1):
+                if isinstance(step, dict):
+                    print(f"  {i}. {step.get('action', 'Unknown step')}")
+                else:
+                    print(f"  {i}. {step}")
+            print()
+            print(f"(Mastery: {playbook['mastery_level']} | Success: {playbook['success_rate']:.0%})")
+            print(f"\nTo record usage: kernle playbook record {playbook['id'][:8]}... --success")
+    
+    elif args.playbook_action == "record":
+        success = not args.failure
+        
+        if k.record_playbook_use(args.id, success):
+            result = "success ✓" if success else "failure ✗"
+            print(f"✓ Recorded playbook usage: {result}")
+        else:
+            print(f"Playbook {args.id} not found.")
 
 
 def cmd_mcp(args):
@@ -764,6 +1338,278 @@ def cmd_mcp(args):
         logger.error(f"MCP dependencies not installed. Run: pip install kernle[mcp]")
         logger.error(f"Error: {e}")
         sys.exit(1)
+
+
+def cmd_raw(args, k: Kernle):
+    """Handle raw entry subcommands."""
+    if args.raw_action == "capture" or args.raw_action is None:
+        # Default action: capture a raw entry
+        content = validate_input(args.content, "content", 5000)
+        tags = [validate_input(t, "tag", 100) for t in (args.tags.split(",") if args.tags else [])]
+        tags = [t.strip() for t in tags if t.strip()]
+        
+        raw_id = k.raw(content, tags=tags if tags else None, source="cli")
+        print(f"✓ Raw entry captured: {raw_id[:8]}...")
+        if tags:
+            print(f"  Tags: {', '.join(tags)}")
+    
+    elif args.raw_action == "list":
+        # Filter by processed state
+        processed = None
+        if args.unprocessed:
+            processed = False
+        elif args.processed:
+            processed = True
+        
+        entries = k.list_raw(processed=processed, limit=args.limit)
+        
+        if not entries:
+            print("No raw entries found.")
+            return
+        
+        if args.json:
+            print(json.dumps(entries, indent=2, default=str))
+        else:
+            unprocessed_count = sum(1 for e in entries if not e["processed"])
+            print(f"Raw Entries ({len(entries)} total, {unprocessed_count} unprocessed)")
+            print("=" * 50)
+            for e in entries:
+                status = "✓" if e["processed"] else "○"
+                timestamp = e["timestamp"][:16] if e["timestamp"] else "unknown"
+                content_preview = e["content"][:60].replace("\n", " ")
+                if len(e["content"]) > 60:
+                    content_preview += "..."
+                print(f"\n{status} [{e['id'][:8]}] {timestamp}")
+                print(f"  {content_preview}")
+                if e["tags"]:
+                    print(f"  Tags: {', '.join(e['tags'])}")
+                if e["processed"] and e["processed_into"]:
+                    print(f"  → {', '.join(e['processed_into'])}")
+    
+    elif args.raw_action == "show":
+        entry = k.get_raw(args.id)
+        if not entry:
+            print(f"Raw entry {args.id} not found.")
+            return
+        
+        if args.json:
+            print(json.dumps(entry, indent=2, default=str))
+        else:
+            status = "✓ Processed" if entry["processed"] else "○ Unprocessed"
+            print(f"Raw Entry: {entry['id']}")
+            print(f"Status: {status}")
+            print(f"Timestamp: {entry['timestamp']}")
+            print(f"Source: {entry['source']}")
+            if entry["tags"]:
+                print(f"Tags: {', '.join(entry['tags'])}")
+            print()
+            print("Content:")
+            print("-" * 40)
+            print(entry["content"])
+            print("-" * 40)
+            if entry["processed_into"]:
+                print(f"\nProcessed into: {', '.join(entry['processed_into'])}")
+    
+    elif args.raw_action == "process":
+        try:
+            memory_id = k.process_raw(
+                raw_id=args.id,
+                as_type=args.type,
+                objective=args.objective,
+                outcome=args.outcome,
+            )
+            print(f"✓ Processed raw entry {args.id[:8]}... into {args.type}:{memory_id[:8]}...")
+        except ValueError as e:
+            print(f"✗ {e}")
+
+
+def cmd_belief(args, k: Kernle):
+    """Handle belief revision subcommands."""
+    if args.belief_action == "revise":
+        episode_id = validate_input(args.episode_id, "episode_id", 100)
+        result = k.revise_beliefs_from_episode(episode_id)
+        
+        if args.json:
+            print(json.dumps(result, indent=2, default=str))
+        else:
+            if result.get("error"):
+                print(f"✗ {result['error']}")
+                return
+            
+            print(f"Belief Revision from Episode {episode_id[:8]}...")
+            print("=" * 50)
+            
+            # Reinforced beliefs
+            reinforced = result.get("reinforced", [])
+            if reinforced:
+                print(f"\n✓ Reinforced ({len(reinforced)} beliefs):")
+                for r in reinforced:
+                    print(f"  • {r['statement'][:60]}...")
+                    print(f"    ID: {r['belief_id'][:8]}...")
+            
+            # Contradicted beliefs
+            contradicted = result.get("contradicted", [])
+            if contradicted:
+                print(f"\n⚠️  Potential Contradictions ({len(contradicted)}):")
+                for c in contradicted:
+                    print(f"  • {c['statement'][:60]}...")
+                    print(f"    ID: {c['belief_id'][:8]}...")
+                    print(f"    Evidence: {c['evidence'][:50]}...")
+            
+            # Suggested new beliefs
+            suggested = result.get("suggested_new", [])
+            if suggested:
+                print(f"\n💡 Suggested New Beliefs ({len(suggested)}):")
+                for s in suggested:
+                    print(f"  • {s['statement'][:60]}...")
+                    print(f"    Suggested confidence: {s['suggested_confidence']:.0%}")
+            
+            if not reinforced and not contradicted and not suggested:
+                print("\nNo belief revisions found for this episode.")
+    
+    elif args.belief_action == "contradictions":
+        statement = validate_input(args.statement, "statement", 2000)
+        results = k.find_contradictions(statement, limit=args.limit)
+        
+        if args.json:
+            print(json.dumps(results, indent=2, default=str))
+        else:
+            if not results:
+                print(f"No contradictions found for: \"{statement[:50]}...\"")
+                return
+            
+            print(f"Potential Contradictions for: \"{statement[:50]}...\"")
+            print("=" * 60)
+            
+            for i, r in enumerate(results, 1):
+                conf_bar = "█" * int(r["contradiction_confidence"] * 10) + "░" * (10 - int(r["contradiction_confidence"] * 10))
+                status = "active" if r["is_active"] else "superseded"
+                
+                print(f"\n{i}. [{conf_bar}] {r['contradiction_confidence']:.0%} confidence")
+                print(f"   Type: {r['contradiction_type']}")
+                print(f"   Statement: {r['statement'][:60]}...")
+                print(f"   Belief ID: {r['belief_id'][:8]}... ({status}, reinforced {r['times_reinforced']}x)")
+                print(f"   Reason: {r['explanation']}")
+    
+    elif args.belief_action == "history":
+        belief_id = validate_input(args.id, "belief_id", 100)
+        history = k.get_belief_history(belief_id)
+        
+        if args.json:
+            print(json.dumps(history, indent=2, default=str))
+        else:
+            if not history:
+                print(f"No history found for belief {belief_id[:8]}...")
+                return
+            
+            print(f"Belief Revision History")
+            print("=" * 60)
+            
+            for i, entry in enumerate(history):
+                is_current = ">>> " if entry["is_current"] else "    "
+                status = "🟢 active" if entry["is_active"] else "⚫ superseded"
+                conf_bar = "█" * int(entry["confidence"] * 5) + "░" * (5 - int(entry["confidence"] * 5))
+                
+                print(f"\n{is_current}[{i+1}] {entry['id'][:8]}... ({status})")
+                print(f"     Statement: {entry['statement'][:55]}...")
+                print(f"     Confidence: [{conf_bar}] {entry['confidence']:.0%} | Reinforced: {entry['times_reinforced']}x")
+                print(f"     Created: {entry['created_at'][:10] if entry['created_at'] else 'unknown'}")
+                
+                if entry.get("supersession_reason"):
+                    print(f"     Reason: {entry['supersession_reason'][:50]}...")
+                
+                if entry["superseded_by"]:
+                    print(f"     → Superseded by: {entry['superseded_by'][:8]}...")
+    
+    elif args.belief_action == "reinforce":
+        belief_id = validate_input(args.id, "belief_id", 100)
+        
+        if k.reinforce_belief(belief_id):
+            print(f"✓ Belief {belief_id[:8]}... reinforced")
+        else:
+            print(f"✗ Belief {belief_id[:8]}... not found")
+    
+    elif args.belief_action == "supersede":
+        old_id = validate_input(args.old_id, "old_id", 100)
+        new_statement = validate_input(args.new_statement, "new_statement", 2000)
+        
+        try:
+            new_id = k.supersede_belief(
+                old_id=old_id,
+                new_statement=new_statement,
+                confidence=args.confidence,
+                reason=args.reason,
+            )
+            print(f"✓ Belief superseded")
+            print(f"  Old: {old_id[:8]}... (now inactive)")
+            print(f"  New: {new_id[:8]}... (active)")
+            print(f"  Statement: {new_statement[:60]}...")
+            print(f"  Confidence: {args.confidence:.0%}")
+        except ValueError as e:
+            print(f"✗ {e}")
+    
+    elif args.belief_action == "list":
+        # Get beliefs from storage directly for more detail
+        beliefs = k._storage.get_beliefs(limit=args.limit, include_inactive=args.all)
+        
+        if args.json:
+            data = [
+                {
+                    "id": b.id,
+                    "statement": b.statement,
+                    "confidence": b.confidence,
+                    "times_reinforced": b.times_reinforced,
+                    "is_active": b.is_active,
+                    "supersedes": b.supersedes,
+                    "superseded_by": b.superseded_by,
+                    "created_at": b.created_at.isoformat() if b.created_at else None,
+                }
+                for b in beliefs
+            ]
+            print(json.dumps(data, indent=2, default=str))
+        else:
+            active_count = sum(1 for b in beliefs if b.is_active)
+            print(f"Beliefs ({len(beliefs)} total, {active_count} active)")
+            print("=" * 60)
+            
+            for b in beliefs:
+                status = "🟢" if b.is_active else "⚫"
+                conf_bar = "█" * int(b.confidence * 5) + "░" * (5 - int(b.confidence * 5))
+                reinf = f"(+{b.times_reinforced})" if b.times_reinforced > 0 else ""
+                
+                print(f"\n{status} [{conf_bar}] {b.confidence:.0%} {reinf}")
+                print(f"   {b.statement[:60]}{'...' if len(b.statement) > 60 else ''}")
+                print(f"   ID: {b.id[:8]}...")
+                
+                if b.supersedes:
+                    print(f"   Supersedes: {b.supersedes[:8]}...")
+                if b.superseded_by:
+                    print(f"   Superseded by: {b.superseded_by[:8]}...")
+
+
+def cmd_dump(args, k: Kernle):
+    """Dump all memory to stdout."""
+    include_raw = args.include_raw
+    format_type = args.format
+    
+    content = k.dump(include_raw=include_raw, format=format_type)
+    print(content)
+
+
+def cmd_export(args, k: Kernle):
+    """Export memory to a file."""
+    include_raw = args.include_raw
+    format_type = args.format
+    
+    # Auto-detect format from extension if not specified
+    if not format_type:
+        if args.path.endswith(".json"):
+            format_type = "json"
+        else:
+            format_type = "markdown"
+    
+    k.export(args.path, include_raw=include_raw, format=format_type)
+    print(f"✓ Exported memory to {args.path}")
 
 
 def main():
@@ -940,8 +1786,148 @@ def main():
     meta_source.add_argument("--episodes", action="append", help="Supporting episode IDs")
     meta_source.add_argument("--derived", action="append", help="Derived from (type:id format)")
     
+    # Meta-cognition subcommands (awareness of what I know/don't know)
+    meta_knowledge = meta_sub.add_parser("knowledge", help="Show knowledge map across domains")
+    meta_knowledge.add_argument("--json", "-j", action="store_true")
+    
+    meta_gaps = meta_sub.add_parser("gaps", help="Detect knowledge gaps for a query")
+    meta_gaps.add_argument("query", help="Query to check knowledge for")
+    meta_gaps.add_argument("--json", "-j", action="store_true")
+    
+    meta_boundaries = meta_sub.add_parser("boundaries", help="Show competence boundaries (strengths/weaknesses)")
+    meta_boundaries.add_argument("--json", "-j", action="store_true")
+    
+    meta_learn = meta_sub.add_parser("learn", help="Identify learning opportunities")
+    meta_learn.add_argument("--limit", "-l", type=int, default=5, help="Max opportunities to show")
+    meta_learn.add_argument("--json", "-j", action="store_true")
+    
+    # belief (belief revision operations)
+    p_belief = subparsers.add_parser("belief", help="Belief revision operations")
+    belief_sub = p_belief.add_subparsers(dest="belief_action", required=True)
+    
+    belief_revise = belief_sub.add_parser("revise", help="Update beliefs from an episode")
+    belief_revise.add_argument("episode_id", help="Episode ID to analyze")
+    belief_revise.add_argument("--json", "-j", action="store_true")
+    
+    belief_contradictions = belief_sub.add_parser("contradictions", help="Find contradicting beliefs")
+    belief_contradictions.add_argument("statement", help="Statement to check for contradictions")
+    belief_contradictions.add_argument("--limit", "-l", type=int, default=10)
+    belief_contradictions.add_argument("--json", "-j", action="store_true")
+    
+    belief_history = belief_sub.add_parser("history", help="Show supersession chain")
+    belief_history.add_argument("id", help="Belief ID")
+    belief_history.add_argument("--json", "-j", action="store_true")
+    
+    belief_reinforce = belief_sub.add_parser("reinforce", help="Manually reinforce a belief")
+    belief_reinforce.add_argument("id", help="Belief ID")
+    
+    belief_supersede = belief_sub.add_parser("supersede", help="Replace a belief with a new one")
+    belief_supersede.add_argument("old_id", help="ID of belief to supersede")
+    belief_supersede.add_argument("new_statement", help="New belief statement")
+    belief_supersede.add_argument("--confidence", "-c", type=float, default=0.8,
+                                  help="Confidence in new belief (default: 0.8)")
+    belief_supersede.add_argument("--reason", "-r", help="Reason for supersession")
+    
+    belief_list = belief_sub.add_parser("list", help="List beliefs")
+    belief_list.add_argument("--all", "-a", action="store_true", help="Include inactive beliefs")
+    belief_list.add_argument("--limit", "-l", type=int, default=20)
+    belief_list.add_argument("--json", "-j", action="store_true")
+    
     # mcp
     subparsers.add_parser("mcp", help="Start MCP server (stdio transport)")
+    
+    # raw (raw memory entries)
+    p_raw = subparsers.add_parser("raw", help="Raw memory capture and management")
+    raw_sub = p_raw.add_subparsers(dest="raw_action")
+    
+    # kernle raw "content" - quick capture (default action)
+    p_raw.add_argument("content", nargs="?", help="Content to capture")
+    p_raw.add_argument("--tags", "-t", help="Comma-separated tags")
+    
+    # kernle raw list
+    raw_list = raw_sub.add_parser("list", help="List raw entries")
+    raw_list.add_argument("--unprocessed", "-u", action="store_true", help="Show only unprocessed")
+    raw_list.add_argument("--processed", "-p", action="store_true", help="Show only processed")
+    raw_list.add_argument("--limit", "-l", type=int, default=50)
+    raw_list.add_argument("--json", "-j", action="store_true")
+    
+    # kernle raw show <id>
+    raw_show = raw_sub.add_parser("show", help="Show a raw entry")
+    raw_show.add_argument("id", help="Raw entry ID")
+    raw_show.add_argument("--json", "-j", action="store_true")
+    
+    # kernle raw process <id> --type <type>
+    raw_process = raw_sub.add_parser("process", help="Process raw entry into memory")
+    raw_process.add_argument("id", help="Raw entry ID")
+    raw_process.add_argument("--type", "-t", required=True, choices=["episode", "note", "belief"],
+                            help="Target memory type")
+    raw_process.add_argument("--objective", help="Episode objective (for episodes)")
+    raw_process.add_argument("--outcome", help="Episode outcome (for episodes)")
+    
+    # dump
+    p_dump = subparsers.add_parser("dump", help="Dump all memory to stdout")
+    p_dump.add_argument("--format", "-f", choices=["markdown", "json"], default="markdown",
+                       help="Output format (default: markdown)")
+    p_dump.add_argument("--include-raw", "-r", action="store_true", default=True,
+                       help="Include raw entries (default: true)")
+    p_dump.add_argument("--no-raw", dest="include_raw", action="store_false",
+                       help="Exclude raw entries")
+    
+    # export
+    p_export = subparsers.add_parser("export", help="Export memory to file")
+    p_export.add_argument("path", help="Output file path")
+    p_export.add_argument("--format", "-f", choices=["markdown", "json"],
+                         help="Output format (auto-detected from extension if not specified)")
+    p_export.add_argument("--include-raw", "-r", action="store_true", default=True,
+                         help="Include raw entries (default: true)")
+    p_export.add_argument("--no-raw", dest="include_raw", action="store_false",
+                         help="Exclude raw entries")
+    
+    # playbook (procedural memory)
+    p_playbook = subparsers.add_parser("playbook", help="Playbook (procedural memory) operations")
+    playbook_sub = p_playbook.add_subparsers(dest="playbook_action", required=True)
+    
+    # kernle playbook create "name" --steps "1,2,3" --triggers "when x"
+    playbook_create = playbook_sub.add_parser("create", help="Create a new playbook")
+    playbook_create.add_argument("name", help="Playbook name")
+    playbook_create.add_argument("--description", "-d", help="What this playbook does")
+    playbook_create.add_argument("--steps", "-s", help="Comma-separated steps")
+    playbook_create.add_argument("--step", action="append", help="Add a step (repeatable)")
+    playbook_create.add_argument("--triggers", help="Comma-separated trigger conditions")
+    playbook_create.add_argument("--trigger", action="append", help="Add a trigger (repeatable)")
+    playbook_create.add_argument("--failure-mode", "-f", action="append", help="What can go wrong")
+    playbook_create.add_argument("--recovery", "-r", action="append", help="Recovery step")
+    playbook_create.add_argument("--tag", "-t", action="append", help="Tag")
+    
+    # kernle playbook list [--tag TAG]
+    playbook_list = playbook_sub.add_parser("list", help="List playbooks")
+    playbook_list.add_argument("--tag", "-t", action="append", help="Filter by tag")
+    playbook_list.add_argument("--limit", "-l", type=int, default=20)
+    playbook_list.add_argument("--json", "-j", action="store_true")
+    
+    # kernle playbook search "query"
+    playbook_search = playbook_sub.add_parser("search", help="Search playbooks")
+    playbook_search.add_argument("query", help="Search query")
+    playbook_search.add_argument("--limit", "-l", type=int, default=10)
+    playbook_search.add_argument("--json", "-j", action="store_true")
+    
+    # kernle playbook show <id>
+    playbook_show = playbook_sub.add_parser("show", help="Show playbook details")
+    playbook_show.add_argument("id", help="Playbook ID")
+    playbook_show.add_argument("--json", "-j", action="store_true")
+    
+    # kernle playbook find "situation"
+    playbook_find = playbook_sub.add_parser("find", help="Find relevant playbook for situation")
+    playbook_find.add_argument("situation", help="Describe the current situation")
+    playbook_find.add_argument("--json", "-j", action="store_true")
+    
+    # kernle playbook record <id> [--success|--failure]
+    playbook_record = playbook_sub.add_parser("record", help="Record playbook usage")
+    playbook_record.add_argument("id", help="Playbook ID")
+    playbook_record.add_argument("--success", action="store_true", default=True,
+                                 help="Record successful usage (default)")
+    playbook_record.add_argument("--failure", action="store_true",
+                                 help="Record failed usage")
     
     # anxiety
     p_anxiety = subparsers.add_parser("anxiety", help="Memory anxiety tracking")
@@ -961,6 +1947,57 @@ def main():
                           help="Summary for emergency save checkpoint")
     p_anxiety.add_argument("--json", "-j", action="store_true",
                           help="Output as JSON")
+    
+    # forget (controlled forgetting)
+    p_forget = subparsers.add_parser("forget", help="Controlled forgetting operations")
+    forget_sub = p_forget.add_subparsers(dest="forget_action", required=True)
+    
+    # kernle forget candidates [--threshold N] [--limit N]
+    forget_candidates = forget_sub.add_parser("candidates", help="Show forgetting candidates")
+    forget_candidates.add_argument("--threshold", "-t", type=float, default=0.3,
+                                   help="Salience threshold (default: 0.3)")
+    forget_candidates.add_argument("--limit", "-l", type=int, default=20,
+                                   help="Maximum candidates to show")
+    forget_candidates.add_argument("--json", "-j", action="store_true",
+                                   help="Output as JSON")
+    
+    # kernle forget run [--dry-run] [--threshold N] [--limit N]
+    forget_run = forget_sub.add_parser("run", help="Run forgetting cycle")
+    forget_run.add_argument("--dry-run", "-n", action="store_true",
+                           help="Preview what would be forgotten (don't actually forget)")
+    forget_run.add_argument("--threshold", "-t", type=float, default=0.3,
+                           help="Salience threshold (default: 0.3)")
+    forget_run.add_argument("--limit", "-l", type=int, default=10,
+                           help="Maximum memories to forget")
+    forget_run.add_argument("--json", "-j", action="store_true",
+                           help="Output as JSON")
+    
+    # kernle forget protect <type> <id>
+    forget_protect = forget_sub.add_parser("protect", help="Protect memory from forgetting")
+    forget_protect.add_argument("type", choices=["episode", "belief", "value", "goal", "note", "drive", "relationship"],
+                               help="Memory type")
+    forget_protect.add_argument("id", help="Memory ID")
+    forget_protect.add_argument("--unprotect", "-u", action="store_true",
+                               help="Remove protection instead")
+    
+    # kernle forget recover <type> <id>
+    forget_recover = forget_sub.add_parser("recover", help="Recover a forgotten memory")
+    forget_recover.add_argument("type", choices=["episode", "belief", "value", "goal", "note", "drive", "relationship"],
+                               help="Memory type")
+    forget_recover.add_argument("id", help="Memory ID")
+    
+    # kernle forget list [--limit N]
+    forget_list = forget_sub.add_parser("list", help="List forgotten memories")
+    forget_list.add_argument("--limit", "-l", type=int, default=50,
+                            help="Maximum entries to show")
+    forget_list.add_argument("--json", "-j", action="store_true",
+                            help="Output as JSON")
+    
+    # kernle forget salience <type> <id>
+    forget_salience = forget_sub.add_parser("salience", help="Calculate salience for a memory")
+    forget_salience.add_argument("type", choices=["episode", "belief", "value", "goal", "note", "drive", "relationship"],
+                                help="Memory type")
+    forget_salience.add_argument("id", help="Memory ID")
     
     args = parser.parse_args()
     
@@ -1004,6 +2041,18 @@ def main():
             cmd_meta(args, k)
         elif args.command == "anxiety":
             cmd_anxiety(args, k)
+        elif args.command == "forget":
+            cmd_forget(args, k)
+        elif args.command == "playbook":
+            cmd_playbook(args, k)
+        elif args.command == "raw":
+            cmd_raw(args, k)
+        elif args.command == "belief":
+            cmd_belief(args, k)
+        elif args.command == "dump":
+            cmd_dump(args, k)
+        elif args.command == "export":
+            cmd_export(args, k)
         elif args.command == "mcp":
             cmd_mcp(args)
     except (ValueError, TypeError) as e:
