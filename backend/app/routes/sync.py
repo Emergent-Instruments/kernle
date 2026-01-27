@@ -19,7 +19,9 @@ from ..models import (
     SyncPushRequest,
     SyncPushResponse,
 )
+from ..logging_config import get_logger, log_sync_operation
 
+logger = get_logger("kernle.sync")
 router = APIRouter(prefix="/sync", tags=["sync"])
 
 
@@ -38,6 +40,7 @@ async def push_changes(
     
     Returns count of synced operations and any conflicts.
     """
+    logger.info(f"PUSH | {agent_id} | {len(request.operations)} operations")
     synced = 0
     conflicts = []
     
@@ -45,22 +48,27 @@ async def push_changes(
         try:
             if op.operation == "delete":
                 await delete_memory(db, agent_id, op.table, op.record_id)
+                log_sync_operation(agent_id, "delete", op.table, op.record_id, True)
             else:
                 # insert or update
                 if op.data is None:
+                    log_sync_operation(agent_id, op.operation, op.table, op.record_id, False, "Missing data")
                     conflicts.append({
                         "record_id": op.record_id,
                         "error": "Missing data for insert/update",
                     })
                     continue
                 await upsert_memory(db, agent_id, op.table, op.record_id, op.data)
+                log_sync_operation(agent_id, op.operation, op.table, op.record_id, True)
             synced += 1
         except ValueError as e:
+            log_sync_operation(agent_id, op.operation, op.table, op.record_id, False, str(e))
             conflicts.append({
                 "record_id": op.record_id,
                 "error": str(e),
             })
         except Exception as e:
+            log_sync_operation(agent_id, op.operation, op.table, op.record_id, False, str(e))
             conflicts.append({
                 "record_id": op.record_id,
                 "error": f"Database error: {str(e)}",
@@ -68,6 +76,8 @@ async def push_changes(
     
     # Update agent's last sync time
     await update_agent_last_sync(db, agent_id)
+    
+    logger.info(f"PUSH COMPLETE | {agent_id} | synced={synced} conflicts={len(conflicts)}")
     
     return SyncPushResponse(
         synced=synced,
@@ -89,6 +99,8 @@ async def pull_changes(
     - Initial sync (since=None gets all records)
     - Incremental sync (since=last_sync_at)
     """
+    logger.info(f"PULL | {agent_id} | since={request.since}")
+    
     since_str = request.since.isoformat() if request.since else None
     changes = await get_changes_since(db, agent_id, since_str)
     
@@ -103,6 +115,8 @@ async def pull_changes(
         )
         for change in changes
     ]
+    
+    logger.info(f"PULL COMPLETE | {agent_id} | {len(operations)} operations")
     
     return SyncPullResponse(
         operations=operations,

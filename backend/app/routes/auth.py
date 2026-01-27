@@ -15,7 +15,9 @@ from ..auth import (
 from ..config import Settings, get_settings
 from ..database import Database, create_agent, get_agent
 from ..models import AgentInfo, AgentLogin, AgentRegister, TokenResponse
+from ..logging_config import get_logger, log_auth_event
 
+logger = get_logger("kernle.auth")
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
@@ -30,9 +32,12 @@ async def register_agent(
     
     Returns an access token and the agent's secret (store it safely, shown only once).
     """
+    logger.info(f"Registration attempt for agent: {request.agent_id}")
+    
     # Check if agent already exists
     existing = await get_agent(db, request.agent_id)
     if existing:
+        log_auth_event("register", request.agent_id, False, "agent already exists")
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=f"Agent '{request.agent_id}' already exists",
@@ -52,6 +57,7 @@ async def register_agent(
     )
     
     if not agent:
+        log_auth_event("register", request.agent_id, False, "database error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create agent",
@@ -59,6 +65,9 @@ async def register_agent(
     
     # Generate token
     token = create_access_token(request.agent_id, settings)
+    
+    log_auth_event("register", request.agent_id, True)
+    logger.debug(f"Agent {request.agent_id} registered successfully")
     
     return TokenResponse(
         access_token=token,
