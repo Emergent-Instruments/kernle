@@ -60,7 +60,9 @@ class ForgettingMixin:
         else:
             days_since = 365  # Very old if unknown
 
-        age_factor = days_since / self.DEFAULT_HALF_LIFE
+        # Guard against zero half-life (would cause division by zero)
+        half_life = max(0.001, self.DEFAULT_HALF_LIFE)
+        age_factor = days_since / half_life
         reinforcement_weight = math.log(times_accessed + 1)
 
         # Salience calculation with minimum base value

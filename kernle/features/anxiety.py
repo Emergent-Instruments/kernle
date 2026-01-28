@@ -234,11 +234,12 @@ class AnxietyMixin:
         low_conf_beliefs = self._get_low_confidence_beliefs(0.5)
         total_beliefs = len(self._storage.get_beliefs(limit=100))
 
+        # Note: uncertainty_detail gets overwritten below based on low_conf count
+        # so we just need to handle the no-beliefs case here
         if total_beliefs == 0:
             uncertainty_detail = "No beliefs yet"
         else:
-            int((len(low_conf_beliefs) / total_beliefs) * 100)
-            uncertainty_detail = f"{len(low_conf_beliefs)}/{total_beliefs} beliefs below 50% confidence"
+            uncertainty_detail = ""  # Will be set below based on low_conf count
 
         if len(low_conf_beliefs) <= 2:
             uncertainty_score = len(low_conf_beliefs) * 15
