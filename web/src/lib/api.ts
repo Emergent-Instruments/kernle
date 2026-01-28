@@ -1,4 +1,10 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+// In production, NEXT_PUBLIC_API_URL must be set to avoid localhost fallback
+// which triggers Chrome's Local Network Access permission prompt
+const API_URL = process.env.NEXT_PUBLIC_API_URL || (
+  typeof window !== 'undefined' && window.location.hostname === 'localhost'
+    ? 'http://localhost:8000'
+    : undefined
+);
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
