@@ -2105,6 +2105,35 @@ def cmd_raw(args, k: Kernle):
             import subprocess
             subprocess.run(["open", str(raw_dir)], check=False)
 
+    elif args.raw_action == "sync":
+        # Sync from flat files to SQLite
+        dry_run = getattr(args, 'dry_run', False)
+        
+        if dry_run:
+            print("DRY RUN: Scanning flat files for unindexed entries...")
+        else:
+            print("Syncing flat files to SQLite index...")
+        
+        result = k._storage.sync_raw_from_files()
+        
+        print(f"\nFiles processed: {result['files_processed']}")
+        print(f"Entries imported: {result['imported']}")
+        print(f"Entries skipped (already indexed): {result['skipped']}")
+        
+        if result['errors']:
+            print(f"\nErrors ({len(result['errors'])}):")
+            for err in result['errors'][:5]:
+                print(f"  • {err}")
+            if len(result['errors']) > 5:
+                print(f"  ... and {len(result['errors']) - 5} more")
+        
+        if result['imported'] > 0:
+            print(f"\n✓ Imported {result['imported']} entries from flat files")
+        elif result['skipped'] > 0:
+            print("\n✓ All entries already indexed")
+        else:
+            print("\n✓ No entries to import")
+
 
 def cmd_belief(args, k: Kernle):
     """Handle belief revision subcommands."""
@@ -3872,6 +3901,10 @@ def main():
     raw_files = raw_sub.add_parser("files", help="Show raw flat file locations")
     raw_files.add_argument("--open", "-o", action="store_true", help="Open directory in file manager")
 
+    # kernle raw sync - sync from flat files to SQLite
+    raw_sync = raw_sub.add_parser("sync", help="Import flat file entries into SQLite index")
+    raw_sync.add_argument("--dry-run", "-n", action="store_true", help="Show what would be imported")
+
     # dump
     p_dump = subparsers.add_parser("dump", help="Dump all memory to stdout")
     p_dump.add_argument("--format", "-f", choices=["markdown", "json"], default="markdown",
@@ -4096,7 +4129,7 @@ def main():
 
     # Pre-process arguments: handle `kernle raw "content"` by inserting "capture"
     # This is needed because argparse subparsers consume positional args before parent parser
-    raw_subcommands = {"list", "show", "process", "capture", "review", "clean", "files"}
+    raw_subcommands = {"list", "show", "process", "capture", "review", "clean", "files", "sync"}
     argv = sys.argv[1:]  # Skip program name
 
     # Find position of "raw" in argv (accounting for -a/--agent which takes a value)

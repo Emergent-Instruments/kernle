@@ -2556,6 +2556,146 @@ class SQLiteStorage:
         files = sorted(self._raw_dir.glob("*.md"), reverse=True)
         return files
 
+    def sync_raw_from_files(self) -> Dict[str, Any]:
+        """Sync raw entries from flat files into SQLite.
+        
+        Parses flat files and imports any entries not already in SQLite.
+        This enables bidirectional editing - add entries via vim, then sync.
+        
+        Returns:
+            Dict with imported_count, skipped_count, errors
+        """
+        import re
+        
+        result = {
+            "imported": 0,
+            "skipped": 0,
+            "errors": [],
+            "files_processed": 0,
+        }
+        
+        files = self.get_raw_files()
+        
+        # Get existing IDs for quick lookup
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id FROM raw_entries WHERE agent_id = ?",
+                (self.agent_id,)
+            ).fetchall()
+        existing_ids = {row["id"] for row in rows}
+        
+        # Pattern to match entry headers: ## HH:MM:SS [id_prefix] source
+        # ID can be alphanumeric (for manually created entries)
+        header_pattern = re.compile(r'^## (\d{2}:\d{2}:\d{2}) \[([a-zA-Z0-9]+)\] ([\w-]+)$')
+        
+        for file_path in files:
+            result["files_processed"] += 1
+            try:
+                # Extract date from filename (2026-01-28.md)
+                date_str = file_path.stem  # "2026-01-28"
+                
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    content = f.read()
+                
+                # Split into entries
+                lines = content.split('\n')
+                current_entry = None
+                
+                for line in lines:
+                    header_match = header_pattern.match(line)
+                    
+                    if header_match:
+                        # Save previous entry if exists
+                        if current_entry and current_entry.get('content_lines'):
+                            current_entry['content'] = '\n'.join(current_entry['content_lines'])
+                            self._import_raw_entry(current_entry, existing_ids, result)
+                        
+                        # Start new entry
+                        time_str, id_prefix, source = header_match.groups()
+                        current_entry = {
+                            'id_prefix': id_prefix,
+                            'timestamp': f"{date_str}T{time_str}",
+                            'source': source,
+                            'content_lines': [],
+                            'tags': None,
+                        }
+                    elif current_entry is not None:
+                        # Check for tags line
+                        if line.startswith('Tags: '):
+                            current_entry['tags'] = [t.strip() for t in line[6:].split(',')]
+                        elif line.startswith('# Raw Captures'):
+                            pass  # Skip header
+                        elif line.strip():  # Non-empty content
+                            current_entry['content_lines'].append(line)
+                
+                # Don't forget last entry
+                if current_entry and current_entry.get('content_lines'):
+                    current_entry['content'] = '\n'.join(current_entry['content_lines'])
+                    self._import_raw_entry(current_entry, existing_ids, result)
+                    
+            except Exception as e:
+                result["errors"].append(f"{file_path.name}: {str(e)}")
+        
+        return result
+
+    def _import_raw_entry(
+        self,
+        entry: Dict[str, Any],
+        existing_ids: set,
+        result: Dict[str, Any],
+    ) -> None:
+        """Import a single raw entry if not already in SQLite."""
+        # Check if any existing ID starts with this prefix
+        id_prefix = entry.get('id_prefix', '')
+        matching_ids = [eid for eid in existing_ids if eid.startswith(id_prefix)]
+        
+        if matching_ids:
+            result["skipped"] += 1
+            return
+        
+        # Generate new ID (use prefix + random suffix to maintain traceability)
+        new_id = id_prefix + str(uuid.uuid4())[8:]  # Keep prefix, new suffix
+        content = '\n'.join(entry.get('content_lines', []))
+        
+        if not content.strip():
+            result["skipped"] += 1
+            return
+        
+        try:
+            now = self._now()
+            timestamp = entry.get('timestamp', now)
+            
+            with self._connect() as conn:
+                conn.execute("""
+                    INSERT INTO raw_entries
+                    (id, agent_id, content, timestamp, source, processed, processed_into, tags,
+                     confidence, source_type, local_updated_at, cloud_synced_at, version, deleted)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    new_id,
+                    self.agent_id,
+                    content,
+                    timestamp,
+                    entry.get('source', 'file-sync'),
+                    0,
+                    None,
+                    self._to_json(entry.get('tags')),
+                    1.0,
+                    "file_import",
+                    now,
+                    None,
+                    1,
+                    0
+                ))
+                self._save_embedding(conn, "raw_entries", new_id, content)
+                conn.commit()
+            
+            existing_ids.add(new_id)
+            result["imported"] += 1
+            
+        except Exception as e:
+            result["errors"].append(f"Entry {id_prefix}: {str(e)}")
+
     def get_raw(self, raw_id: str) -> Optional[RawEntry]:
         """Get a specific raw entry by ID."""
         with self._connect() as conn:
