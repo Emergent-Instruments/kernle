@@ -176,8 +176,14 @@ async def get_current_agent(
         api_key_id = auth_result.get("api_key_id")
         user_id = auth_result["user_id"]
         
-        # Check quota before allowing request
-        allowed, quota_info = await check_quota(db, api_key_id, user_id, tier)
+        # Check quota before allowing request (fail open if error)
+        try:
+            allowed, quota_info = await check_quota(db, api_key_id, user_id, tier)
+        except Exception as e:
+            # Log error but allow request (fail open)
+            import logging
+            logging.getLogger("kernle.auth").warning(f"Quota check failed: {e}")
+            allowed, quota_info = True, {}
         
         if not allowed:
             # Determine reset time for Retry-After header
@@ -203,8 +209,12 @@ async def get_current_agent(
                 headers=headers,
             )
         
-        # Increment usage after successful auth and quota check
-        await increment_usage(db, api_key_id, user_id)
+        # Increment usage after successful auth and quota check (non-blocking)
+        try:
+            await increment_usage(db, api_key_id, user_id)
+        except Exception as e:
+            import logging
+            logging.getLogger("kernle.auth").warning(f"Usage increment failed: {e}")
         
         return AuthContext(
             agent_id=auth_result["agent_id"],
