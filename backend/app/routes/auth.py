@@ -69,6 +69,9 @@ async def exchange_supabase_token(
         # Create a Supabase client with the user's token to verify it
         # We use the publishable key since we're verifying a user token
         api_key = settings.supabase_publishable_key or settings.supabase_anon_key
+        logger.debug(f"OAuth: Using Supabase URL: {settings.supabase_url[:30]}...")
+        logger.debug(f"OAuth: Publishable key configured: {bool(settings.supabase_publishable_key)}")
+        logger.debug(f"OAuth: Anon key configured: {bool(settings.supabase_anon_key)}")
         if not api_key:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -142,10 +145,14 @@ async def exchange_supabase_token(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"OAuth token exchange error: {e}")
+        logger.error(f"OAuth token exchange error: {type(e).__name__}: {e}")
+        # In debug mode, include more detail
+        detail = "Failed to verify Supabase token"
+        if settings.debug:
+            detail = f"{detail}: {type(e).__name__}: {e}"
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Failed to verify Supabase token",
+            detail=detail,
         )
 
 
