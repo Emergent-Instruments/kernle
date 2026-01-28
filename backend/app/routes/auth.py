@@ -166,14 +166,37 @@ async def exchange_supabase_token(
         # Use supabase user ID as agent_id (prefixed to avoid collisions)
         agent_id = f"oauth_{supabase_id[:12]}"
         
-        # Check if agent already exists
+        # First, check if there's an existing agent with the same email
+        # This enables account merging across OAuth providers (Google, GitHub, etc.)
+        existing_by_email = None
+        if email:
+            from .database import get_agent_by_email
+            existing_by_email = await get_agent_by_email(db, email)
+        
+        # Check if agent already exists by agent_id
         existing = await get_agent(db, agent_id)
         
         if existing:
-            # Agent exists, just issue a new token
+            # Agent exists with this OAuth ID, use it
             user_id = existing.get("user_id")
-            token = create_access_token(agent_id, settings, user_id=user_id)
-            log_auth_event("oauth_login", agent_id, True)
+            agent_id_to_use = existing.get("agent_id")
+            token = create_access_token(agent_id_to_use, settings, user_id=user_id)
+            log_auth_event("oauth_login", agent_id_to_use, True)
+            
+            return TokenResponse(
+                access_token=token,
+                expires_in=settings.jwt_expire_minutes * 60,
+                user_id=user_id,
+            )
+        
+        if existing_by_email:
+            # Found an existing account with the same email from a different OAuth provider
+            # Merge by using the existing account's user_id
+            user_id = existing_by_email.get("user_id")
+            agent_id_to_use = existing_by_email.get("agent_id")
+            logger.info(f"OAuth: Merging account - email {email} already exists with agent {agent_id_to_use}")
+            token = create_access_token(agent_id_to_use, settings, user_id=user_id)
+            log_auth_event("oauth_login_merged", agent_id_to_use, True)
             
             return TokenResponse(
                 access_token=token,

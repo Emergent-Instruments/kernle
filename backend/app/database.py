@@ -82,6 +82,12 @@ async def get_agent(db: Client, agent_id: str) -> dict | None:
     return result.data[0] if result.data else None
 
 
+async def get_agent_by_email(db: Client, email: str) -> dict | None:
+    """Get an agent by email address (for OAuth account merging)."""
+    result = db.table(AGENTS_TABLE).select("*").eq("email", email).limit(1).execute()
+    return result.data[0] if result.data else None
+
+
 async def update_agent_last_sync(db: Client, agent_id: str) -> None:
     """Update the agent's last sync timestamp."""
     db.table(AGENTS_TABLE).update({"last_sync_at": "now()"}).eq("agent_id", agent_id).execute()
