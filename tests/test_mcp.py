@@ -175,6 +175,35 @@ def mock_kernle():
         "new_beliefs": 2
     }
 
+    # Mock load_beliefs for memory_consolidate reflection scaffold
+    kernle_mock.load_beliefs.return_value = [
+        {"statement": "Testing is crucial", "confidence": 0.9, "belief_type": "learned"},
+        {"statement": "Quality over quantity", "confidence": 0.8, "belief_type": "preference"},
+    ]
+
+    # Mock _storage.get_episodes for memory_consolidate reflection scaffold
+    storage_mock = Mock()
+    episode_mock_1 = Mock()
+    episode_mock_1.objective = "Test objective 1"
+    episode_mock_1.outcome = "Successfully completed"
+    episode_mock_1.outcome_type = "success"
+    episode_mock_1.lessons = ["Lesson from ep1"]
+    episode_mock_1.tags = ["test"]
+    episode_mock_2 = Mock()
+    episode_mock_2.objective = "Test objective 2"
+    episode_mock_2.outcome = "Failed due to timeout"
+    episode_mock_2.outcome_type = "failure"
+    episode_mock_2.lessons = ["Lesson from ep2", "Lesson from ep1"]
+    episode_mock_2.tags = None
+    episode_mock_3 = Mock()
+    episode_mock_3.objective = "Test objective 3"
+    episode_mock_3.outcome = "Partially done"
+    episode_mock_3.outcome_type = "partial"
+    episode_mock_3.lessons = None
+    episode_mock_3.tags = ["demo"]
+    storage_mock.get_episodes.return_value = [episode_mock_1, episode_mock_2, episode_mock_3]
+    kernle_mock._storage = storage_mock
+
     kernle_mock.status.return_value = {
         "agent_id": "test_agent",
         "values": 3,
@@ -575,22 +604,47 @@ class TestMCPToolCalls:
 
     @pytest.mark.asyncio
     async def test_memory_consolidate(self, patched_get_kernle):
-        """Test memory_consolidate."""
-        result = await call_tool("memory_consolidate", {"min_episodes": 5})
+        """Test memory_consolidate returns reflection scaffold."""
+        result = await call_tool("memory_consolidate", {"min_episodes": 2})
 
         assert len(result) == 1
-        assert "Consolidation complete:" in result[0].text
-        assert "Episodes: 5" in result[0].text
-        assert "New beliefs: 2" in result[0].text
-
-        patched_get_kernle.consolidate.assert_called_once_with(min_episodes=5)
+        text = result[0].text
+        # Verify scaffold structure
+        assert "# Memory Consolidation: Reflection Scaffold" in text
+        assert "## Recent Experiences" in text
+        assert "## Current Beliefs" in text
+        assert "## Your Reflection Task" in text
+        # Verify it includes guidance
+        assert "Pattern Recognition" in text
+        assert "Belief Validation" in text
+        assert "Kernle provides the data. You do the reasoning." in text
+        # Verify episodes are shown
+        assert "Test objective 1" in text
+        assert "Test objective 2" in text
 
     @pytest.mark.asyncio
     async def test_memory_consolidate_default(self, patched_get_kernle):
         """Test memory_consolidate with default min_episodes."""
-        await call_tool("memory_consolidate", {})
+        result = await call_tool("memory_consolidate", {})
 
-        patched_get_kernle.consolidate.assert_called_once_with(min_episodes=3)
+        # Should show reflection scaffold (we have 3 episodes, default min is 3)
+        assert "# Memory Consolidation: Reflection Scaffold" in result[0].text
+        # Verify storage was called
+        patched_get_kernle._storage.get_episodes.assert_called_once_with(limit=20)
+
+    @pytest.mark.asyncio
+    async def test_memory_consolidate_insufficient_episodes(self, patched_get_kernle):
+        """Test memory_consolidate when not enough episodes."""
+        # Set up with only 1 episode
+        patched_get_kernle._storage.get_episodes.return_value = [
+            patched_get_kernle._storage.get_episodes.return_value[0]
+        ]
+        
+        result = await call_tool("memory_consolidate", {"min_episodes": 5})
+
+        text = result[0].text
+        assert "Only 1 episode(s) recorded (minimum 5 for consolidation)" in text
+        assert "Continue capturing experiences before consolidating" in text
 
     @pytest.mark.asyncio
     async def test_memory_status(self, patched_get_kernle):
@@ -985,16 +1039,20 @@ class TestMultiToolWorkflows:
         # Search for patterns
         await call_tool("memory_search", {"query": "testing patterns"})
 
-        # Consolidate learnings
-        await call_tool("memory_consolidate", {"min_episodes": 3})
+        # Consolidate learnings (now returns reflection scaffold)
+        result = await call_tool("memory_consolidate", {"min_episodes": 3})
 
         # Check status
         await call_tool("memory_status", {})
 
         # Verify correct methods called with correct arguments
         patched_get_kernle.search.assert_called_once_with(query="testing patterns", limit=10)
-        patched_get_kernle.consolidate.assert_called_once_with(min_episodes=3)
+        # Consolidate now fetches data directly for reflection scaffold
+        patched_get_kernle._storage.get_episodes.assert_called_once_with(limit=20)
+        patched_get_kernle.load_beliefs.assert_called_with(limit=15)
         patched_get_kernle.status.assert_called_once()
+        # Verify scaffold returned
+        assert "Reflection Scaffold" in result[0].text
 
 
 class TestNewListTools:

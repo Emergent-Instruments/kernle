@@ -570,13 +570,13 @@ TOOLS = [
     ),
     Tool(
         name="memory_consolidate",
-        description="Run memory consolidation to extract beliefs from episodes.",
+        description="Get a reflection scaffold with recent episodes and beliefs. Returns structured prompts to guide you through pattern recognition and belief updates. Kernle provides the data; you do the reasoning.",
         inputSchema={
             "type": "object",
             "properties": {
                 "min_episodes": {
                     "type": "integer",
-                    "description": "Minimum episodes required (default: 3)",
+                    "description": "Minimum episodes required for full consolidation (default: 3)",
                     "default": 3,
                 },
             },
@@ -927,10 +927,93 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             result = "\n".join(lines)
 
         elif name == "memory_consolidate":
-            consolidation = k.consolidate(
-                min_episodes=sanitized_args.get("min_episodes", 3)
-            )
-            result = f"Consolidation complete:\n  Episodes: {consolidation['consolidated']}\n  New beliefs: {consolidation.get('new_beliefs', 0)}"
+            min_episodes = sanitized_args.get("min_episodes", 3)
+            
+            # Fetch recent episodes
+            episodes = k._storage.get_episodes(limit=20)
+            
+            # Fetch existing beliefs
+            beliefs = k.load_beliefs(limit=15)
+            
+            # Build reflection scaffold
+            lines = []
+            lines.append("# Memory Consolidation: Reflection Scaffold")
+            lines.append("")
+            lines.append("Kernle has gathered your recent experiences and current beliefs.")
+            lines.append("Your task: reason about patterns, extract insights, decide on belief updates.")
+            lines.append("")
+            
+            # Episodes section
+            lines.append("## Recent Experiences")
+            lines.append("")
+            if len(episodes) < min_episodes:
+                lines.append(f"Only {len(episodes)} episode(s) recorded (minimum {min_episodes} for consolidation).")
+                lines.append("Continue capturing experiences before consolidating.")
+            else:
+                for i, ep in enumerate(episodes[:10], 1):
+                    outcome_emoji = {"success": "✓", "failure": "✗", "partial": "~"}.get(ep.outcome_type or "", "?")
+                    lines.append(f"**{i}. {ep.objective}** [{outcome_emoji} {ep.outcome_type or 'unknown'}]")
+                    lines.append(f"   Outcome: {ep.outcome}")
+                    if ep.lessons:
+                        for lesson in ep.lessons:
+                            lines.append(f"   → Lesson: {lesson}")
+                    if ep.tags:
+                        lines.append(f"   Tags: {', '.join(ep.tags)}")
+                    lines.append("")
+            
+            # Beliefs section
+            lines.append("## Current Beliefs")
+            lines.append("")
+            if beliefs:
+                for b in beliefs[:10]:
+                    conf = f" ({b['confidence']:.0%})" if b.get("confidence") else ""
+                    btype = f"[{b.get('belief_type', 'fact')}]" if b.get("belief_type") else ""
+                    lines.append(f"- {btype} {b['statement']}{conf}")
+                lines.append("")
+            else:
+                lines.append("No beliefs recorded yet.")
+                lines.append("")
+            
+            # Extract lesson patterns
+            all_lessons = []
+            for ep in episodes:
+                if ep.lessons:
+                    all_lessons.extend(ep.lessons)
+            
+            if all_lessons:
+                from collections import Counter
+                lesson_counts = Counter(all_lessons)
+                recurring = [(l, c) for l, c in lesson_counts.items() if c >= 2]
+                if recurring:
+                    lines.append("## Recurring Patterns")
+                    lines.append("")
+                    for lesson, count in sorted(recurring, key=lambda x: -x[1])[:5]:
+                        lines.append(f"- ({count}x) {lesson}")
+                    lines.append("")
+            
+            # Reflection prompts
+            lines.append("---")
+            lines.append("## Your Reflection Task")
+            lines.append("")
+            lines.append("Consider the experiences above and ask yourself:")
+            lines.append("")
+            lines.append("1. **Pattern Recognition**: What themes appear across multiple experiences?")
+            lines.append("   - Are there repeated successes or failures?")
+            lines.append("   - What approaches consistently work (or don't)?")
+            lines.append("")
+            lines.append("2. **Belief Validation**: Do your current beliefs match your experiences?")
+            lines.append("   - Any beliefs that should increase in confidence?")
+            lines.append("   - Any beliefs contradicted by recent outcomes?")
+            lines.append("")
+            lines.append("3. **New Insights**: What have you learned that isn't captured yet?")
+            lines.append("   - Consider adding new beliefs with `memory_belief`")
+            lines.append("   - Update existing beliefs with `memory_belief_update`")
+            lines.append("")
+            lines.append("**Kernle provides the data. You do the reasoning.**")
+            lines.append("")
+            lines.append(f"Episodes reviewed: {len(episodes)} | Beliefs on file: {len(beliefs)}")
+            
+            result = "\n".join(lines)
 
         elif name == "memory_status":
             status = k.status()
