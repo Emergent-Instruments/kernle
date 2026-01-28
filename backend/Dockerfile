@@ -15,11 +15,11 @@ RUN uv pip install --system -e .
 # Copy application code
 COPY app/ app/
 
-# Default port (Railway overrides via PORT env var)
+# Default port (Railway sets PORT env var)
 ENV PORT=8000
 
-# Copy and use start script for proper variable expansion
-COPY start.sh .
-RUN chmod +x start.sh
+# Copy entry point
+COPY run.py .
 
-CMD ["./start.sh"]
+# Use Python entry point that reads PORT from environment
+CMD ["python", "run.py"]
