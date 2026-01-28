@@ -66,16 +66,16 @@ async def exchange_supabase_token(
     and creates/returns a Kernle agent + token.
     """
     try:
-        # Create a Supabase client with the user's token to verify it
-        # We use the publishable key since we're verifying a user token
-        api_key = settings.supabase_publishable_key or settings.supabase_anon_key
+        # For server-side token verification, use the secret key (service role)
+        # The publishable key doesn't have permission to call /auth/v1/user
+        api_key = settings.supabase_secret_key or settings.supabase_service_role_key
         logger.debug(f"OAuth: Using Supabase URL: {settings.supabase_url[:30]}...")
-        logger.debug(f"OAuth: Publishable key configured: {bool(settings.supabase_publishable_key)}")
-        logger.debug(f"OAuth: Anon key configured: {bool(settings.supabase_anon_key)}")
+        logger.debug(f"OAuth: Secret key configured: {bool(settings.supabase_secret_key)}")
+        logger.debug(f"OAuth: Service role key configured: {bool(settings.supabase_service_role_key)}")
         if not api_key:
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Supabase publishable key not configured",
+                detail="Supabase secret key not configured",
             )
         
         # Verify token by calling Supabase Auth API directly
