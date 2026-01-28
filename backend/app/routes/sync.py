@@ -9,6 +9,7 @@ from ..rate_limit import limiter
 from ..database import (
     Database,
     delete_memory,
+    get_agent_by_user_and_name,
     get_changes_since,
     update_agent_last_sync,
     upsert_memory,
@@ -53,6 +54,14 @@ async def push_changes(
     agent_id = auth.agent_id
     log_prefix = f"{auth.user_id}/{agent_id}" if auth.user_id else agent_id
     logger.info(f"PUSH | {log_prefix} | {len(sync_request.operations)} operations")
+    
+    # Look up agent UUID for FK (multi-tenant: use user_id + agent_id)
+    agent_ref = None
+    if auth.user_id:
+        agent = await get_agent_by_user_and_name(db, auth.user_id, agent_id)
+        if agent:
+            agent_ref = agent.get("id")
+    
     synced = 0
     conflicts = []
 
@@ -80,7 +89,7 @@ async def push_changes(
                         data_with_embedding["embedding"] = embedding
                         logger.debug(f"Generated embedding for {op.table}/{op.record_id}")
                 
-                await upsert_memory(db, agent_id, op.table, op.record_id, data_with_embedding)
+                await upsert_memory(db, agent_id, op.table, op.record_id, data_with_embedding, agent_ref=agent_ref)
                 log_sync_operation(log_prefix, op.operation, op.table, op.record_id, True)
             synced += 1
         except ValueError as e:

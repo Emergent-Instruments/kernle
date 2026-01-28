@@ -192,18 +192,40 @@ async def upsert_memory(
     table: str,
     record_id: str,
     data: dict,
+    agent_ref: str | None = None,
 ) -> dict:
-    """Insert or update a memory record."""
+    """Insert or update a memory record.
+    
+    Args:
+        db: Supabase client
+        agent_id: Agent identifier (for display/filtering)
+        table: Memory table name
+        record_id: Record ID
+        data: Record data
+        agent_ref: Agent UUID (FK to agents.id). If not provided, looked up from agent_id.
+    """
     if table not in MEMORY_TABLES:
         raise ValueError(f"Unknown table: {table}")
 
     table_name = MEMORY_TABLES[table]
+    
+    # Get agent_ref if not provided
+    if agent_ref is None:
+        agent = await get_agent(db, agent_id)
+        if agent:
+            agent_ref = agent.get("id")
+    
     record = {
         **data,
         "id": record_id,
         "agent_id": agent_id,
         "cloud_synced_at": "now()",
     }
+    
+    # Include agent_ref if available (required after migration 008)
+    if agent_ref:
+        record["agent_ref"] = agent_ref
+    
     result = db.table(table_name).upsert(record).execute()
     return result.data[0] if result.data else None
 
@@ -341,6 +363,18 @@ async def get_active_api_keys_by_prefix(db: Client, prefix: str) -> list[dict]:
 async def get_agent_by_user_id(db: Client, user_id: str) -> dict | None:
     """Get an agent by user_id."""
     result = db.table(AGENTS_TABLE).select("*").eq("user_id", user_id).execute()
+    return result.data[0] if result.data else None
+
+
+async def get_agent_by_user_and_name(db: Client, user_id: str, agent_id: str) -> dict | None:
+    """Get an agent by user_id and agent_id (for multi-tenant lookup)."""
+    result = (
+        db.table(AGENTS_TABLE)
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("agent_id", agent_id)
+        .execute()
+    )
     return result.data[0] if result.data else None
 
 
