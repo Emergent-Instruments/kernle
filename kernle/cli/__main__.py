@@ -761,10 +761,10 @@ def cmd_temporal(args, k: Kernle):
 
 def cmd_identity(args, k: Kernle):
     """Display identity synthesis."""
-    if args.identity_action == "show":
+    if args.identity_action == "show" or args.identity_action is None:
         identity = k.synthesize_identity()
 
-        if args.json:
+        if getattr(args, 'json', False):
             print(json.dumps(identity, indent=2, default=str))
         else:
             print(f"Identity Synthesis for {k.agent_id}")
