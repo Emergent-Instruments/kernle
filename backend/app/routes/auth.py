@@ -80,7 +80,16 @@ async def exchange_supabase_token(
         
         # Create client and get user from token
         supabase = create_client(settings.supabase_url, api_key)
-        user_response = supabase.auth.get_user(token_request.access_token)
+        logger.info(f"OAuth: Calling get_user with token: {token_request.access_token[:20]}...")
+        try:
+            user_response = supabase.auth.get_user(token_request.access_token)
+            logger.info(f"OAuth: get_user response: {user_response}")
+        except Exception as get_user_error:
+            logger.error(f"OAuth: get_user failed: {type(get_user_error).__name__}: {get_user_error}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail=f"Token verification failed: {type(get_user_error).__name__}",
+            )
         
         if not user_response or not user_response.user:
             raise HTTPException(
