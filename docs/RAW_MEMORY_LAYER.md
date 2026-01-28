@@ -1,8 +1,12 @@
 # Raw Memory Layer
 
-## Problem
+> **Status**: ✅ IMPLEMENTED (v0.4.0+)
 
-Current Kernle requires structured input:
+The raw memory layer provides zero-friction capture for later processing.
+
+## Problem Solved
+
+Before the raw layer, Kernle required structured input:
 - Episodes need title, outcome, lessons
 - Notes need type classification
 - Beliefs need confidence scores
@@ -189,10 +193,28 @@ $ kernle raw process
 ...
 ```
 
-## Implementation Priority
+## Implementation Status
 
-This should be high priority because:
-1. It's the foundation other layers build on
-2. It solves the trust/readability problem
-3. It matches how I actually want to use memory
-4. It's relatively simple to implement
+✅ **Fully Implemented** in `kernle/storage/sqlite.py` and `kernle/core.py`:
+
+### Core API (Kernle class)
+- `raw(content, tags, source)` - Quick capture
+- `list_raw(processed, limit)` - List entries with optional filter
+- `get_raw(raw_id)` - Get specific entry
+- `process_raw(raw_id, as_type, **kwargs)` - Convert to episode/note/belief
+
+### CLI Commands
+```bash
+kernle -a <agent> raw "quick thought"           # Capture
+kernle -a <agent> raw list                       # List all
+kernle -a <agent> raw list --unprocessed         # Unprocessed only
+kernle -a <agent> raw process <id> --as episode  # Convert to episode
+kernle -a <agent> raw process <id> --as note     # Convert to note
+kernle -a <agent> raw process <id> --as belief   # Convert to belief
+```
+
+### Storage Layer
+- Table: `raw_entries` with sync support
+- Indexes on `agent_id`, `processed`, `timestamp`
+- Meta-memory fields: `confidence`, `source_type`
+- Included in `kernle dump` output

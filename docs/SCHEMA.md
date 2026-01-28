@@ -12,7 +12,7 @@ Both backends implement the `Storage` protocol defined in `kernle/storage/base.p
 
 ---
 
-## SQLite Schema (Version 9)
+## SQLite Schema (Version 10)
 
 The SQLite schema is defined in `kernle/storage/sqlite.py`.
 
@@ -224,7 +224,7 @@ Stores unstructured captures for later processing.
 ### Sync Tables
 
 #### `sync_queue`
-Queue for offline changes pending sync.
+Queue for offline changes pending sync. Enhanced in v10 with better deduplication support.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -232,8 +232,13 @@ Queue for offline changes pending sync.
 | `table_name` | TEXT NOT NULL | Target table |
 | `record_id` | TEXT NOT NULL | Record UUID |
 | `operation` | TEXT NOT NULL | insert/update/delete |
-| `payload` | TEXT | JSON payload (for offline) |
-| `queued_at` | TEXT NOT NULL | Queue time |
+| `data` | TEXT | JSON payload of the record data (v10+) |
+| `local_updated_at` | TEXT NOT NULL | When change was queued (v10+) |
+| `synced` | INTEGER DEFAULT 0 | 0=pending, 1=synced (v10+) |
+| `payload` | TEXT | Legacy JSON payload (backward compat) |
+| `queued_at` | TEXT | Legacy timestamp (backward compat) |
+
+**Note**: The sync queue deduplicates by `(table_name, record_id)`, keeping only the latest operation for each record.
 
 #### `sync_meta`
 Sync state metadata.
@@ -281,8 +286,26 @@ The Supabase schema maps to these table names (see `kernle/storage/postgres.py`)
 | `notes` | `agent_notes` | |
 | `drives` | `agent_drives` | |
 | `relationships` | `agent_relationships` | |
-| `playbooks` | (not yet implemented) | SQLite only |
-| `raw_entries` | (not yet implemented) | SQLite only |
+| `playbooks` | — | SQLite only (procedural memory) |
+| `raw_entries` | — | SQLite only (raw capture layer) |
+
+### Feature Support Comparison
+
+| Feature | SQLite | Supabase/Postgres |
+|---------|--------|-------------------|
+| **Core Memory Types** | ✅ Full | ✅ Full |
+| **Playbooks** | ✅ | ❌ Not implemented |
+| **Raw Entries** | ✅ | ❌ Not implemented |
+| **Emotional Memory** | ✅ | ✅ |
+| **Meta-Memory** | ✅ Full | ⚠️ Partial |
+| **Belief Revision** | ✅ | ⚠️ Partial |
+| **Forgetting** | ✅ | ❌ Not implemented |
+| **Access Tracking** | ✅ | ❌ Not implemented |
+| **Vector Search** | sqlite-vec | pgvector |
+| **Offline Support** | ✅ | Requires connection |
+| **Sync Queue** | ✅ | N/A (cloud native) |
+
+**Recommendation**: Use SQLite for full functionality. Supabase is suitable for cloud sync of core memories (episodes, beliefs, values, goals, notes, drives, relationships).
 
 ### Column Name Differences
 
@@ -315,6 +338,7 @@ When adding new features:
 
 | Version | Changes |
 |---------|---------|
+| 10 | Enhanced sync_queue with `data`, `local_updated_at`, `synced` columns |
 | 9 | Added forgetting fields (times_accessed, is_protected, is_forgotten, etc.) |
 | 8 | Added belief revision fields (supersedes, superseded_by, times_reinforced) |
 | 7 | Added meta-memory fields (confidence_history, source_type, etc.) |

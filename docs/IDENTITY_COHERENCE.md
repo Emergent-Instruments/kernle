@@ -1,5 +1,7 @@
 # Identity Coherence Scoring
 
+> **Status**: ✅ IMPLEMENTED in `kernle/core.py` via `get_identity_confidence()` and `synthesize_identity()`
+
 This document explains how Kernle calculates identity coherence and what you can do to improve it.
 
 ## What is Identity Coherence?

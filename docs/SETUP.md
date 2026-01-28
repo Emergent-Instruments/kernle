@@ -36,13 +36,14 @@ export KERNLE_AGENT_ID=my-agent
 # Verify it works
 kernle status
 
-# Seed some initial values
-kernle value add "memory_sovereignty" "Control over my own memory" --priority 90
-kernle value add "continuous_learning" "Learn from every experience" --priority 85
+# Run init without interactivity (seeds default values automatically)
+kernle init -y
 
 # Save initial checkpoint
 kernle checkpoint save "Initial setup complete"
 ```
+
+> Note: The `init` command automatically seeds initial values. For custom values, use the Python API: `k.value("name", "statement", priority=90)`
 
 ---
 
@@ -319,6 +320,7 @@ kernle -a your-agent-id consolidate
 ## Next Steps
 
 - [Architecture](architecture.md) — How Kernle's memory layers work
-- [CLI Reference](cli.md) — All available commands
-- [MCP Tools](mcp.md) — MCP server tool reference
+- [CLI Reference](CLI.md) — All available commands
+- [MCP Audit](MCP_AUDIT.md) — MCP server tool reference and security review
 - [Anxiety Tracking](ANXIETY_TRACKING.md) — Understanding the anxiety model
+- [Raw Memory Layer](RAW_MEMORY_LAYER.md) — Zero-friction capture

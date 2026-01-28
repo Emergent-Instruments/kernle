@@ -14,6 +14,16 @@ AI agents lose context when sessions end or context windows fill up. Kernle solv
 - **Memory Sovereignty**: Agents control their own memory
 - **Trust Through Readability**: `kernle dump` exports everything as readable markdown
 
+## Core Principle: Infrastructure, Not Decision-Maker
+
+**Kernle = Memory Infrastructure, Agent = Memory Owner**
+
+Kernle provides storage, retrieval, search, sync, and tools. Kernle does **not** decide what agents should believe or remember — the agent does all consolidation, synthesis, and belief formation using their own reasoning.
+
+This separation prevents feedback loops where external models implant beliefs. The only exception: **seed beliefs** planted at agent creation (inherited wisdom that agents can later revise).
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the full design philosophy.
+
 ## Installation
 
 ```bash
@@ -245,13 +255,16 @@ kernle -a my-agent load
 kernle -a my-agent status
 
 # Save checkpoint
-kernle -a my-agent checkpoint "Working on auth" --pending "add tests"
+kernle -a my-agent checkpoint save "Working on auth" --pending "add tests"
 
 # Record episode
 kernle -a my-agent episode "Fixed bug" "success" --lesson "Always check null"
 
 # Quick notes
 kernle -a my-agent note "Chose React over Vue" --type decision
+
+# Raw capture (zero-friction)
+kernle -a my-agent raw "Quick thought to remember"
 
 # Search
 kernle -a my-agent search "authentication"
@@ -260,19 +273,51 @@ kernle -a my-agent search "authentication"
 kernle -a my-agent drive list
 kernle -a my-agent drive set curiosity 0.8 --focus "AI" --focus "memory"
 
+# Beliefs
+kernle -a my-agent belief list
+kernle -a my-agent belief revise <episode-id>
+
+# Playbooks (procedural memory)
+kernle -a my-agent playbook list
+kernle -a my-agent playbook find "deploy to production"
+
+# Temporal queries
+kernle -a my-agent when yesterday
+
+# Emotional memory
+kernle -a my-agent emotion summary
+
+# Meta-memory
+kernle -a my-agent meta knowledge
+kernle -a my-agent meta gaps "kubernetes"
+
 # Anxiety monitoring
 kernle -a my-agent anxiety
 kernle -a my-agent anxiety --emergency  # Save everything when critical
+
+# Controlled forgetting
+kernle -a my-agent forget candidates
+kernle -a my-agent forget run --dry-run
 
 # Identity synthesis
 kernle -a my-agent identity
 
 # Export readable dump (trust through readability)
 kernle -a my-agent dump
+kernle -a my-agent export backup.md
 
 # Consolidation (episodes → beliefs)
 kernle -a my-agent consolidate
+
+# Cloud sync
+kernle -a my-agent sync status
+kernle -a my-agent sync push
+
+# Authentication
+kernle -a my-agent auth status
 ```
+
+See [docs/CLI.md](docs/CLI.md) for complete documentation of all commands.
 
 ## Integrations
 
@@ -406,9 +451,14 @@ pytest tests/test_storage.py -v
 
 ## Documentation
 
-- [Architecture](docs/architecture.md) - Memory layer design
+- [Memory Model](docs/MEMORY_MODEL.md) - **Complete memory architecture reference**
+- [Schema Reference](docs/SCHEMA.md) - Database schema for all tables
+- [CLI Reference](docs/CLI.md) - Complete command-line reference
+- [Setup Guide](docs/SETUP.md) - Environment-specific setup instructions
+- [Architecture](docs/architecture.md) - Ideal/target memory layer design
 - [Anxiety Tracking](docs/ANXIETY_TRACKING.md) - The 5-dimension anxiety model
-- [Raw Memory Layer](docs/RAW_MEMORY_LAYER.md) - Trust through readability
+- [Identity Coherence](docs/IDENTITY_COHERENCE.md) - Identity scoring system
+- [Raw Memory Layer](docs/RAW_MEMORY_LAYER.md) - Zero-friction capture layer
 - [MCP Audit](docs/MCP_AUDIT.md) - MCP server tool reference
 
 ## About

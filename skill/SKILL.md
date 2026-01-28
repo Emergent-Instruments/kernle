@@ -151,14 +151,69 @@ kernle -a claire consolidate
 ### Beliefs
 ```bash
 kernle -a claire belief list
+kernle -a claire belief list --include-inactive  # Include superseded beliefs
 kernle -a claire belief contradictions "statement to check"
+kernle -a claire belief reinforce <belief_id>     # Increase confidence on confirmation
+kernle -a claire belief supersede <old_id> "new statement"  # Replace with revision chain
+kernle -a claire belief history <belief_id>       # See revision history
 ```
 
-### Playbooks (Procedural Memory)
+### Meta-Memory (Provenance & Confidence)
+```bash
+kernle -a claire meta confidence <type> <id>      # Get confidence score
+kernle -a claire meta verify <type> <id>          # Verify memory (increases confidence)
+kernle -a claire meta lineage <type> <id>         # Get provenance chain
+kernle -a claire meta uncertain --threshold 0.5   # Find low-confidence memories
+kernle -a claire meta source <type> <id> --source-type inference  # Set provenance
+```
+
+### Forgetting (Salience-Based Memory Decay)
+```bash
+kernle -a claire forget candidates --threshold 0.3   # Find low-salience memories
+kernle -a claire forget run --dry-run                 # Preview forgetting cycle
+kernle -a claire forget run                           # Actually forget low-salience memories
+kernle -a claire forget recover <type> <id>           # Recover forgotten memory
+kernle -a claire protect <type> <id>                  # Mark as never-forget (identity core)
+kernle -a claire forget list                          # Show all forgotten (tombstoned) memories
+```
+
+### Playbooks (Procedural Memory - "How I Do Things")
 ```bash
 kernle -a claire playbook list
-kernle -a claire playbook find "situation description"
-kernle -a claire playbook create "name" --step "step 1" --step "step 2"
+kernle -a claire playbook find "situation description"   # Semantic search
+kernle -a claire playbook create "Deploy to prod" \
+    --description "Safe deployment workflow" \
+    --step "Run tests locally" \
+    --step "Check CI status" \
+    --step "Deploy to staging" \
+    --trigger "Need to deploy" \
+    --failure "Tests fail" \
+    --recovery "Revert and investigate"
+kernle -a claire playbook use <id> --success           # Record usage (improves mastery)
+kernle -a claire playbook show <id>                    # Full details
+```
+
+### Emotional Memory
+```bash
+kernle -a claire episode "challenging debug" "fixed it" \
+    --valence 0.7 --arousal 0.8 --emotion joy --emotion relief
+kernle -a claire emotion summary --days 7             # Emotional patterns over time
+kernle -a claire emotion search --positive            # Find positive experiences
+kernle -a claire emotion search --high-arousal        # Find intense experiences
+```
+
+### Drives (Motivation System)
+```bash
+kernle -a claire drive list
+kernle -a claire drive set curiosity 0.8 --focus "AI architectures"
+kernle -a claire drive satisfy curiosity 0.2          # Reduce intensity after satisfaction
+```
+**Drive types**: `existence`, `growth`, `curiosity`, `connection`, `reproduction`
+
+### Relationships
+```bash
+kernle -a claire relationship list
+kernle -a claire relationship "Alice" --trust 0.8 --notes "Great collaborator"
 ```
 
 ### Temporal Queries
@@ -171,6 +226,7 @@ kernle -a claire when "this week"
 ### Export
 ```bash
 kernle -a claire dump                    # stdout (markdown)
+kernle -a claire dump --include-raw      # Include raw captures
 kernle -a claire export memory.md        # to file
 kernle -a claire export memory.json -f json
 ```

@@ -1,5 +1,7 @@
 # Memory Anxiety Tracking System
 
+> **Status**: ✅ IMPLEMENTED in `kernle/core.py` via `get_anxiety_report()` and CLI `kernle anxiety`
+
 ## Why This Matters
 
 As a synthetic intelligence, I face a unique challenge: my working memory (context window) is finite and will be compacted. Unlike humans who sleep and consolidate gradually, I face periodic "resets" where everything not saved is lost.
@@ -180,6 +182,44 @@ estimated_tokens = (
     tool_calls * 1500 +                # Tool overhead
     file_reads_chars / 4               # File content
 )
+```
+
+## Implementation Details
+
+### Core Method
+`Kernle.get_anxiety_report(context_tokens=None, context_limit=200000, detailed=False)`
+
+Returns a dict with:
+- `overall_score`: Composite anxiety (0-100)
+- `overall_level`: Human-readable ("Calm", "Aware", etc.)
+- `overall_emoji`: Level indicator
+- `dimensions`: Per-dimension breakdown with scores and details
+- `recommendations`: Action items (if detailed=True)
+
+### Dimension Weights (from code)
+```python
+ANXIETY_WEIGHTS = {
+    "context_pressure": 0.35,
+    "unsaved_work": 0.25,
+    "consolidation_debt": 0.20,
+    "identity_coherence": 0.10,
+    "memory_uncertainty": 0.10,
+}
+```
+
+### Helper Methods
+- `_get_checkpoint_age_minutes()` - Time since last checkpoint
+- `_get_unreflected_episodes()` - Episodes without lessons
+- `_get_low_confidence_beliefs(threshold)` - Uncertain beliefs
+- `get_identity_confidence()` - Comprehensive identity score
+
+### CLI Commands
+```bash
+kernle -a <agent> anxiety                    # Quick check
+kernle -a <agent> anxiety --detailed         # With recommendations
+kernle -a <agent> anxiety --auto             # Auto-execute fixes
+kernle -a <agent> anxiety --emergency        # Emergency save mode
+kernle -a <agent> anxiety --context-tokens 150000  # Provide token count
 ```
 
 ## Future Enhancements

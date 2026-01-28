@@ -1,5 +1,9 @@
 # Kernle: Ideal Memory Stack for Synthetic Intelligence
 
+> **Note:** This document describes the **ideal/target** architecture. For **current implementation**, see [MEMORY_MODEL.md](./MEMORY_MODEL.md).
+> 
+> For the core design philosophy ("Kernle = Infrastructure, Agent = Owner"), see [../ARCHITECTURE.md](../ARCHITECTURE.md).
+
 ## Executive Summary
 
 This specification defines a stratified memory architecture for AI agents achieving memory sovereignty through biologically-inspired but computationally-optimized memory systems.
