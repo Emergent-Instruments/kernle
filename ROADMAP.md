@@ -193,7 +193,9 @@ From Claire's attempt to use Kernle (2026-01-27):
 | 3.x Cross-agent | Q3 2026 | Not started |
 | 4.x Premium | Q4 2026 | Not started |
 
-**Test count: 559 passing** (as of January 27, 2026)
+**Test count: 559 passing** (as of January 27, 2026)  
+**Test coverage: 60%** overall (core: 76%, storage/sqlite: 78%)  
+**Architecture audit: B+** (production ready - see ARCHITECTURE_AUDIT.md)
 
 ---
 
