@@ -59,6 +59,12 @@ export default function DashboardLayout({
               >
                 API Keys
               </Link>
+              <Link
+                href="/dashboard/admin"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                Admin
+              </Link>
             </nav>
           </div>
           <div className="flex items-center space-x-4">

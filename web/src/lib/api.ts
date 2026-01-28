@@ -138,3 +138,48 @@ export async function cycleApiKey(keyId: string): Promise<CreateKeyResponse> {
     method: 'POST',
   });
 }
+
+// Admin
+export interface AgentSummary {
+  agent_id: string;
+  user_id: string;
+  tier: string;
+  created_at: string | null;
+  last_sync_at: string | null;
+  memory_counts: Record<string, number>;
+  embedding_coverage: Record<string, { total: number; with_embedding: number; percent: number }>;
+}
+
+export interface SystemStats {
+  total_agents: number;
+  total_memories: number;
+  memories_with_embeddings: number;
+  embedding_coverage_percent: number;
+  by_table: Record<string, { total: number; with_embedding: number; percent: number }>;
+}
+
+export interface BackfillResponse {
+  agent_id: string;
+  processed: number;
+  failed: number;
+  tables_updated: Record<string, number>;
+}
+
+export async function getSystemStats(): Promise<SystemStats> {
+  return fetchApi<SystemStats>('/admin/stats');
+}
+
+export async function listAgents(limit = 50, offset = 0): Promise<{ agents: AgentSummary[]; total: number }> {
+  return fetchApi<{ agents: AgentSummary[]; total: number }>(`/admin/agents?limit=${limit}&offset=${offset}`);
+}
+
+export async function getAgent(agentId: string): Promise<AgentSummary> {
+  return fetchApi<AgentSummary>(`/admin/agents/${agentId}`);
+}
+
+export async function backfillEmbeddings(agentId: string, limit = 100): Promise<BackfillResponse> {
+  return fetchApi<BackfillResponse>('/admin/embeddings/backfill', {
+    method: 'POST',
+    body: JSON.stringify({ agent_id: agentId, limit }),
+  });
+}
