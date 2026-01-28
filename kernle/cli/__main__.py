@@ -2024,6 +2024,57 @@ def cmd_raw(args, k: Kernle):
         print("\n" + "=" * 60)
         print(f"\nReviewed {len(entries)} entries. Promote the meaningful ones, skip the rest.")
 
+    elif args.raw_action == "clean":
+        # Clean up old unprocessed raw entries
+        from datetime import datetime, timezone, timedelta
+        
+        age_days = getattr(args, 'age', 7) or 7
+        dry_run = not getattr(args, 'confirm', False)
+        
+        entries = k.list_raw(processed=False, limit=500)
+        now = datetime.now(timezone.utc)
+        cutoff = now - timedelta(days=age_days)
+        
+        stale_entries = []
+        for entry in entries:
+            try:
+                ts = entry.get("timestamp", "")
+                if ts:
+                    entry_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    if entry_time < cutoff:
+                        stale_entries.append(entry)
+            except (ValueError, TypeError):
+                continue
+        
+        if not stale_entries:
+            print(f"✓ No unprocessed raw entries older than {age_days} days.")
+            return
+        
+        print(f"Found {len(stale_entries)} unprocessed entries older than {age_days} days:\n")
+        
+        for entry in stale_entries[:10]:  # Show max 10
+            timestamp = entry["timestamp"][:10] if entry["timestamp"] else "unknown"
+            content_preview = entry["content"][:50].replace("\n", " ")
+            if len(entry["content"]) > 50:
+                content_preview += "..."
+            print(f"  [{entry['id'][:8]}] {timestamp}: {content_preview}")
+        
+        if len(stale_entries) > 10:
+            print(f"  ... and {len(stale_entries) - 10} more")
+        
+        if dry_run:
+            print(f"\n⚠ DRY RUN: Would delete {len(stale_entries)} entries.")
+            print(f"  To actually delete, run: kernle raw clean --age {age_days} --confirm")
+        else:
+            deleted = 0
+            for entry in stale_entries:
+                try:
+                    k._storage.delete_raw(entry["id"])
+                    deleted += 1
+                except Exception as e:
+                    print(f"  ✗ Failed to delete {entry['id'][:8]}: {e}")
+            print(f"\n✓ Deleted {deleted} stale raw entries.")
+
 
 def cmd_belief(args, k: Kernle):
     """Handle belief revision subcommands."""
@@ -3782,6 +3833,11 @@ def main():
     raw_review.add_argument("--limit", "-l", type=int, default=10, help="Number of entries to review")
     raw_review.add_argument("--json", "-j", action="store_true")
 
+    # kernle raw clean - clean up old unprocessed entries
+    raw_clean = raw_sub.add_parser("clean", help="Delete old unprocessed raw entries")
+    raw_clean.add_argument("--age", "-a", type=int, default=7, help="Delete entries older than N days (default: 7)")
+    raw_clean.add_argument("--confirm", "-y", action="store_true", help="Actually delete (otherwise dry run)")
+
     # dump
     p_dump = subparsers.add_parser("dump", help="Dump all memory to stdout")
     p_dump.add_argument("--format", "-f", choices=["markdown", "json"], default="markdown",
@@ -4006,7 +4062,7 @@ def main():
 
     # Pre-process arguments: handle `kernle raw "content"` by inserting "capture"
     # This is needed because argparse subparsers consume positional args before parent parser
-    raw_subcommands = {"list", "show", "process", "capture", "review"}
+    raw_subcommands = {"list", "show", "process", "capture", "review", "clean"}
     argv = sys.argv[1:]  # Skip program name
 
     # Find position of "raw" in argv (accounting for -a/--agent which takes a value)

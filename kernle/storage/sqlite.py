@@ -2538,6 +2538,24 @@ class SQLiteStorage:
                 return True
         return False
 
+    def delete_raw(self, raw_id: str) -> bool:
+        """Delete a raw entry (soft delete by marking deleted=1)."""
+        now = self._now()
+
+        with self._connect() as conn:
+            cursor = conn.execute("""
+                UPDATE raw_entries SET
+                    deleted = 1,
+                    local_updated_at = ?,
+                    version = version + 1
+                WHERE id = ? AND agent_id = ? AND deleted = 0
+            """, (now, raw_id, self.agent_id))
+            if cursor.rowcount > 0:
+                self._queue_sync(conn, "raw_entries", raw_id, "delete")
+                conn.commit()
+                return True
+        return False
+
     def _row_to_raw_entry(self, row: sqlite3.Row) -> RawEntry:
         """Convert a row to a RawEntry."""
         return RawEntry(
