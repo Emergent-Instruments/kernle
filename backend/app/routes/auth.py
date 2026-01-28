@@ -78,28 +78,45 @@ async def exchange_supabase_token(
                 detail="Supabase publishable key not configured",
             )
         
-        # Create client and get user from token
-        supabase = create_client(settings.supabase_url, api_key)
-        logger.info(f"OAuth: Calling get_user with token: {token_request.access_token[:20]}...")
+        # Verify token by calling Supabase Auth API directly
+        import httpx
+        
+        auth_url = f"{settings.supabase_url}/auth/v1/user"
+        headers = {
+            "Authorization": f"Bearer {token_request.access_token}",
+            "apikey": api_key,
+        }
+        
+        logger.info(f"OAuth: Calling Supabase auth API: {auth_url}")
         try:
-            user_response = supabase.auth.get_user(token_request.access_token)
-            logger.info(f"OAuth: get_user response: {user_response}")
-        except Exception as get_user_error:
-            logger.error(f"OAuth: get_user failed: {type(get_user_error).__name__}: {get_user_error}")
+            async with httpx.AsyncClient() as client:
+                response = await client.get(auth_url, headers=headers, timeout=10.0)
+                logger.info(f"OAuth: Supabase response status: {response.status_code}")
+                
+                if response.status_code != 200:
+                    logger.error(f"OAuth: Supabase error: {response.text}")
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail=f"Supabase auth failed: {response.status_code}",
+                    )
+                
+                user_data = response.json()
+                logger.info(f"OAuth: Got user data: {user_data.get('email', 'no-email')}")
+        except httpx.RequestError as e:
+            logger.error(f"OAuth: HTTP request failed: {e}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Token verification failed: {type(get_user_error).__name__}",
+                detail=f"Auth request failed: {type(e).__name__}",
             )
         
-        if not user_response or not user_response.user:
+        email = user_data.get("email")
+        supabase_id = user_data.get("id")
+        
+        if not supabase_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or expired Supabase token",
+                detail="Invalid user data from Supabase",
             )
-        
-        supabase_user = user_response.user
-        email = supabase_user.email
-        supabase_id = supabase_user.id
         
         # Use supabase user ID as agent_id (prefixed to avoid collisions)
         agent_id = f"oauth_{supabase_id[:12]}"
