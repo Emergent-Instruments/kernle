@@ -172,6 +172,7 @@ def cmd_episode(args, k: Kernle):
     lessons = [validate_input(lesson, "lesson", 500) for lesson in (args.lesson or [])]
     tags = [validate_input(t, "tag", 100) for t in (args.tag or [])]
     relates_to = getattr(args, 'relates_to', None)
+    source = getattr(args, 'source', None)
 
     # Get emotional arguments with defaults for backwards compatibility
     emotion = getattr(args, 'emotion', None)
@@ -195,6 +196,7 @@ def cmd_episode(args, k: Kernle):
             emotional_tags=emotion_tags,
             auto_detect=auto_emotion and not has_emotion_args,
             relates_to=relates_to,
+            source=source,
         )
     else:
         episode_id = k.episode(
@@ -203,6 +205,7 @@ def cmd_episode(args, k: Kernle):
             lessons=lessons,
             tags=tags,
             relates_to=relates_to,
+            source=source,
         )
 
     print(f"✓ Episode saved: {episode_id[:8]}...")
@@ -225,6 +228,7 @@ def cmd_note(args, k: Kernle):
     reason = validate_input(args.reason, "reason", 1000) if args.reason else None
     tags = [validate_input(t, "tag", 100) for t in (args.tag or [])]
     relates_to = getattr(args, 'relates_to', None)
+    source = getattr(args, 'source', None)
 
     k.note(
         content=content,
@@ -234,12 +238,15 @@ def cmd_note(args, k: Kernle):
         tags=tags,
         protect=args.protect,
         relates_to=relates_to,
+        source=source,
     )
     print(f"✓ Note saved: {args.content[:50]}...")
     if args.tag:
         print(f"  Tags: {', '.join(args.tag)}")
     if relates_to:
         print(f"  Links: {len(relates_to)} related memories")
+    if source:
+        print(f"  Source: {source}")
 
 
 def cmd_extract(args, k: Kernle):
@@ -1884,11 +1891,14 @@ def cmd_raw(args, k: Kernle):
         content = validate_input(args.content, "content", 5000)
         tags = [validate_input(t, "tag", 100) for t in (args.tags.split(",") if args.tags else [])]
         tags = [t.strip() for t in tags if t.strip()]
+        source = getattr(args, 'source', None) or "cli"
 
-        raw_id = k.raw(content, tags=tags if tags else None, source="cli")
+        raw_id = k.raw(content, tags=tags if tags else None, source=source)
         print(f"✓ Raw entry captured: {raw_id[:8]}...")
         if tags:
             print(f"  Tags: {', '.join(tags)}")
+        if source and source != "cli":
+            print(f"  Source: {source}")
 
     elif args.raw_action == "list":
         # Filter by processed state
@@ -3622,6 +3632,7 @@ def main():
     p_episode.add_argument("--emotion", "-e", action="append", help="Emotion tag (e.g., joy, frustration)")
     p_episode.add_argument("--auto-emotion", action="store_true", default=True, help="Auto-detect emotions (default)")
     p_episode.add_argument("--no-auto-emotion", dest="auto_emotion", action="store_false", help="Disable emotion auto-detection")
+    p_episode.add_argument("--source", help="Source context (e.g., 'session with Sean', 'heartbeat', 'cron job')")
 
     # note
     p_note = subparsers.add_parser("note", help="Capture a note")
@@ -3632,6 +3643,7 @@ def main():
     p_note.add_argument("--tag", action="append", help="Tag")
     p_note.add_argument("--relates-to", action="append", help="Related memory ID (repeatable)")
     p_note.add_argument("--protect", "-p", action="store_true", help="Protect from forgetting")
+    p_note.add_argument("--source", help="Source context (e.g., 'conversation with X', 'reading Y')")
 
     # extract (conversation capture)
     p_extract = subparsers.add_parser("extract", help="Extract conversation context")
@@ -3866,6 +3878,7 @@ def main():
     raw_capture = raw_sub.add_parser("capture", help="Capture a raw entry")
     raw_capture.add_argument("content", help="Content to capture")
     raw_capture.add_argument("--tags", "-t", help="Comma-separated tags")
+    raw_capture.add_argument("--source", "-s", help="Source context (e.g., 'session', 'heartbeat', 'conversation')")
 
     # kernle raw list
     raw_list = raw_sub.add_parser("list", help="List raw entries")

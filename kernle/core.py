@@ -579,11 +579,13 @@ class Kernle:
         avoid: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
         relates_to: Optional[List[str]] = None,
+        source: Optional[str] = None,
     ) -> str:
         """Record an episodic experience.
         
         Args:
             relates_to: List of memory IDs this episode relates to (for linking)
+            source: Source context (e.g., 'session with Sean', 'heartbeat check')
         """
         # Validate inputs
         objective = self._validate_string_input(objective, "objective", 1000)
@@ -611,6 +613,15 @@ class Kernle:
         if avoid:
             all_lessons.extend([f"Avoid: {a}" for a in avoid])
 
+        # Determine source_type from source context
+        source_type = "direct_experience"
+        if source:
+            source_lower = source.lower()
+            if any(x in source_lower for x in ["told", "said", "heard", "learned from"]):
+                source_type = "told_by_agent"
+            elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
+                source_type = "inference"
+
         episode = Episode(
             id=episode_id,
             agent_id=self.agent_id,
@@ -621,7 +632,10 @@ class Kernle:
             tags=tags or ["manual"],
             created_at=datetime.now(timezone.utc),
             confidence=0.8,
+            source_type=source_type,
             source_episodes=relates_to,  # Link to related memories
+            # Store source context in derived_from for now (as free text marker)
+            derived_from=[f"context:{source}"] if source else None,
         )
 
         self._storage.save_episode(episode)
@@ -682,11 +696,13 @@ class Kernle:
         tags: Optional[List[str]] = None,
         protect: bool = False,
         relates_to: Optional[List[str]] = None,
+        source: Optional[str] = None,
     ) -> str:
         """Capture a quick note (decision, insight, quote).
         
         Args:
             relates_to: List of memory IDs this note relates to (for linking)
+            source: Source context (e.g., 'conversation with X', 'reading Y')
         """
         # Validate inputs
         content = self._validate_string_input(content, "content", 2000)
@@ -716,6 +732,17 @@ class Kernle:
         else:
             formatted = content
 
+        # Determine source_type from source context
+        source_type = "direct_experience"
+        if source:
+            source_lower = source.lower()
+            if any(x in source_lower for x in ["told", "said", "heard", "learned from"]):
+                source_type = "told_by_agent"
+            elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
+                source_type = "inference"
+            elif type == "quote":
+                source_type = "told_by_agent"
+
         note = Note(
             id=note_id,
             agent_id=self.agent_id,
@@ -725,7 +752,10 @@ class Kernle:
             reason=reason,
             tags=tags or [],
             created_at=datetime.now(timezone.utc),
+            source_type=source_type,
             source_episodes=relates_to,  # Link to related memories
+            derived_from=[f"context:{source}"] if source else None,
+            is_protected=protect,
         )
 
         self._storage.save_note(note)
@@ -1006,7 +1036,11 @@ class Kernle:
         return "\n".join(lines)
 
     def _dump_json(self, include_raw: bool) -> str:
-        """Export memory as JSON."""
+        """Export memory as JSON with full meta-memory fields."""
+        def _dt(dt: Optional[datetime]) -> Optional[str]:
+            """Convert datetime to ISO string."""
+            return dt.isoformat() if dt else None
+
         data = {
             "agent_id": self.agent_id,
             "exported_at": datetime.now(timezone.utc).isoformat(),
@@ -1016,7 +1050,14 @@ class Kernle:
                     "name": v.name,
                     "statement": v.statement,
                     "priority": v.priority,
-                    "created_at": v.created_at.isoformat() if v.created_at else None,
+                    "created_at": _dt(v.created_at),
+                    "local_updated_at": _dt(v.local_updated_at),
+                    "confidence": v.confidence,
+                    "source_type": v.source_type,
+                    "source_episodes": v.source_episodes,
+                    "times_accessed": v.times_accessed,
+                    "last_accessed": _dt(v.last_accessed),
+                    "is_protected": v.is_protected,
                 }
                 for v in self._storage.get_values(limit=100)
             ],
@@ -1026,7 +1067,18 @@ class Kernle:
                     "statement": b.statement,
                     "type": b.belief_type,
                     "confidence": b.confidence,
-                    "created_at": b.created_at.isoformat() if b.created_at else None,
+                    "created_at": _dt(b.created_at),
+                    "local_updated_at": _dt(b.local_updated_at),
+                    "source_type": b.source_type,
+                    "source_episodes": b.source_episodes,
+                    "derived_from": b.derived_from,
+                    "times_accessed": b.times_accessed,
+                    "last_accessed": _dt(b.last_accessed),
+                    "is_protected": b.is_protected,
+                    "supersedes": b.supersedes,
+                    "superseded_by": b.superseded_by,
+                    "times_reinforced": b.times_reinforced,
+                    "is_active": b.is_active,
                 }
                 for b in self._storage.get_beliefs(limit=100)
             ],
@@ -1037,7 +1089,14 @@ class Kernle:
                     "description": g.description,
                     "priority": g.priority,
                     "status": g.status,
-                    "created_at": g.created_at.isoformat() if g.created_at else None,
+                    "created_at": _dt(g.created_at),
+                    "local_updated_at": _dt(g.local_updated_at),
+                    "confidence": g.confidence,
+                    "source_type": g.source_type,
+                    "source_episodes": g.source_episodes,
+                    "times_accessed": g.times_accessed,
+                    "last_accessed": _dt(g.last_accessed),
+                    "is_protected": g.is_protected,
                 }
                 for g in self._storage.get_goals(status=None, limit=100)
             ],
@@ -1049,7 +1108,18 @@ class Kernle:
                     "outcome_type": e.outcome_type,
                     "lessons": e.lessons,
                     "tags": e.tags,
-                    "created_at": e.created_at.isoformat() if e.created_at else None,
+                    "created_at": _dt(e.created_at),
+                    "local_updated_at": _dt(e.local_updated_at),
+                    "confidence": e.confidence,
+                    "source_type": e.source_type,
+                    "source_episodes": e.source_episodes,
+                    "derived_from": e.derived_from,
+                    "emotional_valence": e.emotional_valence,
+                    "emotional_arousal": e.emotional_arousal,
+                    "emotional_tags": e.emotional_tags,
+                    "times_accessed": e.times_accessed,
+                    "last_accessed": _dt(e.last_accessed),
+                    "is_protected": e.is_protected,
                 }
                 for e in self._storage.get_episodes(limit=100)
             ],
@@ -1061,7 +1131,14 @@ class Kernle:
                     "speaker": n.speaker,
                     "reason": n.reason,
                     "tags": n.tags,
-                    "created_at": n.created_at.isoformat() if n.created_at else None,
+                    "created_at": _dt(n.created_at),
+                    "local_updated_at": _dt(n.local_updated_at),
+                    "confidence": n.confidence,
+                    "source_type": n.source_type,
+                    "source_episodes": n.source_episodes,
+                    "times_accessed": n.times_accessed,
+                    "last_accessed": _dt(n.last_accessed),
+                    "is_protected": n.is_protected,
                 }
                 for n in self._storage.get_notes(limit=100)
             ],
@@ -1071,6 +1148,14 @@ class Kernle:
                     "type": d.drive_type,
                     "intensity": d.intensity,
                     "focus_areas": d.focus_areas,
+                    "created_at": _dt(d.created_at),
+                    "updated_at": _dt(d.updated_at),
+                    "local_updated_at": _dt(d.local_updated_at),
+                    "confidence": d.confidence,
+                    "source_type": d.source_type,
+                    "times_accessed": d.times_accessed,
+                    "last_accessed": _dt(d.last_accessed),
+                    "is_protected": d.is_protected,
                 }
                 for d in self._storage.get_drives()
             ],
@@ -1082,6 +1167,15 @@ class Kernle:
                     "relationship_type": r.relationship_type,
                     "sentiment": r.sentiment,
                     "notes": r.notes,
+                    "interaction_count": r.interaction_count,
+                    "last_interaction": _dt(r.last_interaction),
+                    "created_at": _dt(r.created_at),
+                    "local_updated_at": _dt(r.local_updated_at),
+                    "confidence": r.confidence,
+                    "source_type": r.source_type,
+                    "times_accessed": r.times_accessed,
+                    "last_accessed": _dt(r.last_accessed),
+                    "is_protected": r.is_protected,
                 }
                 for r in self._storage.get_relationships()
             ],
@@ -1092,11 +1186,14 @@ class Kernle:
                 {
                     "id": r.id,
                     "content": r.content,
-                    "timestamp": r.timestamp.isoformat() if r.timestamp else None,
+                    "timestamp": _dt(r.timestamp),
                     "source": r.source,
                     "processed": r.processed,
                     "processed_into": r.processed_into,
                     "tags": r.tags,
+                    "local_updated_at": _dt(r.local_updated_at),
+                    "confidence": r.confidence,
+                    "source_type": r.source_type,
                 }
                 for r in self._storage.list_raw(limit=100)
             ]
@@ -2676,6 +2773,7 @@ class Kernle:
         emotional_tags: Optional[List[str]] = None,
         auto_detect: bool = True,
         relates_to: Optional[List[str]] = None,
+        source: Optional[str] = None,
     ) -> str:
         """Record an episode with emotional tagging.
 
@@ -2689,6 +2787,7 @@ class Kernle:
             emotional_tags: Emotion labels, auto-detected if None
             auto_detect: If True and no emotion args given, detect from text
             relates_to: List of memory IDs this episode relates to
+            source: Source context (e.g., 'session with Sean', 'heartbeat check')
 
         Returns:
             Episode ID
@@ -2718,6 +2817,15 @@ class Kernle:
             "failure" if outcome.lower() in ("failure", "failed", "error") else "partial"
         )
 
+        # Determine source_type from source context
+        source_type = "direct_experience"
+        if source:
+            source_lower = source.lower()
+            if any(x in source_lower for x in ["told", "said", "heard", "learned from"]):
+                source_type = "told_by_agent"
+            elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
+                source_type = "inference"
+
         episode = Episode(
             id=episode_id,
             agent_id=self.agent_id,
@@ -2731,7 +2839,9 @@ class Kernle:
             emotional_arousal=arousal or 0.0,
             emotional_tags=emotional_tags,
             confidence=0.8,
+            source_type=source_type,
             source_episodes=relates_to,  # Link to related memories
+            derived_from=[f"context:{source}"] if source else None,
         )
 
         self._storage.save_episode(episode)
