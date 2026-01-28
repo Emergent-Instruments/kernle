@@ -16,7 +16,6 @@ COPY app/ app/
 
 # Default port (Railway overrides via $PORT)
 ENV PORT=8000
-EXPOSE $PORT
 
-# Run with uvicorn - uses $PORT from environment
-CMD uvicorn app.main:app --host 0.0.0.0 --port $PORT
+# Run with uvicorn - shell form for variable expansion
+CMD ["/bin/sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
