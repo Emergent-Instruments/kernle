@@ -426,24 +426,17 @@ TIER_LIMITS = {
 
 
 async def get_or_create_usage(db: Client, api_key_id: str, user_id: str) -> dict:
-    """Get or create usage record for an API key."""
-    # Try to get existing
-    result = (
-        db.table(API_KEY_USAGE_TABLE)
-        .select("*")
-        .eq("api_key_id", api_key_id)
-        .execute()
-    )
-    
-    if result.data:
-        return result.data[0]
-    
-    # Create new usage record
+    """Get or create usage record for an API key using upsert to avoid race conditions."""
+    # Use upsert to atomically get-or-create
     data = {
         "api_key_id": api_key_id,
         "user_id": user_id,
     }
-    result = db.table(API_KEY_USAGE_TABLE).insert(data).execute()
+    result = (
+        db.table(API_KEY_USAGE_TABLE)
+        .upsert(data, on_conflict="api_key_id")
+        .execute()
+    )
     return result.data[0] if result.data else None
 
 
