@@ -1547,20 +1547,24 @@ class Kernle(
         if not existing:
             return False
 
-        # Increment reinforcement count
+        # Store old confidence BEFORE modification for accurate history tracking
+        old_confidence = existing.confidence
+
+        # Increment reinforcement count first
         existing.times_reinforced += 1
 
         # Slightly increase confidence (diminishing returns)
         # Each reinforcement adds less confidence, capped at 0.99
+        # Use (times_reinforced) which is already incremented, so first reinforcement uses 1
         confidence_boost = 0.05 * (1.0 / (1 + existing.times_reinforced * 0.1))
         room_to_grow = 0.99 - existing.confidence
         existing.confidence = min(0.99, existing.confidence + room_to_grow * confidence_boost)
 
-        # Update confidence history
+        # Update confidence history with accurate old/new values
         history = existing.confidence_history or []
         history.append({
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "old": round(existing.confidence - confidence_boost, 3),
+            "old": round(old_confidence, 3),
             "new": round(existing.confidence, 3),
             "reason": f"Reinforced (count: {existing.times_reinforced})"
         })
@@ -2660,7 +2664,7 @@ class Kernle(
 
         # Values (20%): quantity × quality (priority)
         # Ideal: 3-5 values with high priority
-        if values:
+        if values and len(values) > 0:
             value_count_score = min(1.0, len(values) / 5)
             avg_priority = sum(v.priority / 100 for v in values) / len(values)
             value_score = (value_count_score * 0.6 + avg_priority * 0.4) * 0.20
@@ -2669,7 +2673,7 @@ class Kernle(
 
         # Beliefs (20%): quantity × quality (confidence)
         # Ideal: 5-10 beliefs with high confidence
-        if beliefs:
+        if beliefs and len(beliefs) > 0:
             avg_belief_conf = sum(b.confidence for b in beliefs) / len(beliefs)
             belief_count_score = min(1.0, len(beliefs) / 10)
             belief_score = (belief_count_score * 0.5 + avg_belief_conf * 0.5) * 0.20
@@ -2682,7 +2686,7 @@ class Kernle(
 
         # Episodes (20%): experience × reflection
         # Ideal: 10-20 episodes with lessons extracted
-        if episodes:
+        if episodes and len(episodes) > 0:
             with_lessons = sum(1 for e in episodes if e.lessons)
             lesson_rate = with_lessons / len(episodes)
             episode_count_score = min(1.0, len(episodes) / 20)

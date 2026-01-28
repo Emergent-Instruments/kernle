@@ -3954,6 +3954,9 @@ class SQLiteStorage:
     ) -> int:
         """Queue a sync operation for later synchronization.
 
+        Uses atomic UPSERT (INSERT ... ON CONFLICT DO UPDATE) to prevent
+        race conditions between concurrent writes to the same record.
+
         Args:
             operation: Operation type ('insert', 'update', 'delete')
             table: Table name (e.g., 'episodes', 'notes')
@@ -3961,38 +3964,28 @@ class SQLiteStorage:
             data: Optional JSON-serializable data payload
 
         Returns:
-            The queue entry ID
+            The queue entry ID (or 0 if upsert updated existing row)
         """
         now = self._now()
         data_json = self._to_json(data) if data else None
 
         with self._connect() as conn:
-            # Check for existing unsynced entry
-            existing = conn.execute(
-                "SELECT id FROM sync_queue WHERE table_name = ? AND record_id = ? AND synced = 0",
-                (table, record_id)
-            ).fetchone()
-
-            if existing:
-                # Update existing entry
-                conn.execute(
-                    """UPDATE sync_queue
-                       SET operation = ?, data = ?, local_updated_at = ?
-                       WHERE id = ?""",
-                    (operation, data_json, now, existing["id"])
-                )
-                conn.commit()
-                return existing["id"]
-            else:
-                # Insert new entry
-                cursor = conn.execute(
-                    """INSERT INTO sync_queue
-                       (table_name, record_id, operation, data, local_updated_at, synced, queued_at)
-                       VALUES (?, ?, ?, ?, ?, 0, ?)""",
-                    (table, record_id, operation, data_json, now, now)
-                )
-                conn.commit()
-                return cursor.lastrowid
+            # Use atomic UPSERT to prevent race condition between SELECT and UPDATE/INSERT
+            # This requires a unique partial index on (table_name, record_id) where synced = 0
+            cursor = conn.execute(
+                """INSERT INTO sync_queue
+                   (table_name, record_id, operation, data, local_updated_at, synced, queued_at)
+                   VALUES (?, ?, ?, ?, ?, 0, ?)
+                   ON CONFLICT(table_name, record_id) WHERE synced = 0
+                   DO UPDATE SET
+                       operation = excluded.operation,
+                       data = excluded.data,
+                       local_updated_at = excluded.local_updated_at,
+                       queued_at = excluded.queued_at""",
+                (table, record_id, operation, data_json, now, now)
+            )
+            conn.commit()
+            return cursor.lastrowid or 0
 
     def get_pending_sync_operations(self, limit: int = 100) -> List[Dict[str, Any]]:
         """Get all unsynced operations from the queue.
