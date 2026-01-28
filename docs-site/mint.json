@@ -7,12 +7,15 @@
   },
   "favicon": "/favicon.svg",
   "colors": {
-    "primary": "#8B5CF6",
-    "light": "#A78BFA",
-    "dark": "#7C3AED",
+    "primary": "#10B981",
+    "light": "#34D399",
+    "dark": "#059669",
+    "background": {
+      "dark": "#0a0a0a"
+    },
     "anchors": {
-      "from": "#8B5CF6",
-      "to": "#6366F1"
+      "from": "#10B981",
+      "to": "#059669"
     }
   },
   "topbarLinks": [
