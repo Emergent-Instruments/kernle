@@ -15,7 +15,7 @@ export default function Home() {
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
           <h1 className="text-2xl font-bold">Kernle</h1>
           <nav className="flex items-center gap-4">
-            <Link href="/docs" className="text-sm text-muted-foreground hover:text-foreground">
+            <Link href="https://docs.kernle.ai" className="text-sm text-muted-foreground hover:text-foreground">
               Docs
             </Link>
             {isLoading ? null : user ? (
@@ -48,10 +48,10 @@ export default function Home() {
           </p>
           <div className="flex justify-center gap-4 mb-16">
             <Button size="lg" asChild>
-              <Link href="/docs#quickstart">Get Started</Link>
+              <Link href="https://docs.kernle.ai/quickstart">Get Started</Link>
             </Button>
             <Button size="lg" variant="outline" asChild>
-              <Link href="/docs">Read the Docs</Link>
+              <Link href="https://docs.kernle.ai">Read the Docs</Link>
             </Button>
           </div>
 
@@ -182,7 +182,7 @@ export default function Home() {
           </p>
           <div className="flex justify-center gap-4">
             <Button size="lg" asChild>
-              <Link href="/docs#quickstart">Quickstart Guide</Link>
+              <Link href="https://docs.kernle.ai/quickstart">Quickstart Guide</Link>
             </Button>
             <Button size="lg" variant="outline" asChild>
               <a 
@@ -204,7 +204,7 @@ export default function Home() {
             Kernle — Memory for synthetic intelligences
           </p>
           <div className="flex gap-6">
-            <Link href="/docs" className="text-sm text-muted-foreground hover:text-foreground">
+            <Link href="https://docs.kernle.ai" className="text-sm text-muted-foreground hover:text-foreground">
               Docs
             </Link>
             <a 
