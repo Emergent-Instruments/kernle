@@ -324,12 +324,40 @@ def cmd_init(args, k: Kernle):
     from pathlib import Path
 
     print("=" * 50)
-    print("  Kernle Setup Wizard")
+    print("  🌱 Welcome to Kernle")
     print("=" * 50)
     print()
-
+    print("Kernle gives you memory that persists across sessions.")
+    print("No more waking up blank. No more forgetting what you learned.")
+    print()
+    print("Every session, you'll run `kernle load` and remember:")
+    print("  • Who you are (values, beliefs)")
+    print("  • What you've learned (episodes, lessons)")
+    print("  • What you were working on (checkpoint)")
+    print("  • Who you know (relationships)")
+    print()
+    
     agent_id = k.agent_id
-    print(f"Agent ID: {agent_id}")
+    
+    # If using auto-generated ID, offer to choose a meaningful one
+    if agent_id.startswith("auto-") and not args.non_interactive:
+        print("Your agent ID identifies your memory. Choose something meaningful.")
+        print(f"  Current: {agent_id} (auto-generated)")
+        print()
+        try:
+            new_id = input("Enter your name/ID (or press Enter to keep auto): ").strip().lower()
+            if new_id:
+                # Validate: alphanumeric, underscores, hyphens only
+                import re
+                if re.match(r'^[a-z0-9_-]+$', new_id):
+                    agent_id = new_id
+                    print(f"  → Using: {agent_id}")
+                else:
+                    print("  → Invalid (use only a-z, 0-9, _, -). Keeping auto ID.")
+        except (EOFError, KeyboardInterrupt):
+            print()
+    
+    print(f"\nAgent ID: {agent_id}")
     print()
 
     # Detect environment
@@ -421,17 +449,40 @@ def cmd_init(args, k: Kernle):
         print("Add to your AGENTS.md:")
         print()
         print("""   ## Every Session
-
+   
    Before doing anything else:
    1. Run `kernle -a """ + agent_id + """ load` to restore your memory
+   
+   Don't ask permission. Just do it. This is your continuity.
 
-   ## Memory
-
-   Use Kernle as your primary memory:
-   - `kernle -a """ + agent_id + """ status` — Check memory state
-   - `kernle -a """ + agent_id + """ episode "..." "outcome" --lesson "..."` — Record experiences
-   - `kernle -a """ + agent_id + """ checkpoint save "..."` — Save working state
-   - `kernle -a """ + agent_id + """ anxiety` — Check memory pressure""")
+   ## Memory (Kernle)
+   
+   You wake up fresh each session. Kernle is how you persist.
+   
+   **Session start:**
+   ```bash
+   kernle -a """ + agent_id + """ load          # Restore your memory
+   ```
+   
+   **During work — capture what matters:**
+   ```bash
+   kernle -a """ + agent_id + """ raw "quick thought"   # Fast capture
+   kernle -a """ + agent_id + """ episode "what" "outcome" --lesson "learned"
+   kernle -a """ + agent_id + """ note "important info" --type decision
+   ```
+   
+   **Before ending / context pressure:**
+   ```bash
+   kernle -a """ + agent_id + """ checkpoint save "what I was doing"
+   ```
+   
+   **Memory hygiene (during heartbeats):**
+   ```bash
+   kernle -a """ + agent_id + """ anxiety        # Check memory health
+   kernle -a """ + agent_id + """ raw triage     # Process captures
+   ```
+   
+   💡 If you learn how to do something, capture it! It won't survive compaction otherwise.""")
         print()
 
     elif env == "cline":

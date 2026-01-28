@@ -26,6 +26,15 @@ from kernle.features import (
     MetaMemoryMixin,
 )
 
+# Import logging utilities
+from kernle.logging_config import (
+    setup_kernle_logging,
+    log_load,
+    log_save,
+    log_checkpoint,
+    log_sync,
+)
+
 if TYPE_CHECKING:
     from kernle.storage import Storage as StorageProtocol
 
@@ -276,7 +285,7 @@ class Kernle(
                 if not e.tags or "checkpoint" not in e.tags
             ][:5]
 
-            return {
+            batched_result = {
                 "checkpoint": self.load_checkpoint(),
                 "values": [
                     {
@@ -349,9 +358,20 @@ class Kernle(
                     )
                 ],
             }
+            
+            # Log the load operation (batched path)
+            log_load(
+                self.agent_id,
+                values=len(batched.get("values", [])),
+                beliefs=len(batched.get("beliefs", [])),
+                episodes=len(batched.get("episodes", [])),
+                checkpoint=batched_result.get("checkpoint") is not None,
+            )
+            
+            return batched_result
 
         # Fallback to individual queries (for backends without load_all)
-        return {
+        result = {
             "checkpoint": self.load_checkpoint(),
             "values": self.load_values(),
             "beliefs": self.load_beliefs(),
@@ -362,6 +382,17 @@ class Kernle(
             "recent_notes": self.load_recent_notes(),
             "relationships": self.load_relationships(),
         }
+        
+        # Log the load operation
+        log_load(
+            self.agent_id,
+            values=len(result.get("values", [])),
+            beliefs=len(result.get("beliefs", [])),
+            episodes=len(result.get("recent_work", [])),
+            checkpoint=result.get("checkpoint") is not None,
+        )
+        
+        return result
 
     def load_values(self, limit: int = 10) -> List[Dict[str, Any]]:
         """Load normative values (highest authority)."""
@@ -547,6 +578,13 @@ class Kernle(
             sync_result = self._sync_after_checkpoint()
             checkpoint_data["_sync"] = sync_result
 
+        # Log the checkpoint save
+        log_checkpoint(
+            self.agent_id,
+            task=task,
+            context_len=len(context or ""),
+        )
+
         return checkpoint_data
 
     # Maximum checkpoint file size (10MB) to prevent DoS via large files
@@ -659,6 +697,15 @@ class Kernle(
         )
 
         self._storage.save_episode(episode)
+        
+        # Log the episode save
+        log_save(
+            self.agent_id,
+            memory_type="episode",
+            memory_id=episode_id,
+            summary=objective[:50],
+        )
+        
         return episode_id
 
     def update_episode(
