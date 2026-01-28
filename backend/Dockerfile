@@ -1,5 +1,6 @@
 FROM python:3.12-slim
 
+# Cache bust: 2026-01-27-v2
 WORKDIR /app
 
 # Install uv for fast dependency management
