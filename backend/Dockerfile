@@ -14,8 +14,11 @@ RUN uv pip install --system -e .
 # Copy application code
 COPY app/ app/
 
-# Default port (Railway overrides via $PORT)
+# Default port (Railway overrides via PORT env var)
 ENV PORT=8000
 
-# Run with uvicorn - shell form for variable expansion
-CMD ["/bin/sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+# Copy and use start script for proper variable expansion
+COPY start.sh .
+RUN chmod +x start.sh
+
+CMD ["./start.sh"]
