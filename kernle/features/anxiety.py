@@ -310,6 +310,18 @@ class AnxietyMixin:
 
         return report
 
+    def anxiety(
+        self: "Kernle",
+        context_tokens: Optional[int] = None,
+        context_limit: int = 200000,
+        detailed: bool = False,
+    ) -> dict:
+        """Alias for get_anxiety_report() - more intuitive API.
+        
+        See get_anxiety_report() for full documentation.
+        """
+        return self.get_anxiety_report(context_tokens, context_limit, detailed)
+
     def get_recommended_actions(self: "Kernle", anxiety_level: int) -> List[Dict[str, Any]]:
         """Return prioritized actions based on anxiety level.
 
