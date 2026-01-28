@@ -14,8 +14,9 @@ RUN uv pip install --system -e .
 # Copy application code
 COPY app/ app/
 
-# Expose port
-EXPOSE 8000
+# Default port (Railway overrides via $PORT)
+ENV PORT=8000
+EXPOSE $PORT
 
-# Run with uvicorn
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run with uvicorn - uses $PORT from environment
+CMD uvicorn app.main:app --host 0.0.0.0 --port $PORT
