@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
 from supabase import create_client
 
@@ -64,6 +64,7 @@ class SupabaseTokenExchange(BaseModel):
 @limiter.limit("10/minute")
 async def exchange_supabase_token(
     request: Request,
+    response: Response,
     token_request: SupabaseTokenExchange,
     db: Database,
     settings: Annotated[Settings, Depends(get_settings)],
@@ -72,7 +73,7 @@ async def exchange_supabase_token(
     Exchange a Supabase OAuth access token for a Kernle access token.
     
     This endpoint verifies the Supabase token, extracts user info,
-    and creates/returns a Kernle agent + token.
+    and creates/returns a Kernle agent + token. Also sets httpOnly cookie.
     """
     try:
         # Verify Supabase JWT using public keys from JWKS endpoint
@@ -190,6 +191,7 @@ async def exchange_supabase_token(
             agent_id_to_use = existing.get("agent_id")
             token = create_access_token(agent_id_to_use, settings, user_id=user_id)
             log_auth_event("oauth_login", agent_id_to_use, True)
+            set_auth_cookie(response, token, settings)
             
             return TokenResponse(
                 access_token=token,
@@ -205,6 +207,7 @@ async def exchange_supabase_token(
             logger.info(f"OAuth: Merging account - email {email} already exists with agent {agent_id_to_use}")
             token = create_access_token(agent_id_to_use, settings, user_id=user_id)
             log_auth_event("oauth_login_merged", agent_id_to_use, True)
+            set_auth_cookie(response, token, settings)
             
             return TokenResponse(
                 access_token=token,
@@ -245,6 +248,7 @@ async def exchange_supabase_token(
         token = create_access_token(agent_id, settings, user_id=user_id)
         log_auth_event("oauth_register", agent_id, True)
         logger.info(f"OAuth agent created: {agent_id} for {email}")
+        set_auth_cookie(response, token, settings)
         
         return TokenResponse(
             access_token=token,
@@ -269,6 +273,7 @@ async def exchange_supabase_token(
 @limiter.limit("5/minute")
 async def register_agent(
     request: Request,
+    response: Response,
     register_request: AgentRegister,
     db: Database,
     settings: Annotated[Settings, Depends(get_settings)],
@@ -277,6 +282,7 @@ async def register_agent(
     Register a new agent.
 
     Returns an access token and the agent's secret (store it safely, shown only once).
+    Also sets an httpOnly cookie for browser-based auth.
     """
     logger.info(f"Registration attempt for agent: {register_request.agent_id}")
 
@@ -320,6 +326,9 @@ async def register_agent(
 
     log_auth_event("register", register_request.agent_id, True)
     logger.debug(f"Agent {register_request.agent_id} registered with user_id={user_id}")
+
+    # Set httpOnly cookie for browser auth
+    set_auth_cookie(response, token, settings)
 
     return TokenResponse(
         access_token=token,
@@ -464,6 +473,7 @@ async def get_usage_stats(
 @limiter.limit("30/minute")
 async def login_with_api_key(
     request: Request,
+    response: Response,
     auth: CurrentAgent,
     db: Database,
     settings: Annotated[Settings, Depends(get_settings)],
@@ -473,7 +483,7 @@ async def login_with_api_key(
     
     This endpoint is primarily for CLI login flow - validates the API key
     (via the CurrentAgent dependency) and returns user context plus a
-    fresh JWT for subsequent requests.
+    fresh JWT for subsequent requests. Also sets httpOnly cookie.
     """
     from datetime import datetime, timedelta, timezone
     
@@ -497,6 +507,9 @@ async def login_with_api_key(
     
     log_auth_event("login", auth.agent_id, True)
     logger.info(f"API key login successful for {auth.agent_id}")
+    
+    # Set httpOnly cookie for browser auth
+    set_auth_cookie(response, token, settings)
     
     return LoginResponse(
         user_id=auth.user_id or agent.get("user_id", ""),
@@ -709,3 +722,41 @@ async def cycle_api_key(
             created_at=new_key_record["created_at"],
         ),
     )
+
+# =============================================================================
+# Cookie-based Auth Helpers
+# =============================================================================
+
+COOKIE_NAME = "kernle_auth"
+COOKIE_MAX_AGE = 7 * 24 * 60 * 60  # 7 days in seconds
+
+
+def set_auth_cookie(response: Response, token: str, settings: Settings):
+    """Set httpOnly auth cookie."""
+    response.set_cookie(
+        key=COOKIE_NAME,
+        value=token,
+        max_age=COOKIE_MAX_AGE,
+        httponly=True,
+        secure=True,  # Only send over HTTPS
+        samesite="lax",  # Protect against CSRF while allowing normal nav
+        path="/",
+    )
+
+
+def clear_auth_cookie(response: Response):
+    """Clear the auth cookie (logout)."""
+    response.delete_cookie(
+        key=COOKIE_NAME,
+        path="/",
+        httponly=True,
+        secure=True,
+        samesite="lax",
+    )
+
+
+@router.post("/logout")
+async def logout(response: Response):
+    """Clear auth cookie and logout."""
+    clear_auth_cookie(response)
+    return {"status": "logged_out"}

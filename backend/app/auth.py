@@ -8,12 +8,16 @@ from typing import Annotated
 import bcrypt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+
+# Cookie name for httpOnly auth
+AUTH_COOKIE_NAME = "kernle_auth"
 from jose import JWTError, jwt
 
 from .config import Settings, get_settings
 
 # Bearer token scheme
-security = HTTPBearer()
+# Make bearer optional to allow cookie fallback
+security = HTTPBearer(auto_error=False)
 
 # API Key prefix
 API_KEY_PREFIX = "knl_sk_"
@@ -149,12 +153,25 @@ class AuthContext:
 
 
 async def get_current_agent(
-    credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(security)],
     settings: Annotated[Settings, Depends(get_settings)],
     request: Request,
 ) -> AuthContext:
-    """Get the current authenticated agent context from the token or API key."""
-    token = credentials.credentials
+    """Get the current authenticated agent context from the token, API key, or cookie."""
+    # Try Authorization header first, then fall back to cookie
+    token = None
+    if credentials:
+        token = credentials.credentials
+    else:
+        # Check for httpOnly cookie
+        token = request.cookies.get(AUTH_COOKIE_NAME)
+    
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated - provide Authorization header or auth cookie",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     
     # Check if it's an API key
     if is_api_key(token):
