@@ -3,6 +3,7 @@
 import pytest
 from unittest.mock import MagicMock, patch
 from argparse import Namespace
+from datetime import datetime, timezone, timedelta
 
 from kernle.cli.commands.raw import cmd_raw, resolve_raw_id
 
@@ -52,6 +53,18 @@ class TestResolveRawId:
         with pytest.raises(ValueError, match="not found"):
             resolve_raw_id(k, "nonexistent")
 
+    def test_prefix_match_many(self):
+        """Many prefix matches should show truncated list."""
+        k = MagicMock()
+        k.get_raw.return_value = None
+        k.list_raw.return_value = [
+            {"id": f"abc{i:010d}", "content": f"test{i}"}
+            for i in range(10)
+        ]
+        
+        with pytest.raises(ValueError, match=r"Ambiguous ID.*\.\.\."):
+            resolve_raw_id(k, "abc")
+
 
 class TestCmdRawCapture:
     """Test raw capture command."""
@@ -92,6 +105,43 @@ class TestCmdRawCapture:
         assert "tag1" in call_kwargs[1]["tags"]
         assert "tag2" in call_kwargs[1]["tags"]
 
+    def test_capture_with_source(self, capsys):
+        """Capture with custom source."""
+        k = MagicMock()
+        k.raw.return_value = "raw-id-12345678"
+        
+        args = Namespace(
+            raw_action="capture",
+            content="test content",
+            tags=None,
+            source="voice",
+        )
+        
+        cmd_raw(args, k)
+        
+        call_kwargs = k.raw.call_args
+        assert call_kwargs[1]["source"] == "voice"
+        captured = capsys.readouterr()
+        assert "Source: voice" in captured.out
+
+    def test_capture_default_action(self, capsys):
+        """Default action (None) should capture."""
+        k = MagicMock()
+        k.raw.return_value = "raw-id-12345678"
+        
+        args = Namespace(
+            raw_action=None,
+            content="test content",
+            tags=None,
+            source=None,
+        )
+        
+        cmd_raw(args, k)
+        
+        k.raw.assert_called_once()
+        captured = capsys.readouterr()
+        assert "✓ Raw entry captured" in captured.out
+
 
 class TestCmdRawList:
     """Test raw list command."""
@@ -131,6 +181,84 @@ class TestCmdRawList:
         
         k.list_raw.assert_called_once_with(processed=False, limit=20)
 
+    def test_list_processed_filter(self):
+        """Processed filter should be passed."""
+        k = MagicMock()
+        k.list_raw.return_value = []
+        
+        args = Namespace(
+            raw_action="list",
+            unprocessed=False,
+            processed=True,
+            limit=20,
+            json=False,
+        )
+        
+        cmd_raw(args, k)
+        
+        k.list_raw.assert_called_once_with(processed=True, limit=20)
+
+    def test_list_with_entries(self, capsys):
+        """List with entries should display them."""
+        k = MagicMock()
+        k.list_raw.return_value = [
+            {
+                "id": "abc12345",
+                "content": "This is a test raw entry with lots of content that might be long",
+                "timestamp": "2026-01-28T10:00:00Z",
+                "processed": False,
+                "tags": ["test", "example"],
+                "processed_into": None,
+            },
+            {
+                "id": "def67890",
+                "content": "Already processed entry",
+                "timestamp": "2026-01-27T09:00:00Z",
+                "processed": True,
+                "tags": [],
+                "processed_into": ["episode:ep123"],
+            },
+        ]
+        
+        args = Namespace(
+            raw_action="list",
+            unprocessed=False,
+            processed=False,
+            limit=20,
+            json=False,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert "Raw Entries" in captured.out
+        assert "2 total" in captured.out
+        assert "1 unprocessed" in captured.out
+        assert "abc12345" in captured.out
+        assert "test, example" in captured.out
+        assert "episode:ep123" in captured.out
+
+    def test_list_json(self, capsys):
+        """List JSON output."""
+        k = MagicMock()
+        k.list_raw.return_value = [
+            {"id": "abc123", "content": "test", "timestamp": "2026-01-28", "processed": False, "tags": []}
+        ]
+        
+        args = Namespace(
+            raw_action="list",
+            unprocessed=False,
+            processed=False,
+            limit=20,
+            json=True,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert '"id"' in captured.out
+        assert '"abc123"' in captured.out
+
 
 class TestCmdRawShow:
     """Test raw show command."""
@@ -151,6 +279,231 @@ class TestCmdRawShow:
         
         captured = capsys.readouterr()
         assert "not found" in captured.out
+
+    def test_show_found(self, capsys):
+        """Show existing entry should display details."""
+        k = MagicMock()
+        # First call for resolve_raw_id, second for actual get
+        k.get_raw.side_effect = [
+            {"id": "abc12345", "content": "test"},  # resolve check
+            {
+                "id": "abc12345",
+                "content": "This is the full content\nWith multiple lines",
+                "timestamp": "2026-01-28T10:00:00Z",
+                "source": "cli",
+                "processed": False,
+                "tags": ["important"],
+                "processed_into": None,
+            },
+        ]
+        
+        args = Namespace(
+            raw_action="show",
+            id="abc12345",
+            json=False,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert "Raw Entry: abc12345" in captured.out
+        assert "Unprocessed" in captured.out
+        assert "cli" in captured.out
+        assert "important" in captured.out
+        assert "This is the full content" in captured.out
+
+    def test_show_processed_entry(self, capsys):
+        """Show processed entry should display details."""
+        k = MagicMock()
+        k.get_raw.side_effect = [
+            {"id": "abc12345", "content": "test"},
+            {
+                "id": "abc12345",
+                "content": "Content",
+                "timestamp": "2026-01-28T10:00:00Z",
+                "source": "cli",
+                "processed": True,
+                "tags": [],
+                "processed_into": ["episode:ep123", "note:n456"],
+            },
+        ]
+        
+        args = Namespace(
+            raw_action="show",
+            id="abc12345",
+            json=False,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert "Processed" in captured.out
+        assert "episode:ep123" in captured.out
+
+    def test_show_json(self, capsys):
+        """Show JSON output."""
+        k = MagicMock()
+        k.get_raw.side_effect = [
+            {"id": "abc12345", "content": "test"},
+            {
+                "id": "abc12345",
+                "content": "Content",
+                "timestamp": "2026-01-28T10:00:00Z",
+                "source": "cli",
+                "processed": False,
+                "tags": [],
+                "processed_into": None,
+            },
+        ]
+        
+        args = Namespace(
+            raw_action="show",
+            id="abc12345",
+            json=True,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert '"id"' in captured.out
+        assert '"abc12345"' in captured.out
+
+
+class TestCmdRawProcess:
+    """Test raw process command."""
+
+    def test_process_success(self, capsys):
+        """Successful processing."""
+        k = MagicMock()
+        k.get_raw.return_value = {"id": "abc12345", "content": "test"}
+        k.process_raw.return_value = "ep123456"
+        
+        args = Namespace(
+            raw_action="process",
+            id="abc12345",
+            type="episode",
+            objective="Test objective",
+            outcome="Test outcome",
+        )
+        
+        cmd_raw(args, k)
+        
+        k.process_raw.assert_called_once()
+        captured = capsys.readouterr()
+        assert "✓ Processed" in captured.out
+        assert "episode:ep12345" in captured.out
+
+    def test_process_not_found(self, capsys):
+        """Process non-existent entry."""
+        k = MagicMock()
+        k.get_raw.return_value = None
+        k.list_raw.return_value = []
+        
+        args = Namespace(
+            raw_action="process",
+            id="nonexistent",
+            type="episode",
+            objective=None,
+            outcome=None,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert "✗" in captured.out
+        assert "not found" in captured.out
+
+    def test_process_batch(self, capsys):
+        """Process multiple entries."""
+        k = MagicMock()
+        k.get_raw.side_effect = [
+            {"id": "abc12345", "content": "test1"},
+            {"id": "def67890", "content": "test2"},
+        ]
+        k.process_raw.side_effect = ["ep1", "ep2"]
+        
+        args = Namespace(
+            raw_action="process",
+            id="abc12345,def67890",
+            type="episode",
+            objective=None,
+            outcome=None,
+        )
+        
+        cmd_raw(args, k)
+        
+        assert k.process_raw.call_count == 2
+        captured = capsys.readouterr()
+        assert "Processed 2/2" in captured.out
+
+
+class TestCmdRawReview:
+    """Test raw review command."""
+
+    def test_review_empty(self, capsys):
+        """Review with no unprocessed entries."""
+        k = MagicMock()
+        k.list_raw.return_value = []
+        
+        args = Namespace(
+            raw_action="review",
+            limit=10,
+            json=False,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert "No unprocessed raw entries" in captured.out
+        assert "memory is up to date" in captured.out
+
+    def test_review_with_entries(self, capsys):
+        """Review with unprocessed entries."""
+        k = MagicMock()
+        k.list_raw.return_value = [
+            {
+                "id": "abc12345",
+                "content": "I learned that testing is important",
+                "timestamp": "2026-01-28T10:00:00Z",
+                "tags": ["work"],
+            },
+            {
+                "id": "def67890",
+                "content": "I decided to use Python for this project",
+                "timestamp": "2026-01-27T09:00:00Z",
+                "tags": [],
+            },
+        ]
+        
+        args = Namespace(
+            raw_action="review",
+            limit=10,
+            json=False,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert "Raw Entry Review" in captured.out
+        assert "2 unprocessed entries" in captured.out
+        assert "episode (contains learning)" in captured.out
+        assert "note (contains decision)" in captured.out
+
+    def test_review_json(self, capsys):
+        """Review JSON output."""
+        k = MagicMock()
+        k.list_raw.return_value = [{"id": "abc123", "content": "test"}]
+        
+        args = Namespace(
+            raw_action="review",
+            limit=10,
+            json=True,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert '"id"' in captured.out
 
 
 class TestCmdRawClean:
@@ -193,3 +546,450 @@ class TestCmdRawClean:
         captured = capsys.readouterr()
         # "test" is <10 chars, should be detected as junk
         assert "junk" in captured.out.lower()
+
+    def test_clean_stale_entries(self, capsys):
+        """Clean stale entries (older than age days)."""
+        k = MagicMock()
+        old_timestamp = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+        k.list_raw.return_value = [
+            {"id": "abc123", "content": "old entry content", "timestamp": old_timestamp},
+        ]
+        
+        args = Namespace(
+            raw_action="clean",
+            age=7,
+            junk=False,
+            confirm=False,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert "older than 7 days" in captured.out
+        assert "DRY RUN" in captured.out
+
+    def test_clean_with_confirm(self, capsys):
+        """Clean with confirm should actually delete."""
+        k = MagicMock()
+        k.list_raw.return_value = [
+            {"id": "abc123", "content": "test", "timestamp": "2026-01-01T00:00:00Z"},
+        ]
+        k._storage.delete_raw.return_value = True
+        
+        args = Namespace(
+            raw_action="clean",
+            age=7,
+            junk=True,
+            confirm=True,
+        )
+        
+        cmd_raw(args, k)
+        
+        k._storage.delete_raw.assert_called_once_with("abc123")
+        captured = capsys.readouterr()
+        assert "Deleted 1" in captured.out
+
+    def test_clean_junk_keywords(self, capsys):
+        """Clean should detect junk keywords."""
+        k = MagicMock()
+        k.list_raw.return_value = [
+            {"id": "abc123", "content": "testing 123", "timestamp": "2026-01-01T00:00:00Z"},
+            {"id": "def456", "content": "hello", "timestamp": "2026-01-01T00:00:00Z"},
+            {"id": "ghi789", "content": "foo", "timestamp": "2026-01-01T00:00:00Z"},
+        ]
+        
+        args = Namespace(
+            raw_action="clean",
+            age=7,
+            junk=True,
+            confirm=False,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert "junk" in captured.out.lower()
+
+    def test_clean_many_entries(self, capsys):
+        """Clean with many entries should show truncated list."""
+        k = MagicMock()
+        k.list_raw.return_value = [
+            {"id": f"entry{i:05d}", "content": "x", "timestamp": "2026-01-01T00:00:00Z"}
+            for i in range(20)
+        ]
+        
+        args = Namespace(
+            raw_action="clean",
+            age=7,
+            junk=True,
+            confirm=False,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert "... and" in captured.out  # Shows truncation
+
+
+class TestCmdRawPromote:
+    """Test raw promote command."""
+
+    def test_promote_to_episode(self, capsys):
+        """Promote to episode."""
+        k = MagicMock()
+        k.get_raw.side_effect = [
+            {"id": "abc12345", "content": "test"},  # For resolve
+            {"id": "abc12345", "content": "Episode content", "tags": []},
+        ]
+        k.episode.return_value = "ep123456"
+        k._storage.mark_raw_processed.return_value = True
+        
+        args = Namespace(
+            raw_action="promote",
+            id="abc12345",
+            type="episode",
+            objective=None,
+            outcome=None,
+        )
+        
+        cmd_raw(args, k)
+        
+        k.episode.assert_called_once()
+        captured = capsys.readouterr()
+        assert "✓ Promoted to episode" in captured.out
+
+    def test_promote_to_note(self, capsys):
+        """Promote to note."""
+        k = MagicMock()
+        k.get_raw.side_effect = [
+            {"id": "abc12345", "content": "test"},
+            {"id": "abc12345", "content": "Note content", "tags": []},
+        ]
+        k.note.return_value = "note123"
+        k._storage.mark_raw_processed.return_value = True
+        
+        args = Namespace(
+            raw_action="promote",
+            id="abc12345",
+            type="note",
+            objective=None,
+            outcome=None,
+        )
+        
+        cmd_raw(args, k)
+        
+        k.note.assert_called_once()
+        captured = capsys.readouterr()
+        assert "✓ Promoted to note" in captured.out
+
+    def test_promote_to_belief(self, capsys):
+        """Promote to belief."""
+        k = MagicMock()
+        k.get_raw.side_effect = [
+            {"id": "abc12345", "content": "test"},
+            {"id": "abc12345", "content": "Belief statement", "tags": []},
+        ]
+        k.belief.return_value = "belief123"
+        k._storage.mark_raw_processed.return_value = True
+        
+        args = Namespace(
+            raw_action="promote",
+            id="abc12345",
+            type="belief",
+            objective=None,
+            outcome=None,
+        )
+        
+        cmd_raw(args, k)
+        
+        k.belief.assert_called_once()
+        captured = capsys.readouterr()
+        assert "✓ Promoted to belief" in captured.out
+
+    def test_promote_not_found(self, capsys):
+        """Promote non-existent entry."""
+        k = MagicMock()
+        k.get_raw.return_value = None
+        k.list_raw.return_value = []
+        
+        args = Namespace(
+            raw_action="promote",
+            id="nonexistent",
+            type="episode",
+            objective=None,
+            outcome=None,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert "✗" in captured.out
+        assert "not found" in captured.out
+
+
+class TestCmdRawTriage:
+    """Test raw triage command."""
+
+    def test_triage_empty(self, capsys):
+        """Triage with no entries."""
+        k = MagicMock()
+        k.list_raw.return_value = []
+        
+        args = Namespace(
+            raw_action="triage",
+            limit=10,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert "No unprocessed raw entries" in captured.out
+
+    def test_triage_with_entries(self, capsys):
+        """Triage with entries should suggest actions."""
+        k = MagicMock()
+        k.list_raw.return_value = [
+            {
+                "id": "abc12345",
+                "content": "test",  # Short = junk
+                "timestamp": "2026-01-28T10:00:00Z",
+            },
+            {
+                "id": "def67890",
+                "content": "Session completed: implemented new feature and shipped it",
+                "timestamp": "2026-01-27T09:00:00Z",
+            },
+            {
+                "id": "ghi11111",
+                "content": "Important insight: testing saves time in the long run",
+                "timestamp": "2026-01-26T08:00:00Z",
+            },
+        ]
+        
+        args = Namespace(
+            raw_action="triage",
+            limit=10,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert "Triage" in captured.out
+        assert "Delete" in captured.out  # "test" is junk
+        assert "Episode" in captured.out  # Session/shipped = episode
+        assert "Note" in captured.out  # Insight = note
+
+
+class TestCmdRawFiles:
+    """Test raw files command."""
+
+    def test_files_empty(self, capsys):
+        """Files with empty directory."""
+        from pathlib import Path
+        k = MagicMock()
+        mock_path = MagicMock(spec=Path)
+        mock_path.__str__ = lambda self: "/home/test/.kernle/raw"
+        mock_path.parent = Path("/home/test/.kernle")
+        k._storage.get_raw_dir.return_value = mock_path
+        k._storage.get_raw_files.return_value = []
+        
+        args = Namespace(
+            raw_action="files",
+            open=False,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert "Raw Flat Files Directory" in captured.out
+        assert "No raw files yet" in captured.out
+
+    def test_files_with_entries(self, capsys):
+        """Files with some entries."""
+        from pathlib import Path
+        k = MagicMock()
+        mock_path = MagicMock(spec=Path)
+        mock_path.__str__ = lambda self: "/home/test/.kernle/raw"
+        mock_path.parent = Path("/home/test/.kernle")
+        k._storage.get_raw_dir.return_value = mock_path
+        
+        # Create mock file objects
+        mock_file1 = MagicMock()
+        mock_file1.name = "2026-01-28.md"
+        mock_file1.stat.return_value.st_size = 1024
+        
+        mock_file2 = MagicMock()
+        mock_file2.name = "2026-01-27.md"
+        mock_file2.stat.return_value.st_size = 512
+        
+        k._storage.get_raw_files.return_value = [mock_file1, mock_file2]
+        
+        args = Namespace(
+            raw_action="files",
+            open=False,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert "2 total" in captured.out
+        assert "2026-01-28.md" in captured.out
+        assert "1,536 bytes" in captured.out  # Total size
+
+    def test_files_many_entries(self, capsys):
+        """Files with more than 10 entries."""
+        from pathlib import Path
+        k = MagicMock()
+        mock_path = MagicMock(spec=Path)
+        mock_path.__str__ = lambda self: "/home/test/.kernle/raw"
+        mock_path.parent = Path("/home/test/.kernle")
+        k._storage.get_raw_dir.return_value = mock_path
+        
+        # Create 15 mock file objects
+        mock_files = []
+        for i in range(15):
+            mock_file = MagicMock()
+            mock_file.name = f"2026-01-{15-i:02d}.md"
+            mock_file.stat.return_value.st_size = 100
+            mock_files.append(mock_file)
+        
+        k._storage.get_raw_files.return_value = mock_files
+        
+        args = Namespace(
+            raw_action="files",
+            open=False,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert "15 total" in captured.out
+        assert "... and 5 more" in captured.out
+
+
+class TestCmdRawSync:
+    """Test raw sync command."""
+
+    def test_sync_no_entries(self, capsys):
+        """Sync with nothing to import."""
+        k = MagicMock()
+        k._storage.sync_raw_from_files.return_value = {
+            "files_processed": 5,
+            "imported": 0,
+            "skipped": 10,
+            "errors": [],
+        }
+        
+        args = Namespace(
+            raw_action="sync",
+            dry_run=False,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert "Files processed: 5" in captured.out
+        assert "Entries imported: 0" in captured.out
+        assert "All entries already indexed" in captured.out
+
+    def test_sync_with_imports(self, capsys):
+        """Sync with entries to import."""
+        k = MagicMock()
+        k._storage.sync_raw_from_files.return_value = {
+            "files_processed": 3,
+            "imported": 5,
+            "skipped": 2,
+            "errors": [],
+        }
+        
+        args = Namespace(
+            raw_action="sync",
+            dry_run=False,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert "Imported 5 entries" in captured.out
+
+    def test_sync_with_errors(self, capsys):
+        """Sync with some errors."""
+        k = MagicMock()
+        k._storage.sync_raw_from_files.return_value = {
+            "files_processed": 3,
+            "imported": 2,
+            "skipped": 0,
+            "errors": ["Error parsing file1.md", "Error parsing file2.md"],
+        }
+        
+        args = Namespace(
+            raw_action="sync",
+            dry_run=False,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert "Errors (2)" in captured.out
+        assert "Error parsing file1.md" in captured.out
+
+    def test_sync_empty(self, capsys):
+        """Sync with no files and no entries."""
+        k = MagicMock()
+        k._storage.sync_raw_from_files.return_value = {
+            "files_processed": 0,
+            "imported": 0,
+            "skipped": 0,
+            "errors": [],
+        }
+        
+        args = Namespace(
+            raw_action="sync",
+            dry_run=False,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert "No entries to import" in captured.out
+
+    def test_sync_many_errors(self, capsys):
+        """Sync with many errors."""
+        k = MagicMock()
+        k._storage.sync_raw_from_files.return_value = {
+            "files_processed": 10,
+            "imported": 0,
+            "skipped": 0,
+            "errors": [f"Error {i}" for i in range(10)],
+        }
+        
+        args = Namespace(
+            raw_action="sync",
+            dry_run=False,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert "Errors (10)" in captured.out
+        assert "... and 5 more" in captured.out
+
+    def test_sync_dry_run(self, capsys):
+        """Sync with dry run mode."""
+        k = MagicMock()
+        k._storage.sync_raw_from_files.return_value = {
+            "files_processed": 5,
+            "imported": 3,
+            "skipped": 0,
+            "errors": [],
+        }
+        
+        args = Namespace(
+            raw_action="sync",
+            dry_run=True,
+        )
+        
+        cmd_raw(args, k)
+        
+        captured = capsys.readouterr()
+        assert "DRY RUN" in captured.out

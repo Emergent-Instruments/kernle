@@ -52,6 +52,99 @@ class TestCmdBeliefRevise:
         captured = capsys.readouterr()
         assert "✗" in captured.out
 
+    def test_revise_json(self, capsys):
+        """Revise JSON output."""
+        k = MagicMock()
+        k.revise_beliefs_from_episode.return_value = {
+            "reinforced": [{"statement": "Test", "belief_id": "b123"}],
+            "contradicted": [],
+            "suggested_new": [],
+        }
+        
+        args = Namespace(
+            belief_action="revise",
+            episode_id="ep123",
+            json=True,
+        )
+        
+        cmd_belief(args, k)
+        
+        captured = capsys.readouterr()
+        assert '"reinforced"' in captured.out
+
+    def test_revise_with_contradictions(self, capsys):
+        """Revision with contradictions."""
+        k = MagicMock()
+        k.revise_beliefs_from_episode.return_value = {
+            "reinforced": [],
+            "contradicted": [
+                {
+                    "statement": "Contradicting statement here with enough content to display",
+                    "belief_id": "b456",
+                    "evidence": "Evidence for the contradiction here",
+                }
+            ],
+            "suggested_new": [],
+        }
+        
+        args = Namespace(
+            belief_action="revise",
+            episode_id="ep123",
+            json=False,
+        )
+        
+        cmd_belief(args, k)
+        
+        captured = capsys.readouterr()
+        assert "Potential Contradictions" in captured.out
+        assert "Contradicting statement" in captured.out
+
+    def test_revise_with_suggested(self, capsys):
+        """Revision with suggested new beliefs."""
+        k = MagicMock()
+        k.revise_beliefs_from_episode.return_value = {
+            "reinforced": [],
+            "contradicted": [],
+            "suggested_new": [
+                {
+                    "statement": "New suggested belief statement here with content",
+                    "suggested_confidence": 0.75,
+                }
+            ],
+        }
+        
+        args = Namespace(
+            belief_action="revise",
+            episode_id="ep123",
+            json=False,
+        )
+        
+        cmd_belief(args, k)
+        
+        captured = capsys.readouterr()
+        assert "Suggested New Beliefs" in captured.out
+        assert "75%" in captured.out
+
+    def test_revise_no_changes(self, capsys):
+        """Revision with no changes found."""
+        k = MagicMock()
+        k.revise_beliefs_from_episode.return_value = {
+            "reinforced": [],
+            "contradicted": [],
+            "suggested_new": [],
+        }
+        
+        args = Namespace(
+            belief_action="revise",
+            episode_id="ep123",
+            json=False,
+        )
+        
+        cmd_belief(args, k)
+        
+        captured = capsys.readouterr()
+        assert "No belief revisions found" in captured.out
+
 
 class TestCmdBeliefContradictions:
     """Test belief contradictions command."""
@@ -100,6 +193,25 @@ class TestCmdBeliefContradictions:
         captured = capsys.readouterr()
         assert "Potential Contradictions" in captured.out
         assert "Contradicting belief" in captured.out
+
+    def test_contradictions_json(self, capsys):
+        """Contradictions JSON output."""
+        k = MagicMock()
+        k.find_contradictions.return_value = [
+            {"belief_id": "b123", "statement": "test", "contradiction_confidence": 0.7}
+        ]
+        
+        args = Namespace(
+            belief_action="contradictions",
+            statement="Test",
+            limit=10,
+            json=True,
+        )
+        
+        cmd_belief(args, k)
+        
+        captured = capsys.readouterr()
+        assert '"belief_id"' in captured.out
 
 
 class TestCmdBeliefHistory:
@@ -161,6 +273,25 @@ class TestCmdBeliefHistory:
         assert "Belief Revision History" in captured.out
         assert "Original belief" in captured.out
         assert "Updated belief" in captured.out
+
+    def test_history_json(self, capsys):
+        """History JSON output."""
+        k = MagicMock()
+        k.get_belief_history.return_value = [
+            {"id": "b123", "statement": "test", "confidence": 0.8}
+        ]
+        
+        args = Namespace(
+            belief_action="history",
+            id="b123",
+            json=True,
+        )
+        
+        cmd_belief(args, k)
+        
+        captured = capsys.readouterr()
+        assert '"id"' in captured.out
+        assert '"b123"' in captured.out
 
 
 class TestCmdBeliefReinforce:
@@ -291,3 +422,75 @@ class TestCmdBeliefList:
         captured = capsys.readouterr()
         assert "Test belief" in captured.out
         assert "80%" in captured.out
+
+    def test_list_with_supersession_chain(self, capsys):
+        """List with beliefs that have supersession chain."""
+        belief1 = MagicMock()
+        belief1.id = "b123"
+        belief1.statement = "Old belief that was superseded"
+        belief1.confidence = 0.6
+        belief1.times_reinforced = 0
+        belief1.is_active = False
+        belief1.supersedes = None
+        belief1.superseded_by = "b456"
+        belief1.created_at = MagicMock()
+        belief1.created_at.isoformat.return_value = "2026-01-01T00:00:00Z"
+        
+        belief2 = MagicMock()
+        belief2.id = "b456"
+        belief2.statement = "New belief that supersedes old"
+        belief2.confidence = 0.9
+        belief2.times_reinforced = 3
+        belief2.is_active = True
+        belief2.supersedes = "b123"
+        belief2.superseded_by = None
+        belief2.created_at = MagicMock()
+        belief2.created_at.isoformat.return_value = "2026-01-15T00:00:00Z"
+        
+        k = MagicMock()
+        k._storage.get_beliefs.return_value = [belief1, belief2]
+        
+        args = Namespace(
+            belief_action="list",
+            limit=20,
+            all=True,
+            json=False,
+        )
+        
+        cmd_belief(args, k)
+        
+        captured = capsys.readouterr()
+        assert "Supersedes:" in captured.out
+        assert "Superseded by:" in captured.out
+        assert "🟢" in captured.out  # Active
+        assert "⚫" in captured.out  # Inactive
+
+    def test_list_json(self, capsys):
+        """List JSON output."""
+        belief1 = MagicMock()
+        belief1.id = "b123"
+        belief1.statement = "Test belief"
+        belief1.confidence = 0.8
+        belief1.times_reinforced = 2
+        belief1.is_active = True
+        belief1.supersedes = None
+        belief1.superseded_by = None
+        belief1.created_at = MagicMock()
+        belief1.created_at.isoformat.return_value = "2026-01-01T00:00:00Z"
+        
+        k = MagicMock()
+        k._storage.get_beliefs.return_value = [belief1]
+        
+        args = Namespace(
+            belief_action="list",
+            limit=20,
+            all=False,
+            json=True,
+        )
+        
+        cmd_belief(args, k)
+        
+        captured = capsys.readouterr()
+        assert '"id"' in captured.out
+        assert '"statement"' in captured.out
+        assert '"confidence"' in captured.out
