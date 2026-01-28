@@ -65,17 +65,27 @@ async def _semantic_search(
     memory_types: list[str] | None,
 ) -> list[MemorySearchResult]:
     """Search using pgvector semantic similarity."""
+    import logging
+    logger = logging.getLogger("kernle.memories")
+    
     try:
+        logger.info(f"Semantic search: agent={agent_id}, embedding_dims={len(query_embedding)}, limit={limit}")
+        
+        # Convert embedding list to pgvector string format
+        embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
+        
         # Call the RPC function
         result = db.rpc(
             "search_memories_semantic",
             {
-                "query_embedding": query_embedding,
+                "query_embedding": embedding_str,
                 "p_agent_id": agent_id,
                 "p_limit": limit,
                 "p_memory_types": memory_types,
             }
         ).execute()
+        
+        logger.info(f"Semantic search returned {len(result.data)} results")
         
         return [
             MemorySearchResult(
@@ -88,8 +98,9 @@ async def _semantic_search(
             )
             for row in result.data
         ]
-    except Exception:
+    except Exception as e:
         # RPC not available or failed - fall back to text search
+        logger.error(f"Semantic search failed, falling back to text: {e}")
         return []
 
 
