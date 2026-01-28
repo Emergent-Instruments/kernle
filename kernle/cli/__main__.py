@@ -2839,6 +2839,307 @@ def cmd_auth(args, k: Kernle = None):
             else:
                 print("Already logged out (no credentials found)")
 
+    elif args.auth_action == "keys":
+        cmd_auth_keys(args)
+
+
+def cmd_auth_keys(args):
+    """Handle API key management subcommands."""
+    from datetime import datetime, timezone
+
+    def get_http_client():
+        """Get an HTTP client for backend requests."""
+        try:
+            import httpx
+            return httpx
+        except ImportError:
+            print("✗ httpx not installed. Run: pip install httpx")
+            sys.exit(1)
+
+    def require_auth():
+        """Load credentials and return (backend_url, api_key) or exit."""
+        credentials = load_credentials()
+        if not credentials:
+            print("✗ Not authenticated")
+            print("  Run `kernle auth login` first")
+            sys.exit(1)
+
+        backend_url = credentials.get("backend_url")
+        api_key = credentials.get("api_key")
+
+        if not backend_url or not api_key:
+            print("✗ Missing credentials")
+            print("  Run `kernle auth login` to re-authenticate")
+            sys.exit(1)
+
+        return backend_url.rstrip("/"), api_key
+
+    def mask_key(key: str) -> str:
+        """Mask an API key for display (show first 8 and last 4 chars)."""
+        if not key or len(key) <= 16:
+            return key[:4] + "..." if key and len(key) > 4 else key or ""
+        return key[:8] + "..." + key[-4:]
+
+    httpx = get_http_client()
+
+    if args.keys_action == "list":
+        backend_url, api_key = require_auth()
+
+        try:
+            response = httpx.get(
+                f"{backend_url}/auth/keys",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=30.0,
+            )
+
+            if response.status_code == 200:
+                keys = response.json()
+
+                if args.json:
+                    print(json.dumps(keys, indent=2))
+                else:
+                    if not keys:
+                        print("No API keys found.")
+                        return
+
+                    print("API Keys")
+                    print("=" * 70)
+                    print()
+
+                    for key_info in keys:
+                        key_id = key_info.get("id", "unknown")
+                        name = key_info.get("name") or "(unnamed)"
+                        masked = mask_key(key_info.get("key_prefix", ""))
+                        created = key_info.get("created_at", "")[:10] if key_info.get("created_at") else "unknown"
+                        last_used = key_info.get("last_used_at")
+                        is_active = key_info.get("is_active", True)
+
+                        status_icon = "🟢" if is_active else "🔴"
+                        print(f"{status_icon} {name}")
+                        print(f"   ID:       {key_id}")
+                        print(f"   Key:      {masked}...")
+                        print(f"   Created:  {created}")
+                        if last_used:
+                            print(f"   Last used: {last_used[:10]}")
+                        if not is_active:
+                            print("   Status:   REVOKED")
+                        print()
+
+            elif response.status_code == 401:
+                print("✗ Authentication failed")
+                print("  Run `kernle auth login` to re-authenticate")
+                sys.exit(1)
+            else:
+                print(f"✗ Failed to list keys: HTTP {response.status_code}")
+                try:
+                    error = response.json().get("detail", response.text)
+                    print(f"  {error[:200]}")
+                except Exception:
+                    print(f"  {response.text[:200]}")
+                sys.exit(1)
+
+        except httpx.ConnectError:
+            print(f"✗ Could not connect to {backend_url}")
+            sys.exit(1)
+        except Exception as e:
+            print(f"✗ Failed to list keys: {e}")
+            sys.exit(1)
+
+    elif args.keys_action == "create":
+        backend_url, api_key = require_auth()
+        name = getattr(args, "name", None)
+
+        try:
+            payload = {}
+            if name:
+                payload["name"] = name
+
+            response = httpx.post(
+                f"{backend_url}/auth/keys",
+                headers={"Authorization": f"Bearer {api_key}"},
+                json=payload,
+                timeout=30.0,
+            )
+
+            if response.status_code in (200, 201):
+                result = response.json()
+                new_key = result.get("key") or result.get("api_key")
+                key_id = result.get("id") or result.get("key_id")
+                key_name = result.get("name") or name or "(unnamed)"
+
+                if args.json:
+                    print(json.dumps(result, indent=2))
+                else:
+                    print("✓ API key created")
+                    print()
+                    print("=" * 70)
+                    print("⚠️  SAVE THIS KEY NOW - IT WILL ONLY BE SHOWN ONCE!")
+                    print("=" * 70)
+                    print()
+                    print(f"  Name:    {key_name}")
+                    print(f"  ID:      {key_id}")
+                    print(f"  Key:     {new_key}")
+                    print()
+                    print("=" * 70)
+                    print()
+                    print("Store this key securely. You will not be able to see it again.")
+                    print("Use `kernle auth keys list` to see your keys (masked).")
+
+            elif response.status_code == 401:
+                print("✗ Authentication failed")
+                print("  Run `kernle auth login` to re-authenticate")
+                sys.exit(1)
+            elif response.status_code == 429:
+                print("✗ Rate limit exceeded")
+                print("  Wait a moment and try again")
+                sys.exit(1)
+            else:
+                print(f"✗ Failed to create key: HTTP {response.status_code}")
+                try:
+                    error = response.json().get("detail", response.text)
+                    print(f"  {error[:200]}")
+                except Exception:
+                    print(f"  {response.text[:200]}")
+                sys.exit(1)
+
+        except httpx.ConnectError:
+            print(f"✗ Could not connect to {backend_url}")
+            sys.exit(1)
+        except Exception as e:
+            print(f"✗ Failed to create key: {e}")
+            sys.exit(1)
+
+    elif args.keys_action == "revoke":
+        backend_url, api_key = require_auth()
+        key_id = args.key_id
+
+        # Confirm unless --force
+        if not getattr(args, "force", False):
+            print(f"⚠️  You are about to revoke API key: {key_id}")
+            print("   This action cannot be undone.")
+            print()
+            print("Type 'yes' to confirm: ", end="", flush=True)
+            try:
+                confirm = input().strip().lower()
+                if confirm != "yes":
+                    print("Aborted.")
+                    return
+            except (EOFError, KeyboardInterrupt):
+                print("\nAborted.")
+                return
+
+        try:
+            response = httpx.delete(
+                f"{backend_url}/auth/keys/{key_id}",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=30.0,
+            )
+
+            if response.status_code in (200, 204):
+                if args.json:
+                    print(json.dumps({"status": "success", "key_id": key_id, "action": "revoked"}, indent=2))
+                else:
+                    print(f"✓ API key {key_id} has been revoked")
+                    print()
+                    print("  The key can no longer be used for authentication.")
+
+            elif response.status_code == 401:
+                print("✗ Authentication failed")
+                print("  Run `kernle auth login` to re-authenticate")
+                sys.exit(1)
+            elif response.status_code == 404:
+                print(f"✗ Key not found: {key_id}")
+                sys.exit(1)
+            else:
+                print(f"✗ Failed to revoke key: HTTP {response.status_code}")
+                try:
+                    error = response.json().get("detail", response.text)
+                    print(f"  {error[:200]}")
+                except Exception:
+                    print(f"  {response.text[:200]}")
+                sys.exit(1)
+
+        except httpx.ConnectError:
+            print(f"✗ Could not connect to {backend_url}")
+            sys.exit(1)
+        except Exception as e:
+            print(f"✗ Failed to revoke key: {e}")
+            sys.exit(1)
+
+    elif args.keys_action == "cycle":
+        backend_url, api_key = require_auth()
+        key_id = args.key_id
+
+        # Confirm unless --force
+        if not getattr(args, "force", False):
+            print(f"⚠️  You are about to cycle API key: {key_id}")
+            print("   The old key will be deactivated and a new key will be generated.")
+            print()
+            print("Type 'yes' to confirm: ", end="", flush=True)
+            try:
+                confirm = input().strip().lower()
+                if confirm != "yes":
+                    print("Aborted.")
+                    return
+            except (EOFError, KeyboardInterrupt):
+                print("\nAborted.")
+                return
+
+        try:
+            response = httpx.post(
+                f"{backend_url}/auth/keys/{key_id}/cycle",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=30.0,
+            )
+
+            if response.status_code in (200, 201):
+                result = response.json()
+                new_key = result.get("key") or result.get("api_key")
+                new_key_id = result.get("id") or result.get("key_id")
+                key_name = result.get("name") or "(unnamed)"
+
+                if args.json:
+                    print(json.dumps(result, indent=2))
+                else:
+                    print("✓ API key cycled")
+                    print()
+                    print(f"  Old key {key_id} has been deactivated.")
+                    print()
+                    print("=" * 70)
+                    print("⚠️  SAVE THIS NEW KEY NOW - IT WILL ONLY BE SHOWN ONCE!")
+                    print("=" * 70)
+                    print()
+                    print(f"  Name:    {key_name}")
+                    print(f"  ID:      {new_key_id}")
+                    print(f"  Key:     {new_key}")
+                    print()
+                    print("=" * 70)
+                    print()
+                    print("Update any systems using the old key to use this new key.")
+
+            elif response.status_code == 401:
+                print("✗ Authentication failed")
+                print("  Run `kernle auth login` to re-authenticate")
+                sys.exit(1)
+            elif response.status_code == 404:
+                print(f"✗ Key not found: {key_id}")
+                sys.exit(1)
+            else:
+                print(f"✗ Failed to cycle key: HTTP {response.status_code}")
+                try:
+                    error = response.json().get("detail", response.text)
+                    print(f"  {error[:200]}")
+                except Exception:
+                    print(f"  {response.text[:200]}")
+                sys.exit(1)
+
+        except httpx.ConnectError:
+            print(f"✗ Could not connect to {backend_url}")
+            sys.exit(1)
+        except Exception as e:
+            print(f"✗ Failed to cycle key: {e}")
+            sys.exit(1)
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -3302,6 +3603,37 @@ def main():
     auth_logout = auth_sub.add_parser("logout", help="Clear stored credentials")
     auth_logout.add_argument("--json", "-j", action="store_true",
                              help="Output as JSON")
+
+    # kernle auth keys (API key management)
+    auth_keys = auth_sub.add_parser("keys", help="Manage API keys")
+    keys_sub = auth_keys.add_subparsers(dest="keys_action", required=True)
+
+    # kernle auth keys list
+    keys_list = keys_sub.add_parser("list", help="List your API keys (masked)")
+    keys_list.add_argument("--json", "-j", action="store_true",
+                           help="Output as JSON")
+
+    # kernle auth keys create [--name NAME]
+    keys_create = keys_sub.add_parser("create", help="Create a new API key")
+    keys_create.add_argument("--name", "-n", help="Name for the key (for identification)")
+    keys_create.add_argument("--json", "-j", action="store_true",
+                             help="Output as JSON")
+
+    # kernle auth keys revoke KEY_ID
+    keys_revoke = keys_sub.add_parser("revoke", help="Revoke/delete an API key")
+    keys_revoke.add_argument("key_id", help="ID of the key to revoke")
+    keys_revoke.add_argument("--force", "-f", action="store_true",
+                             help="Skip confirmation prompt")
+    keys_revoke.add_argument("--json", "-j", action="store_true",
+                             help="Output as JSON")
+
+    # kernle auth keys cycle KEY_ID
+    keys_cycle = keys_sub.add_parser("cycle", help="Cycle a key (new key, old deactivated)")
+    keys_cycle.add_argument("key_id", help="ID of the key to cycle")
+    keys_cycle.add_argument("--force", "-f", action="store_true",
+                            help="Skip confirmation prompt")
+    keys_cycle.add_argument("--json", "-j", action="store_true",
+                            help="Output as JSON")
 
     # Pre-process arguments: handle `kernle raw "content"` by inserting "capture"
     # This is needed because argparse subparsers consume positional args before parent parser
