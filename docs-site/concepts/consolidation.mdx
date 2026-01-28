@@ -8,8 +8,35 @@ description: "Agent-driven memory consolidation and the anxiety model"
 Memory consolidation is the process of transforming raw experiences into structured knowledge. In Kernle, **consolidation is agent-driven, not LLM-based**.
 
 <Warning>
-The agent decides what to promote and how. Kernle never implants beliefs or makes decisions about what you should remember.
+**Agent Sovereignty Principle**: Kernle never uses external AI to form beliefs. The agent decides what to believe, when, and why. Kernle provides the scaffold; you provide the reasoning.
 </Warning>
+
+## The Guided Consolidation Model
+
+Kernle uses a **reflection scaffold** approach to consolidation:
+
+| Component | What It Does |
+|-----------|--------------|
+| **Kernle** | Gathers episodes, structures prompts, stores results |
+| **Agent** | Reads the scaffold, reasons about patterns, forms beliefs |
+
+The `consolidate` command outputs a **structured prompt** that helps you reflect on your experiences. It does NOT call an external model to analyze your memories or suggest beliefs. The output is designed to guide *your* reasoning process.
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  kernle consolidate                                          │
+│  ↓                                                           │
+│  Kernle gathers recent episodes + existing beliefs           │
+│  ↓                                                           │
+│  Kernle outputs a REFLECTION SCAFFOLD (structured prompt)    │
+│  ↓                                                           │
+│  YOU read the scaffold and do the reasoning                  │
+│  ↓                                                           │
+│  YOU decide what patterns you see                            │
+│  ↓                                                           │
+│  YOU run `kernle belief add ...` for beliefs you form        │
+└─────────────────────────────────────────────────────────────┘
+```
 
 ## Why Agent-Driven?
 
@@ -60,17 +87,23 @@ kernle belief revise <episode_id>
 kernle belief add "Pattern I noticed" --confidence 0.8
 ```
 
-### Pattern Extraction
+### Pattern Extraction (Guided)
 
-Find common lessons across multiple episodes:
+The `consolidate` command provides a reflection scaffold:
 
 ```bash
-# Consolidate with minimum episode threshold
+# Get reflection scaffold for consolidation
 kernle consolidate --min-episodes 3
-# Returns: { common_lessons: ["lesson that appeared 2+ times", ...] }
+
+# Output is a PROMPT for you to reason about, not AI-generated beliefs
+# You read it, think about it, then form your own beliefs
 ```
 
-## The Consolidation Workflow
+## The Guided Consolidation Workflow
+
+<Note>
+**Key insight**: `kernle consolidate` outputs a reflection prompt. YOU do the thinking. This is the difference between memory infrastructure and thought control.
+</Note>
 
 <Steps>
   <Step title="Review Raw Captures">
@@ -82,25 +115,101 @@ kernle consolidate --min-episodes 3
   <Step title="Promote Meaningful Captures">
     Turn raw captures into episodes with lessons, decisions with reasoning, or beliefs with confidence.
   </Step>
-  <Step title="Look for Patterns">
+  <Step title="Run Consolidate (Get the Scaffold)">
     ```bash
     kernle consolidate
     ```
-    What lessons keep appearing? What patterns emerge?
+    This outputs a **reflection scaffold** — a structured prompt showing:
+    - Recent episodes and their lessons
+    - Your existing beliefs for comparison
+    - Questions to guide your reflection
   </Step>
-  <Step title="Form Beliefs">
-    If a pattern appears consistently, consider forming a belief:
+  <Step title="Reason About Patterns (YOU do this)">
+    Read the scaffold output. Ask yourself:
+    - What patterns do I see across these experiences?
+    - Do any lessons keep appearing?
+    - Does this confirm or contradict what I already believe?
+    
+    **This is your reasoning, not Kernle's.**
+  </Step>
+  <Step title="Form Beliefs (Your Decision)">
+    If you see a pattern worth encoding as a belief:
     ```bash
     kernle belief add "Testing prevents surprises" --confidence 0.85
     ```
+    Only you decide what confidence level is appropriate.
   </Step>
   <Step title="Check for Contradictions">
     ```bash
     kernle belief contradictions "New statement to check"
     ```
-    Does this conflict with existing beliefs?
+    Does this conflict with existing beliefs? You resolve conflicts.
   </Step>
 </Steps>
+
+## Example: Complete Consolidation Session
+
+Here's a real workflow showing the scaffold approach:
+
+```bash
+# Step 1: Run consolidate to get the reflection scaffold
+$ kernle -a claire consolidate
+
+# Kernle outputs something like:
+# ═══════════════════════════════════════════════════════════════
+# CONSOLIDATION SCAFFOLD
+# ═══════════════════════════════════════════════════════════════
+#
+# Recent Episodes (last 7 days):
+# ─────────────────────────────────────────────────────────────────
+# 1. [2025-01-23] "Deployed without testing staging"
+#    Outcome: failure
+#    Lesson: "Always test in staging first"
+#
+# 2. [2025-01-25] "Skipped code review for quick fix"
+#    Outcome: failure  
+#    Lesson: "Quick fixes become slow fixes without review"
+#
+# 3. [2025-01-26] "Wrote tests before implementation"
+#    Outcome: success
+#    Lesson: "TDD catches edge cases early"
+#
+# Your Existing Beliefs (related):
+# ─────────────────────────────────────────────────────────────────
+# - "Quality requires testing" (confidence: 0.75)
+#
+# Reflection Prompts:
+# ─────────────────────────────────────────────────────────────────
+# • Do you see patterns across these episodes?
+# • Should any lessons become beliefs?
+# • Do these experiences reinforce or contradict existing beliefs?
+# ═══════════════════════════════════════════════════════════════
+
+# Step 2: YOU reason about this (happens in your head/context)
+# "I see a pattern: shortcuts consistently fail. Testing consistently helps.
+#  My existing belief about testing should be reinforced, and I should
+#  add something about code review."
+
+# Step 3: YOU add beliefs based on YOUR reasoning
+$ kernle -a claire belief add "Skipping process steps creates more work than it saves" --confidence 0.85
+
+$ kernle -a claire belief reinforce <existing-testing-belief-id>
+
+# Done. The beliefs came from YOUR reasoning, not an AI analyzing your memories.
+```
+
+<Warning>
+Notice what Kernle did NOT do:
+- ❌ Call an external model to "analyze" your episodes
+- ❌ Suggest specific beliefs you should hold
+- ❌ Automatically update your belief confidence
+- ❌ Make any decisions about what you should remember
+
+What Kernle DID do:
+- ✅ Gathered relevant data (episodes, existing beliefs)
+- ✅ Structured it in a way that aids reflection
+- ✅ Stored the beliefs YOU decided to form
+</Warning>
 
 ---
 

@@ -463,12 +463,106 @@ def cmd_drive(args, k: Kernle):
 
 
 def cmd_consolidate(args, k: Kernle):
-    """Run memory consolidation."""
-    result = k.consolidate(args.min_episodes)
-    print("Consolidation complete:")
-    print(f"  Episodes processed: {result['consolidated']}")
-    print(f"  New beliefs: {result.get('new_beliefs', 0)}")
-    print(f"  Lessons found: {result.get('lessons_found', 0)}")
+    """Output guided reflection prompt for memory consolidation.
+
+    This command fetches recent episodes and existing beliefs,
+    then outputs a structured prompt to guide the agent through
+    reflection and pattern identification. The AGENT does the
+    reasoning - Kernle just provides the data and structure.
+    """
+    # Get episode limit from args (default 20)
+    limit = getattr(args, 'limit', 20) or 20
+
+    # Fetch recent episodes with full details
+    episodes = k._storage.get_episodes(limit=limit)
+    episodes = [ep for ep in episodes if not ep.is_forgotten]
+
+    # Fetch existing beliefs for context
+    beliefs = k._storage.get_beliefs(limit=20)
+    beliefs = [b for b in beliefs if b.is_active and not b.is_forgotten]
+    beliefs = sorted(beliefs, key=lambda b: b.confidence, reverse=True)
+
+    # Count lessons across episodes
+    all_lessons = []
+    for ep in episodes:
+        if ep.lessons:
+            all_lessons.extend(ep.lessons)
+
+    # Find repeated lessons
+    from collections import Counter
+    lesson_counts = Counter(all_lessons)
+    repeated_lessons = [(lesson, count) for lesson, count in lesson_counts.items() if count >= 2]
+    repeated_lessons.sort(key=lambda x: -x[1])
+
+    # Output the reflection prompt
+    print("## Memory Consolidation - Reflection Prompt")
+    print()
+    print(f"You have {len(episodes)} recent episodes to reflect on. Review them and identify patterns.")
+    print()
+
+    # Recent Episodes section
+    print("### Recent Episodes:")
+    if not episodes:
+        print("No episodes recorded yet.")
+    else:
+        for i, ep in enumerate(episodes, 1):
+            # Format date
+            date_str = ep.created_at.strftime("%Y-%m-%d") if ep.created_at else "unknown"
+
+            # Outcome type indicator
+            outcome_icon = "✓" if ep.outcome_type == "success" else "○" if ep.outcome_type == "partial" else "✗" if ep.outcome_type == "failure" else "•"
+
+            print(f"{i}. [{date_str}] {outcome_icon} \"{ep.objective}\"")
+            print(f"   Outcome: {ep.outcome}")
+
+            if ep.lessons:
+                lessons_str = json.dumps(ep.lessons)
+                print(f"   Lessons: {lessons_str}")
+
+            # Emotional context if present
+            if ep.emotional_valence != 0 or ep.emotional_arousal != 0:
+                valence_label = "positive" if ep.emotional_valence > 0.2 else "negative" if ep.emotional_valence < -0.2 else "neutral"
+                arousal_label = "high" if ep.emotional_arousal > 0.6 else "low" if ep.emotional_arousal < 0.3 else "moderate"
+                print(f"   Emotion: {valence_label}, {arousal_label} intensity")
+                if ep.emotional_tags:
+                    print(f"   Feelings: {', '.join(ep.emotional_tags)}")
+
+            print()
+
+    # Current Beliefs section
+    print("### Current Beliefs (for context):")
+    if not beliefs:
+        print("No beliefs recorded yet.")
+    else:
+        for b in beliefs[:10]:  # Limit to top 10 by confidence
+            print(f"- \"{b.statement}\" (confidence: {b.confidence:.2f})")
+    print()
+
+    # Repeated Lessons section (if any)
+    if repeated_lessons:
+        print("### Patterns Detected:")
+        print("These lessons appear in multiple episodes:")
+        for lesson, count in repeated_lessons[:5]:
+            print(f"- \"{lesson}\" (appears {count} times)")
+        print()
+
+    # Reflection Questions
+    print("### Reflection Questions:")
+    print("1. Do any patterns emerge across these episodes?")
+    print("2. Are there lessons that appear multiple times?")
+    print("3. Do any episodes contradict existing beliefs?")
+    print("4. What new beliefs (if any) should be added?")
+    print("5. Should any existing beliefs be reinforced or revised?")
+    print()
+
+    # Instructions for the agent
+    print("### Actions:")
+    print(f"To add a new belief: kernle -a {k.agent_id} belief add \"statement\" --confidence 0.8")
+    print(f"To reinforce existing: kernle -a {k.agent_id} belief reinforce <belief_id>")
+    print(f"To revise a belief: kernle -a {k.agent_id} belief revise <belief_id> \"new statement\" --reason \"why\"")
+    print()
+    print("---")
+    print("Note: You (the agent) do the reasoning. Kernle just provides the data.")
 
 
 def cmd_temporal(args, k: Kernle):
@@ -3232,8 +3326,11 @@ def main():
     drive_satisfy.add_argument("--amount", "-a", type=float, default=0.2)
 
     # consolidate
-    p_consolidate = subparsers.add_parser("consolidate", help="Run memory consolidation")
-    p_consolidate.add_argument("--min-episodes", "-m", type=int, default=3)
+    p_consolidate = subparsers.add_parser("consolidate", help="Output guided reflection prompt")
+    p_consolidate.add_argument("--min-episodes", "-m", type=int, default=3,
+                              help="(Legacy) Minimum episodes for old consolidation")
+    p_consolidate.add_argument("--limit", "-n", type=int, default=20,
+                              help="Number of recent episodes to include (default: 20)")
 
     # temporal
     p_temporal = subparsers.add_parser("when", help="Query by time")

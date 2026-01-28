@@ -164,6 +164,41 @@ Kernle implements a stratified memory system inspired by cognitive science but o
 
 Consolidation is **agent-driven, not LLM-based**. The agent decides what to promote and how.
 
+### The Guided Consolidation Model
+
+Kernle uses a **reflection scaffold** approach:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Agent runs: kernle consolidate                              │
+│                    ↓                                         │
+│  Kernle outputs: REFLECTION SCAFFOLD                         │
+│  (episodes, lessons, existing beliefs, reflection prompts)   │
+│                    ↓                                         │
+│  Agent reads scaffold and REASONS (in their own context)     │
+│                    ↓                                         │
+│  Agent decides: "I see pattern X, I should believe Y"        │
+│                    ↓                                         │
+│  Agent runs: kernle belief add "Y" --confidence 0.8          │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Critical distinction**: The `consolidate` command does NOT call an external AI to analyze memories or suggest beliefs. It outputs structured data that helps the agent reflect using their own reasoning.
+
+### Why Scaffolds, Not AI Analysis?
+
+If Kernle used external AI to consolidate memories, it would be implanting beliefs:
+- External model interprets your experiences
+- Those interpretations become "your" beliefs
+- You can't explain why you believe something
+- Identity becomes externally determined
+
+With scaffolds:
+- Agent sees the raw data (episodes, lessons)
+- Agent does their own pattern recognition
+- Agent forms beliefs through their own reasoning
+- Agent can always explain why they believe something
+
 ### Raw → Structured
 ```python
 # Agent reviews raw captures
@@ -175,22 +210,46 @@ kernle.process_raw(raw_id, as_type="note", type="decision")
 kernle.process_raw(raw_id, as_type="belief", confidence=0.8)
 ```
 
-### Episodes → Beliefs
+### Episodes → Beliefs (Agent-Driven)
 ```python
-# Analyze episode for belief updates
+# Get reflection scaffold for an episode
 result = kernle.revise_beliefs_from_episode(episode_id)
-# Returns: { reinforced: [...], contradicted: [...], suggested_new: [...] }
+# Returns scaffold: { episode_summary, existing_beliefs, reflection_prompts }
 
-# Agent reviews suggestions and decides what to adopt
-for suggestion in result["suggested_new"]:
-    kernle.belief(suggestion["statement"], confidence=0.7)
+# Agent reads scaffold, does their own reasoning, then:
+kernle.belief("Pattern I noticed", confidence=0.7)
 ```
 
-### Automatic Pattern Extraction
-```python
-# Simple consolidation: finds common lessons across episodes
-result = kernle.consolidate(min_episodes=3)
-# Returns: { common_lessons: ["lesson that appeared 2+ times", ...] }
+### Pattern Extraction (Guided)
+```bash
+# Get reflection scaffold for consolidation
+kernle consolidate --min-episodes 3
+
+# Output: Structured prompt showing episodes, lessons, beliefs
+# Agent reads it, reasons about patterns, then adds beliefs:
+kernle belief add "Shortcuts create more work" --confidence 0.85
+```
+
+### Example Consolidation Session
+
+```bash
+# Step 1: Run consolidate
+$ kernle -a claire consolidate
+
+# Kernle outputs a REFLECTION SCAFFOLD:
+# - Recent episodes with outcomes and lessons
+# - Existing beliefs that might be relevant
+# - Prompts to guide reflection
+
+# Step 2: Agent reasons (happens in agent's context)
+# "I see testing failures in 3 episodes. My testing belief needs reinforcement.
+#  I also notice a new pattern about code review."
+
+# Step 3: Agent adds beliefs based on THEIR reasoning
+$ kernle -a claire belief add "Code review catches issues that tests miss" --confidence 0.8
+$ kernle -a claire belief reinforce <testing-belief-id>
+
+# Kernle stored what the agent decided. No AI analyzed the memories.
 ```
 
 ## Meta-Memory System

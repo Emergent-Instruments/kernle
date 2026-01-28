@@ -199,37 +199,69 @@ The typical memory evolution flow:
 | `search` | Vector similarity lookup | Decides what's relevant |
 | `dump` | Exports all memories | Reviews and audits |
 
-### Consolidation (Agent-Driven)
+### Consolidation (Agent-Driven via Reflection Scaffold)
 
 | Operation | Kernle Does | Agent Does |
 |-----------|-------------|------------|
-| `consolidate` | *Provides the tool* | *Runs consolidation reasoning* |
+| `consolidate` | *Outputs reflection scaffold* | *Reads it, reasons, forms beliefs* |
 
-When an agent runs consolidation, Kernle provides:
-- Access to recent episodes
+When an agent runs consolidation, Kernle provides a **reflection scaffold**:
+- Structured view of recent episodes and lessons
 - Existing beliefs for comparison
-- Tools to add/update beliefs
+- Prompts to guide the agent's reflection
 
 The **agent** does:
 - Pattern recognition across episodes
 - Deciding if patterns warrant new beliefs
 - Setting appropriate confidence levels
 - Resolving conflicts with existing beliefs
+- Running `belief add` for beliefs they form
 
-### The `consolidate` Command
+### The `consolidate` Command: Scaffolds, Not AI
 
-The `kernle consolidate` command is a convenience that uses the agent's own reasoning (via prompts) to extract patterns. It does NOT use an external model to implant beliefs — it scaffolds the agent's own cognitive process.
+The `kernle consolidate` command outputs a **reflection scaffold** — structured data designed to help the agent think. It does NOT:
+
+- ❌ Call an external AI to analyze your memories
+- ❌ Generate suggested beliefs for you
+- ❌ Automatically update confidence scores
+- ❌ Make any decisions on your behalf
+
+**Why scaffolds?** If Kernle used external AI to consolidate memories, it would be implanting beliefs. The agent couldn't explain why they believe something because they didn't form the belief. This is thought control, not memory infrastructure.
+
+With scaffolds, the agent sees the data and does their own reasoning:
 
 ```bash
-# Agent-driven consolidation
+# Step 1: Run consolidate to get reflection scaffold
 kernle -a claire consolidate
 
-# This prompts the agent to:
-# 1. Review recent episodes
-# 2. Identify patterns using their own reasoning
-# 3. Propose new beliefs
-# 4. Confirm before storing
+# Output: REFLECTION SCAFFOLD
+# ═══════════════════════════════════════════════════════════════
+# CONSOLIDATION SCAFFOLD
+# ─────────────────────────────────────────────────────────────────
+# Recent Episodes:
+#   [2025-01-23] "Deployed without staging" → failure
+#     Lesson: "Always test in staging first"
+#   [2025-01-25] "Skipped code review" → failure
+#     Lesson: "Quick fixes become slow fixes"
+#
+# Existing Beliefs (related):
+#   - "Quality requires testing" (confidence: 0.75)
+#
+# Reflection Prompts:
+#   • Do you see patterns across these episodes?
+#   • Should any lessons become beliefs?
+# ═══════════════════════════════════════════════════════════════
+
+# Step 2: Agent reasons (in their own context)
+# "I see a pattern: shortcuts consistently fail. I should form a belief."
+
+# Step 3: Agent adds beliefs based on THEIR reasoning
+kernle -a claire belief add "Process shortcuts create more work than they save" --confidence 0.85
+
+# Kernle stored what the agent decided. No external AI analyzed the memories.
 ```
+
+> **Agent Sovereignty Principle**: Kernle provides the scaffold for reflection. The agent provides the reasoning. No external AI ever forms beliefs on the agent's behalf.
 
 ---
 
