@@ -650,16 +650,54 @@ class Storage(Protocol):
         self,
         query: str,
         limit: int = 10,
-        record_types: Optional[List[str]] = None
+        record_types: Optional[List[str]] = None,
+        prefer_cloud: bool = True,
     ) -> List[SearchResult]:
-        """Semantic search across memories.
+        """Search across memories using hybrid cloud/local strategy.
+
+        Strategy:
+        1. If cloud credentials are configured and prefer_cloud=True,
+           try cloud search first with timeout
+        2. On cloud failure or no credentials, fall back to local search
+        3. Local search uses semantic vectors (if available) or text matching
 
         Args:
             query: Search query
             limit: Maximum results
             record_types: Filter by type (episode, note, belief, etc.)
+            prefer_cloud: If True, try cloud search first (default True)
+
+        Returns:
+            List of SearchResult objects
         """
         ...
+
+    # === Cloud Search ===
+
+    def has_cloud_credentials(self) -> bool:
+        """Check if cloud credentials are available for hybrid search.
+
+        Returns:
+            True if backend_url and auth_token are configured.
+        """
+        return False  # Default: no cloud credentials
+
+    def cloud_health_check(self, timeout: float = 3.0) -> Dict[str, Any]:
+        """Test cloud backend connectivity.
+
+        Args:
+            timeout: Request timeout in seconds (default 3s)
+
+        Returns:
+            Dict with keys:
+            - 'healthy': bool indicating if cloud is reachable
+            - 'latency_ms': response time in milliseconds (if healthy)
+            - 'error': error message (if not healthy)
+        """
+        return {
+            "healthy": False,
+            "error": "Cloud search not supported by this storage backend",
+        }
 
     # === Stats ===
 

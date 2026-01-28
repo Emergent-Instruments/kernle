@@ -9,7 +9,7 @@ from slowapi.errors import RateLimitExceeded
 
 from .config import get_settings
 from .rate_limit import limiter
-from .routes import auth_router, memories_router, sync_router
+from .routes import auth_router, embeddings_router, memories_router, sync_router
 
 
 @asynccontextmanager
@@ -48,6 +48,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(sync_router)
 app.include_router(memories_router)
+app.include_router(embeddings_router)
 
 
 @app.get("/")

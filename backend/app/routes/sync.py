@@ -12,6 +12,7 @@ from ..database import (
     update_agent_last_sync,
     upsert_memory,
 )
+from ..embeddings import create_embedding, extract_text_for_embedding
 from ..logging_config import get_logger, log_sync_operation
 from ..models import (
     SyncOperation,
@@ -66,7 +67,17 @@ async def push_changes(
                         "error": "Missing data for insert/update",
                     })
                     continue
-                await upsert_memory(db, agent_id, op.table, op.record_id, op.data)
+                
+                # Auto-generate embedding if text content available
+                data_with_embedding = dict(op.data)
+                text_content = extract_text_for_embedding(op.table, op.data)
+                if text_content:
+                    embedding = await create_embedding(text_content)
+                    if embedding:
+                        data_with_embedding["embedding"] = embedding
+                        logger.debug(f"Generated embedding for {op.table}/{op.record_id}")
+                
+                await upsert_memory(db, agent_id, op.table, op.record_id, data_with_embedding)
                 log_sync_operation(log_prefix, op.operation, op.table, op.record_id, True)
             synced += 1
         except ValueError as e:

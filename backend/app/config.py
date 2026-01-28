@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24 * 7  # 1 week
 
+    # OpenAI
+    openai_api_key: str | None = None
+    openai_embedding_model: str = "text-embedding-3-small"
+
     # App
     debug: bool = False
     # CORS: Allowed origins for cross-origin requests
