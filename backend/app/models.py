@@ -31,6 +31,14 @@ class TokenResponse(BaseModel):
     secret: str | None = None  # Only included on registration (one-time)
 
 
+class LoginResponse(BaseModel):
+    """Response from API key login validation."""
+    user_id: str
+    agent_id: str
+    token: str  # Fresh JWT token
+    token_expires: str  # ISO timestamp
+
+
 class AgentInfo(BaseModel):
     """Agent information."""
     agent_id: str
