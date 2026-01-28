@@ -16,6 +16,8 @@ class Settings(BaseSettings):
     # Legacy keys (deprecated, will be removed)
     supabase_service_role_key: str | None = None
     supabase_anon_key: str | None = None
+    # JWT secret for token verification (from Supabase dashboard > Settings > API > JWT Settings)
+    supabase_jwt_secret: str | None = None
     database_url: str | None = None  # Optional - for direct Postgres access
 
     # JWT

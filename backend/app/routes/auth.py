@@ -66,48 +66,71 @@ async def exchange_supabase_token(
     and creates/returns a Kernle agent + token.
     """
     try:
-        # For server-side token verification, use the secret key (service role)
-        # The publishable key doesn't have permission to call /auth/v1/user
-        api_key = settings.supabase_secret_key or settings.supabase_service_role_key
-        logger.debug(f"OAuth: Using Supabase URL: {settings.supabase_url[:30]}...")
-        logger.debug(f"OAuth: Secret key configured: {bool(settings.supabase_secret_key)}")
-        logger.debug(f"OAuth: Service role key configured: {bool(settings.supabase_service_role_key)}")
-        if not api_key:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Supabase secret key not configured",
-            )
+        # Verify Supabase JWT by decoding it with the JWT secret
+        # This is more reliable than calling the Supabase API
+        from jose import jwt, JWTError
         
-        # Verify token by calling Supabase Auth API directly
-        import httpx
+        # The JWT secret is in Supabase dashboard under Settings > API > JWT Settings
+        # It should be set as SUPABASE_JWT_SECRET in env vars
+        jwt_secret = getattr(settings, 'supabase_jwt_secret', None)
         
-        auth_url = f"{settings.supabase_url}/auth/v1/user"
-        headers = {
-            "Authorization": f"Bearer {token_request.access_token}",
-            "apikey": api_key,
-        }
-        
-        logger.info(f"OAuth: Calling Supabase auth API: {auth_url}")
-        try:
-            async with httpx.AsyncClient() as client:
-                response = await client.get(auth_url, headers=headers, timeout=10.0)
-                logger.info(f"OAuth: Supabase response status: {response.status_code}")
-                
-                if response.status_code != 200:
-                    logger.error(f"OAuth: Supabase error: {response.text}")
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail=f"Supabase auth failed: {response.status_code}",
-                    )
-                
-                user_data = response.json()
-                logger.info(f"OAuth: Got user data: {user_data.get('email', 'no-email')}")
-        except httpx.RequestError as e:
-            logger.error(f"OAuth: HTTP request failed: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail=f"Auth request failed: {type(e).__name__}",
-            )
+        if not jwt_secret:
+            # Fall back to trying to extract from service role key or use a known default
+            logger.warning("OAuth: SUPABASE_JWT_SECRET not configured, trying service_role key decode")
+            # Try calling Supabase API as fallback
+            api_key = settings.supabase_service_role_key or settings.supabase_secret_key
+            if not api_key:
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail="Supabase JWT secret or service role key not configured",
+                )
+            
+            # Use service role key to call API
+            import httpx
+            auth_url = f"{settings.supabase_url}/auth/v1/user"
+            headers = {
+                "Authorization": f"Bearer {token_request.access_token}",
+                "apikey": api_key,
+            }
+            
+            logger.info(f"OAuth: Calling Supabase auth API with service role key")
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(auth_url, headers=headers, timeout=10.0)
+                    if response.status_code != 200:
+                        logger.error(f"OAuth: Supabase error: {response.status_code} - {response.text}")
+                        raise HTTPException(
+                            status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail=f"Supabase auth failed: {response.status_code}",
+                        )
+                    user_data = response.json()
+            except httpx.RequestError as e:
+                logger.error(f"OAuth: HTTP request failed: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail=f"Auth request failed: {type(e).__name__}",
+                )
+        else:
+            # Decode JWT locally - much faster and more reliable
+            try:
+                # Supabase uses HS256 algorithm
+                payload = jwt.decode(
+                    token_request.access_token,
+                    jwt_secret,
+                    algorithms=["HS256"],
+                    audience="authenticated",
+                )
+                user_data = {
+                    "id": payload.get("sub"),
+                    "email": payload.get("email"),
+                }
+                logger.info(f"OAuth: Decoded JWT for user: {user_data.get('email', 'no-email')}")
+            except JWTError as e:
+                logger.error(f"OAuth: JWT decode failed: {e}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid or expired token",
+                )
         
         email = user_data.get("email")
         supabase_id = user_data.get("id")
@@ -115,7 +138,7 @@ async def exchange_supabase_token(
         if not supabase_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid user data from Supabase",
+                detail="Invalid user data",
             )
         
         # Use supabase user ID as agent_id (prefixed to avoid collisions)
