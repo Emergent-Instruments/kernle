@@ -540,6 +540,96 @@ def cmd_status(args, k: Kernle):
     print(f"Checkpoint: {'Yes' if status['checkpoint'] else 'No'}")
 
 
+def cmd_resume(args, k: Kernle):
+    """Quick 'where was I?' view - shows last task, next step, time since checkpoint."""
+    from datetime import datetime, timezone
+    
+    cp = k.load_checkpoint()
+    
+    if not cp:
+        print("No checkpoint found. Start fresh or run: kernle checkpoint save \"your task\"")
+        return
+    
+    # Calculate time since checkpoint
+    age_str = ""
+    try:
+        ts = cp.get('timestamp', '')
+        if ts:
+            cp_time = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+            now = datetime.now(timezone.utc)
+            age = now - cp_time
+            if age.days > 0:
+                age_str = f"{age.days}d ago"
+            elif age.seconds > 3600:
+                age_str = f"{age.seconds // 3600}h ago"
+            elif age.seconds > 60:
+                age_str = f"{age.seconds // 60}m ago"
+            else:
+                age_str = "just now"
+    except Exception:
+        age_str = "unknown"
+    
+    # Parse context for structured fields
+    context = cp.get('context', '')
+    progress = None
+    next_step = None
+    blocker = None
+    
+    if context:
+        for part in context.split(' | '):
+            if part.startswith('Progress:'):
+                progress = part[9:].strip()
+            elif part.startswith('Next:'):
+                next_step = part[5:].strip()
+            elif part.startswith('Blocker:'):
+                blocker = part[8:].strip()
+    
+    # Check anxiety level
+    try:
+        anxiety = k.get_anxiety()
+        anxiety_score = anxiety.get('overall_score', 0)
+        if anxiety_score > 60:
+            anxiety_indicator = " 🔴"
+        elif anxiety_score > 30:
+            anxiety_indicator = " 🟡"
+        else:
+            anxiety_indicator = ""
+    except Exception:
+        anxiety_indicator = ""
+    
+    # Display
+    print(f"📍 Resume Point ({age_str}){anxiety_indicator}")
+    print("=" * 40)
+    print(f"Task: {cp.get('current_task', 'unknown')}")
+    
+    if progress:
+        print(f"Progress: {progress}")
+    
+    if next_step:
+        print(f"\n→ Next: {next_step}")
+    
+    if blocker:
+        print(f"\n⚠ Blocker: {blocker}")
+    
+    if cp.get('pending'):
+        print(f"\nPending ({len(cp['pending'])} items):")
+        for p in cp['pending'][:3]:
+            print(f"  • {p}")
+        if len(cp['pending']) > 3:
+            print(f"  ... and {len(cp['pending']) - 3} more")
+    
+    # Stale warning
+    try:
+        if ts:
+            cp_time = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+            now = datetime.now(timezone.utc)
+            age = now - cp_time
+            if age.total_seconds() > 6 * 3600:
+                print(f"\n⚠ Checkpoint is stale ({age_str}). Consider saving a fresh one.")
+    except Exception:
+        pass
+
+
 def cmd_relation(args, k: Kernle):
     """Manage relationships with other entities (people, agents, orgs)."""
     if args.relation_action == "list":
@@ -2039,51 +2129,165 @@ def cmd_raw(args, k: Kernle):
         from datetime import datetime, timezone, timedelta
         
         age_days = getattr(args, 'age', 7) or 7
+        junk_mode = getattr(args, 'junk', False)
         dry_run = not getattr(args, 'confirm', False)
         
         entries = k.list_raw(processed=False, limit=500)
         now = datetime.now(timezone.utc)
         cutoff = now - timedelta(days=age_days)
         
-        stale_entries = []
-        for entry in entries:
-            try:
-                ts = entry.get("timestamp", "")
-                if ts:
-                    entry_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                    if entry_time < cutoff:
-                        stale_entries.append(entry)
-            except (ValueError, TypeError):
-                continue
+        # Junk detection patterns
+        junk_keywords = ["test", "testing", "list", "show me", "show", "help", "hi", "hello", 
+                        "asdf", "aaa", "xxx", "foo", "bar", "baz", "123", "abc"]
         
-        if not stale_entries:
-            print(f"✓ No unprocessed raw entries older than {age_days} days.")
+        def is_junk(entry):
+            """Detect likely junk entries."""
+            content = entry.get("content", "").strip().lower()
+            # Very short content
+            if len(content) < 10:
+                return True
+            # Exact match to junk keywords
+            if content in junk_keywords:
+                return True
+            # Starts with test-like patterns
+            if content.startswith(("test ", "testing ")):
+                return True
+            return False
+        
+        stale_entries = []
+        junk_entries = []
+        
+        for entry in entries:
+            # Check for junk first if junk mode
+            if junk_mode and is_junk(entry):
+                junk_entries.append(entry)
+                continue
+                
+            # Check age for stale entries
+            if not junk_mode:
+                try:
+                    ts = entry.get("timestamp", "")
+                    if ts:
+                        entry_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        if entry_time < cutoff:
+                            stale_entries.append(entry)
+                except (ValueError, TypeError):
+                    continue
+        
+        target_entries = junk_entries if junk_mode else stale_entries
+        label = "junk" if junk_mode else f"older than {age_days} days"
+        
+        if not target_entries:
+            print(f"✓ No unprocessed raw entries detected as {label}.")
             return
         
-        print(f"Found {len(stale_entries)} unprocessed entries older than {age_days} days:\n")
+        print(f"Found {len(target_entries)} entries ({label}):\n")
         
-        for entry in stale_entries[:10]:  # Show max 10
+        for entry in target_entries[:15]:  # Show max 15
             timestamp = entry["timestamp"][:10] if entry["timestamp"] else "unknown"
             content_preview = entry["content"][:50].replace("\n", " ")
             if len(entry["content"]) > 50:
                 content_preview += "..."
             print(f"  [{entry['id'][:8]}] {timestamp}: {content_preview}")
         
-        if len(stale_entries) > 10:
-            print(f"  ... and {len(stale_entries) - 10} more")
+        if len(target_entries) > 15:
+            print(f"  ... and {len(target_entries) - 15} more")
         
         if dry_run:
-            print(f"\n⚠ DRY RUN: Would delete {len(stale_entries)} entries.")
-            print(f"  To actually delete, run: kernle raw clean --age {age_days} --confirm")
+            print(f"\n⚠ DRY RUN: Would delete {len(target_entries)} entries.")
+            if junk_mode:
+                print(f"  To actually delete, run: kernle raw clean --junk --confirm")
+            else:
+                print(f"  To actually delete, run: kernle raw clean --age {age_days} --confirm")
         else:
             deleted = 0
-            for entry in stale_entries:
+            for entry in target_entries:
                 try:
                     k._storage.delete_raw(entry["id"])
                     deleted += 1
                 except Exception as e:
                     print(f"  ✗ Failed to delete {entry['id'][:8]}: {e}")
-            print(f"\n✓ Deleted {deleted} stale raw entries.")
+            print(f"\n✓ Deleted {deleted} {label} raw entries.")
+
+    elif args.raw_action == "promote":
+        # Alias for process - simpler UX
+        args.raw_action = "process"
+        # Fall through to process handler would require refactor, so duplicate minimal logic
+        try:
+            full_id = resolve_raw_id(k, args.id)
+        except ValueError as e:
+            print(f"✗ {e}")
+            return
+
+        entry = k.get_raw(full_id)
+        if not entry:
+            print(f"✗ Raw entry {args.id} not found.")
+            return
+
+        target_type = args.type
+        content = entry["content"]
+
+        if target_type == "episode":
+            objective = args.objective or content[:100]
+            outcome = args.outcome or "Promoted from raw capture"
+            result_id = k.episode(objective=objective, outcome=outcome, tags=["promoted"])
+            print(f"✓ Promoted to episode: {result_id[:8]}...")
+        elif target_type == "note":
+            result_id = k.note(content=content, type="note", tags=["promoted"])
+            print(f"✓ Promoted to note: {result_id[:8]}...")
+        elif target_type == "belief":
+            result_id = k.belief(statement=content, confidence=0.7)
+            print(f"✓ Promoted to belief: {result_id[:8]}...")
+
+        # Mark as processed
+        k._storage.mark_raw_processed(full_id, [f"{target_type}:{result_id}"])
+        print(f"  Raw entry marked as processed.")
+
+    elif args.raw_action == "triage":
+        # Guided triage of unprocessed entries
+        limit = getattr(args, 'limit', 10)
+        entries = k.list_raw(processed=False, limit=limit)
+        
+        if not entries:
+            print("✓ No unprocessed raw entries to triage.")
+            return
+        
+        print(f"Raw Entry Triage ({len(entries)} entries)")
+        print("=" * 50)
+        print()
+        print("Suggestions: [E]pisode | [N]ote | [B]elief | [D]elete | [S]kip")
+        print()
+        
+        for entry in entries:
+            content = entry["content"]
+            timestamp = entry["timestamp"][:16] if entry["timestamp"] else "unknown"
+            
+            # Auto-suggest based on content analysis
+            suggestion = "S"  # default skip
+            content_lower = content.lower()
+            
+            # Junk detection
+            if len(content.strip()) < 10 or content_lower in ["test", "list", "show", "help"]:
+                suggestion = "D"
+            # Session summaries / work logs → Episode
+            elif any(x in content_lower for x in ["session", "completed", "shipped", "implemented", "built", "fixed"]):
+                suggestion = "E"
+            # Insights / decisions → Note
+            elif any(x in content_lower for x in ["insight", "decision", "realized", "learned", "important"]):
+                suggestion = "N"
+            # Beliefs / observations about the world
+            elif any(x in content_lower for x in ["believe", "think that", "seems like", "pattern"]):
+                suggestion = "B"
+            
+            suggestion_labels = {"E": "Episode", "N": "Note", "B": "Belief", "D": "Delete", "S": "Skip"}
+            
+            print(f"[{entry['id'][:8]}] {timestamp}")
+            print(f"  {content[:200]}{'...' if len(content) > 200 else ''}")
+            print(f"  → Suggested: {suggestion_labels[suggestion]}")
+            print()
+            print(f"  To act: kernle raw promote {entry['id'][:8]} --type <episode|note|belief>")
+            print(f"          kernle raw clean --junk --confirm  (to delete junk)")
+            print("-" * 50)
 
     elif args.raw_action == "files":
         # Show flat file locations
@@ -3661,6 +3865,9 @@ def main():
     # status
     subparsers.add_parser("status", help="Show memory status")
 
+    # resume - quick "where was I?" view
+    subparsers.add_parser("resume", help="Quick view: last task, next step, time since checkpoint")
+
     # init
     p_init = subparsers.add_parser("init", help="Initialize Kernle for your environment")
     p_init.add_argument("--non-interactive", "-y", action="store_true",
@@ -3908,7 +4115,20 @@ def main():
     # kernle raw clean - clean up old unprocessed entries
     raw_clean = raw_sub.add_parser("clean", help="Delete old unprocessed raw entries")
     raw_clean.add_argument("--age", "-a", type=int, default=7, help="Delete entries older than N days (default: 7)")
+    raw_clean.add_argument("--junk", "-j", action="store_true", help="Detect and remove junk entries (short, test keywords)")
     raw_clean.add_argument("--confirm", "-y", action="store_true", help="Actually delete (otherwise dry run)")
+
+    # kernle raw promote <id> - alias for process (simpler UX)
+    raw_promote = raw_sub.add_parser("promote", help="Promote raw entry to memory (alias for process)")
+    raw_promote.add_argument("id", help="Raw entry ID")
+    raw_promote.add_argument("--type", "-t", required=True, choices=["episode", "note", "belief"],
+                            help="Target memory type")
+    raw_promote.add_argument("--objective", help="Episode objective (for episodes)")
+    raw_promote.add_argument("--outcome", help="Episode outcome (for episodes)")
+
+    # kernle raw triage - guided review of entries with promote/delete suggestions
+    raw_triage = raw_sub.add_parser("triage", help="Guided triage of unprocessed entries")
+    raw_triage.add_argument("--limit", "-l", type=int, default=10, help="Number of entries to review")
 
     # kernle raw files - show flat file locations
     raw_files = raw_sub.add_parser("files", help="Show raw flat file locations")
@@ -4142,7 +4362,7 @@ def main():
 
     # Pre-process arguments: handle `kernle raw "content"` by inserting "capture"
     # This is needed because argparse subparsers consume positional args before parent parser
-    raw_subcommands = {"list", "show", "process", "capture", "review", "clean", "files", "sync"}
+    raw_subcommands = {"list", "show", "process", "capture", "review", "clean", "files", "sync", "promote", "triage"}
     argv = sys.argv[1:]  # Skip program name
 
     # Find position of "raw" in argv (accounting for -a/--agent which takes a value)
@@ -4190,6 +4410,8 @@ def main():
             cmd_search(args, k)
         elif args.command == "status":
             cmd_status(args, k)
+        elif args.command == "resume":
+            cmd_resume(args, k)
         elif args.command == "init":
             cmd_init(args, k)
         elif args.command == "relation":
