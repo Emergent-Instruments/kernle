@@ -25,9 +25,13 @@ class Settings(BaseSettings):
 
     # App
     debug: bool = False
-    # CORS: Default allows localhost dev. Configure CORS_ORIGINS env var for production
-    # with specific origins like ["https://app.kernle.ai", "https://kernle.ai"]
-    cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+    # CORS: Allowed origins for cross-origin requests
+    cors_origins: list[str] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://kernle.ai",
+        "https://www.kernle.ai",
+    ]
 
     class Config:
         env_file = ".env"
