@@ -43,7 +43,7 @@
     {
       "name": "GitHub",
       "icon": "github",
-      "url": "https://github.com/Emergent-Instruments/kernle"
+      "url": "https://github.com/emergent-instruments/kernle"
     },
     {
       "name": "Community",
@@ -98,7 +98,7 @@
     }
   ],
   "footerSocials": {
-    "github": "https://github.com/Emergent-Instruments/kernle",
+    "github": "https://github.com/emergent-instruments/kernle",
     "twitter": "https://twitter.com/emergentinst"
   }
 }

@@ -1,7 +1,7 @@
 ---
 name: kernle
 description: "Stratified memory for synthetic intelligences. Use at session start to restore memory, and throughout sessions to record episodes, notes, and checkpoints. Essential for continuity across sessions."
-homepage: https://github.com/Emergent-Instruments/kernle
+homepage: https://github.com/emergent-instruments/kernle
 metadata: {"clawdbot":{"emoji":"🧠","requires":{"bins":["kernle"]},"install":[{"id":"pip","kind":"shell","command":"pip install kernle","label":"Install Kernle (pip)"},{"id":"pipx","kind":"shell","command":"pipx install kernle","label":"Install Kernle (pipx)"}]}}
 ---
 
