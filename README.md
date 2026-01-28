@@ -73,24 +73,37 @@ The agent will automatically discover Kernle via the skill and use it for memory
 
 1. **Install Kernle:**
 ```bash
-pip install kernle
-# or: pipx install kernle
+pipx install kernle
+# or: pip install kernle
 ```
 
-2. **Add MCP server:**
+2. **Add MCP server** (choose one):
+
 ```bash
-claude mcp add kernle -- kernle mcp -a my-agent
+# GLOBAL — same memory across all Claude Code sessions
+claude mcp add kernle -- kernle mcp -a your-name
+
+# PER-PROJECT — isolated memory per project (recommended)
+claude mcp add kernle -s project -- kernle mcp -a my-project
 ```
 
-3. **Add to CLAUDE.md** (in your project root):
+**Global** shares one identity across all projects. Good for personal continuity.  
+**Per-project** keeps memories isolated. Good for client work or separate contexts.
+
+3. **Verify:**
+```bash
+claude mcp list  # Should show kernle
+```
+
+4. **Add to CLAUDE.md** (in your project root):
 ```markdown
 ## Memory
 
 At session start, use the kernle MCP tools to load your memory:
-- `memory_load` - Restore working memory
+- `memory_load` - Restore working memory  
 - `memory_checkpoint_save` - Save state before ending
 
-Your agent ID is: my-agent
+Your agent ID is: my-project
 ```
 
 Claude Code will auto-discover the Kernle tools via MCP.
