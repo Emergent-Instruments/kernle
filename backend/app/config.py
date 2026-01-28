@@ -9,12 +9,16 @@ class Settings(BaseSettings):
     
     # Supabase
     supabase_url: str
-    supabase_service_role_key: str
-    supabase_anon_key: str
+    # New key system (preferred)
+    supabase_secret_key: str | None = None  # Backend/admin access
+    supabase_publishable_key: str | None = None  # Client/public access
+    # Legacy keys (deprecated, will be removed)
+    supabase_service_role_key: str | None = None
+    supabase_anon_key: str | None = None
     database_url: str | None = None  # Optional - for direct Postgres access
     
     # JWT
-    jwt_secret_key: str = "kernle-dev-secret-change-in-production"
+    jwt_secret_key: str  # Required - no default for security
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24 * 7  # 1 week
     

@@ -17,7 +17,11 @@ def get_supabase_client(settings: Settings | None = None) -> Client:
     if _supabase_client is None:
         if settings is None:
             settings = get_settings()
-        _supabase_client = create_client(settings.supabase_url, settings.supabase_service_role_key)
+        # Prefer new secret key, fall back to legacy service_role_key
+        api_key = settings.supabase_secret_key or settings.supabase_service_role_key
+        if not api_key:
+            raise ValueError("Either SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY must be set")
+        _supabase_client = create_client(settings.supabase_url, api_key)
     return _supabase_client
 
 

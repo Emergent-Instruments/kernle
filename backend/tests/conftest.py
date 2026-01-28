@@ -6,6 +6,9 @@ import pytest
 # For unit tests, set mock values ONLY if not running integration tests
 if not os.environ.get("RUN_INTEGRATION"):
     os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+    os.environ.setdefault("SUPABASE_SECRET_KEY", "test-secret-key")  # New key system
+    os.environ.setdefault("SUPABASE_PUBLISHABLE_KEY", "test-publishable-key")
+    # Legacy keys for backwards compatibility
     os.environ.setdefault("SUPABASE_SERVICE_ROLE_KEY", "test-service-key")
     os.environ.setdefault("SUPABASE_ANON_KEY", "test-anon-key")
     os.environ.setdefault("DATABASE_URL", "postgresql://test:test@localhost/test")
