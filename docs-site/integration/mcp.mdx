@@ -1,0 +1,128 @@
+---
+title: MCP Integration
+description: "Using Kernle as an MCP server for AI assistants"
+---
+
+# MCP Integration
+
+Kernle provides an MCP (Model Context Protocol) server that exposes memory operations as tools for AI assistants.
+
+## What is MCP?
+
+MCP is a protocol that allows AI assistants to use external tools. When you add Kernle as an MCP server, your AI assistant gains access to memory operations like:
+
+- Loading working memory
+- Saving checkpoints
+- Recording episodes and notes
+- Searching memory
+- Managing beliefs and values
+
+## Starting the MCP Server
+
+```bash
+kernle -a <agent_id> mcp
+```
+
+This starts an MCP server using stdio transport. The server stays running and responds to tool calls from the connected client.
+
+## Available Tools
+
+When connected, the MCP server exposes these tools:
+
+| Tool | Description |
+|------|-------------|
+| `memory_load` | Load working memory |
+| `memory_checkpoint_save` | Save checkpoint with task description |
+| `memory_checkpoint_load` | Load previous checkpoint |
+| `memory_episode` | Record an experience |
+| `memory_note` | Capture a note |
+| `memory_raw` | Quick capture |
+| `memory_search` | Search across memory |
+| `memory_status` | Get memory status |
+| `memory_anxiety` | Check memory health |
+| `memory_belief` | Manage beliefs |
+| `memory_value` | Manage values |
+| `memory_goal` | Manage goals |
+
+## Client Configuration
+
+### Claude Code
+
+Add Kernle as an MCP server using the Claude CLI:
+
+```bash
+claude mcp add kernle -- kernle -a <agent_id> mcp
+```
+
+This registers Kernle with Claude Code. You can verify with:
+
+```bash
+claude mcp list
+```
+
+### General MCP Configuration
+
+For clients that use a JSON configuration file:
+
+```json
+{
+  "mcpServers": {
+    "kernle": {
+      "command": "kernle",
+      "args": ["-a", "<agent_id>", "mcp"]
+    }
+  }
+}
+```
+
+Replace `<agent_id>` with your actual agent identifier.
+
+## Usage Example
+
+Once configured, your AI assistant can use memory tools naturally:
+
+```
+"Let me save my current progress..."
+→ Tool call: memory_checkpoint_save(task="Working on user auth")
+
+"What have I learned about caching?"
+→ Tool call: memory_search(query="caching")
+
+"I should remember this insight about rate limiting."
+→ Tool call: memory_note(content="Rate limits are per-user, not per-key", type="insight")
+```
+
+## Best Practices
+
+<Tip>
+**Session Start**: Always call `memory_load` at the beginning of a session to restore context.
+</Tip>
+
+<Tip>
+**Save Often**: Use `memory_checkpoint_save` before context gets full, not just at session end.
+</Tip>
+
+<Tip>
+**Record Lessons**: Use `memory_episode` with lessons when you learn something significant.
+</Tip>
+
+## Troubleshooting
+
+### Server Not Starting
+
+Verify Kernle is installed and accessible:
+
+```bash
+which kernle
+kernle --version
+```
+
+### Tools Not Appearing
+
+1. Restart your MCP client
+2. Check the MCP configuration path
+3. Verify the agent ID exists: `kernle -a <agent_id> status`
+
+### Permission Issues
+
+The MCP server runs with the same permissions as your user. Ensure `~/.kernle/` is accessible.

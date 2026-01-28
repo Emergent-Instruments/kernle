@@ -1,0 +1,275 @@
+---
+title: Sync
+description: "API endpoints for memory synchronization"
+---
+
+# Sync Endpoints
+
+Endpoints for synchronizing memory between local and cloud storage.
+
+## Sync Architecture
+
+Kernle uses a **local-first** sync model:
+
+1. All changes write to local SQLite first
+2. Changes queue for sync
+3. Push sends queued changes to cloud
+4. Pull retrieves remote changes
+
+<Info>
+**Conflict Resolution**: Last-write-wins based on `local_updated_at` timestamp.
+</Info>
+
+---
+
+## Get Sync Status
+
+Check sync status and pending operations.
+
+```http
+GET /sync/status
+```
+
+### Headers
+
+```
+Authorization: Bearer sk-your-api-key
+```
+
+### Query Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `agent_id` | string | Required. Agent identifier |
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "agent_id": "claire",
+    "pending_operations": 5,
+    "last_push": "2024-01-15T10:30:00Z",
+    "last_pull": "2024-01-15T10:25:00Z",
+    "remote_changes_available": 3,
+    "status": "connected"
+  }
+}
+```
+
+### CLI Equivalent
+
+```bash
+kernle -a claire sync status
+```
+
+---
+
+## Push Changes
+
+Push local changes to cloud.
+
+```http
+POST /sync/push
+```
+
+### Headers
+
+```
+Authorization: Bearer sk-your-api-key
+Content-Type: application/json
+```
+
+### Request Body
+
+```json
+{
+  "agent_id": "claire",
+  "operations": [
+    {
+      "table": "episodes",
+      "record_id": "ep_abc123",
+      "operation": "upsert",
+      "data": {
+        "objective": "Debugged API issue",
+        "outcome": "success",
+        "outcome_type": "success",
+        "lessons": ["Check logs first"],
+        "created_at": "2024-01-15T10:30:00Z",
+        "local_updated_at": "2024-01-15T10:30:00Z"
+      }
+    }
+  ],
+  "limit": 100
+}
+```
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "pushed": 5,
+    "failed": 0,
+    "remaining": 0,
+    "results": [
+      {
+        "record_id": "ep_abc123",
+        "status": "synced",
+        "remote_id": "cloud_ep_abc123"
+      }
+    ]
+  }
+}
+```
+
+### CLI Equivalent
+
+```bash
+kernle -a claire sync push
+```
+
+---
+
+## Pull Changes
+
+Pull remote changes to local.
+
+```http
+POST /sync/pull
+```
+
+### Headers
+
+```
+Authorization: Bearer sk-your-api-key
+Content-Type: application/json
+```
+
+### Request Body
+
+```json
+{
+  "agent_id": "claire",
+  "since": "2024-01-15T00:00:00Z",
+  "full": false
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `agent_id` | string | Required. Agent identifier |
+| `since` | ISO timestamp | Pull changes after this time (default: last pull time) |
+| `full` | boolean | If true, pull all records regardless of timestamp |
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "pulled": 12,
+    "tables": {
+      "episodes": 5,
+      "beliefs": 3,
+      "notes": 4
+    },
+    "last_sync": "2024-01-15T10:30:00Z"
+  }
+}
+```
+
+### CLI Equivalent
+
+```bash
+# Incremental pull
+kernle -a claire sync pull
+
+# Full pull
+kernle -a claire sync pull --full
+```
+
+---
+
+## Full Sync
+
+Perform bidirectional sync (pull then push).
+
+```http
+POST /sync/full
+```
+
+### Headers
+
+```
+Authorization: Bearer sk-your-api-key
+Content-Type: application/json
+```
+
+### Request Body
+
+```json
+{
+  "agent_id": "claire"
+}
+```
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "pull": {
+      "records": 8,
+      "tables": ["episodes", "beliefs"]
+    },
+    "push": {
+      "records": 3,
+      "tables": ["notes", "raw_entries"]
+    },
+    "conflicts_resolved": 0,
+    "sync_completed_at": "2024-01-15T10:30:00Z"
+  }
+}
+```
+
+### CLI Equivalent
+
+```bash
+kernle -a claire sync full
+```
+
+---
+
+## Supported Tables
+
+The sync API supports these memory tables:
+
+| Table | Description |
+|-------|-------------|
+| `episodes` | Autobiographical experiences |
+| `beliefs` | Semantic knowledge with confidence |
+| `notes` | Quick captures (decisions, insights) |
+| `agent_values` | Core principles |
+| `goals` | Active objectives |
+| `drives` | Intrinsic motivations |
+| `relationships` | Models of other entities |
+| `playbooks` | Procedural memory |
+| `raw_entries` | Unprocessed captures |
+| `checkpoints` | Saved state |
+
+---
+
+## Webhook Notifications (Coming Soon)
+
+Configure webhooks to receive notifications when sync events occur:
+
+```json
+{
+  "webhook_url": "https://your-app.com/kernle-webhook",
+  "events": ["sync.completed", "memory.created", "conflict.detected"]
+}
+```

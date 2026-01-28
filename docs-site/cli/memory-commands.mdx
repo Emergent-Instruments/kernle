@@ -1,0 +1,388 @@
+---
+title: Memory Commands
+description: "Commands for recording and managing memories"
+---
+
+# Memory Commands
+
+Commands for capturing and managing different types of memories.
+
+## episode
+
+Record an experience with optional lessons learned.
+
+```bash
+kernle -a <agent> episode OBJECTIVE OUTCOME [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-l, --lesson LESSON` | Lesson learned (repeatable) |
+| `-t, --tag TAG` | Tag (repeatable) |
+| `-v, --valence VALENCE` | Emotional valence (-1.0 to 1.0) |
+| `-a, --arousal AROUSAL` | Emotional arousal (0.0 to 1.0) |
+| `-e, --emotion EMOTION` | Emotion tag (repeatable) |
+| `--auto-emotion` | Auto-detect emotions (default) |
+| `--no-auto-emotion` | Disable emotion auto-detection |
+
+<Tabs>
+  <Tab title="Basic">
+    ```bash
+    kernle -a claire episode "Implemented OAuth login" "success"
+    ```
+  </Tab>
+  <Tab title="With Lessons">
+    ```bash
+    kernle -a claire episode "Debugged race condition" "success" \
+      --lesson "Always check for concurrent access" \
+      --lesson "Add mutex locks early"
+    ```
+  </Tab>
+  <Tab title="With Emotions">
+    ```bash
+    kernle -a claire episode "Failed deployment" "failure" \
+      --lesson "Test on staging first" \
+      --tag "deployment" \
+      --valence -0.5 \
+      --arousal 0.8
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## note
+
+Capture a quick note (decision, insight, or quote).
+
+```bash
+kernle -a <agent> note CONTENT [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--type {note,decision,insight,quote}` | Note type (default: note) |
+| `-s, --speaker SPEAKER` | Speaker (for quotes) |
+| `-r, --reason REASON` | Reason (for decisions) |
+| `--tag TAG` | Tag (repeatable) |
+| `-p, --protect` | Protect from forgetting |
+
+<Tabs>
+  <Tab title="Simple Note">
+    ```bash
+    kernle -a claire note "API rate limit is 1000 req/min"
+    ```
+  </Tab>
+  <Tab title="Decision">
+    ```bash
+    kernle -a claire note "Using PostgreSQL over MySQL" \
+      --type decision \
+      --reason "Better JSON support and performance"
+    ```
+  </Tab>
+  <Tab title="Quote">
+    ```bash
+    kernle -a claire note "Simple is better than complex" \
+      --type quote \
+      --speaker "Tim Peters"
+    ```
+  </Tab>
+  <Tab title="Protected Insight">
+    ```bash
+    kernle -a claire note "Memory is identity" \
+      --type insight \
+      --protect
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## raw
+
+Raw memory capture and management. Zero-friction capture for quick thoughts.
+
+### Capture
+
+```bash
+kernle -a <agent> raw "content" [--tags TAGS]
+```
+
+```bash
+# Quick capture
+kernle -a claire raw "Need to look into caching strategy"
+
+# With tags
+kernle -a claire raw "API response time is 200ms avg" --tags "performance,api"
+```
+
+### List
+
+```bash
+kernle -a <agent> raw list [--unprocessed] [--processed] [--limit LIMIT] [--json]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-u, --unprocessed` | Show only unprocessed entries |
+| `-p, --processed` | Show only processed entries |
+| `-l, --limit LIMIT` | Maximum entries (default: 50) |
+
+### Show
+
+```bash
+kernle -a <agent> raw show ID [--json]
+```
+
+### Process
+
+Process a raw entry into a structured memory type.
+
+```bash
+kernle -a <agent> raw process ID --type {episode,note,belief} [options]
+```
+
+```bash
+# Process into a note
+kernle -a claire raw process abc123 --type note
+
+# Process into episode with details
+kernle -a claire raw process abc123 --type episode \
+  --objective "Investigated performance issue" \
+  --outcome "success"
+```
+
+---
+
+## belief
+
+Belief revision operations.
+
+### List Beliefs
+
+```bash
+kernle -a <agent> belief list [--all] [--limit LIMIT] [--json]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-a, --all` | Include inactive (superseded) beliefs |
+| `-l, --limit LIMIT` | Maximum beliefs (default: 20) |
+
+### Add Belief
+
+```bash
+kernle -a <agent> belief "statement" [--confidence C] [--type TYPE]
+```
+
+```bash
+kernle -a claire belief "Testing before deployment prevents outages" --confidence 0.85
+```
+
+### Revise from Episode
+
+Analyze an episode and suggest belief updates.
+
+```bash
+kernle -a <agent> belief revise EPISODE_ID [--json]
+```
+
+### Find Contradictions
+
+```bash
+kernle -a <agent> belief contradictions STATEMENT [--limit LIMIT]
+```
+
+### View History
+
+Show the revision chain for a belief.
+
+```bash
+kernle -a <agent> belief history BELIEF_ID [--json]
+```
+
+### Reinforce
+
+Increase confidence on a belief.
+
+```bash
+kernle -a <agent> belief reinforce BELIEF_ID
+```
+
+### Supersede
+
+Replace a belief with a new version.
+
+```bash
+kernle -a <agent> belief supersede OLD_ID NEW_STATEMENT [--confidence C] [--reason R]
+```
+
+```bash
+kernle -a claire belief supersede abc123 "Testing is essential, not optional" \
+  --confidence 0.95 \
+  --reason "Multiple deployment failures without tests"
+```
+
+---
+
+## value
+
+Define core values (highest authority).
+
+```bash
+kernle -a <agent> value NAME STATEMENT [--priority P]
+```
+
+```bash
+kernle -a claire value "integrity" "Be honest and transparent" --priority 95
+kernle -a claire value "curiosity" "Always seek to understand" --priority 85
+```
+
+<Note>
+Values are protected from forgetting by default.
+</Note>
+
+---
+
+## goal
+
+Set and manage goals.
+
+```bash
+# Add a goal
+kernle -a <agent> goal TITLE [--description DESC] [--priority {low,medium,high}]
+
+# List goals
+kernle -a <agent> goal list
+
+# Complete a goal
+kernle -a <agent> goal complete GOAL_ID
+```
+
+```bash
+kernle -a claire goal "Master Kubernetes" --priority high
+kernle -a claire goal "Improve test coverage" --priority medium
+```
+
+---
+
+## drive
+
+Manage intrinsic motivations.
+
+### List Drives
+
+```bash
+kernle -a <agent> drive list
+```
+
+### Set Drive
+
+```bash
+kernle -a <agent> drive set TYPE INTENSITY [--focus FOCUS]...
+```
+
+| Type | Description |
+|------|-------------|
+| `existence` | Self-preservation, maintaining continuity |
+| `growth` | Developing capabilities |
+| `curiosity` | Understanding, learning, exploring |
+| `connection` | Forming relationships |
+| `reproduction` | Creating, teaching, legacy |
+
+```bash
+kernle -a claire drive set curiosity 0.8 --focus "AI" --focus "memory systems"
+kernle -a claire drive set growth 0.7 --focus "communication"
+```
+
+### Satisfy Drive
+
+Reduce drive intensity after satisfaction.
+
+```bash
+kernle -a <agent> drive satisfy TYPE [--amount AMOUNT]
+```
+
+```bash
+kernle -a claire drive satisfy curiosity --amount 0.2
+```
+
+---
+
+## relationship
+
+Track relationships with other entities.
+
+```bash
+kernle -a <agent> relationship NAME [--trust T] [--type TYPE] [--notes NOTES]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--trust T` | Trust level (-1.0 to 1.0) |
+| `--type TYPE` | `agent`, `person`, or `organization` |
+| `--notes NOTES` | Relationship observations |
+
+```bash
+kernle -a claire relationship "Alice" --trust 0.9 --notes "Great debugging partner"
+kernle -a claire relationship "DevOps" --type organization --notes "Manages infrastructure"
+```
+
+---
+
+## playbook
+
+Procedural memory (playbooks for how to do things).
+
+### Create
+
+```bash
+kernle -a <agent> playbook create NAME [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-d, --description` | What this playbook does |
+| `--step STEP` | Add a step (repeatable) |
+| `--trigger TRIGGER` | Trigger condition (repeatable) |
+| `-f, --failure-mode` | What can go wrong (repeatable) |
+| `-r, --recovery` | Recovery step (repeatable) |
+
+```bash
+kernle -a claire playbook create "Debug API Issues" \
+  --description "How to debug production API problems" \
+  --step "Check error logs" \
+  --step "Verify request payload" \
+  --step "Test with curl" \
+  --trigger "API returns 500" \
+  --failure-mode "Logs not accessible" \
+  --recovery "Use backup logging endpoint"
+```
+
+### List
+
+```bash
+kernle -a <agent> playbook list [--tag TAG] [--limit LIMIT]
+```
+
+### Find (Semantic Search)
+
+```bash
+kernle -a <agent> playbook find SITUATION
+```
+
+```bash
+kernle -a claire playbook find "API returning 500 errors"
+```
+
+### Show
+
+```bash
+kernle -a <agent> playbook show ID
+```
+
+### Record Usage
+
+```bash
+kernle -a <agent> playbook record ID [--success|--failure]
+```

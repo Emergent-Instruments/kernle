@@ -1,0 +1,495 @@
+---
+title: Utility Commands
+description: "Commands for loading, searching, exporting, and maintaining memory"
+---
+
+# Utility Commands
+
+Commands for managing memory state, searching, analysis, and maintenance.
+
+## load
+
+Load and display working memory at session start.
+
+```bash
+kernle -a <agent> load [--json] [--sync] [--no-sync]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-j, --json` | Output as JSON |
+| `-s, --sync` | Force sync (pull) before loading |
+| `--no-sync` | Skip sync even if auto-sync enabled |
+
+```bash
+# Standard load
+kernle -a claire load
+
+# Force sync from cloud first
+kernle -a claire load --sync
+```
+
+---
+
+## checkpoint
+
+Save and restore session state.
+
+### checkpoint save
+
+```bash
+kernle -a <agent> checkpoint save TASK [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-p, --pending PENDING` | Pending item (repeatable) |
+| `-c, --context CONTEXT` | Additional context |
+| `-s, --sync` | Force sync after saving |
+| `--no-sync` | Skip sync |
+
+<Tabs>
+  <Tab title="Basic">
+    ```bash
+    kernle -a claire checkpoint save "Working on user authentication"
+    ```
+  </Tab>
+  <Tab title="With Pending Items">
+    ```bash
+    kernle -a claire checkpoint save "Refactoring database layer" \
+      --pending "finish migration script" \
+      --pending "update tests"
+    ```
+  </Tab>
+  <Tab title="With Context">
+    ```bash
+    kernle -a claire checkpoint save "Debugging API issue" \
+      --context "Error occurs when token expires after 1 hour"
+    ```
+  </Tab>
+</Tabs>
+
+### checkpoint load
+
+```bash
+kernle -a <agent> checkpoint load [--json]
+```
+
+### checkpoint clear
+
+```bash
+kernle -a <agent> checkpoint clear
+```
+
+---
+
+## search
+
+Search memory using vector similarity.
+
+```bash
+kernle -a <agent> search QUERY [--limit LIMIT]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-l, --limit LIMIT` | Maximum results (default: 10) |
+
+```bash
+kernle -a claire search "authentication"
+kernle -a claire search "database performance" --limit 5
+```
+
+---
+
+## status
+
+Show memory status overview.
+
+```bash
+kernle -a <agent> status
+```
+
+**Example output:**
+```
+Memory Status for claire
+========================================
+Values:     3
+Beliefs:    12
+Goals:      2 active
+Episodes:   45
+Raw:        8 (5 unprocessed)
+Notes:      23
+Checkpoint: Yes (2 hours ago)
+```
+
+---
+
+## when
+
+Query memories by time period.
+
+```bash
+kernle -a <agent> when [PERIOD]
+```
+
+| Period | Description |
+|--------|-------------|
+| `today` | Today's memories (default) |
+| `yesterday` | Yesterday's memories |
+| `this week` | This week's memories |
+| `last hour` | Last hour's memories |
+
+```bash
+kernle -a claire when yesterday
+kernle -a claire when "this week"
+```
+
+---
+
+## anxiety
+
+Memory anxiety tracking and management.
+
+```bash
+kernle -a <agent> anxiety [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-d, --detailed` | Show detailed breakdown |
+| `-a, --actions` | Show recommended actions |
+| `--auto` | Execute recommended actions |
+| `-c, --context TOKENS` | Current context token usage |
+| `-l, --limit LIMIT` | Context window limit (default: 200000) |
+| `-e, --emergency` | Run emergency save immediately |
+| `-s, --summary` | Summary for emergency save |
+| `-j, --json` | Output as JSON |
+
+<Tabs>
+  <Tab title="Quick Check">
+    ```bash
+    kernle -a claire anxiety
+    # Output: Memory Anxiety: 45/100 (Aware)
+    ```
+  </Tab>
+  <Tab title="Detailed">
+    ```bash
+    kernle -a claire anxiety --detailed --actions
+    ```
+  </Tab>
+  <Tab title="Auto-Fix">
+    ```bash
+    kernle -a claire anxiety --auto
+    ```
+  </Tab>
+  <Tab title="Emergency">
+    ```bash
+    kernle -a claire anxiety --emergency --summary "Context compaction triggered"
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## consolidate
+
+Run memory consolidation (episodes → beliefs).
+
+```bash
+kernle -a <agent> consolidate [--min-episodes MIN]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-m, --min-episodes MIN` | Minimum episodes to consolidate (default: 3) |
+
+```bash
+kernle -a claire consolidate
+kernle -a claire consolidate --min-episodes 5
+```
+
+---
+
+## identity
+
+Identity synthesis operations.
+
+### identity show
+
+Generate a coherent identity narrative.
+
+```bash
+kernle -a <agent> identity show [--json]
+# or just:
+kernle -a <agent> identity
+```
+
+### identity confidence
+
+Check identity coherence score.
+
+```bash
+kernle -a <agent> identity confidence [--json]
+```
+
+### identity drift
+
+Detect identity drift over time.
+
+```bash
+kernle -a <agent> identity drift [--days DAYS] [--json]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-d, --days DAYS` | Days to look back (default: 30) |
+
+---
+
+## emotion
+
+Emotional memory operations.
+
+### emotion summary
+
+```bash
+kernle -a <agent> emotion summary [--days DAYS] [--json]
+```
+
+### emotion search
+
+Search by emotional characteristics.
+
+```bash
+kernle -a <agent> emotion search [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--positive` | Find positive episodes |
+| `--negative` | Find negative episodes |
+| `--calm` | Find low-arousal episodes |
+| `--intense` | Find high-arousal episodes |
+| `-t, --tag TAG` | Emotion tag to match |
+| `-l, --limit LIMIT` | Maximum results (default: 10) |
+
+```bash
+kernle -a claire emotion search --positive --limit 5
+kernle -a claire emotion search --negative --intense
+```
+
+### emotion tag
+
+Add emotional tags to an episode.
+
+```bash
+kernle -a <agent> emotion tag EPISODE_ID [--valence V] [--arousal A] [--tag TAG]...
+```
+
+### emotion mood
+
+Get mood-relevant memories.
+
+```bash
+kernle -a <agent> emotion mood --valence V --arousal A [--limit LIMIT]
+```
+
+---
+
+## meta
+
+Meta-memory operations.
+
+### meta confidence
+
+Get confidence for a memory.
+
+```bash
+kernle -a <agent> meta confidence TYPE ID
+```
+
+### meta verify
+
+Verify a memory (increases confidence).
+
+```bash
+kernle -a <agent> meta verify TYPE ID [--evidence EVIDENCE]
+```
+
+### meta lineage
+
+Get provenance chain.
+
+```bash
+kernle -a <agent> meta lineage TYPE ID [--json]
+```
+
+### meta uncertain
+
+List low-confidence memories.
+
+```bash
+kernle -a <agent> meta uncertain [--threshold T] [--limit L]
+```
+
+### meta knowledge
+
+Show knowledge map.
+
+```bash
+kernle -a <agent> meta knowledge [--json]
+```
+
+### meta gaps
+
+Detect knowledge gaps.
+
+```bash
+kernle -a <agent> meta gaps QUERY [--json]
+```
+
+### meta boundaries
+
+Show competence boundaries.
+
+```bash
+kernle -a <agent> meta boundaries [--json]
+```
+
+### meta learn
+
+Identify learning opportunities.
+
+```bash
+kernle -a <agent> meta learn [--limit LIMIT]
+```
+
+---
+
+## forget
+
+Controlled forgetting operations.
+
+### forget candidates
+
+Show forgetting candidates.
+
+```bash
+kernle -a <agent> forget candidates [--threshold T] [--limit L]
+```
+
+### forget run
+
+Run forgetting cycle.
+
+```bash
+kernle -a <agent> forget run [--dry-run] [--threshold T] [--limit L]
+```
+
+```bash
+# Preview
+kernle -a claire forget run --dry-run
+
+# Actually forget
+kernle -a claire forget run --threshold 0.2 --limit 5
+```
+
+### forget protect
+
+Protect a memory from forgetting.
+
+```bash
+kernle -a <agent> forget protect TYPE ID [--unprotect]
+```
+
+### forget recover
+
+Recover a forgotten memory.
+
+```bash
+kernle -a <agent> forget recover TYPE ID
+```
+
+### forget list
+
+List forgotten memories.
+
+```bash
+kernle -a <agent> forget list [--limit L]
+```
+
+---
+
+## dump
+
+Dump all memory to stdout.
+
+```bash
+kernle -a <agent> dump [--format {markdown,json}] [--include-raw] [--no-raw]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-f, --format` | Output format (default: markdown) |
+| `-r, --include-raw` | Include raw entries (default: true) |
+| `--no-raw` | Exclude raw entries |
+
+```bash
+kernle -a claire dump | less
+kernle -a claire dump --format json
+```
+
+---
+
+## export
+
+Export memory to a file.
+
+```bash
+kernle -a <agent> export PATH [--format {markdown,json}]
+```
+
+Format is auto-detected from file extension if not specified.
+
+```bash
+kernle -a claire export backup.md
+kernle -a claire export memory-snapshot.json --format json
+```
+
+---
+
+## init
+
+Initialize Kernle with interactive setup.
+
+```bash
+kernle -a <agent> init [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-y, --non-interactive` | Use defaults |
+| `--env {claude-code,clawdbot,cline,cursor,desktop}` | Target environment |
+| `--seed-values` | Seed initial values (default: true) |
+| `--no-seed-values` | Skip seeding values |
+
+```bash
+# Interactive
+kernle -a my-project init
+
+# Non-interactive for Claude Code
+kernle -a my-project init -y --env claude-code
+```
+
+---
+
+## mcp
+
+Start MCP server (stdio transport).
+
+```bash
+kernle -a <agent> mcp
+```
+
+Used for integration with MCP-compatible tools. See [MCP Integration](/integration/mcp).

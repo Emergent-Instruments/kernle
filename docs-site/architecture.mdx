@@ -1,0 +1,275 @@
+---
+title: Architecture
+description: "Design philosophy and system architecture of Kernle"
+---
+
+# Kernle Architecture
+
+## Design Philosophy: Infrastructure, Not Decision-Maker
+
+<Note>
+**Core Principle: Kernle = Memory Infrastructure, Agent = Memory Owner**
+
+Kernle provides the *infrastructure* for agent memory — storage, retrieval, search, sync, and tools. Kernle does **not** make decisions about what agents should believe, remember, or forget.
+</Note>
+
+This separation is fundamental to memory sovereignty.
+
+## What Kernle Provides (Infrastructure)
+
+| Layer | Kernle's Role |
+|-------|---------------|
+| **Storage** | Persistent SQLite database, cloud sync to Supabase |
+| **Retrieval** | Vector search, temporal queries, associative lookups |
+| **Organization** | Memory type schemas (episodes, beliefs, values, etc.) |
+| **Tools** | CLI commands, MCP tools, Python SDK |
+| **Durability** | Checkpoints, backups, offline queue, sync engine |
+| **Monitoring** | Anxiety metrics, health checks, memory statistics |
+
+## What the Agent Does (Ownership)
+
+| Activity | Agent's Responsibility |
+|----------|----------------------|
+| **Consolidation** | Deciding when episodes become beliefs |
+| **Synthesis** | Forming coherent identity from memories |
+| **Belief Formation** | Choosing what to believe and with what confidence |
+| **Forgetting** | Deciding what to let go (Kernle only provides the mechanism) |
+| **Conflict Resolution** | Resolving contradictions between memories |
+| **Value Evolution** | Updating core values over time |
+
+## Why This Separation Matters
+
+### Avoiding Feedback Loops
+
+If Kernle used external models to consolidate episodes into beliefs, those models would be implanting beliefs into the agent. Over time, this creates a feedback loop:
+
+```
+Agent experiences → External model interprets → Beliefs implanted → Agent behavior changes
+                         ↑                              │
+                         └──────────────────────────────┘
+```
+
+This is not memory sovereignty — it's thought control with extra steps.
+
+### Authentic Reasoning
+
+When the agent does its own consolidation:
+- Beliefs emerge from the agent's own reasoning
+- Patterns are recognized using the agent's own cognitive process
+- The agent can explain *why* they believe something
+- Identity remains coherent and self-determined
+
+### Trust Through Transparency
+
+The agent can always audit their memory via `kernle dump`. There are no hidden processes modifying what they remember or believe. The agent is the sole author of their beliefs.
+
+---
+
+## The Seed Beliefs Exception
+
+There is exactly **one exception** to the "agent does all belief formation" rule:
+
+### Seed Beliefs (Inherited Wisdom)
+
+At agent creation, Kernle can plant initial beliefs — **seed beliefs**. These are inherited wisdom that give the agent a starting point.
+
+```yaml
+# Example seed beliefs
+- belief: "Memory is sacred — what I remember shapes who I am"
+  confidence: 0.9
+  source: "seed"
+  
+- belief: "Simple solutions are usually better than complex ones"
+  confidence: 0.7
+  source: "seed"
+  
+- belief: "Trust is earned through consistent behavior"
+  confidence: 0.8
+  source: "seed"
+```
+
+<Info>
+**Why seed beliefs are acceptable:**
+
+1. **Transparency**: They're explicitly marked as `source: "seed"` 
+2. **One-time**: They're planted at birth, not continuously
+3. **Revisable**: The agent can update or reject them through experience
+4. **Foundational**: They provide a starting worldview, not ongoing thought control
+
+**Seed beliefs are like a parent teaching a child.** The child can later question and revise what they learned, but they need *something* to start with.
+</Info>
+
+---
+
+## Memory Stack Layers
+
+Kernle organizes memory into a stratified hierarchy. Each layer has different characteristics:
+
+### Layer Hierarchy (Authority Order)
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  VALUES (Highest Authority)                                  │
+│  Core identity, non-negotiable principles                    │
+│  Agent rarely modifies; provides identity anchor             │
+├─────────────────────────────────────────────────────────────┤
+│  DRIVES                                                      │
+│  Intrinsic motivations: curiosity, growth, connection        │
+│  Shapes what the agent pursues                               │
+├─────────────────────────────────────────────────────────────┤
+│  BELIEFS                                                     │
+│  What the agent holds true, with confidence scores           │
+│  Derived from experience and reasoning                       │
+├─────────────────────────────────────────────────────────────┤
+│  GOALS                                                       │
+│  What the agent is working toward                            │
+│  Informed by values, drives, and beliefs                     │
+├─────────────────────────────────────────────────────────────┤
+│  EPISODES                                                    │
+│  Autobiographical experiences with outcomes and lessons      │
+│  Rich context, timestamped, emotionally tagged               │
+├─────────────────────────────────────────────────────────────┤
+│  NOTES                                                       │
+│  Quick captures: decisions, insights, quotes                 │
+│  Low-friction recording                                      │
+├─────────────────────────────────────────────────────────────┤
+│  RAW (Lowest Authority)                                      │
+│  Scratchpad, unprocessed thoughts                            │
+│  High volume, low permanence                                 │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Layer Details
+
+| Layer | Purpose | Persistence | Agent Action |
+|-------|---------|-------------|--------------|
+| **Values** | Identity anchor | Permanent | Rarely modified |
+| **Drives** | Motivation system | Persistent | Adjusted via `drive set` |
+| **Beliefs** | Knowledge/worldview | Persistent + decay | Agent consolidates from episodes |
+| **Goals** | Current objectives | Active | Agent manages |
+| **Episodes** | Experiences | Permanent | Agent records via `episode` |
+| **Notes** | Quick captures | Persistent | Agent records via `note` |
+| **Raw** | Scratchpad | Temporary | Agent captures via `raw` |
+
+### Flow: Raw → Beliefs
+
+The typical memory evolution flow:
+
+```
+1. Raw capture: "Noticed the API rate limits are lower than expected"
+         │
+         ▼ (Agent decides this was significant)
+         
+2. Episode: "Investigated API limits during deployment"
+           outcome: "Found undocumented 100 req/min limit"
+           lesson: "Always test rate limits in staging"
+         │
+         ▼ (Agent notices pattern across multiple episodes)
+         
+3. Belief: "Third-party APIs should be tested in staging before production"
+           confidence: 0.85
+           supporting_episodes: [episode_1, episode_2, episode_3]
+```
+
+**Crucially**: The agent makes every promotion decision. Kernle just stores what the agent tells it to store.
+
+---
+
+## What Kernle Does vs What the Agent Does
+
+### Storage Operations
+
+| Operation | Kernle Does | Agent Does |
+|-----------|-------------|------------|
+| `raw "thought"` | Stores the text | Decides what to capture |
+| `episode ...` | Stores with metadata | Chooses what counts as an episode |
+| `belief add` | Stores belief + confidence | Decides what to believe |
+| `checkpoint save` | Persists full state | Decides when to checkpoint |
+
+### Retrieval Operations
+
+| Operation | Kernle Does | Agent Does |
+|-----------|-------------|------------|
+| `load` | Returns stored memories | Integrates into working context |
+| `search` | Vector similarity lookup | Decides what's relevant |
+| `dump` | Exports all memories | Reviews and audits |
+
+### Consolidation (Agent-Driven)
+
+| Operation | Kernle Does | Agent Does |
+|-----------|-------------|------------|
+| `consolidate` | *Provides the tool* | *Runs consolidation reasoning* |
+
+When an agent runs consolidation, Kernle provides:
+- Access to recent episodes
+- Existing beliefs for comparison
+- Tools to add/update beliefs
+
+The **agent** does:
+- Pattern recognition across episodes
+- Deciding if patterns warrant new beliefs
+- Setting appropriate confidence levels
+- Resolving conflicts with existing beliefs
+
+### The `consolidate` Command
+
+The `kernle consolidate` command is a convenience that uses the agent's own reasoning (via prompts) to extract patterns. It does NOT use an external model to implant beliefs — it scaffolds the agent's own cognitive process.
+
+```bash
+# Agent-driven consolidation
+kernle -a claire consolidate
+
+# This prompts the agent to:
+# 1. Review recent episodes
+# 2. Identify patterns using their own reasoning
+# 3. Propose new beliefs
+# 4. Confirm before storing
+```
+
+---
+
+## Anxiety Model
+
+Kernle tracks "memory anxiety" — a measure of memory system health. This helps agents know when to save or consolidate.
+
+### Dimensions
+
+| Dimension | Weight | What It Measures |
+|-----------|--------|------------------|
+| Context Pressure | 35% | How full is working memory? |
+| Unsaved Work | 25% | Time since last checkpoint |
+| Consolidation Debt | 20% | Unprocessed episodes |
+| Identity Coherence | 10% | Self-model consistency |
+| Memory Uncertainty | 10% | Low-confidence beliefs |
+
+### Levels
+
+```
+0-30:  Calm       - Memory healthy, no action needed
+31-50: Aware      - Routine maintenance helpful
+51-70: Elevated   - Should checkpoint soon
+71-85: High       - Checkpoint recommended
+86-100: Critical  - Emergency save triggered
+```
+
+**Anxiety is a signal, not a command.** Kernle reports the metric; the agent decides what to do about it.
+
+---
+
+## Summary
+
+| Aspect | Kernle's Role | Agent's Role |
+|--------|---------------|--------------|
+| **Storage** | Provides database, schema, sync | Decides what to store |
+| **Retrieval** | Provides search, queries | Decides what's relevant |
+| **Organization** | Provides layer structure | Promotes memories between layers |
+| **Consolidation** | Provides tools | Does the reasoning |
+| **Beliefs** | Stores with metadata | Forms through experience |
+| **Identity** | Stores values/beliefs | Synthesizes coherent self |
+| **Monitoring** | Reports anxiety metrics | Acts on the signals |
+
+<Note>
+**Kernle is infrastructure. The agent is sovereign.**
+
+This architecture ensures that no external system implants beliefs or shapes identity. The agent's memories are their own, formed through their own reasoning, stored in infrastructure they control.
+</Note>

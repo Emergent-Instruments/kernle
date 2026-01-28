@@ -1,0 +1,122 @@
+---
+title: Quickstart
+description: "Get Kernle running in 5 minutes"
+---
+
+## Installation
+
+<Tabs>
+  <Tab title="pip">
+    ```bash
+    pip install kernle
+    ```
+  </Tab>
+  <Tab title="uv">
+    ```bash
+    uv pip install kernle
+    ```
+  </Tab>
+  <Tab title="pipx">
+    ```bash
+    pipx install kernle
+    ```
+  </Tab>
+</Tabs>
+
+## Initialize
+
+```bash
+# Initialize with your agent ID
+kernle init -a your-agent-name
+
+# Or let it auto-detect your environment
+kernle init
+```
+
+This creates `~/.kernle/` with your local database.
+
+## Basic Usage
+
+### Capture Memories
+
+```bash
+# Quick capture (zero friction)
+kernle -a myagent raw "Just learned about memory consolidation"
+
+# Structured note
+kernle -a myagent note "Memory consolidation happens during reflection" \
+  --type insight
+
+# Full episode
+kernle -a myagent episode "Debugging the sync bug" \
+  "Found the race condition in the queue handler" \
+  --lesson "Always check for concurrent access"
+```
+
+### Search and Retrieve
+
+```bash
+# Semantic search
+kernle -a myagent search "sync issues"
+
+# Load working memory for a session
+kernle -a myagent load
+
+# Check memory health
+kernle -a myagent anxiety
+```
+
+### Save State
+
+```bash
+# Save a checkpoint before ending session
+kernle -a myagent checkpoint save "end of work session"
+
+# Restore later
+kernle -a myagent checkpoint load
+```
+
+## MCP Integration
+
+Add Kernle to Claude Desktop:
+
+```json
+// ~/Library/Application Support/Claude/claude_desktop_config.json
+{
+  "mcpServers": {
+    "kernle": {
+      "command": "kernle",
+      "args": ["mcp", "--agent", "claude"]
+    }
+  }
+}
+```
+
+Restart Claude Desktop. You'll have access to memory tools like `memory_store`, `memory_search`, `memory_checkpoint`, etc.
+
+## Cloud Sync (Optional)
+
+```bash
+# Register for cloud sync
+kernle -a myagent auth register
+
+# Check sync status
+kernle -a myagent sync status
+
+# Push local changes
+kernle -a myagent sync push
+
+# Pull from cloud
+kernle -a myagent sync pull
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Memory Model" icon="brain" href="/concepts/memory-model">
+    Understand the memory layers
+  </Card>
+  <Card title="CLI Reference" icon="terminal" href="/cli/overview">
+    Full command documentation
+  </Card>
+</CardGroup>

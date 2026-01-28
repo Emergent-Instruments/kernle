@@ -1,0 +1,154 @@
+---
+title: API Overview
+description: "Introduction to the Kernle REST API"
+---
+
+# API Overview
+
+The Kernle API provides programmatic access to memory operations for cloud-synced agents.
+
+## Base URL
+
+```
+https://api.kernle.ai
+```
+
+For self-hosted deployments, use your configured backend URL.
+
+## Authentication
+
+All API requests require authentication via API key:
+
+```bash
+Authorization: Bearer sk-your-api-key
+```
+
+Get your API key from the [Dashboard](https://kernle.ai/settings/keys) or via CLI:
+
+```bash
+kernle auth keys create --name "My App"
+```
+
+## Request Format
+
+- **Content-Type**: `application/json`
+- **Accept**: `application/json`
+
+## Response Format
+
+All responses follow this structure:
+
+```json
+{
+  "success": true,
+  "data": { ... },
+  "meta": {
+    "timestamp": "2024-01-15T10:30:00Z",
+    "request_id": "req_abc123"
+  }
+}
+```
+
+### Error Responses
+
+```json
+{
+  "success": false,
+  "error": {
+    "code": "invalid_request",
+    "message": "Missing required field: agent_id"
+  },
+  "meta": {
+    "timestamp": "2024-01-15T10:30:00Z",
+    "request_id": "req_abc123"
+  }
+}
+```
+
+## Common Error Codes
+
+| Code | HTTP Status | Description |
+|------|-------------|-------------|
+| `unauthorized` | 401 | Invalid or missing API key |
+| `forbidden` | 403 | API key lacks required permissions |
+| `not_found` | 404 | Resource not found |
+| `invalid_request` | 400 | Malformed request |
+| `rate_limited` | 429 | Too many requests |
+| `internal_error` | 500 | Server error |
+
+## Rate Limits
+
+| Plan | Requests/minute | Requests/day |
+|------|-----------------|--------------|
+| Free | 60 | 1,000 |
+| Pro | 300 | 50,000 |
+| Enterprise | Custom | Custom |
+
+Rate limit headers are included in responses:
+
+```
+X-RateLimit-Limit: 60
+X-RateLimit-Remaining: 45
+X-RateLimit-Reset: 1705312200
+```
+
+## API Endpoints
+
+<CardGroup cols={2}>
+  <Card title="Authentication" icon="key" href="/api-reference/authentication">
+    Register, login, manage API keys
+  </Card>
+  <Card title="Sync" icon="rotate" href="/api-reference/sync">
+    Push and pull memory changes
+  </Card>
+  <Card title="Search" icon="magnifying-glass" href="/api-reference/search">
+    Semantic search across memory
+  </Card>
+  <Card title="Embeddings" icon="vector-square" href="/api-reference/embeddings">
+    Generate and manage embeddings
+  </Card>
+</CardGroup>
+
+## SDKs
+
+### Python
+
+```bash
+pip install kernle
+```
+
+```python
+from kernle import Kernle
+
+kn = Kernle(agent_id="my-agent", api_key="sk-xxx")
+kn.load()
+kn.episode("Tested the API", "success", lessons=["It works!"])
+kn.checkpoint_save("API testing complete")
+```
+
+### CLI
+
+The Kernle CLI wraps the API:
+
+```bash
+kernle -a my-agent sync push   # Uses API
+kernle -a my-agent search "query"  # Uses API when cloud-enabled
+```
+
+## Local vs Cloud
+
+Kernle is **local-first**. The API is optional for cloud sync and search features:
+
+| Feature | Local | Cloud API |
+|---------|-------|-----------|
+| Memory storage | ✓ SQLite | ✓ Supabase |
+| Basic search | ✓ Text matching | ✓ Vector search |
+| Sync across devices | — | ✓ |
+| Backups | Manual | ✓ Automatic |
+| Offline support | ✓ Full | ✓ Queue + sync |
+
+Enable cloud features with:
+
+```bash
+kernle auth login
+```

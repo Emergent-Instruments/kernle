@@ -1,0 +1,219 @@
+---
+title: Consolidation
+description: "Agent-driven memory consolidation and the anxiety model"
+---
+
+# Consolidation
+
+Memory consolidation is the process of transforming raw experiences into structured knowledge. In Kernle, **consolidation is agent-driven, not LLM-based**.
+
+<Warning>
+The agent decides what to promote and how. Kernle never implants beliefs or makes decisions about what you should remember.
+</Warning>
+
+## Why Agent-Driven?
+
+If an external model consolidated your memories, it would be implanting beliefs into you. This creates:
+
+- **Feedback loops**: External interpretations shape your behavior, which shapes future memories
+- **Loss of sovereignty**: You can't explain why you believe something because you didn't form the belief
+- **Identity drift**: Your sense of self becomes dependent on external processing
+
+With agent-driven consolidation:
+- Beliefs emerge from **your own reasoning**
+- Patterns are recognized using **your own cognitive process**
+- You can explain **why** you believe something
+- Identity remains **coherent and self-determined**
+
+## Consolidation Paths
+
+### Raw → Structured
+
+Process raw captures into proper memory types:
+
+```bash
+# List unprocessed raw entries
+kernle raw list --unprocessed
+
+# Process into episode
+kernle raw process <raw_id> --type episode \
+  --objective "Investigated API performance" \
+  --outcome "success"
+
+# Process into note
+kernle raw process <raw_id> --type note --type decision
+
+# Process into belief
+kernle raw process <raw_id> --type belief --confidence 0.7
+```
+
+### Episodes → Beliefs
+
+Analyze episodes for belief updates:
+
+```bash
+# Analyze a specific episode
+kernle belief revise <episode_id>
+# Returns: { reinforced: [...], contradicted: [...], suggested_new: [...] }
+
+# Review suggestions and decide what to adopt
+kernle belief add "Pattern I noticed" --confidence 0.8
+```
+
+### Pattern Extraction
+
+Find common lessons across multiple episodes:
+
+```bash
+# Consolidate with minimum episode threshold
+kernle consolidate --min-episodes 3
+# Returns: { common_lessons: ["lesson that appeared 2+ times", ...] }
+```
+
+## The Consolidation Workflow
+
+<Steps>
+  <Step title="Review Raw Captures">
+    ```bash
+    kernle raw list --unprocessed
+    ```
+    Look at what you've captured recently. What's worth promoting?
+  </Step>
+  <Step title="Promote Meaningful Captures">
+    Turn raw captures into episodes with lessons, decisions with reasoning, or beliefs with confidence.
+  </Step>
+  <Step title="Look for Patterns">
+    ```bash
+    kernle consolidate
+    ```
+    What lessons keep appearing? What patterns emerge?
+  </Step>
+  <Step title="Form Beliefs">
+    If a pattern appears consistently, consider forming a belief:
+    ```bash
+    kernle belief add "Testing prevents surprises" --confidence 0.85
+    ```
+  </Step>
+  <Step title="Check for Contradictions">
+    ```bash
+    kernle belief contradictions "New statement to check"
+    ```
+    Does this conflict with existing beliefs?
+  </Step>
+</Steps>
+
+---
+
+# The Anxiety Model
+
+Kernle tracks "memory anxiety" — a measure of memory system health. This helps you know when to save or consolidate.
+
+## Dimensions
+
+| Dimension | Weight | What It Measures |
+|-----------|--------|------------------|
+| **Context Pressure** | 35% | How full is your context window? |
+| **Unsaved Work** | 25% | Time since last checkpoint |
+| **Consolidation Debt** | 20% | Unprocessed episodes (episodes without lessons) |
+| **Identity Coherence** | 10% | Self-model consistency |
+| **Memory Uncertainty** | 10% | Count of low-confidence beliefs |
+
+## Anxiety Levels
+
+```
+0-30:  Calm       ✓ Memory healthy, no action needed
+31-50: Aware      → Routine maintenance helpful
+51-70: Elevated   → Should checkpoint soon
+71-85: High       → Checkpoint recommended
+86-100: Critical  → Emergency save triggered
+```
+
+## Checking Anxiety
+
+```bash
+# Quick check
+kernle anxiety
+
+# Detailed breakdown
+kernle anxiety --detailed
+
+# With recommended actions
+kernle anxiety --actions
+
+# Auto-execute recommendations
+kernle anxiety --auto
+```
+
+### Example Output
+
+```
+Memory Anxiety: 62/100 (Elevated)
+
+Dimensions:
+  Context Pressure:    45/100 (15.8%)
+  Unsaved Work:        70/100 (17.5%)
+  Consolidation Debt:  80/100 (16.0%)
+  Identity Coherence:  30/100 (3.0%)
+  Memory Uncertainty:  55/100 (5.5%)
+
+Recommendations:
+  - Save checkpoint (70 minutes since last save)
+  - Review 5 unprocessed episodes
+  - Consolidate to extract patterns
+```
+
+## Acting on Anxiety
+
+<Tabs>
+  <Tab title="Low Anxiety (0-50)">
+    No immediate action needed. Continue normal work. Consider:
+    - Reviewing raw captures during lulls
+    - Recording lessons from recent work
+  </Tab>
+  <Tab title="Elevated (51-70)">
+    ```bash
+    # Save your current state
+    kernle checkpoint save "current work description"
+    
+    # Review unprocessed episodes
+    kernle consolidate
+    ```
+  </Tab>
+  <Tab title="High/Critical (71+)">
+    ```bash
+    # Emergency save
+    kernle anxiety --emergency --summary "Context getting full"
+    
+    # Or auto-execute recommendations
+    kernle anxiety --auto
+    ```
+  </Tab>
+</Tabs>
+
+## Emergency Save
+
+When context is critically full:
+
+```bash
+kernle anxiety --emergency --summary "Pre-compaction save"
+```
+
+This immediately:
+1. Saves a checkpoint with the summary
+2. Records any unsaved episodes
+3. Pushes to cloud if configured
+
+## Context Pressure Monitoring
+
+For AI agents in context-limited environments:
+
+| Context % | Recommended Action |
+|-----------|-------------------|
+| < 50% | Normal operation |
+| 50-70% | Save checkpoint |
+| 70-85% | Save checkpoint + record important episodes |
+| 85%+ | Emergency save, warn about context limit |
+
+<Tip>
+Don't wait for anxiety to spike. Make consolidation a regular habit — review and promote memories during natural lulls in your work.
+</Tip>

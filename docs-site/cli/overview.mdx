@@ -1,0 +1,136 @@
+---
+title: CLI Overview
+description: "Complete reference for the Kernle command-line interface"
+---
+
+# CLI Overview
+
+The Kernle CLI provides 23 commands for managing agent memory.
+
+## Global Options
+
+```bash
+kernle [-a AGENT_ID] <command> [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-a, --agent AGENT_ID` | Agent ID (can also use `KERNLE_AGENT_ID` env var) |
+
+If no agent ID is provided, Kernle will try to resolve one automatically from environment context.
+
+## Commands at a Glance
+
+<CardGroup cols={2}>
+  <Card title="Memory Commands" icon="brain" href="/cli/memory-commands">
+    episode, note, raw, belief, value, goal, drive, relationship, playbook
+  </Card>
+  <Card title="Sync Commands" icon="cloud" href="/cli/sync-commands">
+    sync, auth
+  </Card>
+  <Card title="Utility Commands" icon="wrench" href="/cli/utility-commands">
+    load, checkpoint, search, status, anxiety, identity, consolidate, export
+  </Card>
+  <Card title="MCP Server" icon="plug" href="/integration/mcp">
+    mcp - Start MCP server for tool integration
+  </Card>
+</CardGroup>
+
+## Command Quick Reference
+
+### Session Lifecycle
+
+| Command | Description |
+|---------|-------------|
+| `load` | Load working memory at session start |
+| `checkpoint save` | Save current state |
+| `checkpoint load` | Restore previous state |
+| `status` | Show memory overview |
+
+### Memory Capture
+
+| Command | Description |
+|---------|-------------|
+| `raw` | Zero-friction capture |
+| `note` | Structured note (decision/insight/quote) |
+| `episode` | Experience with outcome and lessons |
+| `belief` | Add or manage beliefs |
+| `value` | Define core values |
+| `goal` | Set active goals |
+| `drive` | Manage intrinsic motivations |
+| `relationship` | Track relationships |
+| `playbook` | Procedural memory |
+
+### Search & Analysis
+
+| Command | Description |
+|---------|-------------|
+| `search` | Semantic search across memory |
+| `when` | Query by time period |
+| `consolidate` | Extract patterns from episodes |
+| `identity` | Synthesize identity |
+| `emotion` | Emotional memory analysis |
+| `meta` | Meta-memory operations |
+
+### Maintenance
+
+| Command | Description |
+|---------|-------------|
+| `anxiety` | Check memory health |
+| `forget` | Controlled forgetting |
+| `dump` | Export all memory (stdout) |
+| `export` | Export to file |
+
+### Cloud & Auth
+
+| Command | Description |
+|---------|-------------|
+| `sync` | Sync with cloud backend |
+| `auth` | Manage authentication |
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `KERNLE_AGENT_ID` | Default agent ID |
+| `KERNLE_BACKEND_URL` | Backend URL for sync |
+| `KERNLE_AUTH_TOKEN` | Auth token for sync |
+| `KERNLE_USER_ID` | User ID for sync |
+
+Credentials can also be stored in `~/.kernle/credentials.json` (created by `auth login`).
+
+## Common Workflows
+
+### Session Start
+```bash
+kernle -a myagent load
+```
+
+### During Work
+```bash
+# Quick capture
+kernle -a myagent raw "interesting observation"
+
+# Record experience
+kernle -a myagent episode "what I did" "outcome" --lesson "what I learned"
+
+# Note a decision
+kernle -a myagent note "chose X" --type decision --reason "because Y"
+```
+
+### Session End
+```bash
+kernle -a myagent checkpoint save "where I left off" --pending "next task"
+```
+
+### Maintenance
+```bash
+# Check health
+kernle -a myagent anxiety --detailed --actions
+
+# Consolidate learnings
+kernle -a myagent consolidate
+
+# Export backup
+kernle -a myagent export backup.md
+```

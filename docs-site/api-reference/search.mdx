@@ -1,0 +1,216 @@
+---
+title: Search
+description: "API endpoint for semantic memory search"
+---
+
+# Search Endpoint
+
+The search endpoint provides semantic search across all memory types using vector similarity.
+
+## Search Memories
+
+Perform semantic search across an agent's memories.
+
+```http
+POST /search
+```
+
+### Headers
+
+```
+Authorization: Bearer sk-your-api-key
+Content-Type: application/json
+```
+
+### Request Body
+
+```json
+{
+  "agent_id": "claire",
+  "query": "performance optimization techniques",
+  "limit": 10,
+  "types": ["episodes", "beliefs", "notes"],
+  "min_score": 0.5
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `agent_id` | string | Required | Agent identifier |
+| `query` | string | Required | Search query text |
+| `limit` | integer | 10 | Maximum results to return |
+| `types` | array | all | Memory types to search |
+| `min_score` | float | 0.0 | Minimum similarity score (0-1) |
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "results": [
+      {
+        "type": "episode",
+        "id": "ep_abc123",
+        "score": 0.92,
+        "content": {
+          "objective": "Optimized database queries",
+          "outcome": "Reduced latency by 60%",
+          "lessons": ["Index frequently queried columns"]
+        },
+        "created_at": "2024-01-10T15:30:00Z"
+      },
+      {
+        "type": "belief",
+        "id": "bel_def456",
+        "score": 0.87,
+        "content": {
+          "statement": "Premature optimization is the root of all evil",
+          "confidence": 0.75
+        },
+        "created_at": "2024-01-05T10:00:00Z"
+      },
+      {
+        "type": "note",
+        "id": "note_ghi789",
+        "score": 0.81,
+        "content": {
+          "content": "Caching reduces database load significantly",
+          "note_type": "insight"
+        },
+        "created_at": "2024-01-12T09:15:00Z"
+      }
+    ],
+    "total": 3,
+    "query_time_ms": 45
+  }
+}
+```
+
+### CLI Equivalent
+
+```bash
+kernle -a claire search "performance optimization techniques" --limit 10
+```
+
+---
+
+## Searchable Memory Types
+
+| Type | What's Indexed | 
+|------|----------------|
+| `episodes` | Objective, outcome, lessons |
+| `beliefs` | Statement |
+| `notes` | Content |
+| `agent_values` | Name, statement |
+| `goals` | Title, description |
+| `playbooks` | Name, description, steps |
+| `raw_entries` | Content |
+| `relationships` | Entity name, notes |
+
+---
+
+## Search Modes
+
+### Hybrid Search (Default)
+
+Combines vector similarity with keyword matching for best results:
+
+```json
+{
+  "agent_id": "claire",
+  "query": "API rate limiting",
+  "mode": "hybrid"
+}
+```
+
+### Vector Only
+
+Pure semantic similarity search:
+
+```json
+{
+  "agent_id": "claire",
+  "query": "API rate limiting",
+  "mode": "vector"
+}
+```
+
+### Keyword Only
+
+Traditional text search:
+
+```json
+{
+  "agent_id": "claire",
+  "query": "API rate limiting",
+  "mode": "keyword"
+}
+```
+
+---
+
+## Filtered Search
+
+### By Memory Type
+
+```json
+{
+  "agent_id": "claire",
+  "query": "debugging techniques",
+  "types": ["episodes"]
+}
+```
+
+### By Time Range
+
+```json
+{
+  "agent_id": "claire",
+  "query": "debugging",
+  "created_after": "2024-01-01T00:00:00Z",
+  "created_before": "2024-01-31T23:59:59Z"
+}
+```
+
+### By Tags
+
+```json
+{
+  "agent_id": "claire",
+  "query": "debugging",
+  "tags": ["production", "urgent"]
+}
+```
+
+---
+
+## Search Quality
+
+Search quality depends on:
+
+1. **Embedding model**: Kernle uses modern embedding models for semantic understanding
+2. **Memory quality**: Well-written lessons and descriptions improve search
+3. **Query clarity**: Specific queries return better results than vague ones
+
+<Tip>
+For best results, write clear, descriptive content when recording memories. "Fixed the bug" is less searchable than "Resolved race condition in async queue handler".
+</Tip>
+
+---
+
+## Local vs Cloud Search
+
+| Feature | Local | Cloud |
+|---------|-------|-------|
+| Speed | ~10ms | ~50-100ms |
+| Quality | Text matching | Vector similarity |
+| Offline | ✓ | — |
+| Cross-device | — | ✓ |
+
+The CLI automatically uses cloud search when configured, with fallback to local:
+
+```bash
+# Uses cloud if available, local otherwise
+kernle -a claire search "query"
+```

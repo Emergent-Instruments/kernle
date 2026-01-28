@@ -1,0 +1,280 @@
+---
+title: Memory Types
+description: "Complete reference for all Kernle memory types"
+---
+
+# Memory Types
+
+Kernle supports nine distinct memory types, each serving a specific purpose in the memory hierarchy.
+
+## Raw Entries
+
+**Purpose**: Zero-friction capture for later processing
+
+<Info>
+Raw entries are your scratchpad. Capture thoughts freely, process them later.
+</Info>
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `content` | TEXT | Free-form text |
+| `source` | TEXT | Origin: `manual`, `auto_capture`, `voice` |
+| `processed` | BOOL | Has been converted to structured memory |
+| `processed_into` | JSON | List of memory refs created (e.g., `["episode:abc123"]`) |
+| `tags` | JSON | Quick categorization tags |
+
+**Usage**:
+```bash
+# Capture quickly
+kernle raw "Noticed the API returns 500 under load"
+
+# List unprocessed
+kernle raw list --unprocessed
+
+# Promote to episode
+kernle raw process <id> --type episode --objective "Investigated API errors"
+```
+
+---
+
+## Episodes
+
+**Purpose**: Autobiographical experiences with reflection
+
+Episodes are the foundation of experiential learning. They record what happened, how it turned out, and what you learned.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `objective` | TEXT | What was attempted |
+| `outcome` | TEXT | What happened |
+| `outcome_type` | TEXT | `success` / `failure` / `partial` |
+| `lessons` | JSON | Extracted learnings |
+| `tags` | JSON | Categorization |
+| `emotional_valence` | FLOAT | -1.0 (negative) to 1.0 (positive) |
+| `emotional_arousal` | FLOAT | 0.0 (calm) to 1.0 (intense) |
+| `emotional_tags` | JSON | Emotion labels: `["joy", "frustration"]` |
+
+<Warning>
+Episodes without lessons are "unreflected" — they contribute to consolidation debt in anxiety tracking.
+</Warning>
+
+**Usage**:
+```bash
+kernle episode "Debugged production outage" "success" \
+  --lesson "Check logs before restarting services" \
+  --lesson "Document runbooks for common issues" \
+  --tag "debugging" \
+  --valence 0.6 \
+  --arousal 0.7
+```
+
+---
+
+## Beliefs
+
+**Purpose**: Semantic knowledge with confidence and revision tracking
+
+Beliefs represent what you hold to be true, with confidence scores that can evolve over time.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `statement` | TEXT | The belief statement |
+| `belief_type` | TEXT | `fact` / `preference` / `observation` |
+| `confidence` | FLOAT | 0.0 to 1.0 |
+| `supersedes` | TEXT | ID of belief this replaced |
+| `superseded_by` | TEXT | ID of belief that replaced this |
+| `times_reinforced` | INT | Confirmation count |
+| `is_active` | BOOL | False if superseded/archived |
+
+**Revision Chain**: When beliefs evolve, old versions are marked `is_active=False` with `superseded_by` linking to the new belief.
+
+**Usage**:
+```bash
+# Add a belief
+kernle belief "Testing before deployment prevents outages" --confidence 0.85
+
+# Reinforce when confirmed
+kernle belief reinforce <id>
+
+# Supersede when updated
+kernle belief supersede <old_id> "Automated testing is essential" --confidence 0.95
+
+# View history
+kernle belief history <id>
+```
+
+---
+
+## Values
+
+**Purpose**: Core principles that guide decisions (highest authority)
+
+Values are the most stable layer — they define who you are at your core.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | TEXT | Short value name |
+| `statement` | TEXT | Value description |
+| `priority` | INT | 0-100, higher = more important |
+
+<Note>
+Values are `is_protected=True` by default — they never decay via forgetting.
+</Note>
+
+**Usage**:
+```bash
+kernle value "integrity" "Be honest and transparent in all interactions" --priority 95
+kernle value "curiosity" "Always seek to understand deeply" --priority 85
+```
+
+---
+
+## Goals
+
+**Purpose**: Active direction and purpose
+
+Goals represent what you're currently working toward.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `title` | TEXT | Goal name |
+| `description` | TEXT | Full description |
+| `priority` | TEXT | `low` / `medium` / `high` |
+| `status` | TEXT | `active` / `completed` / `paused` |
+
+**Usage**:
+```bash
+kernle goal "Master Kubernetes" --priority high
+kernle goal "Build reliable CI/CD pipeline" --priority medium
+```
+
+---
+
+## Notes
+
+**Purpose**: Quick captures with type classification
+
+Notes are more structured than raw entries but less formal than episodes.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `content` | TEXT | Note text |
+| `note_type` | TEXT | `note` / `decision` / `insight` / `quote` |
+| `speaker` | TEXT | For quotes: who said it |
+| `reason` | TEXT | For decisions: why this choice |
+| `tags` | JSON | Categorization |
+
+**Usage**:
+```bash
+# Simple note
+kernle note "API rate limit is 1000 req/min"
+
+# Decision with reasoning
+kernle note "Using PostgreSQL over MySQL" --type decision \
+  --reason "Better JSON support and performance"
+
+# Quote from someone
+kernle note "Simple is better than complex" --type quote --speaker "Tim Peters"
+
+# Protected insight
+kernle note "Memory is identity" --type insight --protect
+```
+
+---
+
+## Drives
+
+**Purpose**: Intrinsic motivation system
+
+Drives represent your fundamental motivations — what compels you to act.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `drive_type` | TEXT | One of: `existence`, `growth`, `curiosity`, `connection`, `reproduction` |
+| `intensity` | FLOAT | 0.0 to 1.0 (current drive strength) |
+| `focus_areas` | JSON | What this drive is currently focused on |
+
+<Note>
+Drives are `is_protected=True` by default.
+</Note>
+
+### Drive Types
+
+| Drive | Description |
+|-------|-------------|
+| `existence` | Self-preservation, maintaining continuity |
+| `growth` | Developing capabilities, becoming better |
+| `curiosity` | Understanding, learning, exploring |
+| `connection` | Forming relationships, belonging |
+| `reproduction` | Creating, teaching, leaving a legacy |
+
+**Usage**:
+```bash
+kernle drive set curiosity 0.8 --focus "distributed systems" --focus "AI architectures"
+kernle drive set growth 0.7 --focus "communication skills"
+kernle drive satisfy curiosity --amount 0.2  # After learning something
+```
+
+---
+
+## Relationships
+
+**Purpose**: Models of other agents/entities
+
+Relationships track your connections with others.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `entity_name` | TEXT | Name of the entity |
+| `entity_type` | TEXT | `agent` / `person` / `organization` |
+| `relationship_type` | TEXT | `peer` / `mentor` / `collaborator` |
+| `sentiment` | FLOAT | -1.0 to 1.0 |
+| `interaction_count` | INT | Number of interactions |
+| `notes` | TEXT | Relationship observations |
+
+**Usage**:
+```bash
+kernle relationship "Alice" --trust 0.9 --notes "Senior engineer, great mentor"
+kernle relationship "DevOps Team" --type organization --notes "Owns infrastructure"
+```
+
+---
+
+## Playbooks
+
+**Purpose**: Procedural memory — "how I do things"
+
+Playbooks capture proven procedures, including failure modes and recovery steps.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | TEXT | Playbook name |
+| `description` | TEXT | What it does |
+| `trigger_conditions` | JSON | When to use this |
+| `steps` | JSON | `[{action, details, adaptations}]` |
+| `failure_modes` | JSON | What can go wrong |
+| `recovery_steps` | JSON | How to recover |
+| `mastery_level` | TEXT | `novice` / `competent` / `proficient` / `expert` |
+| `times_used` | INT | Usage count |
+| `success_rate` | FLOAT | Success percentage |
+
+**Usage**:
+```bash
+# Create a playbook
+kernle playbook create "Deploy to Production" \
+  --description "Safe deployment workflow" \
+  --step "Run test suite locally" \
+  --step "Verify CI is green" \
+  --step "Deploy to staging" \
+  --step "Run smoke tests" \
+  --step "Deploy to production" \
+  --trigger "Ready for production deploy" \
+  --failure-mode "Tests fail in staging" \
+  --recovery "Rollback and investigate"
+
+# Find relevant playbook
+kernle playbook find "deploying new feature"
+
+# Record usage
+kernle playbook record <id> --success
+```

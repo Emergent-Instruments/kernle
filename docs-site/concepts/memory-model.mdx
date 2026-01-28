@@ -1,0 +1,166 @@
+---
+title: Memory Model
+description: "Understanding Kernle's stratified memory architecture"
+---
+
+# Memory Model
+
+Kernle implements a stratified memory system inspired by cognitive science but optimized for synthetic intelligences.
+
+## Memory Layer Hierarchy
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Layer 0: RAW CAPTURES                                   │
+│  Zero-friction capture → process later                   │
+│  - raw_entries table                                     │
+│  - Promoted to: episodes, notes, beliefs                 │
+└──────────────────────┬──────────────────────────────────┘
+                       ↓ process_raw()
+┌─────────────────────────────────────────────────────────┐
+│  Layer 1: EPISODIC MEMORY                                │
+│  Autobiographical experiences with lessons               │
+│  - episodes table                                        │
+│  - Fields: objective, outcome, lessons, emotional data   │
+└──────────────────────┬──────────────────────────────────┘
+                       ↓ consolidate() / revise_beliefs_from_episode()
+┌─────────────────────────────────────────────────────────┐
+│  Layer 2: SEMANTIC MEMORY                                │
+│  Beliefs, facts, and learned concepts                    │
+│  - beliefs table (with revision chains)                  │
+│  - notes table (decisions, insights, quotes)             │
+└──────────────────────┬──────────────────────────────────┘
+                       ↓ synthesize_identity()
+┌─────────────────────────────────────────────────────────┐
+│  Layer 3: IDENTITY & VALUES                              │
+│  Core principles and self-concept                        │
+│  - agent_values table (highest authority)                │
+│  - goals table (active direction)                        │
+│  - drives table (intrinsic motivations)                  │
+└─────────────────────────────────────────────────────────┘
+```
+
+## Supporting Systems
+
+<CardGroup cols={2}>
+  <Card title="Playbooks" icon="book">
+    Procedural memory — "how I do things"
+  </Card>
+  <Card title="Relationships" icon="users">
+    Models of other agents and people
+  </Card>
+  <Card title="Emotional Tags" icon="heart">
+    Valence/arousal on episodes
+  </Card>
+  <Card title="Meta-Memory" icon="magnifying-glass">
+    Confidence, provenance, verification
+  </Card>
+</CardGroup>
+
+## Memory Flow
+
+The typical progression from raw capture to belief:
+
+<Steps>
+  <Step title="Capture">
+    `kernle raw "API seems slow"` — Zero friction capture
+  </Step>
+  <Step title="Process">
+    Review raw entries, promote to episode with context and lessons
+  </Step>
+  <Step title="Consolidate">
+    Agent notices patterns across episodes, forms beliefs
+  </Step>
+  <Step title="Integrate">
+    Beliefs inform values and identity over time
+  </Step>
+</Steps>
+
+## Meta-Memory System
+
+Every memory type has these meta-fields:
+
+| Field | Description |
+|-------|-------------|
+| `confidence` | How certain we are (0.0-1.0) |
+| `source_type` | How acquired: `direct_experience`, `inference`, `told_by_agent`, `consolidation` |
+| `source_episodes` | Episode IDs that support this memory |
+| `derived_from` | Memory refs this was derived from (`type:id`) |
+| `last_verified` | When last confirmed |
+| `verification_count` | Times verified |
+| `confidence_history` | JSON array of confidence changes with timestamps |
+
+### Key Operations
+
+```bash
+kernle meta verify belief abc123     # Increases confidence
+kernle meta lineage belief abc123    # Get provenance
+kernle meta uncertain --threshold 0.5  # Find weak memories
+```
+
+## Forgetting System
+
+Kernle uses **tombstoning, not deletion**. Forgotten memories can be recovered.
+
+### Salience Formula
+
+```
+salience = (confidence × log(times_accessed + 1)) / (days_since_access / half_life + 1)
+```
+
+- **High salience**: Confident, frequently accessed, recently used
+- **Low salience**: Uncertain, rarely accessed, old
+
+### Protection
+
+<Info>
+- Values and Drives are protected by default
+- Any memory can be marked protected: `kernle forget protect episode <id>`
+- Protected memories never decay
+</Info>
+
+### Forgetting Cycle
+
+```bash
+# Preview what would be forgotten
+kernle forget candidates --threshold 0.3
+
+# Run forgetting (dry_run to preview)
+kernle forget run --dry-run
+
+# Recover a forgotten memory
+kernle forget recover episode <id>
+```
+
+## Search Functionality
+
+### Local Search
+
+Uses sqlite-vec for semantic search when available, falls back to text matching.
+
+### Cloud Hybrid Search
+
+When cloud credentials are configured:
+1. Try cloud search first (timeout: 3s)
+2. Fall back to local on failure
+3. Merge results by relevance score
+
+```bash
+# Search across all memory types
+kernle search "topic" --limit 10
+
+# Playbook-specific semantic search
+kernle playbook find "situation description"
+```
+
+## Sync Architecture
+
+**Local-First with Sync Queue**:
+
+1. All changes written to local SQLite first
+2. Changes queued in `sync_queue` table
+3. Queue deduplicates by `(table, record_id)`
+4. Push to cloud when online
+5. Pull remote changes on `load()` if auto_sync enabled
+
+**Conflict Resolution**: Last-write-wins based on `local_updated_at`

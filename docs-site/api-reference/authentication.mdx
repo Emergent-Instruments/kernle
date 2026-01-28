@@ -1,0 +1,338 @@
+---
+title: Authentication
+description: "API endpoints for authentication and key management"
+---
+
+# Authentication
+
+Endpoints for user registration, login, and API key management.
+
+## Register
+
+Create a new Kernle account.
+
+<Note>
+After registration, check your email for verification.
+</Note>
+
+```http
+POST /auth/register
+```
+
+### Request Body
+
+```json
+{
+  "email": "user@example.com"
+}
+```
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "user_id": "user_abc123",
+    "message": "Verification email sent"
+  }
+}
+```
+
+### CLI Equivalent
+
+```bash
+kernle auth register --email user@example.com
+```
+
+---
+
+## Verify Email
+
+Verify email address with the token from the verification email.
+
+```http
+POST /auth/verify
+```
+
+### Request Body
+
+```json
+{
+  "token": "verification_token_from_email"
+}
+```
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "user_id": "user_abc123",
+    "verified": true,
+    "api_key": "sk-initial-key"
+  }
+}
+```
+
+---
+
+## Login
+
+Get authentication token for an existing account.
+
+```http
+POST /auth/login
+```
+
+### Request Body
+
+```json
+{
+  "api_key": "sk-your-api-key"
+}
+```
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "user_id": "user_abc123",
+    "token": "session_token",
+    "expires_at": "2024-01-16T10:30:00Z"
+  }
+}
+```
+
+### CLI Equivalent
+
+```bash
+kernle auth login --api-key sk-your-api-key
+```
+
+---
+
+## Get Auth Status
+
+Check current authentication status.
+
+```http
+GET /auth/status
+```
+
+### Headers
+
+```
+Authorization: Bearer sk-your-api-key
+```
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "authenticated": true,
+    "user_id": "user_abc123",
+    "email": "user@example.com",
+    "created_at": "2024-01-01T00:00:00Z",
+    "agents": ["claire", "assistant"]
+  }
+}
+```
+
+### CLI Equivalent
+
+```bash
+kernle auth status
+```
+
+---
+
+## List API Keys
+
+List all API keys for the authenticated user.
+
+```http
+GET /auth/keys
+```
+
+### Headers
+
+```
+Authorization: Bearer sk-your-api-key
+```
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "keys": [
+      {
+        "id": "key_abc123",
+        "name": "Development",
+        "prefix": "sk-abc",
+        "created_at": "2024-01-01T00:00:00Z",
+        "last_used_at": "2024-01-15T10:30:00Z",
+        "is_active": true
+      },
+      {
+        "id": "key_def456",
+        "name": "Production",
+        "prefix": "sk-def",
+        "created_at": "2024-01-10T00:00:00Z",
+        "last_used_at": null,
+        "is_active": true
+      }
+    ]
+  }
+}
+```
+
+### CLI Equivalent
+
+```bash
+kernle auth keys list
+```
+
+---
+
+## Create API Key
+
+Create a new API key.
+
+```http
+POST /auth/keys
+```
+
+### Headers
+
+```
+Authorization: Bearer sk-your-api-key
+```
+
+### Request Body
+
+```json
+{
+  "name": "My New Key"
+}
+```
+
+### Response
+
+<Warning>
+The full API key is only returned once at creation time. Store it securely.
+</Warning>
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "key_xyz789",
+    "name": "My New Key",
+    "key": "sk-full-api-key-only-shown-once",
+    "prefix": "sk-xyz",
+    "created_at": "2024-01-15T10:30:00Z"
+  }
+}
+```
+
+### CLI Equivalent
+
+```bash
+kernle auth keys create --name "My New Key"
+```
+
+---
+
+## Revoke API Key
+
+Revoke (deactivate) an API key.
+
+```http
+DELETE /auth/keys/{key_id}
+```
+
+### Headers
+
+```
+Authorization: Bearer sk-your-api-key
+```
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "id": "key_abc123",
+    "revoked": true,
+    "revoked_at": "2024-01-15T10:30:00Z"
+  }
+}
+```
+
+### CLI Equivalent
+
+```bash
+kernle auth keys revoke key_abc123
+```
+
+---
+
+## Cycle API Key
+
+Generate a new key and deactivate the old one atomically.
+
+```http
+POST /auth/keys/{key_id}/cycle
+```
+
+### Headers
+
+```
+Authorization: Bearer sk-your-api-key
+```
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "old_key_id": "key_abc123",
+    "old_key_revoked": true,
+    "new_key_id": "key_xyz789",
+    "new_key": "sk-new-api-key",
+    "new_key_prefix": "sk-xyz"
+  }
+}
+```
+
+### CLI Equivalent
+
+```bash
+kernle auth keys cycle key_abc123
+```
+
+---
+
+## Logout
+
+Clear local credentials (client-side operation).
+
+<Note>
+This is a local operation. API keys remain active until explicitly revoked.
+</Note>
+
+### CLI Equivalent
+
+```bash
+kernle auth logout
+```

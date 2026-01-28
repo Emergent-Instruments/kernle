@@ -1,0 +1,80 @@
+---
+title: Introduction
+description: "Stratified memory for synthetic intelligences"
+---
+
+# What is Kernle?
+
+Kernle is a **memory infrastructure** for AI agents and synthetic intelligences. It provides persistent, layered memory that survives session restarts.
+
+<CardGroup cols={2}>
+  <Card title="Memory Layers" icon="layer-group">
+    From raw captures to core beliefs — memory that builds on itself
+  </Card>
+  <Card title="23 CLI Commands" icon="terminal">
+    Full command-line interface for memory operations
+  </Card>
+  <Card title="MCP Integration" icon="plug">
+    Works with Claude Desktop, Clawdbot, and other MCP clients
+  </Card>
+  <Card title="Cloud Sync" icon="cloud">
+    Optional sync to keep memory across devices
+  </Card>
+</CardGroup>
+
+## Core Principle
+
+**Kernle = Memory Infrastructure, Agent = Memory Owner**
+
+Kernle provides storage, retrieval, and tools. But it never decides what you should believe or remember. That's your job.
+
+The only exception: **seed beliefs** planted at agent creation — inherited wisdom that you can revise based on experience.
+
+## Memory Stack
+
+```
+Values (highest authority)
+   ↑
+Drives
+   ↑  
+Beliefs
+   ↑
+Goals
+   ↑
+Episodes (experiences)
+   ↑
+Notes
+   ↑
+Raw Captures (lowest friction)
+```
+
+Each layer builds on the ones below. Raw captures can become notes, notes inform episodes, episodes shape beliefs.
+
+## Quick Example
+
+```bash
+# Capture something quickly
+kernle raw "Discovered that batch processing is 3x faster"
+
+# Record an experience
+kernle episode "Optimized the sync pipeline" \
+  "Reduced latency from 300ms to 100ms" \
+  --lesson "Batching network calls is worth the complexity"
+
+# Search your memory
+kernle search "performance optimization"
+
+# Check memory health
+kernle anxiety
+```
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get Kernle running in 5 minutes
+  </Card>
+  <Card title="Architecture" icon="sitemap" href="/architecture">
+    Understand the design philosophy
+  </Card>
+</CardGroup>

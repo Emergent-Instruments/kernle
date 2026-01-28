@@ -1,0 +1,182 @@
+---
+title: Claude Desktop
+description: "Setting up Kernle with Claude Desktop"
+---
+
+# Claude Desktop Integration
+
+Claude Desktop supports MCP servers through a configuration file. This guide shows you how to add Kernle as a memory tool.
+
+## Configuration File Location
+
+<Tabs>
+  <Tab title="macOS">
+    ```
+    ~/Library/Application Support/Claude/claude_desktop_config.json
+    ```
+  </Tab>
+  <Tab title="Windows">
+    ```
+    %APPDATA%\Claude\claude_desktop_config.json
+    ```
+  </Tab>
+  <Tab title="Linux">
+    ```
+    ~/.config/Claude/claude_desktop_config.json
+    ```
+  </Tab>
+</Tabs>
+
+## Configuration
+
+Add Kernle to the `mcpServers` section:
+
+```json
+{
+  "mcpServers": {
+    "kernle": {
+      "command": "kernle",
+      "args": ["mcp", "--agent", "claude"]
+    }
+  }
+}
+```
+
+<Warning>
+Replace `claude` with your preferred agent ID. This ID identifies your memory store.
+</Warning>
+
+### Full Configuration Example
+
+```json
+{
+  "mcpServers": {
+    "kernle": {
+      "command": "kernle",
+      "args": ["mcp", "--agent", "claude-desktop"]
+    }
+  }
+}
+```
+
+### With Python Path (if needed)
+
+If Kernle was installed via pip in a specific environment:
+
+```json
+{
+  "mcpServers": {
+    "kernle": {
+      "command": "/path/to/python",
+      "args": ["-m", "kernle", "mcp", "--agent", "claude"]
+    }
+  }
+}
+```
+
+Or with pipx:
+
+```json
+{
+  "mcpServers": {
+    "kernle": {
+      "command": "/Users/you/.local/bin/kernle",
+      "args": ["mcp", "--agent", "claude"]
+    }
+  }
+}
+```
+
+## Apply Configuration
+
+1. Save the configuration file
+2. **Completely quit Claude Desktop** (not just close the window)
+3. Restart Claude Desktop
+
+## Verify Installation
+
+After restarting, you should see memory tools available. Try asking Claude:
+
+> "Can you check my memory status?"
+
+Claude should call the `memory_status` tool and return your memory overview.
+
+## Available Tools
+
+Once connected, Claude Desktop has access to:
+
+| Tool | What It Does |
+|------|--------------|
+| `memory_load` | Restore working memory at conversation start |
+| `memory_checkpoint_save` | Save current state |
+| `memory_episode` | Record an experience with lessons |
+| `memory_note` | Capture notes, decisions, insights |
+| `memory_raw` | Quick capture for later processing |
+| `memory_search` | Search across all memory types |
+| `memory_anxiety` | Check memory health |
+
+## Recommended Workflow
+
+### Starting a Conversation
+
+Ask Claude to load memory first:
+
+> "Please load your memory before we start."
+
+This restores context from previous conversations.
+
+### During Conversation
+
+Claude can capture learnings as you work:
+
+> "Remember that the API rate limit is 100 requests per minute."
+
+### Ending a Conversation
+
+Ask Claude to save state:
+
+> "Please save a checkpoint before we wrap up."
+
+## Troubleshooting
+
+### Tools Not Showing
+
+1. Check config file syntax (valid JSON)
+2. Verify file location is correct
+3. Ensure Kernle is in PATH: `which kernle`
+4. Fully restart Claude Desktop
+
+### "Command not found"
+
+Use the full path to Kernle:
+
+```bash
+# Find the path
+which kernle
+```
+
+Then use that path in the config.
+
+### Permission Denied
+
+Make sure the Kernle data directory exists and is writable:
+
+```bash
+mkdir -p ~/.kernle
+chmod 755 ~/.kernle
+```
+
+### Checking Logs
+
+Claude Desktop logs may show MCP connection errors:
+
+<Tabs>
+  <Tab title="macOS">
+    ```bash
+    tail -f ~/Library/Logs/Claude/mcp.log
+    ```
+  </Tab>
+  <Tab title="Windows">
+    Check Event Viewer or `%APPDATA%\Claude\logs`
+  </Tab>
+</Tabs>
