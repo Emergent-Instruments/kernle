@@ -670,7 +670,7 @@ async def cycle_api_key(
     key_hash = hash_api_key(raw_key)
     key_prefix = get_api_key_prefix(raw_key)
     
-    # Create new key
+    # Create new key first (safer: if this fails, old key still works)
     new_key_record = await create_api_key(
         db,
         user_id=auth.user_id,
@@ -685,8 +685,17 @@ async def cycle_api_key(
             detail="Failed to create new API key",
         )
     
-    # Deactivate old key (after new one is created for atomicity)
-    await deactivate_api_key(db, key_id, auth.user_id)
+    # Deactivate old key (after new one is created)
+    # If this fails, user has two active keys (safe, just suboptimal)
+    try:
+        await deactivate_api_key(db, key_id, auth.user_id)
+    except Exception as e:
+        # Log but don't fail - new key is created, old one still active
+        # User can manually deactivate or it will be cleaned up
+        logger.warning(
+            f"Failed to deactivate old key {key_id} during cycle for user {auth.user_id}: {e}. "
+            "New key created successfully. User may need to manually deactivate old key."
+        )
     
     logger.info(f"API key cycled for user {auth.user_id}: {old_key['key_prefix']}... -> {key_prefix}...")
     
