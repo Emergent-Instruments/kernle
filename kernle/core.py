@@ -1782,17 +1782,35 @@ class Kernle:
 
         lines = [f"# Working Memory ({self.agent_id})", f"_Loaded at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}_", ""]
 
-        # Checkpoint
+        # Checkpoint - prominently displayed at top
         if memory.get("checkpoint"):
             cp = memory["checkpoint"]
+
+            # Calculate checkpoint age
+            age_warning = ""
+            try:
+                ts = cp.get('timestamp', '')
+                if ts:
+                    cp_time = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                    now = datetime.now(timezone.utc)
+                    age = now - cp_time
+                    if age.total_seconds() > 24 * 3600:
+                        age_warning = f"\n⚠ _Checkpoint is {age.days}+ days old - may be stale_"
+                    elif age.total_seconds() > 6 * 3600:
+                        age_warning = f"\n⚠ _Checkpoint is {age.seconds // 3600}+ hours old_"
+            except Exception:
+                pass
+
             lines.append("## Working State")
             lines.append(f"**Task**: {cp.get('current_task', 'unknown')}")
+            if cp.get("context"):
+                lines.append(f"**Context**: {cp['context']}")
             if cp.get("pending"):
                 lines.append("**Pending**:")
                 for p in cp["pending"]:
                     lines.append(f"  - {p}")
-            if cp.get("context"):
-                lines.append(f"**Context**: {cp['context']}")
+            if age_warning:
+                lines.append(age_warning)
             lines.append("")
 
         # Values

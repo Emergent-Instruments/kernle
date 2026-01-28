@@ -238,11 +238,12 @@ class TestCheckpointCommands:
 
         mock_kernle.load_checkpoint.assert_called_once()
         output = fake_out.getvalue()
-        assert "Task: Loaded task" in output
-        assert "When: 2024-01-01T11:00:00Z" in output
-        assert "Pending:" in output
+        # New format uses markdown-style bold and different structure
+        assert "**Task**: Loaded task" in output
+        assert "## Last Checkpoint" in output
+        assert "**Pending**:" in output
         assert "  - pending1" in output
-        assert "Context: Loaded context" in output
+        assert "**Context**: Loaded context" in output
 
     def test_cmd_checkpoint_load_json(self, mock_kernle):
         """Test checkpoint load with JSON output."""

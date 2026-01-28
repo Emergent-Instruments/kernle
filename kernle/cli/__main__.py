@@ -63,6 +63,21 @@ def cmd_checkpoint(args, k: Kernle):
         pending = [validate_input(p, "pending item", 200) for p in (args.pending or [])]
         context = validate_input(args.context, "context", 1000) if args.context else None
 
+        # Warn about generic task names that won't help with recovery
+        generic_patterns = [
+            "auto-save", "auto save", "pre-compaction", "compaction",
+            "checkpoint", "save", "saving", "state"
+        ]
+        task_lower = task.lower().strip()
+        is_generic = any(
+            task_lower == pattern or task_lower.startswith(pattern + " ")
+            for pattern in generic_patterns
+        )
+        if is_generic and not context:
+            print("⚠ Warning: Generic task name without context may not help recovery.")
+            print("  Tip: Add --context 'what you were doing' or use a specific task name.")
+            print()
+
         # Determine sync setting from args
         sync = None
         if getattr(args, 'no_sync', False):
@@ -92,14 +107,42 @@ def cmd_checkpoint(args, k: Kernle):
             if args.json:
                 print(json.dumps(cp, indent=2, default=str))
             else:
-                print(f"Task: {cp.get('current_task', 'unknown')}")
-                print(f"When: {cp.get('timestamp', 'unknown')}")
+                # Calculate age of checkpoint
+                from datetime import datetime, timezone
+                age_str = ""
+                try:
+                    ts = cp.get('timestamp', '')
+                    if ts:
+                        cp_time = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                        now = datetime.now(timezone.utc)
+                        age = now - cp_time
+                        if age.days > 0:
+                            age_str = f" ({age.days}d ago)"
+                        elif age.seconds > 3600:
+                            age_str = f" ({age.seconds // 3600}h ago)"
+                        elif age.seconds > 60:
+                            age_str = f" ({age.seconds // 60}m ago)"
+                        else:
+                            age_str = " (just now)"
+
+                        # Warn if checkpoint is stale (>6 hours)
+                        if age.total_seconds() > 6 * 3600:
+                            print("⚠ Checkpoint is stale - consider saving a fresh one")
+                            print()
+                except Exception:
+                    pass
+
+                print("## Last Checkpoint")
+                print(f"**Task**: {cp.get('current_task', 'unknown')}{age_str}")
+                if cp.get("context"):
+                    print(f"**Context**: {cp['context']}")
                 if cp.get("pending"):
-                    print("Pending:")
+                    print("**Pending**:")
                     for p in cp["pending"]:
                         print(f"  - {p}")
-                if cp.get("context"):
-                    print(f"Context: {cp['context']}")
+                if not cp.get("context") and not cp.get("pending"):
+                    print()
+                    print("💡 Tip: Next time, add --context to capture more detail")
         else:
             print("No checkpoint found.")
 
@@ -1796,6 +1839,55 @@ def cmd_raw(args, k: Kernle):
             print(f"✓ Processed raw entry {full_id[:8]}... into {args.type}:{memory_id[:8]}...")
         except ValueError as e:
             print(f"✗ {e}")
+
+    elif args.raw_action == "review":
+        # Guided review of unprocessed entries
+        entries = k.list_raw(processed=False, limit=args.limit)
+
+        if not entries:
+            print("✓ No unprocessed raw entries - memory is up to date!")
+            return
+
+        if args.json:
+            print(json.dumps(entries, indent=2, default=str))
+            return
+
+        print("## Raw Entry Review")
+        print(f"Found {len(entries)} unprocessed entries to review.\n")
+        print("For each entry, consider:")
+        print("  - **Episode**: Significant experience with a lesson learned")
+        print("  - **Note**: Important observation, decision, or fact")
+        print("  - **Belief**: Pattern or principle you've discovered")
+        print("  - **Skip**: Keep as raw (not everything needs promotion)")
+        print()
+        print("=" * 60)
+
+        for i, e in enumerate(entries, 1):
+            timestamp = e["timestamp"][:16] if e["timestamp"] else "unknown"
+            print(f"\n[{i}/{len(entries)}] {timestamp} - ID: {e['id'][:8]}")
+            print("-" * 40)
+            print(e["content"])
+            print("-" * 40)
+            if e["tags"]:
+                print(f"Tags: {', '.join(e['tags'])}")
+
+            # Provide promotion suggestions based on content
+            content_lower = e["content"].lower()
+            suggestions = []
+            if any(word in content_lower for word in ["learned", "lesson", "realized", "discovered"]):
+                suggestions.append("episode (contains learning)")
+            if any(word in content_lower for word in ["decided", "decision", "chose", "will"]):
+                suggestions.append("note (contains decision)")
+            if any(word in content_lower for word in ["always", "never", "should", "principle", "pattern"]):
+                suggestions.append("belief (contains principle)")
+
+            if suggestions:
+                print(f"💡 Suggestions: {', '.join(suggestions)}")
+
+            print(f"\nTo promote: kernle -a {k.agent_id} raw process {e['id'][:8]} --type <episode|note|belief>")
+
+        print("\n" + "=" * 60)
+        print(f"\nReviewed {len(entries)} entries. Promote the meaningful ones, skip the rest.")
 
 
 def cmd_belief(args, k: Kernle):
@@ -3510,6 +3602,11 @@ def main():
     raw_process.add_argument("--objective", help="Episode objective (for episodes)")
     raw_process.add_argument("--outcome", help="Episode outcome (for episodes)")
 
+    # kernle raw review - guided review of unprocessed entries
+    raw_review = raw_sub.add_parser("review", help="Review unprocessed entries with promotion guidance")
+    raw_review.add_argument("--limit", "-l", type=int, default=10, help="Number of entries to review")
+    raw_review.add_argument("--json", "-j", action="store_true")
+
     # dump
     p_dump = subparsers.add_parser("dump", help="Dump all memory to stdout")
     p_dump.add_argument("--format", "-f", choices=["markdown", "json"], default="markdown",
@@ -3734,7 +3831,7 @@ def main():
 
     # Pre-process arguments: handle `kernle raw "content"` by inserting "capture"
     # This is needed because argparse subparsers consume positional args before parent parser
-    raw_subcommands = {"list", "show", "process", "capture"}
+    raw_subcommands = {"list", "show", "process", "capture", "review"}
     argv = sys.argv[1:]  # Skip program name
 
     # Find position of "raw" in argv (accounting for -a/--agent which takes a value)
