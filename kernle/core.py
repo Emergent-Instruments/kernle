@@ -617,9 +617,14 @@ class Kernle(
 
         episode_id = str(uuid.uuid4())
 
-        outcome_type = "success" if outcome.lower() in ("success", "done", "completed") else (
-            "failure" if outcome.lower() in ("failure", "failed", "error") else "partial"
-        )
+        # Determine outcome type using substring matching for flexibility
+        outcome_lower = outcome.lower().strip()
+        if any(word in outcome_lower for word in ("success", "done", "completed", "finished", "accomplished")):
+            outcome_type = "success"
+        elif any(word in outcome_lower for word in ("fail", "error", "broke", "unable", "couldn't")):
+            outcome_type = "failure"
+        else:
+            outcome_type = "partial"
 
         # Combine lessons with repeat/avoid patterns
         all_lessons = lessons or []
@@ -676,10 +681,14 @@ class Kernle(
         if outcome is not None:
             outcome = self._validate_string_input(outcome, "outcome", 1000)
             existing.outcome = outcome
-            # Update outcome_type based on new outcome
-            outcome_type = "success" if outcome.lower() in ("success", "done", "completed") else (
-                "failure" if outcome.lower() in ("failure", "failed", "error") else "partial"
-            )
+            # Update outcome_type based on new outcome using substring matching
+            outcome_lower = outcome.lower().strip()
+            if any(word in outcome_lower for word in ("success", "done", "completed", "finished", "accomplished")):
+                outcome_type = "success"
+            elif any(word in outcome_lower for word in ("fail", "error", "broke", "unable", "couldn't")):
+                outcome_type = "failure"
+            else:
+                outcome_type = "partial"
             existing.outcome_type = outcome_type
 
         if lessons:

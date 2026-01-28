@@ -1,10 +1,18 @@
 """Memory search routes."""
 
+import re
+
 from fastapi import APIRouter
 
 from ..auth import CurrentAgent
 from ..database import MEMORY_TABLES, Database
 from ..models import MemorySearchRequest, MemorySearchResponse, MemorySearchResult
+
+
+def escape_like(query: str) -> str:
+    """Escape SQL LIKE special characters to prevent injection."""
+    # Escape backslash first, then %, then _
+    return re.sub(r'([%_\\])', r'\\\1', query)
 
 router = APIRouter(prefix="/memories", tags=["memories"])
 
@@ -50,7 +58,9 @@ async def search_memories(
             content_fields = _get_content_fields(table_key)
             if content_fields:
                 # Use ilike for case-insensitive search on first content field
-                query = query.ilike(content_fields[0], f"%{request.query}%")
+                # Escape LIKE special characters to prevent SQL injection
+                safe_query = escape_like(request.query)
+                query = query.ilike(content_fields[0], f"%{safe_query}%")
 
             result = query.execute()
 

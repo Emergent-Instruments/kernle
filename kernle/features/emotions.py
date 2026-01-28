@@ -107,6 +107,10 @@ class EmotionsMixin:
             - tags: list[str] - detected emotion labels
             - confidence: float - how confident we are
         """
+        # Handle None or empty input defensively
+        if not text:
+            return {"valence": 0.0, "arousal": 0.0, "tags": [], "confidence": 0.0}
+
         text_lower = text.lower()
         detected_emotions = []
         valence_sum = 0.0
@@ -329,9 +333,14 @@ class EmotionsMixin:
 
         episode_id = str(uuid.uuid4())
 
-        outcome_type = "success" if outcome.lower() in ("success", "done", "completed") else (
-            "failure" if outcome.lower() in ("failure", "failed", "error") else "partial"
-        )
+        # Determine outcome type using substring matching for flexibility
+        outcome_lower = outcome.lower().strip()
+        if any(word in outcome_lower for word in ("success", "done", "completed", "finished", "accomplished")):
+            outcome_type = "success"
+        elif any(word in outcome_lower for word in ("fail", "error", "broke", "unable", "couldn't")):
+            outcome_type = "failure"
+        else:
+            outcome_type = "partial"
 
         # Determine source_type from source context
         source_type = "direct_experience"

@@ -412,6 +412,9 @@ CREATE TABLE IF NOT EXISTS sync_queue (
 CREATE INDEX IF NOT EXISTS idx_sync_queue_table ON sync_queue(table_name);
 CREATE INDEX IF NOT EXISTS idx_sync_queue_record ON sync_queue(record_id);
 CREATE INDEX IF NOT EXISTS idx_sync_queue_synced ON sync_queue(synced);
+-- Unique partial index for atomic UPSERT on unsynced entries
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_queue_unsynced_unique 
+    ON sync_queue(table_name, record_id) WHERE synced = 0;
 
 -- Sync metadata (tracks last sync time and state)
 CREATE TABLE IF NOT EXISTS sync_meta (
@@ -1275,36 +1278,27 @@ class SQLiteStorage:
         """Queue a change for sync.
 
         Deduplicates by (table, record_id) - only keeps latest operation.
-        Updates existing unsynced entries rather than creating duplicates.
-
-        IMPORTANT: Caller must ensure this runs within a transaction for atomicity.
-        The connection should be used as a context manager: `with conn:` or
-        explicit BEGIN/COMMIT to prevent race conditions between DELETE and INSERT.
+        Uses UPSERT (INSERT ... ON CONFLICT) for atomic operation to prevent
+        race conditions between concurrent writes.
         """
         now = self._now()
 
-        # Check for existing unsynced entry for this record
-        existing = conn.execute(
-            "SELECT id FROM sync_queue WHERE table_name = ? AND record_id = ? AND synced = 0",
-            (table, record_id)
-        ).fetchone()
-
-        if existing:
-            # Update existing entry with new operation and data
-            conn.execute(
-                """UPDATE sync_queue
-                   SET operation = ?, data = ?, local_updated_at = ?, payload = ?, queued_at = ?
-                   WHERE id = ?""",
-                (operation, data, now, payload, now, existing["id"])
-            )
-        else:
-            # Insert new entry
-            conn.execute(
-                """INSERT INTO sync_queue
-                   (table_name, record_id, operation, data, local_updated_at, synced, payload, queued_at)
-                   VALUES (?, ?, ?, ?, ?, 0, ?, ?)""",
-                (table, record_id, operation, data, now, payload, now)
-            )
+        # Use atomic UPSERT to prevent race condition between SELECT and UPDATE/INSERT
+        # This requires a unique index on (table_name, record_id) where synced = 0
+        # We use INSERT ... ON CONFLICT DO UPDATE for atomicity
+        conn.execute(
+            """INSERT INTO sync_queue
+               (table_name, record_id, operation, data, local_updated_at, synced, payload, queued_at)
+               VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+               ON CONFLICT(table_name, record_id) WHERE synced = 0
+               DO UPDATE SET
+                   operation = excluded.operation,
+                   data = excluded.data,
+                   local_updated_at = excluded.local_updated_at,
+                   payload = excluded.payload,
+                   queued_at = excluded.queued_at""",
+            (table, record_id, operation, data, now, payload, now)
+        )
 
     def _content_hash(self, content: str) -> str:
         """Hash content for change detection."""
