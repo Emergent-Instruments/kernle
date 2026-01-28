@@ -1955,6 +1955,7 @@ class Kernle:
             {
                 "other_agent_id": r.entity_name,  # backwards compat
                 "entity_name": r.entity_name,
+                "entity_type": r.entity_type,
                 "trust_level": (r.sentiment + 1) / 2,  # Convert sentiment to trust
                 "sentiment": r.sentiment,
                 "interaction_count": r.interaction_count,
@@ -1970,8 +1971,17 @@ class Kernle:
         trust_level: Optional[float] = None,
         notes: Optional[str] = None,
         interaction_type: Optional[str] = None,
+        entity_type: Optional[str] = None,
     ) -> str:
-        """Update relationship model for another agent."""
+        """Update relationship model for another entity.
+        
+        Args:
+            other_agent_id: Name/identifier of the other entity
+            trust_level: Trust level 0.0-1.0 (converted to sentiment -1 to 1)
+            notes: Notes about the relationship
+            interaction_type: Type of interaction being logged
+            entity_type: Type of entity (person, agent, organization, system)
+        """
         # Check existing
         existing = self._storage.get_relationship(other_agent_id)
 
@@ -1983,6 +1993,8 @@ class Kernle:
                 existing.sentiment = max(-1.0, min(1.0, (trust_level * 2) - 1))
             if notes:
                 existing.notes = notes
+            if entity_type:
+                existing.entity_type = entity_type
             existing.interaction_count += 1
             existing.last_interaction = now
             existing.version += 1
@@ -1994,7 +2006,7 @@ class Kernle:
                 id=rel_id,
                 agent_id=self.agent_id,
                 entity_name=other_agent_id,
-                entity_type="agent",
+                entity_type=entity_type or "person",
                 relationship_type=interaction_type or "interaction",
                 notes=notes,
                 sentiment=((trust_level * 2) - 1) if trust_level is not None else 0.0,

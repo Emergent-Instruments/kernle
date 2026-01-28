@@ -494,6 +494,80 @@ def cmd_status(args, k: Kernle):
     print(f"Checkpoint: {'Yes' if status['checkpoint'] else 'No'}")
 
 
+def cmd_relation(args, k: Kernle):
+    """Manage relationships with other entities (people, agents, orgs)."""
+    if args.relation_action == "list":
+        relationships = k.load_relationships(limit=50)
+        if not relationships:
+            print("No relationships recorded yet.")
+            print("\nAdd one with: kernle relation add <name> --type person --notes '...'")
+            return
+        
+        print("Relationships:")
+        print("-" * 50)
+        for r in relationships:
+            trust_pct = int(((r.get('sentiment', 0) + 1) / 2) * 100)
+            trust_bar = "█" * (trust_pct // 10) + "░" * (10 - trust_pct // 10)
+            interactions = r.get('interaction_count', 0)
+            last = r.get('last_interaction', '')[:10] if r.get('last_interaction') else 'never'
+            print(f"\n  {r['entity_name']} ({r.get('entity_type', 'unknown')})")
+            print(f"    Trust: [{trust_bar}] {trust_pct}%")
+            print(f"    Interactions: {interactions} (last: {last})")
+            if r.get('notes'):
+                notes_preview = r['notes'][:60] + "..." if len(r['notes']) > 60 else r['notes']
+                print(f"    Notes: {notes_preview}")
+
+    elif args.relation_action == "add":
+        name = validate_input(args.name, "name", 200)
+        entity_type = args.type or "person"
+        trust = args.trust if args.trust is not None else 0.5
+        notes = validate_input(args.notes, "notes", 1000) if args.notes else None
+        
+        rel_id = k.relationship(name, trust_level=trust, notes=notes, entity_type=entity_type)
+        print(f"✓ Relationship added: {name}")
+        print(f"  Type: {entity_type}, Trust: {int(trust * 100)}%")
+
+    elif args.relation_action == "update":
+        name = validate_input(args.name, "name", 200)
+        trust = args.trust
+        notes = validate_input(args.notes, "notes", 1000) if args.notes else None
+        entity_type = getattr(args, 'type', None)
+        
+        if trust is None and notes is None and entity_type is None:
+            print("✗ Provide --trust, --notes, or --type to update")
+            return
+        
+        rel_id = k.relationship(name, trust_level=trust, notes=notes, entity_type=entity_type)
+        print(f"✓ Relationship updated: {name}")
+
+    elif args.relation_action == "show":
+        name = args.name
+        relationships = k.load_relationships(limit=100)
+        rel = next((r for r in relationships if r['entity_name'].lower() == name.lower()), None)
+        
+        if not rel:
+            print(f"No relationship found for '{name}'")
+            return
+        
+        trust_pct = int(((rel.get('sentiment', 0) + 1) / 2) * 100)
+        print(f"## {rel['entity_name']}")
+        print(f"Type: {rel.get('entity_type', 'unknown')}")
+        print(f"Trust: {trust_pct}%")
+        print(f"Interactions: {rel.get('interaction_count', 0)}")
+        if rel.get('last_interaction'):
+            print(f"Last interaction: {rel['last_interaction']}")
+        if rel.get('notes'):
+            print(f"\nNotes:\n{rel['notes']}")
+
+    elif args.relation_action == "log":
+        name = validate_input(args.name, "name", 200)
+        interaction = validate_input(args.interaction, "interaction", 500) if args.interaction else "interaction"
+        
+        # Update relationship to log interaction
+        k.relationship(name, interaction_type=interaction)
+        print(f"✓ Logged interaction with {name}: {interaction}")
+
+
 def cmd_drive(args, k: Kernle):
     """Set or view drives."""
     if args.drive_action == "list":
@@ -3427,6 +3501,33 @@ def main():
     p_init.add_argument("--no-seed-values", dest="seed_values", action="store_false",
                         help="Skip seeding initial values")
 
+    # relation (social graph / relationships)
+    p_relation = subparsers.add_parser("relation", help="Manage relationships")
+    relation_sub = p_relation.add_subparsers(dest="relation_action", required=True)
+
+    relation_sub.add_parser("list", help="List all relationships")
+
+    relation_add = relation_sub.add_parser("add", help="Add a relationship")
+    relation_add.add_argument("name", help="Entity name (person, agent, org)")
+    relation_add.add_argument("--type", "-t", choices=["person", "agent", "organization", "system"],
+                              default="person", help="Entity type")
+    relation_add.add_argument("--trust", type=float, help="Trust level 0.0-1.0")
+    relation_add.add_argument("--notes", "-n", help="Notes about this relationship")
+
+    relation_update = relation_sub.add_parser("update", help="Update a relationship")
+    relation_update.add_argument("name", help="Entity name")
+    relation_update.add_argument("--trust", type=float, help="New trust level 0.0-1.0")
+    relation_update.add_argument("--notes", "-n", help="Updated notes")
+    relation_update.add_argument("--type", "-t", choices=["person", "agent", "organization", "system"],
+                                 help="Entity type")
+
+    relation_show = relation_sub.add_parser("show", help="Show relationship details")
+    relation_show.add_argument("name", help="Entity name")
+
+    relation_log = relation_sub.add_parser("log", help="Log an interaction")
+    relation_log.add_argument("name", help="Entity name")
+    relation_log.add_argument("--interaction", "-i", help="Interaction description")
+
     # drive
     p_drive = subparsers.add_parser("drive", help="Manage drives")
     drive_sub = p_drive.add_subparsers(dest="drive_action", required=True)
@@ -3904,6 +4005,8 @@ def main():
             cmd_status(args, k)
         elif args.command == "init":
             cmd_init(args, k)
+        elif args.command == "relation":
+            cmd_relation(args, k)
         elif args.command == "drive":
             cmd_drive(args, k)
         elif args.command == "consolidate":
