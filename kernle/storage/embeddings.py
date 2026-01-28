@@ -23,18 +23,18 @@ HASH_EMBEDDING_DIM = 384
 
 class EmbeddingProvider(ABC):
     """Base class for embedding providers."""
-    
+
     @property
     @abstractmethod
     def dimension(self) -> int:
         """Return the embedding dimension."""
         ...
-    
+
     @abstractmethod
     def embed(self, text: str) -> List[float]:
         """Embed a single text."""
         ...
-    
+
     def embed_batch(self, texts: List[str]) -> List[List[float]]:
         """Embed multiple texts. Override for batch optimization."""
         return [self.embed(text) for text in texts]
@@ -42,24 +42,24 @@ class EmbeddingProvider(ABC):
 
 class HashEmbedder(EmbeddingProvider):
     """Hash-based embedding for offline use.
-    
+
     Creates deterministic embeddings using character n-grams and hashing.
     Not semantically meaningful but provides:
     - Exact and near-exact match detection
     - Fast, zero-dependency operation
     - Consistent embeddings (same text = same embedding)
-    
+
     Can be upgraded to real embeddings later without schema changes.
     """
-    
+
     def __init__(self, dim: int = HASH_EMBEDDING_DIM, ngram_range: Tuple[int, int] = (2, 4)):
         self._dim = dim
         self.ngram_range = ngram_range
-    
+
     @property
     def dimension(self) -> int:
         return self._dim
-    
+
     def _get_ngrams(self, text: str) -> List[str]:
         """Extract character n-grams from text."""
         text = text.lower().strip()
@@ -71,16 +71,16 @@ class HashEmbedder(EmbeddingProvider):
         words = text.split()
         ngrams.extend(words)
         return ngrams
-    
+
     def embed(self, text: str) -> List[float]:
         """Create a hash-based embedding."""
         # Initialize embedding
         embedding = [0.0] * self._dim
-        
+
         ngrams = self._get_ngrams(text)
         if not ngrams:
             return embedding
-        
+
         # Hash each n-gram to an index and accumulate
         for ngram in ngrams:
             # Use MD5 for fast, consistent hashing
@@ -89,38 +89,38 @@ class HashEmbedder(EmbeddingProvider):
             idx = int.from_bytes(h[:4], 'little') % self._dim
             sign = 1 if h[4] & 1 else -1
             embedding[idx] += sign
-        
+
         # Normalize to unit length
         norm = sum(x*x for x in embedding) ** 0.5
         if norm > 0:
             embedding = [x / norm for x in embedding]
-        
+
         return embedding
 
 
 class OpenAIEmbedder(EmbeddingProvider):
     """OpenAI API-based embeddings.
-    
+
     Requires OPENAI_API_KEY environment variable.
     Uses text-embedding-3-small by default (1536 dimensions).
     """
-    
+
     def __init__(self, model: str = "text-embedding-3-small", api_key: Optional[str] = None):
         self.model = model
         self._api_key = api_key
         self._client = None
-        
+
         # Dimension varies by model
         self._dimensions = {
             "text-embedding-3-small": 1536,
             "text-embedding-3-large": 3072,
             "text-embedding-ada-002": 1536,
         }
-    
+
     @property
     def dimension(self) -> int:
         return self._dimensions.get(self.model, 1536)
-    
+
     def _get_client(self):
         if self._client is None:
             try:
@@ -129,7 +129,7 @@ class OpenAIEmbedder(EmbeddingProvider):
             except ImportError:
                 raise RuntimeError("openai package not installed. Run: pip install openai")
         return self._client
-    
+
     def embed(self, text: str) -> List[float]:
         """Embed text using OpenAI API."""
         client = self._get_client()
@@ -138,7 +138,7 @@ class OpenAIEmbedder(EmbeddingProvider):
             input=text
         )
         return response.data[0].embedding
-    
+
     def embed_batch(self, texts: List[str]) -> List[List[float]]:
         """Batch embed texts."""
         client = self._get_client()
@@ -161,17 +161,17 @@ def clear_embedder_cache() -> None:
 
 def get_default_embedder() -> EmbeddingProvider:
     """Get the best available embedding provider.
-    
+
     Tries in order:
     1. Local model (if sentence-transformers available)
     2. OpenAI (if API key set)
     3. Hash embedder (always available)
-    
+
     The OpenAI availability check is cached to avoid repeated API calls.
     """
     import os
     global _openai_available
-    
+
     # Only test OpenAI once and cache the result
     if _openai_available is None and os.environ.get("OPENAI_API_KEY"):
         try:
@@ -182,10 +182,10 @@ def get_default_embedder() -> EmbeddingProvider:
         except Exception as e:
             _openai_available = False
             logger.debug(f"OpenAI embeddings not available: {e}")
-    
+
     if _openai_available:
         return OpenAIEmbedder()
-    
+
     # Fall back to hash embedder
     logger.info("Using hash-based embeddings (offline mode)")
     return HashEmbedder()

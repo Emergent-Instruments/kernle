@@ -43,7 +43,7 @@ def create_access_token(
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
-    
+
     to_encode = {
         "sub": agent_id,
         "exp": expire,
@@ -62,10 +62,10 @@ def decode_token(token: str, settings: Settings) -> dict:
             algorithms=[settings.jwt_algorithm],
         )
         return payload
-    except JWTError as e:
+    except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid token: {e}",
+            detail="Invalid or expired token",
             headers={"WWW-Authenticate": "Bearer"},
         )
 

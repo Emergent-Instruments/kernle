@@ -1,6 +1,7 @@
 """Pytest configuration and fixtures."""
 
 import os
+
 import pytest
 
 # For unit tests, set mock values ONLY if not running integration tests
@@ -16,12 +17,13 @@ if not os.environ.get("RUN_INTEGRATION"):
 else:
     # For integration tests, load from .env
     from pathlib import Path
+
     from dotenv import load_dotenv
     env_path = Path(__file__).parent.parent / ".env"
     load_dotenv(env_path, override=True)
 
-from fastapi.testclient import TestClient
 from app.main import app
+from fastapi.testclient import TestClient
 
 
 @pytest.fixture
@@ -35,7 +37,7 @@ def auth_headers():
     """Create auth headers with a test token."""
     from app.auth import create_access_token
     from app.config import get_settings
-    
+
     settings = get_settings()
     token = create_access_token("test-agent", settings)
     return {"Authorization": f"Bearer {token}"}

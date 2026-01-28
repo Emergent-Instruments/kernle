@@ -12,12 +12,12 @@ from unittest.mock import Mock, patch
 import pytest
 
 from kernle.core import Kernle
-from kernle.storage import SQLiteStorage, Playbook
+from kernle.storage import Playbook, SQLiteStorage
 
 
 class TestPlaybookDataModel:
     """Test the Playbook dataclass."""
-    
+
     def test_playbook_creation_minimal(self):
         """Test creating a playbook with minimal required fields."""
         playbook = Playbook(
@@ -29,13 +29,13 @@ class TestPlaybookDataModel:
             steps=[{"action": "Run tests", "details": None, "adaptations": None}],
             failure_modes=["Tests fail"],
         )
-        
+
         assert playbook.name == "Deploy to production"
         assert playbook.mastery_level == "novice"
         assert playbook.times_used == 0
         assert playbook.success_rate == 0.0
         assert playbook.confidence == 0.8
-    
+
     def test_playbook_creation_full(self):
         """Test creating a playbook with all fields."""
         now = datetime.now(timezone.utc)
@@ -61,7 +61,7 @@ class TestPlaybookDataModel:
             last_used=now,
             created_at=now,
         )
-        
+
         assert playbook.mastery_level == "proficient"
         assert playbook.times_used == 15
         assert playbook.success_rate == 0.87
@@ -71,13 +71,13 @@ class TestPlaybookDataModel:
 
 class TestPlaybookStorage:
     """Test playbook storage operations."""
-    
+
     @pytest.fixture
     def storage(self, tmp_path):
         """Create a temporary SQLite storage."""
         db_path = tmp_path / "test_playbooks.db"
         return SQLiteStorage(agent_id="test_agent", db_path=db_path)
-    
+
     def test_save_and_get_playbook(self, storage):
         """Test saving and retrieving a playbook."""
         playbook = Playbook(
@@ -96,17 +96,17 @@ class TestPlaybookStorage:
             tags=["code-review", "workflow"],
             created_at=datetime.now(timezone.utc),
         )
-        
+
         saved_id = storage.save_playbook(playbook)
         assert saved_id == playbook.id
-        
+
         retrieved = storage.get_playbook(playbook.id)
         assert retrieved is not None
         assert retrieved.name == "Code Review"
         assert retrieved.description == "Standard code review process"
         assert len(retrieved.steps) == 3
         assert retrieved.tags == ["code-review", "workflow"]
-    
+
     def test_list_playbooks(self, storage):
         """Test listing playbooks."""
         # Create multiple playbooks
@@ -124,19 +124,19 @@ class TestPlaybookStorage:
                 created_at=datetime.now(timezone.utc),
             )
             storage.save_playbook(playbook)
-        
+
         # List all
         all_playbooks = storage.list_playbooks(limit=10)
         assert len(all_playbooks) == 5
-        
+
         # Should be ordered by times_used descending
         times_used = [p.times_used for p in all_playbooks]
         assert times_used == sorted(times_used, reverse=True)
-        
+
         # List with tag filter
         test_tagged = storage.list_playbooks(tags=["test"], limit=10)
         assert len(test_tagged) == 3  # 0, 2, 4 are tagged "test"
-    
+
     def test_search_playbooks(self, storage):
         """Test searching playbooks."""
         # Create playbooks with searchable content
@@ -151,7 +151,7 @@ class TestPlaybookStorage:
             created_at=datetime.now(timezone.utc),
         )
         storage.save_playbook(deploy_playbook)
-        
+
         test_playbook = Playbook(
             id=str(uuid.uuid4()),
             agent_id="test_agent",
@@ -163,17 +163,17 @@ class TestPlaybookStorage:
             created_at=datetime.now(timezone.utc),
         )
         storage.save_playbook(test_playbook)
-        
+
         # Search for deploy
         deploy_results = storage.search_playbooks("deploy", limit=10)
         assert len(deploy_results) >= 1
         assert any(p.name == "Deploy Application" for p in deploy_results)
-        
+
         # Search for test
         test_results = storage.search_playbooks("test", limit=10)
         assert len(test_results) >= 1
         assert any(p.name == "Run Tests" for p in test_results)
-    
+
     def test_update_playbook_usage(self, storage):
         """Test updating playbook usage statistics."""
         playbook = Playbook(
@@ -190,26 +190,26 @@ class TestPlaybookStorage:
             created_at=datetime.now(timezone.utc),
         )
         storage.save_playbook(playbook)
-        
+
         # Record some successes
         for _ in range(5):
             storage.update_playbook_usage(playbook.id, success=True)
-        
+
         updated = storage.get_playbook(playbook.id)
         assert updated.times_used == 5
         assert updated.success_rate == 1.0
         assert updated.mastery_level == "competent"  # 5 uses with 100% success
         assert updated.last_used is not None
-        
+
         # Record some failures
         for _ in range(5):
             storage.update_playbook_usage(playbook.id, success=False)
-        
+
         updated = storage.get_playbook(playbook.id)
         assert updated.times_used == 10
         assert updated.success_rate == 0.5  # 5 success, 5 failure
         assert updated.mastery_level == "competent"  # Still competent (10 uses but only 50% success)
-    
+
     def test_mastery_progression(self, storage):
         """Test that mastery level increases with usage and success."""
         playbook = Playbook(
@@ -226,30 +226,30 @@ class TestPlaybookStorage:
             created_at=datetime.now(timezone.utc),
         )
         storage.save_playbook(playbook)
-        
+
         # Novice -> Competent (5 uses, 70% success)
         for i in range(5):
             storage.update_playbook_usage(playbook.id, success=(i < 4))  # 4/5 = 80%
-        
+
         updated = storage.get_playbook(playbook.id)
         assert updated.mastery_level == "competent"
         assert updated.times_used == 5
-        
+
         # Competent -> Proficient (10 uses, 80% success)
         for i in range(5):
             storage.update_playbook_usage(playbook.id, success=(i < 4))  # More successes
-        
+
         updated = storage.get_playbook(playbook.id)
         assert updated.mastery_level == "proficient"
         assert updated.times_used == 10
-        
+
         # Proficient -> Expert (20 uses, 90%+ success overall)
         # Need to add enough successes to get cumulative rate above 90%
         # Current: 8/10 = 80%. Need 18/20 = 90% for expert.
         # So need 10 more successes out of 10.
         for _ in range(10):
             storage.update_playbook_usage(playbook.id, success=True)  # All successes
-        
+
         updated = storage.get_playbook(playbook.id)
         # 8 + 10 = 18 successes out of 20 = 90%
         assert updated.mastery_level == "expert"
@@ -258,14 +258,14 @@ class TestPlaybookStorage:
 
 class TestPlaybookCore:
     """Test playbook methods in Kernle core."""
-    
+
     @pytest.fixture
     def kernle(self, tmp_path):
         """Create a Kernle instance with temporary storage."""
         db_path = tmp_path / "test_kernle.db"
         storage = SQLiteStorage(agent_id="test_agent", db_path=db_path)
         return Kernle(agent_id="test_agent", storage=storage)
-    
+
     def test_create_playbook_simple(self, kernle):
         """Test creating a playbook with simple string steps."""
         playbook_id = kernle.playbook(
@@ -274,16 +274,16 @@ class TestPlaybookCore:
             steps=["Run tests", "Build", "Deploy", "Verify"],
             triggers=["releasing code"],
         )
-        
+
         assert playbook_id is not None
-        
+
         # Retrieve and verify
         playbook = kernle.get_playbook(playbook_id)
         assert playbook is not None
         assert playbook["name"] == "Simple Deploy"
         assert len(playbook["steps"]) == 4
         assert playbook["steps"][0]["action"] == "Run tests"
-    
+
     def test_create_playbook_with_dict_steps(self, kernle):
         """Test creating a playbook with detailed dict steps."""
         playbook_id = kernle.playbook(
@@ -299,13 +299,13 @@ class TestPlaybookCore:
             recovery_steps=["Fix tests", "Check Docker", "Rollback"],
             tags=["deploy", "production"],
         )
-        
+
         playbook = kernle.get_playbook(playbook_id)
         assert playbook is not None
         assert playbook["steps"][1]["adaptations"] == {"arm64": "use buildx"}
         assert playbook["failure_modes"] == ["Tests fail", "Build fails", "Deploy timeout"]
         assert playbook["recovery_steps"] == ["Fix tests", "Check Docker", "Rollback"]
-    
+
     def test_load_playbooks(self, kernle):
         """Test loading playbooks."""
         # Create some playbooks
@@ -321,16 +321,16 @@ class TestPlaybookCore:
             steps=["Step 2"],
             tags=["tag2"],
         )
-        
+
         # Load all
         playbooks = kernle.load_playbooks(limit=10)
         assert len(playbooks) == 2
-        
+
         # Load by tag
         tag1_playbooks = kernle.load_playbooks(limit=10, tags=["tag1"])
         assert len(tag1_playbooks) == 1
         assert tag1_playbooks[0]["name"] == "Playbook 1"
-    
+
     def test_find_playbook(self, kernle):
         """Test finding a relevant playbook for a situation."""
         # Create playbooks with different purposes
@@ -346,17 +346,17 @@ class TestPlaybookCore:
             steps=["Profile", "Analyze", "Optimize"],
             triggers=["slow response", "performance degradation"],
         )
-        
+
         # Find playbook for deployment situation
         deploy_match = kernle.find_playbook("I need to deploy the new release to production")
         assert deploy_match is not None
         assert "Deploy" in deploy_match["name"]
-        
+
         # Find playbook for performance situation
         perf_match = kernle.find_playbook("The API is responding slowly")
         assert perf_match is not None
         assert "Performance" in perf_match["name"]
-    
+
     def test_record_playbook_use(self, kernle):
         """Test recording playbook usage."""
         playbook_id = kernle.playbook(
@@ -364,31 +364,31 @@ class TestPlaybookCore:
             description="For testing usage recording",
             steps=["Step 1"],
         )
-        
+
         # Initial state
         playbook = kernle.get_playbook(playbook_id)
         assert playbook["times_used"] == 0
-        
+
         # Record success
         result = kernle.record_playbook_use(playbook_id, success=True)
         assert result is True
-        
+
         playbook = kernle.get_playbook(playbook_id)
         assert playbook["times_used"] == 1
         assert playbook["success_rate"] == 1.0
-        
+
         # Record failure
         kernle.record_playbook_use(playbook_id, success=False)
-        
+
         playbook = kernle.get_playbook(playbook_id)
         assert playbook["times_used"] == 2
         assert playbook["success_rate"] == 0.5
-    
+
     def test_record_nonexistent_playbook(self, kernle):
         """Test recording usage for a non-existent playbook."""
         result = kernle.record_playbook_use("nonexistent-id", success=True)
         assert result is False
-    
+
     def test_search_playbooks(self, kernle):
         """Test searching playbooks by query."""
         kernle.playbook(
@@ -403,7 +403,7 @@ class TestPlaybookCore:
             steps=["Clear", "Rebuild"],
             triggers=["stale data"],
         )
-        
+
         # Search
         results = kernle.search_playbooks("database")
         assert len(results) >= 1
@@ -412,12 +412,12 @@ class TestPlaybookCore:
 
 class TestPlaybookCLI:
     """Test playbook CLI commands."""
-    
+
     @pytest.fixture
     def mock_kernle(self):
         """Mock Kernle instance for CLI testing."""
         kernle = Mock(spec=Kernle)
-        
+
         kernle.playbook.return_value = "pb-123"
         kernle.load_playbooks.return_value = [
             {
@@ -468,14 +468,15 @@ class TestPlaybookCLI:
             "success_rate": 0.9,
         }
         kernle.record_playbook_use.return_value = True
-        
+
         return kernle
-    
+
     def test_cmd_playbook_create(self, mock_kernle):
         """Test playbook create command."""
-        from kernle.cli.__main__ import cmd_playbook
         import argparse
-        
+
+        from kernle.cli.__main__ import cmd_playbook
+
         args = argparse.Namespace(
             playbook_action="create",
             name="Deploy to prod",
@@ -488,132 +489,138 @@ class TestPlaybookCLI:
             recovery=["Fix tests"],
             tag=["deploy"],
         )
-        
+
         from io import StringIO
         with patch('sys.stdout', new=StringIO()) as fake_out:
             cmd_playbook(args, mock_kernle)
-        
+
         mock_kernle.playbook.assert_called_once()
         call_kwargs = mock_kernle.playbook.call_args[1]
         assert call_kwargs["name"] == "Deploy to prod"
         assert "Deploy" in call_kwargs["steps"]
         assert "✓ Playbook created" in fake_out.getvalue()
-    
+
     def test_cmd_playbook_list(self, mock_kernle):
         """Test playbook list command."""
-        from kernle.cli.__main__ import cmd_playbook
         import argparse
-        
+
+        from kernle.cli.__main__ import cmd_playbook
+
         args = argparse.Namespace(
             playbook_action="list",
             tag=None,
             limit=20,
             json=False,
         )
-        
+
         from io import StringIO
         with patch('sys.stdout', new=StringIO()) as fake_out:
             cmd_playbook(args, mock_kernle)
-        
+
         mock_kernle.load_playbooks.assert_called_once()
         output = fake_out.getvalue()
         assert "Deploy" in output
         assert "competent" in output
-    
+
     def test_cmd_playbook_search(self, mock_kernle):
         """Test playbook search command."""
-        from kernle.cli.__main__ import cmd_playbook
         import argparse
-        
+
+        from kernle.cli.__main__ import cmd_playbook
+
         args = argparse.Namespace(
             playbook_action="search",
             query="deploy",
             limit=10,
             json=False,
         )
-        
+
         from io import StringIO
         with patch('sys.stdout', new=StringIO()) as fake_out:
             cmd_playbook(args, mock_kernle)
-        
+
         mock_kernle.search_playbooks.assert_called_once_with("deploy", limit=10)
         assert "Deploy" in fake_out.getvalue()
-    
+
     def test_cmd_playbook_show(self, mock_kernle):
         """Test playbook show command."""
-        from kernle.cli.__main__ import cmd_playbook
         import argparse
-        
+
+        from kernle.cli.__main__ import cmd_playbook
+
         args = argparse.Namespace(
             playbook_action="show",
             id="pb-1",
             json=False,
         )
-        
+
         from io import StringIO
         with patch('sys.stdout', new=StringIO()) as fake_out:
             cmd_playbook(args, mock_kernle)
-        
+
         mock_kernle.get_playbook.assert_called_once_with("pb-1")
         output = fake_out.getvalue()
         assert "Deploy" in output
         assert "Steps" in output
         assert "Failure Modes" in output
-    
+
     def test_cmd_playbook_find(self, mock_kernle):
         """Test playbook find command."""
-        from kernle.cli.__main__ import cmd_playbook
         import argparse
-        
+
+        from kernle.cli.__main__ import cmd_playbook
+
         args = argparse.Namespace(
             playbook_action="find",
             situation="I need to deploy the app",
             json=False,
         )
-        
+
         from io import StringIO
         with patch('sys.stdout', new=StringIO()) as fake_out:
             cmd_playbook(args, mock_kernle)
-        
+
         mock_kernle.find_playbook.assert_called_once_with("I need to deploy the app")
         output = fake_out.getvalue()
         assert "Recommended Playbook" in output
         assert "Deploy" in output
-    
+
     def test_cmd_playbook_record_success(self, mock_kernle):
         """Test playbook record command with success."""
-        from kernle.cli.__main__ import cmd_playbook
         import argparse
-        
+
+        from kernle.cli.__main__ import cmd_playbook
+
         args = argparse.Namespace(
             playbook_action="record",
             id="pb-1",
             success=True,
             failure=False,
         )
-        
+
         from io import StringIO
         with patch('sys.stdout', new=StringIO()) as fake_out:
             cmd_playbook(args, mock_kernle)
-        
+
         mock_kernle.record_playbook_use.assert_called_once_with("pb-1", True)
         assert "success ✓" in fake_out.getvalue()
-    
+
     def test_cmd_playbook_record_failure(self, mock_kernle):
         """Test playbook record command with failure."""
-        from kernle.cli.__main__ import cmd_playbook
         import argparse
-        
+
+        from kernle.cli.__main__ import cmd_playbook
+
         args = argparse.Namespace(
             playbook_action="record",
             id="pb-1",
             success=True,
             failure=True,  # --failure flag overrides default success
         )
-        
+
         from io import StringIO
         with patch('sys.stdout', new=StringIO()) as fake_out:
             cmd_playbook(args, mock_kernle)
-        
+
         mock_kernle.record_playbook_use.assert_called_once_with("pb-1", False)
         assert "failure ✗" in fake_out.getvalue()

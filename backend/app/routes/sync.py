@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter
 
 from ..auth import CurrentAgent
 from ..database import (
@@ -12,6 +12,7 @@ from ..database import (
     update_agent_last_sync,
     upsert_memory,
 )
+from ..logging_config import get_logger, log_sync_operation
 from ..models import (
     SyncOperation,
     SyncPullRequest,
@@ -19,7 +20,6 @@ from ..models import (
     SyncPushRequest,
     SyncPushResponse,
 )
-from ..logging_config import get_logger, log_sync_operation
 
 logger = get_logger("kernle.sync")
 router = APIRouter(prefix="/sync", tags=["sync"])
@@ -33,17 +33,17 @@ async def push_changes(
 ):
     """
     Push local changes to the cloud.
-    
+
     Processes operations in order:
     - insert/update: Upsert the record
     - delete: Soft-delete the record
-    
+
     Returns count of synced operations and any conflicts.
     """
     logger.info(f"PUSH | {agent_id} | {len(request.operations)} operations")
     synced = 0
     conflicts = []
-    
+
     for op in request.operations:
         try:
             if op.operation == "delete":
@@ -68,17 +68,20 @@ async def push_changes(
                 "error": str(e),
             })
         except Exception as e:
+            # Log full error server-side for debugging
+            logger.error(f"Database error during {op.operation} on {op.table}/{op.record_id}: {e}")
             log_sync_operation(agent_id, op.operation, op.table, op.record_id, False, str(e))
+            # Return generic message to client to avoid leaking internal details
             conflicts.append({
                 "record_id": op.record_id,
-                "error": f"Database error: {str(e)}",
+                "error": "Database error: operation failed",
             })
-    
+
     # Update agent's last sync time
     await update_agent_last_sync(db, agent_id)
-    
+
     logger.info(f"PUSH COMPLETE | {agent_id} | synced={synced} conflicts={len(conflicts)}")
-    
+
     return SyncPushResponse(
         synced=synced,
         conflicts=conflicts,
@@ -94,16 +97,16 @@ async def pull_changes(
 ):
     """
     Pull changes from the cloud since the given timestamp.
-    
+
     Used for:
     - Initial sync (since=None gets all records)
     - Incremental sync (since=last_sync_at)
     """
     logger.info(f"PULL | {agent_id} | since={request.since}")
-    
+
     since_str = request.since.isoformat() if request.since else None
     changes = await get_changes_since(db, agent_id, since_str)
-    
+
     operations = []
     for change in changes:
         data = change.get("data", {})
@@ -112,9 +115,9 @@ async def pull_changes(
         if isinstance(local_updated, str):
             try:
                 local_updated = datetime.fromisoformat(local_updated.replace("Z", "+00:00"))
-            except:
+            except (ValueError, TypeError):
                 local_updated = datetime.now(timezone.utc)
-        
+
         operations.append(SyncOperation(
             operation=change["operation"],
             table=change["table"],
@@ -123,9 +126,9 @@ async def pull_changes(
             local_updated_at=local_updated,
             version=data.get("version", 1),
         ))
-    
+
     logger.info(f"PULL COMPLETE | {agent_id} | {len(operations)} operations")
-    
+
     return SyncPullResponse(
         operations=operations,
         server_time=datetime.now(timezone.utc),
@@ -140,13 +143,13 @@ async def full_sync(
 ):
     """
     Perform a full sync - returns all records for the agent.
-    
+
     Use for:
     - Initial setup on new device
     - Recovery after data loss
     """
     changes = await get_changes_since(db, agent_id, None)
-    
+
     operations = [
         SyncOperation(
             operation="update",  # Full sync is always "update" (upsert on client)
@@ -159,7 +162,7 @@ async def full_sync(
         for change in changes
         if not change["data"].get("deleted")  # Skip deleted records in full sync
     ]
-    
+
     return SyncPullResponse(
         operations=operations,
         server_time=datetime.now(timezone.utc),

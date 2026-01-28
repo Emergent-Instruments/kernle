@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Entry point for Railway deployment."""
 import os
+
 import uvicorn
 
 if __name__ == "__main__":

@@ -6,12 +6,11 @@ Currently supported:
 - SupabaseStorage: Cloud storage with pgvector (future: extracted from core.py)
 """
 
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Optional, List, Dict, Any, Protocol, runtime_checkable
 from enum import Enum
-
+from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 # === Shared Utility Functions ===
 
@@ -55,7 +54,7 @@ class SyncResult:
     pulled: int = 0           # Records pulled from cloud
     conflicts: int = 0        # Conflicts encountered (resolved with last-write-wins)
     errors: List[str] = field(default_factory=list)
-    
+
     @property
     def success(self) -> bool:
         return len(self.errors) == 0
@@ -148,7 +147,7 @@ class Episode:
     forgotten_reason: Optional[str] = None  # Why it was forgotten
 
 
-@dataclass 
+@dataclass
 class Belief:
     """A belief record."""
     id: str
@@ -349,7 +348,7 @@ class Relationship:
 @dataclass
 class Playbook:
     """A playbook/procedural memory record.
-    
+
     Playbooks are "how I do things" memory - executable procedures
     learned from experience. They encode successful workflows as
     reusable step sequences with applicability conditions and failure modes.
@@ -384,143 +383,148 @@ class SearchResult:
     record: Any  # Episode, Note, Belief, Playbook, etc.
     record_type: str
     score: float
-    
+
 
 @runtime_checkable
 class Storage(Protocol):
     """Protocol defining the storage interface for Kernle.
-    
+
     All storage backends (SQLite, Supabase, etc.) must implement this interface.
     """
-    
+
     agent_id: str
-    
+
     # === Episodes ===
-    
+
     @abstractmethod
     def save_episode(self, episode: Episode) -> str:
         """Save an episode. Returns the episode ID."""
         ...
-    
+
     @abstractmethod
     def get_episodes(
-        self, 
-        limit: int = 100, 
+        self,
+        limit: int = 100,
         since: Optional[datetime] = None,
         tags: Optional[List[str]] = None
     ) -> List[Episode]:
         """Get episodes, optionally filtered."""
         ...
-    
+
     @abstractmethod
     def get_episode(self, episode_id: str) -> Optional[Episode]:
         """Get a specific episode by ID."""
         ...
-    
+
     # === Beliefs ===
-    
+
     @abstractmethod
     def save_belief(self, belief: Belief) -> str:
         """Save a belief. Returns the belief ID."""
         ...
-    
+
     @abstractmethod
-    def get_beliefs(self, limit: int = 100) -> List[Belief]:
-        """Get beliefs."""
+    def get_beliefs(self, limit: int = 100, include_inactive: bool = False) -> List[Belief]:
+        """Get beliefs.
+        
+        Args:
+            limit: Maximum number of beliefs to return
+            include_inactive: If True, include superseded/archived beliefs
+        """
         ...
-    
+
     @abstractmethod
     def find_belief(self, statement: str) -> Optional[Belief]:
         """Find a belief by statement (for deduplication)."""
         ...
-    
+
     # === Values ===
-    
+
     @abstractmethod
     def save_value(self, value: Value) -> str:
         """Save a value. Returns the value ID."""
         ...
-    
+
     @abstractmethod
     def get_values(self, limit: int = 100) -> List[Value]:
         """Get values, ordered by priority."""
         ...
-    
+
     # === Goals ===
-    
+
     @abstractmethod
     def save_goal(self, goal: Goal) -> str:
         """Save a goal. Returns the goal ID."""
         ...
-    
+
     @abstractmethod
     def get_goals(self, status: Optional[str] = "active", limit: int = 100) -> List[Goal]:
         """Get goals, optionally filtered by status."""
         ...
-    
+
     # === Notes ===
-    
+
     @abstractmethod
     def save_note(self, note: Note) -> str:
         """Save a note. Returns the note ID."""
         ...
-    
+
     @abstractmethod
     def get_notes(
-        self, 
-        limit: int = 100, 
+        self,
+        limit: int = 100,
         since: Optional[datetime] = None,
         note_type: Optional[str] = None
     ) -> List[Note]:
         """Get notes, optionally filtered."""
         ...
-    
+
     # === Drives ===
-    
+
     @abstractmethod
     def save_drive(self, drive: Drive) -> str:
         """Save or update a drive. Returns the drive ID."""
         ...
-    
+
     @abstractmethod
     def get_drives(self) -> List[Drive]:
         """Get all drives for the agent."""
         ...
-    
+
     @abstractmethod
     def get_drive(self, drive_type: str) -> Optional[Drive]:
         """Get a specific drive by type."""
         ...
-    
+
     # === Relationships ===
-    
+
     @abstractmethod
     def save_relationship(self, relationship: Relationship) -> str:
         """Save or update a relationship. Returns the relationship ID."""
         ...
-    
+
     @abstractmethod
     def get_relationships(self, entity_type: Optional[str] = None) -> List[Relationship]:
         """Get relationships, optionally filtered by entity type."""
         ...
-    
+
     @abstractmethod
     def get_relationship(self, entity_name: str) -> Optional[Relationship]:
         """Get a specific relationship by entity name."""
         ...
-    
+
     # === Playbooks (Procedural Memory) ===
-    
+
     @abstractmethod
     def save_playbook(self, playbook: "Playbook") -> str:
         """Save a playbook. Returns the playbook ID."""
         ...
-    
+
     @abstractmethod
     def get_playbook(self, playbook_id: str) -> Optional["Playbook"]:
         """Get a specific playbook by ID."""
         ...
-    
+
     @abstractmethod
     def list_playbooks(
         self,
@@ -529,82 +533,82 @@ class Storage(Protocol):
     ) -> List["Playbook"]:
         """Get playbooks, optionally filtered by tags."""
         ...
-    
+
     @abstractmethod
     def search_playbooks(self, query: str, limit: int = 10) -> List["Playbook"]:
         """Search playbooks by name, description, or triggers."""
         ...
-    
+
     @abstractmethod
     def update_playbook_usage(self, playbook_id: str, success: bool) -> bool:
         """Update playbook usage statistics.
-        
+
         Args:
             playbook_id: ID of the playbook
             success: Whether the usage was successful
-            
+
         Returns:
             True if updated, False if playbook not found
         """
         ...
-    
+
     # === Raw Entries ===
-    
+
     @abstractmethod
     def save_raw(self, content: str, source: str = "manual", tags: Optional[List[str]] = None) -> str:
         """Save a raw entry for later processing. Returns the entry ID."""
         ...
-    
+
     @abstractmethod
     def get_raw(self, raw_id: str) -> Optional[RawEntry]:
         """Get a specific raw entry by ID."""
         ...
-    
+
     @abstractmethod
     def list_raw(self, processed: Optional[bool] = None, limit: int = 100) -> List[RawEntry]:
         """Get raw entries, optionally filtered by processed state."""
         ...
-    
+
     @abstractmethod
     def mark_raw_processed(self, raw_id: str, processed_into: List[str]) -> bool:
         """Mark a raw entry as processed into other memories.
-        
+
         Args:
             raw_id: ID of the raw entry
             processed_into: List of memory refs (format: type:id)
-            
+
         Returns:
             True if updated, False if not found
         """
         ...
-    
+
     # === Search ===
-    
+
     @abstractmethod
     def search(
-        self, 
-        query: str, 
+        self,
+        query: str,
         limit: int = 10,
         record_types: Optional[List[str]] = None
     ) -> List[SearchResult]:
         """Semantic search across memories.
-        
+
         Args:
             query: Search query
             limit: Maximum results
             record_types: Filter by type (episode, note, belief, etc.)
         """
         ...
-    
+
     # === Stats ===
-    
+
     @abstractmethod
     def get_stats(self) -> Dict[str, int]:
         """Get counts of each record type."""
         ...
-    
+
     # === Batch Loading ===
-    
+
     def load_all(
         self,
         values_limit: int = 10,
@@ -613,16 +617,16 @@ class Storage(Protocol):
         goals_status: str = "active",
         episodes_limit: int = 20,
         notes_limit: int = 5,
-    ) -> Dict[str, Any]:
+    ) -> Optional[Dict[str, Any]]:
         """Load all memory types in a single operation (optional optimization).
-        
+
         This is an optional method that storage backends can implement to
         batch multiple queries into a single database connection, avoiding
         N+1 query patterns.
-        
+
         Default implementation returns None, indicating the caller should
         fall back to individual get_* methods.
-        
+
         Args:
             values_limit: Max values to load
             beliefs_limit: Max beliefs to load
@@ -630,64 +634,64 @@ class Storage(Protocol):
             goals_status: Goal status filter
             episodes_limit: Max episodes to load
             notes_limit: Max notes to load
-            
+
         Returns:
             Dict with keys: values, beliefs, goals, drives, episodes, notes, relationships
             Or None if not implemented (caller should use individual methods)
         """
         return None  # Default: not implemented, use individual methods
-    
+
     # === Sync ===
-    
+
     @abstractmethod
     def sync(self) -> SyncResult:
         """Sync local changes with cloud.
-        
+
         For cloud-only storage, this is a no-op.
         For local storage, this pushes/pulls changes.
         """
         ...
-    
+
     @abstractmethod
     def pull_changes(self, since: Optional[datetime] = None) -> SyncResult:
         """Pull changes from cloud since the given timestamp.
-        
+
         Args:
             since: Pull changes since this time. If None, uses last sync time.
-        
+
         Returns:
             SyncResult with pulled count and any conflicts.
         """
         ...
-    
+
     @abstractmethod
     def get_pending_sync_count(self) -> int:
         """Get count of records pending sync."""
         ...
-    
+
     @abstractmethod
     def is_online(self) -> bool:
         """Check if cloud storage is reachable.
-        
+
         Returns True if connected, False if offline.
         """
         ...
-    
+
     # === Meta-Memory ===
-    
+
     @abstractmethod
     def get_memory(self, memory_type: str, memory_id: str) -> Optional[Any]:
         """Get a memory by type and ID.
-        
+
         Args:
             memory_type: Type of memory (episode, belief, value, goal, note, drive, relationship)
             memory_id: ID of the memory
-            
+
         Returns:
             The memory record or None if not found
         """
         ...
-    
+
     @abstractmethod
     def update_memory_meta(
         self,
@@ -702,7 +706,7 @@ class Storage(Protocol):
         confidence_history: Optional[List[Dict[str, Any]]] = None,
     ) -> bool:
         """Update meta-memory fields for a memory.
-        
+
         Args:
             memory_type: Type of memory
             memory_id: ID of the memory
@@ -713,12 +717,12 @@ class Storage(Protocol):
             last_verified: New verification timestamp
             verification_count: New verification count
             confidence_history: New confidence history
-            
+
         Returns:
             True if updated, False if memory not found
         """
         ...
-    
+
     @abstractmethod
     def get_memories_by_confidence(
         self,
@@ -728,18 +732,18 @@ class Storage(Protocol):
         limit: int = 100,
     ) -> List[SearchResult]:
         """Get memories filtered by confidence threshold.
-        
+
         Args:
             threshold: Confidence threshold
             below: If True, get memories below threshold; if False, above
             memory_types: Filter by type (episode, belief, etc.)
             limit: Maximum results
-            
+
         Returns:
             List of matching memories with their types
         """
         ...
-    
+
     @abstractmethod
     def get_memories_by_source(
         self,
@@ -748,34 +752,34 @@ class Storage(Protocol):
         limit: int = 100,
     ) -> List[SearchResult]:
         """Get memories filtered by source type.
-        
+
         Args:
             source_type: Source type to filter by
             memory_types: Filter by memory type
             limit: Maximum results
-            
+
         Returns:
             List of matching memories
         """
         ...
-    
+
     # === Forgetting ===
-    
+
     @abstractmethod
     def record_access(self, memory_type: str, memory_id: str) -> bool:
         """Record that a memory was accessed (for salience tracking).
-        
+
         Increments times_accessed and updates last_accessed timestamp.
-        
+
         Args:
             memory_type: Type of memory
             memory_id: ID of the memory
-            
+
         Returns:
             True if updated, False if memory not found
         """
         ...
-    
+
     @abstractmethod
     def forget_memory(
         self,
@@ -784,44 +788,44 @@ class Storage(Protocol):
         reason: Optional[str] = None,
     ) -> bool:
         """Tombstone a memory (mark as forgotten, don't delete).
-        
+
         Args:
             memory_type: Type of memory
             memory_id: ID of the memory
             reason: Optional reason for forgetting
-            
+
         Returns:
             True if forgotten, False if not found or already forgotten
         """
         ...
-    
+
     @abstractmethod
     def recover_memory(self, memory_type: str, memory_id: str) -> bool:
         """Recover a forgotten memory.
-        
+
         Args:
             memory_type: Type of memory
             memory_id: ID of the memory
-            
+
         Returns:
             True if recovered, False if not found or not forgotten
         """
         ...
-    
+
     @abstractmethod
     def protect_memory(self, memory_type: str, memory_id: str, protected: bool = True) -> bool:
         """Mark a memory as protected from forgetting.
-        
+
         Args:
             memory_type: Type of memory
             memory_id: ID of the memory
             protected: True to protect, False to unprotect
-            
+
         Returns:
             True if updated, False if memory not found
         """
         ...
-    
+
     @abstractmethod
     def get_forgetting_candidates(
         self,
@@ -829,21 +833,21 @@ class Storage(Protocol):
         limit: int = 100,
     ) -> List[SearchResult]:
         """Get memories that are candidates for forgetting.
-        
+
         Returns memories that are:
         - Not protected
         - Not already forgotten
         - Sorted by salience (lowest first)
-        
+
         Args:
             memory_types: Filter by memory type
             limit: Maximum results
-            
+
         Returns:
             List of candidate memories with computed salience scores
         """
         ...
-    
+
     @abstractmethod
     def get_forgotten_memories(
         self,
@@ -851,11 +855,11 @@ class Storage(Protocol):
         limit: int = 100,
     ) -> List[SearchResult]:
         """Get all forgotten (tombstoned) memories.
-        
+
         Args:
             memory_types: Filter by memory type
             limit: Maximum results
-            
+
         Returns:
             List of forgotten memories
         """

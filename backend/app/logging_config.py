@@ -23,7 +23,7 @@ try:
     from pathlib import Path
     log_dir = Path.home() / ".kernle" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
-    
+
     file_handler = logging.FileHandler(
         log_dir / f"backend-{datetime.now().strftime('%Y-%m-%d')}.log"
     )

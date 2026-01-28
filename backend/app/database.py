@@ -1,13 +1,11 @@
 """Database utilities for Supabase integration."""
 
-from functools import lru_cache
 from typing import Annotated
 
 from fastapi import Depends
 from supabase import Client, create_client
 
 from .config import Settings, get_settings
-
 
 _supabase_client: Client | None = None
 
@@ -114,7 +112,7 @@ async def upsert_memory(
     """Insert or update a memory record."""
     if table not in MEMORY_TABLES:
         raise ValueError(f"Unknown table: {table}")
-    
+
     table_name = MEMORY_TABLES[table]
     record = {
         **data,
@@ -135,7 +133,7 @@ async def delete_memory(
     """Soft-delete a memory record."""
     if table not in MEMORY_TABLES:
         raise ValueError(f"Unknown table: {table}")
-    
+
     table_name = MEMORY_TABLES[table]
     result = db.table(table_name).update({"deleted": True}).eq("id", record_id).eq("agent_id", agent_id).execute()
     return len(result.data) > 0
@@ -149,14 +147,14 @@ async def get_changes_since(
 ) -> list[dict]:
     """Get all changes for an agent since a given timestamp."""
     changes = []
-    
+
     for table_key, table_name in MEMORY_TABLES.items():
         query = db.table(table_name).select("*").eq("agent_id", agent_id)
         if since:
             query = query.gt("cloud_synced_at", since)
         query = query.limit(limit)
         result = query.execute()
-        
+
         for record in result.data:
             changes.append({
                 "table": table_key,
@@ -164,5 +162,5 @@ async def get_changes_since(
                 "data": record,
                 "operation": "delete" if record.get("deleted") else "update",
             })
-    
+
     return changes

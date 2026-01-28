@@ -3,7 +3,7 @@
 from fastapi import APIRouter
 
 from ..auth import CurrentAgent
-from ..database import Database, MEMORY_TABLES
+from ..database import MEMORY_TABLES, Database
 from ..models import MemorySearchRequest, MemorySearchResponse, MemorySearchResult
 
 router = APIRouter(prefix="/memories", tags=["memories"])
@@ -17,23 +17,23 @@ async def search_memories(
 ):
     """
     Search agent's memories using text matching.
-    
+
     Note: Full semantic search requires pgvector setup.
     This endpoint provides basic text search as a starting point.
     """
     results = []
-    
+
     # Determine which tables to search
     tables_to_search = (
         [t for t in request.memory_types if t in MEMORY_TABLES]
         if request.memory_types
         else list(MEMORY_TABLES.keys())
     )
-    
+
     # Search each table with text matching
     for table_key in tables_to_search:
         table_name = MEMORY_TABLES[table_key]
-        
+
         # Use Supabase's textSearch or ilike for basic matching
         # Note: For production, implement pgvector similarity search
         try:
@@ -45,15 +45,15 @@ async def search_memories(
                 .eq("deleted", False)
                 .limit(request.limit)
             )
-            
+
             # Add text filter based on table type
             content_fields = _get_content_fields(table_key)
             if content_fields:
                 # Use ilike for case-insensitive search on first content field
                 query = query.ilike(content_fields[0], f"%{request.query}%")
-            
+
             result = query.execute()
-            
+
             for record in result.data:
                 content = _extract_content(record, content_fields)
                 results.append(
@@ -72,11 +72,11 @@ async def search_memories(
         except Exception:
             # Skip tables that don't have expected columns
             continue
-    
+
     # Sort by created_at descending and limit
     results.sort(key=lambda x: x.created_at or "", reverse=True)
     results = results[:request.limit]
-    
+
     return MemorySearchResponse(
         results=results,
         query=request.query,

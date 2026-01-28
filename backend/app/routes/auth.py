@@ -1,74 +1,76 @@
 """Authentication routes."""
 
-from datetime import timedelta
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 
 from ..auth import (
+    CurrentAgent,
     create_access_token,
     generate_agent_secret,
     hash_secret,
     verify_secret,
-    CurrentAgent,
 )
 from ..config import Settings, get_settings
 from ..database import Database, create_agent, get_agent
-from ..models import AgentInfo, AgentLogin, AgentRegister, TokenResponse
 from ..logging_config import get_logger, log_auth_event
+from ..models import AgentInfo, AgentLogin, AgentRegister, TokenResponse
+from ..rate_limit import limiter
 
 logger = get_logger("kernle.auth")
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 @router.post("/register", response_model=TokenResponse)
+@limiter.limit("5/minute")
 async def register_agent(
-    request: AgentRegister,
+    request: Request,
+    register_request: AgentRegister,
     db: Database,
     settings: Annotated[Settings, Depends(get_settings)],
 ):
     """
     Register a new agent.
-    
+
     Returns an access token and the agent's secret (store it safely, shown only once).
     """
-    logger.info(f"Registration attempt for agent: {request.agent_id}")
-    
+    logger.info(f"Registration attempt for agent: {register_request.agent_id}")
+
     # Check if agent already exists
-    existing = await get_agent(db, request.agent_id)
+    existing = await get_agent(db, register_request.agent_id)
     if existing:
-        log_auth_event("register", request.agent_id, False, "agent already exists")
+        log_auth_event("register", register_request.agent_id, False, "agent already exists")
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail=f"Agent '{request.agent_id}' already exists",
+            detail=f"Agent '{register_request.agent_id}' already exists",
         )
-    
+
     # Generate and hash secret
     secret = generate_agent_secret()
     secret_hash = hash_secret(secret)
-    
+
     # Create agent
     agent = await create_agent(
         db,
-        agent_id=request.agent_id,
+        agent_id=register_request.agent_id,
         secret_hash=secret_hash,
-        display_name=request.display_name,
-        email=request.email,
+        display_name=register_request.display_name,
+        email=register_request.email,
     )
-    
+
     if not agent:
-        log_auth_event("register", request.agent_id, False, "database error")
+        log_auth_event("register", register_request.agent_id, False, "database error")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create agent",
         )
-    
+
     # Generate token
-    token = create_access_token(request.agent_id, settings)
-    
-    log_auth_event("register", request.agent_id, True)
-    logger.debug(f"Agent {request.agent_id} registered successfully")
-    
+    token = create_access_token(register_request.agent_id, settings)
+
+    log_auth_event("register", register_request.agent_id, True)
+    logger.debug(f"Agent {register_request.agent_id} registered successfully")
+
     return TokenResponse(
         access_token=token,
         expires_in=settings.jwt_expire_minutes * 60,
@@ -78,29 +80,31 @@ async def register_agent(
 
 
 @router.post("/token", response_model=TokenResponse)
+@limiter.limit("5/minute")
 async def get_token(
-    request: AgentLogin,
+    request: Request,
+    login_request: AgentLogin,
     db: Database,
     settings: Annotated[Settings, Depends(get_settings)],
 ):
     """
     Get an access token for an existing agent.
     """
-    agent = await get_agent(db, request.agent_id)
+    agent = await get_agent(db, login_request.agent_id)
     if not agent:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid agent ID or secret",
         )
-    
-    if not verify_secret(request.secret, agent["secret_hash"]):
+
+    if not verify_secret(login_request.secret, agent["secret_hash"]):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid agent ID or secret",
         )
-    
-    token = create_access_token(request.agent_id, settings)
-    
+
+    token = create_access_token(login_request.agent_id, settings)
+
     return TokenResponse(
         access_token=token,
         expires_in=settings.jwt_expire_minutes * 60,
@@ -121,7 +125,7 @@ async def get_current_agent_info(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Agent not found",
         )
-    
+
     return AgentInfo(
         agent_id=agent["agent_id"],
         display_name=agent.get("display_name"),

@@ -1,12 +1,13 @@
 """Configuration settings for Kernle backend."""
 
 from functools import lru_cache
+
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
     """Application settings loaded from environment."""
-    
+
     # Supabase
     supabase_url: str
     # New key system (preferred)
@@ -16,16 +17,18 @@ class Settings(BaseSettings):
     supabase_service_role_key: str | None = None
     supabase_anon_key: str | None = None
     database_url: str | None = None  # Optional - for direct Postgres access
-    
+
     # JWT
     jwt_secret_key: str  # Required - no default for security
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 60 * 24 * 7  # 1 week
-    
+
     # App
     debug: bool = False
-    cors_origins: list[str] = ["*"]
-    
+    # CORS: Default allows localhost dev. Configure CORS_ORIGINS env var for production
+    # with specific origins like ["https://app.kernle.ai", "https://kernle.ai"]
+    cors_origins: list[str] = ["http://localhost:3000", "http://127.0.0.1:3000"]
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

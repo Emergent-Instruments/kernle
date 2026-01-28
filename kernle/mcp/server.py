@@ -18,14 +18,13 @@ import asyncio
 import json
 import logging
 import re
-from typing import Any, Optional, Dict, List, Union
+from typing import Any, Dict, List, Optional
 
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.types import (
-    Tool,
     TextContent,
-    CallToolResult,
+    Tool,
 )
 
 from kernle.core import Kernle
@@ -52,8 +51,8 @@ def set_agent_id(agent_id: str) -> None:
 def get_kernle() -> Kernle:
     """Get or create Kernle instance."""
     if not hasattr(get_kernle, "_instance"):
-        get_kernle._instance = Kernle(_mcp_agent_id)
-    return get_kernle._instance
+        get_kernle._instance = Kernle(_mcp_agent_id)  # type: ignore[attr-defined]
+    return get_kernle._instance  # type: ignore[attr-defined]
 
 
 # =============================================================================
@@ -64,19 +63,19 @@ def sanitize_string(value: Any, field_name: str, max_length: int = 1000, require
     """Sanitize and validate string inputs at MCP layer."""
     if value is None and not required:
         return ""
-    
+
     if not isinstance(value, str):
         raise ValueError(f"{field_name} must be a string, got {type(value).__name__}")
-    
+
     if required and not value.strip():
         raise ValueError(f"{field_name} cannot be empty")
-    
+
     if len(value) > max_length:
         raise ValueError(f"{field_name} too long (max {max_length} characters, got {len(value)})")
-    
+
     # Remove null bytes and control characters except newlines and tabs
     sanitized = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', value)
-    
+
     return sanitized
 
 
@@ -84,25 +83,25 @@ def sanitize_array(value: Any, field_name: str, item_max_length: int = 500, max_
     """Sanitize and validate array inputs."""
     if value is None:
         return []
-    
+
     if not isinstance(value, list):
         raise ValueError(f"{field_name} must be an array, got {type(value).__name__}")
-    
+
     if len(value) > max_items:
         raise ValueError(f"{field_name} too many items (max {max_items}, got {len(value)})")
-    
+
     sanitized = []
     for i, item in enumerate(value):
         sanitized_item = sanitize_string(item, f"{field_name}[{i}]", item_max_length, required=False)
         if sanitized_item:  # Only add non-empty items
             sanitized.append(sanitized_item)
-    
+
     return sanitized
 
 
-def validate_enum(value: Any, field_name: str, valid_values: List[str], default: str = None, required: bool = False) -> str:
+def validate_enum(value: Any, field_name: str, valid_values: List[str], default: Optional[str] = None, required: bool = False) -> str:
     """Validate enum values.
-    
+
     Args:
         value: The value to validate
         field_name: Name of the field for error messages
@@ -116,60 +115,60 @@ def validate_enum(value: Any, field_name: str, valid_values: List[str], default:
         if default is not None:
             return default
         raise ValueError(f"{field_name} is required")
-    
+
     if not isinstance(value, str):
         raise ValueError(f"{field_name} must be a string")
-    
+
     if value not in valid_values:
         raise ValueError(f"{field_name} must be one of {valid_values}, got '{value}'")
-    
+
     return value
 
 
-def validate_number(value: Any, field_name: str, min_val: float = None, max_val: float = None, default: float = None) -> float:
+def validate_number(value: Any, field_name: str, min_val: Optional[float] = None, max_val: Optional[float] = None, default: Optional[float] = None) -> float:
     """Validate numeric values."""
     if value is None:
         if default is not None:
             return default
         raise ValueError(f"{field_name} is required")
-    
+
     if not isinstance(value, (int, float)):
         raise ValueError(f"{field_name} must be a number, got {type(value).__name__}")
-    
+
     if min_val is not None and value < min_val:
         raise ValueError(f"{field_name} must be >= {min_val}, got {value}")
-    
+
     if max_val is not None and value > max_val:
         raise ValueError(f"{field_name} must be <= {max_val}, got {value}")
-    
+
     return float(value)
 
 
 def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     """Validate and sanitize MCP tool inputs."""
-    sanitized = {}
-    
+    sanitized: Dict[str, Any] = {}
+
     try:
         if name == "memory_load":
             sanitized["format"] = validate_enum(
                 arguments.get("format"), "format", ["text", "json"], "text"
             )
-        
+
         elif name == "memory_checkpoint_save":
             sanitized["task"] = sanitize_string(arguments.get("task"), "task", 500, required=True)
             sanitized["pending"] = sanitize_array(arguments.get("pending"), "pending", 200, 20)
             sanitized["context"] = sanitize_string(arguments.get("context"), "context", 1000, required=False)
-        
+
         elif name == "memory_checkpoint_load":
             # No parameters to validate
             pass
-        
+
         elif name == "memory_episode":
             sanitized["objective"] = sanitize_string(arguments.get("objective"), "objective", 1000, required=True)
             sanitized["outcome"] = sanitize_string(arguments.get("outcome"), "outcome", 1000, required=True)
             sanitized["lessons"] = sanitize_array(arguments.get("lessons"), "lessons", 500, 20)
             sanitized["tags"] = sanitize_array(arguments.get("tags"), "tags", 100, 10)
-        
+
         elif name == "memory_note":
             sanitized["content"] = sanitize_string(arguments.get("content"), "content", 2000, required=True)
             sanitized["type"] = validate_enum(
@@ -178,68 +177,68 @@ def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
             sanitized["speaker"] = sanitize_string(arguments.get("speaker"), "speaker", 200, required=False)
             sanitized["reason"] = sanitize_string(arguments.get("reason"), "reason", 1000, required=False)
             sanitized["tags"] = sanitize_array(arguments.get("tags"), "tags", 100, 10)
-        
+
         elif name == "memory_search":
             sanitized["query"] = sanitize_string(arguments.get("query"), "query", 500, required=True)
             sanitized["limit"] = int(validate_number(arguments.get("limit"), "limit", 1, 100, 10))
-        
+
         elif name == "memory_belief":
             sanitized["statement"] = sanitize_string(arguments.get("statement"), "statement", 1000, required=True)
             sanitized["type"] = validate_enum(
                 arguments.get("type"), "type", ["fact", "rule", "preference", "constraint", "learned"], "fact"
             )
             sanitized["confidence"] = validate_number(arguments.get("confidence"), "confidence", 0.0, 1.0, 0.8)
-        
+
         elif name == "memory_value":
             sanitized["name"] = sanitize_string(arguments.get("name"), "name", 100, required=True)
             sanitized["statement"] = sanitize_string(arguments.get("statement"), "statement", 1000, required=True)
             sanitized["priority"] = int(validate_number(arguments.get("priority"), "priority", 0, 100, 50))
-        
+
         elif name == "memory_goal":
             sanitized["title"] = sanitize_string(arguments.get("title"), "title", 200, required=True)
             sanitized["description"] = sanitize_string(arguments.get("description"), "description", 1000, required=False)
             sanitized["priority"] = validate_enum(
                 arguments.get("priority"), "priority", ["low", "medium", "high"], "medium"
             )
-        
+
         elif name == "memory_drive":
             sanitized["drive_type"] = validate_enum(
-                arguments.get("drive_type"), "drive_type", 
-                ["existence", "growth", "curiosity", "connection", "reproduction"], 
+                arguments.get("drive_type"), "drive_type",
+                ["existence", "growth", "curiosity", "connection", "reproduction"],
                 default=None, required=True
             )
             sanitized["intensity"] = validate_number(arguments.get("intensity"), "intensity", 0.0, 1.0, 0.5)
             sanitized["focus_areas"] = sanitize_array(arguments.get("focus_areas"), "focus_areas", 200, 10)
-        
+
         elif name == "memory_when":
             sanitized["period"] = validate_enum(
-                arguments.get("period"), "period", 
+                arguments.get("period"), "period",
                 ["today", "yesterday", "this week", "last hour"], "today"
             )
-        
+
         elif name == "memory_consolidate":
             sanitized["min_episodes"] = int(validate_number(arguments.get("min_episodes"), "min_episodes", 1, 100, 3))
-        
+
         elif name == "memory_status":
             # No parameters to validate
             pass
-        
+
         elif name == "memory_auto_capture":
             sanitized["text"] = sanitize_string(arguments.get("text"), "text", 5000, required=True)
             sanitized["context"] = sanitize_string(arguments.get("context"), "context", 1000, required=False)
-        
+
         elif name == "memory_belief_list":
             sanitized["limit"] = int(validate_number(arguments.get("limit"), "limit", 1, 100, 20))
             sanitized["format"] = validate_enum(
                 arguments.get("format"), "format", ["text", "json"], "text"
             )
-        
+
         elif name == "memory_value_list":
             sanitized["limit"] = int(validate_number(arguments.get("limit"), "limit", 1, 100, 10))
             sanitized["format"] = validate_enum(
                 arguments.get("format"), "format", ["text", "json"], "text"
             )
-        
+
         elif name == "memory_goal_list":
             sanitized["status"] = validate_enum(
                 arguments.get("status"), "status", ["active", "completed", "paused", "all"], "active"
@@ -248,18 +247,18 @@ def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
             sanitized["format"] = validate_enum(
                 arguments.get("format"), "format", ["text", "json"], "text"
             )
-        
+
         elif name == "memory_drive_list":
             sanitized["format"] = validate_enum(
                 arguments.get("format"), "format", ["text", "json"], "text"
             )
-        
+
         elif name == "memory_episode_update":
             sanitized["episode_id"] = sanitize_string(arguments.get("episode_id"), "episode_id", 100, required=True)
             sanitized["outcome"] = sanitize_string(arguments.get("outcome"), "outcome", 1000, required=False)
             sanitized["lessons"] = sanitize_array(arguments.get("lessons"), "lessons", 500, 20)
             sanitized["tags"] = sanitize_array(arguments.get("tags"), "tags", 100, 10)
-        
+
         elif name == "memory_goal_update":
             sanitized["goal_id"] = sanitize_string(arguments.get("goal_id"), "goal_id", 100, required=True)
             sanitized["status"] = validate_enum(
@@ -269,28 +268,28 @@ def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
                 arguments.get("priority"), "priority", ["low", "medium", "high"], None
             ) if arguments.get("priority") else None
             sanitized["description"] = sanitize_string(arguments.get("description"), "description", 1000, required=False)
-        
+
         elif name == "memory_belief_update":
             sanitized["belief_id"] = sanitize_string(arguments.get("belief_id"), "belief_id", 100, required=True)
             sanitized["confidence"] = validate_number(arguments.get("confidence"), "confidence", 0.0, 1.0, None) if arguments.get("confidence") is not None else None
             sanitized["is_active"] = arguments.get("is_active")  # Boolean, can be None
-        
+
         elif name == "memory_sync":
             # No parameters to validate
             pass
-        
+
         elif name == "memory_note_search":
             sanitized["query"] = sanitize_string(arguments.get("query"), "query", 500, required=True)
             sanitized["note_type"] = validate_enum(
                 arguments.get("note_type"), "note_type", ["note", "decision", "insight", "quote", "all"], "all"
             )
             sanitized["limit"] = int(validate_number(arguments.get("limit"), "limit", 1, 100, 10))
-        
+
         else:
             raise ValueError(f"Unknown tool: {name}")
-        
+
         return sanitized
-    
+
     except (ValueError, TypeError) as e:
         logger.warning(f"Input validation failed for tool {name}: {e}")
         raise ValueError(f"Invalid input: {str(e)}")
@@ -302,19 +301,19 @@ def handle_tool_error(e: Exception, tool_name: str, arguments: Dict[str, Any]) -
         # Input validation or business logic error
         logger.warning(f"Invalid input for tool {tool_name}: {e}")
         return [TextContent(type="text", text=f"Invalid input: {str(e)}")]
-    
+
     elif isinstance(e, PermissionError):
         logger.warning(f"Permission denied for tool {tool_name}")
         return [TextContent(type="text", text="Access denied")]
-    
+
     elif isinstance(e, FileNotFoundError):
         logger.warning(f"Resource not found for tool {tool_name}")
         return [TextContent(type="text", text="Resource not found")]
-    
+
     elif isinstance(e, ConnectionError):
         logger.error(f"Database connection error for tool {tool_name}")
         return [TextContent(type="text", text="Service temporarily unavailable")]
-    
+
     else:
         # Unknown error - log full details but return generic message
         logger.error(f"Internal error in tool {tool_name}", extra={
@@ -818,9 +817,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     try:
         # Validate and sanitize all inputs
         sanitized_args = validate_tool_input(name, arguments)
-        
+
         k = get_kernle()
-        
+
         if name == "memory_load":
             format_type = sanitized_args.get("format", "text")
             memory = k.load()
@@ -828,7 +827,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 result = json.dumps(memory, indent=2, default=str)
             else:
                 result = k.format_memory(memory)
-        
+
         elif name == "memory_checkpoint_save":
             checkpoint = k.checkpoint(
                 task=sanitized_args["task"],
@@ -838,14 +837,14 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             result = f"Checkpoint saved: {checkpoint['current_task']}"
             if checkpoint.get("pending"):
                 result += f"\nPending: {len(checkpoint['pending'])} items"
-        
+
         elif name == "memory_checkpoint_load":
-            checkpoint = k.load_checkpoint()
-            if checkpoint:
-                result = json.dumps(checkpoint, indent=2, default=str)
+            loaded_checkpoint = k.load_checkpoint()
+            if loaded_checkpoint:
+                result = json.dumps(loaded_checkpoint, indent=2, default=str)
             else:
                 result = "No checkpoint found."
-        
+
         elif name == "memory_episode":
             episode_id = k.episode(
                 objective=sanitized_args["objective"],
@@ -854,9 +853,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 tags=sanitized_args.get("tags"),
             )
             result = f"Episode saved: {episode_id[:8]}..."
-        
+
         elif name == "memory_note":
-            note_id = k.note(
+            k.note(
                 content=sanitized_args["content"],
                 type=sanitized_args.get("type", "note"),
                 speaker=sanitized_args.get("speaker"),
@@ -864,7 +863,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 tags=sanitized_args.get("tags"),
             )
             result = f"Note saved: {sanitized_args['content'][:50]}..."
-        
+
         elif name == "memory_search":
             results = k.search(
                 query=sanitized_args["query"],
@@ -880,7 +879,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                         for lesson in r["lessons"][:2]:
                             lines.append(f"   → {lesson[:60]}...")
                 result = "\n".join(lines)
-        
+
         elif name == "memory_belief":
             belief_id = k.belief(
                 statement=sanitized_args["statement"],
@@ -888,15 +887,15 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 confidence=sanitized_args.get("confidence", 0.8),
             )
             result = f"Belief saved: {belief_id[:8]}..."
-        
+
         elif name == "memory_value":
-            value_id = k.value(
+            k.value(
                 name=sanitized_args["name"],
                 statement=sanitized_args["statement"],
                 priority=sanitized_args.get("priority", 50),
             )
             result = f"Value saved: {sanitized_args['name']}"
-        
+
         elif name == "memory_goal":
             goal_id = k.goal(
                 title=sanitized_args["title"],
@@ -904,15 +903,15 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 priority=sanitized_args.get("priority", "medium"),
             )
             result = f"Goal saved: {sanitized_args['title']}"
-        
+
         elif name == "memory_drive":
-            drive_id = k.drive(
+            k.drive(
                 drive_type=sanitized_args["drive_type"],
                 intensity=sanitized_args.get("intensity", 0.5),
                 focus_areas=sanitized_args.get("focus_areas"),
             )
             result = f"Drive '{sanitized_args['drive_type']}' set to {sanitized_args.get('intensity', 0.5):.0%}"
-        
+
         elif name == "memory_when":
             period = sanitized_args.get("period", "today")
             temporal = k.what_happened(period)
@@ -926,13 +925,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 for n in temporal["notes"][:5]:
                     lines.append(f"  - {n['content'][:60]}...")
             result = "\n".join(lines)
-        
+
         elif name == "memory_consolidate":
             consolidation = k.consolidate(
                 min_episodes=sanitized_args.get("min_episodes", 3)
             )
             result = f"Consolidation complete:\n  Episodes: {consolidation['consolidated']}\n  New beliefs: {consolidation.get('new_beliefs', 0)}"
-        
+
         elif name == "memory_status":
             status = k.status()
             result = f"""Memory Status ({status['agent_id']})
@@ -942,7 +941,7 @@ Beliefs:    {status['beliefs']}
 Goals:      {status['goals']} active
 Episodes:   {status['episodes']}
 Checkpoint: {'Yes' if status['checkpoint'] else 'No'}"""
-        
+
         elif name == "memory_auto_capture":
             capture_id = k.auto_capture(
                 text=sanitized_args["text"],
@@ -952,7 +951,7 @@ Checkpoint: {'Yes' if status['checkpoint'] else 'No'}"""
                 result = f"Auto-captured: {capture_id[:8]}..."
             else:
                 result = "Not significant enough to capture."
-        
+
         elif name == "memory_belief_list":
             beliefs = k.load_beliefs(limit=sanitized_args.get("limit", 20))
             format_type = sanitized_args.get("format", "text")
@@ -967,7 +966,7 @@ Checkpoint: {'Yes' if status['checkpoint'] else 'No'}"""
                     btype = f"[{b.get('belief_type', 'fact')}]" if b.get("belief_type") else ""
                     lines.append(f"{i}. {btype} {b['statement']}{conf}")
                 result = "\n".join(lines)
-        
+
         elif name == "memory_value_list":
             values = k.load_values(limit=sanitized_args.get("limit", 10))
             format_type = sanitized_args.get("format", "text")
@@ -981,13 +980,13 @@ Checkpoint: {'Yes' if status['checkpoint'] else 'No'}"""
                     priority = f" (priority: {v.get('priority', 50)})" if v.get("priority") else ""
                     lines.append(f"{i}. **{v['name']}**: {v['statement']}{priority}")
                 result = "\n".join(lines)
-        
+
         elif name == "memory_goal_list":
             status = sanitized_args.get("status", "active")
             format_type = sanitized_args.get("format", "text")
             # Pass status directly to load_goals - it now handles filtering
             goals = k.load_goals(limit=sanitized_args.get("limit", 10), status=status)
-            
+
             if not goals:
                 result = f"No {status} goals found." if format_type == "text" else json.dumps([], indent=2)
             elif format_type == "json":
@@ -1001,7 +1000,7 @@ Checkpoint: {'Yes' if status['checkpoint'] else 'No'}"""
                     if g.get("description"):
                         lines.append(f"   {g['description'][:60]}...")
                 result = "\n".join(lines)
-        
+
         elif name == "memory_drive_list":
             drives = k.load_drives()
             format_type = sanitized_args.get("format", "text")
@@ -1015,7 +1014,7 @@ Checkpoint: {'Yes' if status['checkpoint'] else 'No'}"""
                     focus = f" → {', '.join(d.get('focus_areas', []))}" if d.get("focus_areas") else ""
                     lines.append(f"- **{d['drive_type']}**: {d['intensity']:.0%}{focus}")
                 result = "\n".join(lines)
-        
+
         elif name == "memory_episode_update":
             episode_id = sanitized_args["episode_id"]
             updated = k.update_episode(
@@ -1028,7 +1027,7 @@ Checkpoint: {'Yes' if status['checkpoint'] else 'No'}"""
                 result = f"Episode {episode_id[:8]}... updated successfully."
             else:
                 result = f"Episode {episode_id[:8]}... not found."
-        
+
         elif name == "memory_goal_update":
             goal_id = sanitized_args["goal_id"]
             updated = k.update_goal(
@@ -1041,7 +1040,7 @@ Checkpoint: {'Yes' if status['checkpoint'] else 'No'}"""
                 result = f"Goal {goal_id[:8]}... updated successfully."
             else:
                 result = f"Goal {goal_id[:8]}... not found."
-        
+
         elif name == "memory_belief_update":
             belief_id = sanitized_args["belief_id"]
             updated = k.update_belief(
@@ -1053,7 +1052,7 @@ Checkpoint: {'Yes' if status['checkpoint'] else 'No'}"""
                 result = f"Belief {belief_id[:8]}... updated successfully."
             else:
                 result = f"Belief {belief_id[:8]}... not found."
-        
+
         elif name == "memory_sync":
             sync_result = k.sync()
             lines = ["Sync complete:"]
@@ -1066,27 +1065,27 @@ Checkpoint: {'Yes' if status['checkpoint'] else 'No'}"""
                 for err in sync_result["errors"][:3]:
                     lines.append(f"    - {err}")
             result = "\n".join(lines)
-        
+
         elif name == "memory_note_search":
             query = sanitized_args["query"]
             note_type = sanitized_args.get("note_type", "all")
             limit = sanitized_args.get("limit", 10)
-            
+
             # Use the general search and filter by type
             results = k.search(query=query, limit=limit * 2)  # Get extra in case we filter
-            
+
             # Filter for note types only
             note_results = [
-                r for r in results 
+                r for r in results
                 if r.get("type") in ["note", "decision", "insight", "quote"]
             ]
-            
+
             # Further filter by specific type if not "all"
             if note_type != "all":
                 note_results = [r for r in note_results if r.get("type") == note_type]
-            
+
             note_results = note_results[:limit]
-            
+
             if not note_results:
                 result = f"No notes found for '{query}'"
             else:
@@ -1096,14 +1095,14 @@ Checkpoint: {'Yes' if status['checkpoint'] else 'No'}"""
                     if n.get("date"):
                         lines.append(f"   {n['date']}")
                 result = "\n".join(lines)
-        
+
         else:
             # This should never happen due to validation, but handle gracefully
             logger.error(f"Unexpected tool name after validation: {name}")
             result = f"Tool '{name}' is not available"
-        
+
         return [TextContent(type="text", text=result)]
-    
+
     except Exception as e:
         return handle_tool_error(e, name, arguments)
 

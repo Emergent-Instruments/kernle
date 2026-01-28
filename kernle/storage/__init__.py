@@ -10,23 +10,37 @@ Use get_storage() factory function to create the appropriate backend.
 
 import os
 from pathlib import Path
-from typing import Optional, Literal
+from typing import Literal, Optional
 
 from .base import (
-    Storage, SyncResult, SyncStatus, QueuedChange,
-    Episode, Belief, Value, Goal, Note, Drive, Relationship, Playbook, SearchResult,
-    SourceType, ConfidenceChange, MemoryLineage, RawEntry,
-    utc_now, parse_datetime
+    Belief,
+    ConfidenceChange,
+    Drive,
+    Episode,
+    Goal,
+    MemoryLineage,
+    Note,
+    Playbook,
+    QueuedChange,
+    RawEntry,
+    Relationship,
+    SearchResult,
+    SourceType,
+    Storage,
+    SyncResult,
+    SyncStatus,
+    Value,
+    parse_datetime,
+    utc_now,
 )
-from .sqlite import SQLiteStorage
-from .postgres import SupabaseStorage
 from .embeddings import (
     EmbeddingProvider,
     HashEmbedder,
     OpenAIEmbedder,
     get_default_embedder,
 )
-
+from .postgres import SupabaseStorage
+from .sqlite import SQLiteStorage
 
 StorageType = Literal["sqlite", "postgres", "supabase", "auto"]
 
@@ -44,7 +58,7 @@ def get_storage(
     cloud_storage: Optional["Storage"] = None,
 ) -> Storage:
     """Factory function to create the appropriate storage backend.
-    
+
     Args:
         agent_id: Unique identifier for the agent
         storage_type: Type of storage to use:
@@ -55,22 +69,22 @@ def get_storage(
         supabase_url: Supabase project URL (postgres only)
         supabase_key: Supabase API key (postgres only)
         cloud_storage: Optional cloud storage for sync (sqlite only)
-    
+
     Returns:
         Storage backend implementing the Storage protocol
-    
+
     Examples:
         # Auto-detect (uses SQLite if no Supabase credentials)
         storage = get_storage("my_agent")
-        
+
         # Explicit SQLite
         storage = get_storage("my_agent", "sqlite", db_path=Path("~/.kernle/test.db"))
-        
+
         # Explicit Supabase
-        storage = get_storage("my_agent", "postgres", 
+        storage = get_storage("my_agent", "postgres",
                               supabase_url="https://xxx.supabase.co",
                               supabase_key="my_key")
-        
+
         # Local with cloud sync
         cloud = get_storage("my_agent", "postgres")
         local = get_storage("my_agent", "sqlite", cloud_storage=cloud)
@@ -78,7 +92,7 @@ def get_storage(
     # Resolve environment variables for Supabase
     supabase_url = supabase_url or os.environ.get("KERNLE_SUPABASE_URL") or os.environ.get("SUPABASE_URL")
     supabase_key = supabase_key or os.environ.get("KERNLE_SUPABASE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-    
+
     # Auto-detect storage type
     if storage_type == "auto":
         # Use Supabase if credentials are available, otherwise SQLite
@@ -86,7 +100,7 @@ def get_storage(
             storage_type = "postgres"
         else:
             storage_type = "sqlite"
-    
+
     # Create appropriate backend
     if storage_type == "sqlite":
         return SQLiteStorage(
@@ -107,7 +121,7 @@ def get_storage(
 __all__ = [
     # Protocol and types
     "Storage",
-    "SyncResult", 
+    "SyncResult",
     "SyncStatus",
     "QueuedChange",
     # Data classes
