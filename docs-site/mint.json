@@ -2,10 +2,10 @@
   "$schema": "https://mintlify.com/schema.json",
   "name": "Kernle",
   "logo": {
-    "dark": "/docs-site/logo/dark.svg",
-    "light": "/docs-site/logo/light.svg"
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
   },
-  "favicon": "/docs-site/favicon.svg",
+  "favicon": "/favicon.svg",
   "colors": {
     "primary": "#8B5CF6",
     "light": "#A78BFA",
@@ -47,45 +47,45 @@
     {
       "group": "Getting Started",
       "pages": [
-        "docs-site/introduction",
-        "docs-site/quickstart",
-        "docs-site/architecture"
+        "introduction",
+        "quickstart",
+        "architecture"
       ]
     },
     {
       "group": "Core Concepts",
       "pages": [
-        "docs-site/concepts/memory-model",
-        "docs-site/concepts/memory-types",
-        "docs-site/concepts/consolidation",
-        "docs-site/concepts/identity"
+        "concepts/memory-model",
+        "concepts/memory-types",
+        "concepts/consolidation",
+        "concepts/identity"
       ]
     },
     {
       "group": "CLI Reference",
       "pages": [
-        "docs-site/cli/overview",
-        "docs-site/cli/memory-commands",
-        "docs-site/cli/sync-commands",
-        "docs-site/cli/utility-commands"
+        "cli/overview",
+        "cli/memory-commands",
+        "cli/sync-commands",
+        "cli/utility-commands"
       ]
     },
     {
       "group": "Integration",
       "pages": [
-        "docs-site/integration/mcp",
-        "docs-site/integration/claude-desktop",
-        "docs-site/integration/clawdbot"
+        "integration/mcp",
+        "integration/claude-desktop",
+        "integration/clawdbot"
       ]
     },
     {
       "group": "API Reference",
       "pages": [
-        "docs-site/api-reference/overview",
-        "docs-site/api-reference/authentication",
-        "docs-site/api-reference/sync",
-        "docs-site/api-reference/search",
-        "docs-site/api-reference/embeddings"
+        "api-reference/overview",
+        "api-reference/authentication",
+        "api-reference/sync",
+        "api-reference/search",
+        "api-reference/embeddings"
       ]
     }
   ],
