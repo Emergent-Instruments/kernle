@@ -113,7 +113,7 @@ async def exchange_supabase_token(
             logger.error(f"OAuth: JWKS request failed: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"JWKS fetch error: {type(e).__name__}",
+                detail="Authentication service temporarily unavailable",
             )
         
         # Find the key matching our token's kid
@@ -250,11 +250,11 @@ async def exchange_supabase_token(
     except Exception as e:
         logger.error(f"OAuth token exchange error: {type(e).__name__}: {e}")
         import traceback
-        logger.error(f"OAuth traceback: {traceback.format_exc()}")
-        # Always include error type for debugging
+        logger.debug(f"OAuth traceback: {traceback.format_exc()}")  # DEBUG level for traces
+        # Generic error message to clients (security: don't expose internals)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Auth error: {type(e).__name__}: {str(e)[:100]}",
+            detail="Authentication failed. Please try again.",
         )
 
 

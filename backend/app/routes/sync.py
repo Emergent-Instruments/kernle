@@ -2,9 +2,10 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from ..auth import CurrentAgent
+from ..rate_limit import limiter
 from ..database import (
     Database,
     delete_memory,
@@ -27,8 +28,10 @@ router = APIRouter(prefix="/sync", tags=["sync"])
 
 
 @router.post("/push", response_model=SyncPushResponse)
+@limiter.limit("60/minute")
 async def push_changes(
-    request: SyncPushRequest,
+    request: Request,
+    sync_request: SyncPushRequest,
     auth: CurrentAgent,
     db: Database,
 ):
@@ -49,11 +52,11 @@ async def push_changes(
     # Use agent_id from JWT (maintains FK to agents table)
     agent_id = auth.agent_id
     log_prefix = f"{auth.user_id}/{agent_id}" if auth.user_id else agent_id
-    logger.info(f"PUSH | {log_prefix} | {len(request.operations)} operations")
+    logger.info(f"PUSH | {log_prefix} | {len(sync_request.operations)} operations")
     synced = 0
     conflicts = []
 
-    for op in request.operations:
+    for op in sync_request.operations:
         try:
             if op.operation == "delete":
                 await delete_memory(db, agent_id, op.table, op.record_id)
@@ -109,8 +112,10 @@ async def push_changes(
 
 
 @router.post("/pull", response_model=SyncPullResponse)
+@limiter.limit("60/minute")
 async def pull_changes(
-    request: SyncPullRequest,
+    request: Request,
+    pull_request: SyncPullRequest,
     auth: CurrentAgent,
     db: Database,
 ):
@@ -123,9 +128,9 @@ async def pull_changes(
     """
     agent_id = auth.agent_id
     log_prefix = f"{auth.user_id}/{agent_id}" if auth.user_id else agent_id
-    logger.info(f"PULL | {log_prefix} | since={request.since}")
+    logger.info(f"PULL | {log_prefix} | since={pull_request.since}")
 
-    since_str = request.since.isoformat() if request.since else None
+    since_str = pull_request.since.isoformat() if pull_request.since else None
     changes = await get_changes_since(db, agent_id, since_str)
 
     operations = []
@@ -158,7 +163,9 @@ async def pull_changes(
 
 
 @router.post("/full", response_model=SyncPullResponse)
+@limiter.limit("10/minute")
 async def full_sync(
+    request: Request,
     auth: CurrentAgent,
     db: Database,
 ):

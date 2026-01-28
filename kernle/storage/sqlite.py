@@ -46,6 +46,29 @@ logger = logging.getLogger(__name__)
 # Schema version for migrations
 SCHEMA_VERSION = 10  # Bumped for enhanced sync queue
 
+# Allowed table names for SQL queries (security: prevents SQL injection via table names)
+ALLOWED_TABLES = frozenset({
+    "episodes", "beliefs", "agent_values", "goals", "notes", 
+    "drives", "relationships", "playbooks", "raw_entries",
+    "schema_version", "sync_queue", "embeddings"
+})
+
+def validate_table_name(table: str) -> str:
+    """Validate table name against allowlist to prevent SQL injection.
+    
+    Args:
+        table: Table name to validate
+        
+    Returns:
+        The validated table name
+        
+    Raises:
+        ValueError: If table name is not in allowlist
+    """
+    if table not in ALLOWED_TABLES:
+        raise ValueError(f"Invalid table name: {table}")
+    return table
+
 SCHEMA = """
 -- Schema version tracking
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -3068,6 +3091,7 @@ class SQLiteStorage:
             return None, None
 
         record_type, converter = type_map[table]
+        validate_table_name(table)  # Security: validate before SQL use
 
         row = conn.execute(
             f"SELECT * FROM {table} WHERE id = ? AND agent_id = ? AND deleted = 0",
@@ -3494,6 +3518,7 @@ class SQLiteStorage:
                     continue
 
                 table, converter = table_map[memory_type]
+                validate_table_name(table)  # Security: validate before SQL use
                 query = f"""
                     SELECT * FROM {table}
                     WHERE agent_id = ? AND deleted = 0
@@ -3646,6 +3671,7 @@ class SQLiteStorage:
         table = table_map.get(memory_type)
         if not table:
             return False
+        validate_table_name(table)  # Security: validate before SQL use
 
         now = self._now()
 
