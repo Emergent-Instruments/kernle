@@ -3470,6 +3470,8 @@ class SQLiteStorage:
             "goals": self._row_to_goal,
             "drives": self._row_to_drive,
             "relationships": self._row_to_relationship,
+            "playbooks": self._row_to_playbook,
+            "raw_entries": self._row_to_raw_entry,
         }
 
         converter = converters.get(table)
