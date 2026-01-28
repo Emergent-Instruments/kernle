@@ -38,6 +38,111 @@ The `init` wizard will:
 
 See [docs/SETUP.md](docs/SETUP.md) for detailed setup instructions for each environment.
 
+## Quick Setup by Environment
+
+### Clawdbot / Moltbot
+
+1. **Install the skill:**
+```bash
+# Link the skill to your Clawdbot skills directory
+ln -s /path/to/kernle/skill ~/.clawdbot/skills/kernle
+```
+
+2. **Add to AGENTS.md:**
+```markdown
+## Every Session
+Before doing anything else:
+1. Run `kernle -a YOUR_AGENT load` to restore your memory
+2. Before session ends: `kernle -a YOUR_AGENT checkpoint save "description"`
+```
+
+3. **Configure memoryFlush hook** (optional - auto-save on context pressure):
+```yaml
+# In your Clawdbot config
+memoryFlush:
+  enabled: true
+  softThreshold: 0.7
+  hardThreshold: 0.9  # Forces save
+```
+
+The agent will automatically discover Kernle via the skill and use it for memory continuity.
+
+---
+
+### Claude Code
+
+1. **Install Kernle:**
+```bash
+pip install kernle
+# or: pipx install kernle
+```
+
+2. **Add MCP server:**
+```bash
+claude mcp add kernle -- kernle mcp -a my-agent
+```
+
+3. **Add to CLAUDE.md** (in your project root):
+```markdown
+## Memory
+
+At session start, use the kernle MCP tools to load your memory:
+- `memory_load` - Restore working memory
+- `memory_checkpoint_save` - Save state before ending
+
+Your agent ID is: my-agent
+```
+
+Claude Code will auto-discover the Kernle tools via MCP.
+
+---
+
+### Claude Desktop / Cline / Other MCP Clients
+
+1. **Install Kernle:**
+```bash
+pip install kernle
+```
+
+2. **Add to MCP config** (`~/.config/claude/claude_desktop_config.json` or similar):
+```json
+{
+  "mcpServers": {
+    "kernle": {
+      "command": "kernle",
+      "args": ["mcp", "-a", "my-agent"]
+    }
+  }
+}
+```
+
+3. **Restart the client** to load the MCP server.
+
+---
+
+### Any Environment (CLI)
+
+Works anywhere you can run shell commands:
+
+```bash
+# Install
+pip install kernle
+
+# Session start
+kernle -a my-agent load
+
+# During work
+kernle -a my-agent episode "Did something" "outcome" --lesson "Learned this"
+kernle -a my-agent raw "Quick thought to capture"
+
+# Session end
+kernle -a my-agent checkpoint save "Where I left off"
+```
+
+Add instructions to your system prompt to remind the agent to use these commands.
+
+---
+
 ```python
 from kernle import Kernle
 
