@@ -274,14 +274,10 @@ async def register_agent(
     """
     logger.info(f"Registration attempt for agent: {register_request.agent_id}")
 
-    # Check if agent already exists
-    existing = await get_agent(db, register_request.agent_id)
-    if existing:
-        log_auth_event("register", register_request.agent_id, False, "agent already exists")
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Agent '{register_request.agent_id}' already exists",
-        )
+    # NOTE: We don't check for existing agent_id globally because agent_ids
+    # are namespaced per user_id. Each registration creates a new user_id,
+    # so the (user_id, agent_id) combination is always unique.
+    # Multiple users can have agents with the same name (e.g., "claire").
 
     # Generate user_id and secret
     user_id = generate_user_id()

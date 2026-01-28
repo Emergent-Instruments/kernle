@@ -808,7 +808,8 @@ def cmd_sync(args, k: Kernle):
             with open(credentials_path) as f:
                 creds = json_module.load(f)
                 backend_url = creds.get("backend_url")
-                auth_token = creds.get("auth_token")
+                # Support multiple auth token field names
+                auth_token = creds.get("auth_token") or creds.get("token") or creds.get("api_key")
                 user_id = creds.get("user_id")
         except Exception:
             pass  # Fall through to env vars
