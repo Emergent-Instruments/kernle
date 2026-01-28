@@ -240,13 +240,12 @@ async def exchange_supabase_token(
         raise
     except Exception as e:
         logger.error(f"OAuth token exchange error: {type(e).__name__}: {e}")
-        # In debug mode, include more detail
-        detail = "Failed to verify Supabase token"
-        if settings.debug:
-            detail = f"{detail}: {type(e).__name__}: {e}"
+        import traceback
+        logger.error(f"OAuth traceback: {traceback.format_exc()}")
+        # Always include error type for debugging
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=detail,
+            detail=f"Auth error: {type(e).__name__}: {str(e)[:100]}",
         )
 
 
