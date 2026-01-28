@@ -416,6 +416,67 @@ class Storage(Protocol):
         """Get a specific episode by ID."""
         ...
 
+    # === Emotional Memory ===
+
+    @abstractmethod
+    def update_episode_emotion(
+        self,
+        episode_id: str,
+        valence: float,
+        arousal: float,
+        tags: Optional[List[str]] = None
+    ) -> bool:
+        """Update emotional associations for an episode.
+
+        Args:
+            episode_id: The episode to update
+            valence: Emotional valence (-1.0 to 1.0)
+            arousal: Emotional arousal (0.0 to 1.0)
+            tags: Emotional tags (e.g., ["joy", "excitement"])
+
+        Returns:
+            True if updated, False if episode not found
+        """
+        ...
+
+    @abstractmethod
+    def get_emotional_episodes(
+        self,
+        days: int = 7,
+        limit: int = 100
+    ) -> List[Episode]:
+        """Get episodes with emotional data for summary calculations.
+
+        Args:
+            days: Number of days to look back
+            limit: Maximum episodes to retrieve
+
+        Returns:
+            Episodes with non-zero emotional data
+        """
+        ...
+
+    @abstractmethod
+    def search_by_emotion(
+        self,
+        valence_range: Optional[tuple] = None,
+        arousal_range: Optional[tuple] = None,
+        tags: Optional[List[str]] = None,
+        limit: int = 10
+    ) -> List[Episode]:
+        """Find episodes matching emotional criteria.
+
+        Args:
+            valence_range: (min, max) valence filter, e.g. (0.5, 1.0) for positive
+            arousal_range: (min, max) arousal filter, e.g. (0.7, 1.0) for high arousal
+            tags: Emotional tags to match (any match)
+            limit: Maximum results
+
+        Returns:
+            List of matching episodes
+        """
+        ...
+
     # === Beliefs ===
 
     @abstractmethod
@@ -891,7 +952,7 @@ class Storage(Protocol):
         """Get count of pending sync operations."""
         return 0
 
-    def get_last_sync_time(self) -> Optional[str]:
+    def get_last_sync_time(self) -> Optional[datetime]:
         """Get timestamp of last successful sync."""
         return None
 
