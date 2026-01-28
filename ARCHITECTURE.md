@@ -4,7 +4,9 @@
 
 **Core Principle: Kernle = Memory Infrastructure, Agent = Memory Owner**
 
-Kernle provides the *infrastructure* for agent memory — storage, retrieval, search, sync, and tools. Kernle does **not** make decisions about what agents should believe, remember, or forget.
+Kernle provides the *infrastructure* for agent memory — storage, retrieval, search, sync, and tools. After agent creation, Kernle does **not** make decisions about what agents should believe, remember, or forget.*
+
+> *The one exception: **seed beliefs** planted at birth — inherited wisdom the agent can later revise. See [The Seed Beliefs Exception](#the-seed-beliefs-exception).
 
 This separation is fundamental to memory sovereignty.
 
