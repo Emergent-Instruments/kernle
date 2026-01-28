@@ -313,6 +313,7 @@ class TestEpisodeCommand:
             arousal=None,
             emotional_tags=None,
             auto_detect=True,
+            relates_to=None,
         )
         assert "✓ Episode saved: episode1..." in fake_out.getvalue()
         assert "Lessons: 2" in fake_out.getvalue()
@@ -339,6 +340,7 @@ class TestEpisodeCommand:
             arousal=None,
             emotional_tags=None,
             auto_detect=True,
+            relates_to=None,
         )
 
 
@@ -365,7 +367,8 @@ class TestNoteCommand:
             speaker=None,
             reason="Better component reusability",
             tags=["frontend", "architecture"],
-            protect=True
+            protect=True,
+            relates_to=None,
         )
         assert "✓ Note saved: Use React for the frontend framework..." in fake_out.getvalue()
         assert "Tags: frontend, architecture" in fake_out.getvalue()
@@ -390,7 +393,8 @@ class TestNoteCommand:
             speaker="Donald Knuth",
             reason=None,
             tags=["wisdom"],
-            protect=False
+            protect=False,
+            relates_to=None,
         )
 
     def test_cmd_note_minimal(self, mock_kernle):
@@ -413,7 +417,8 @@ class TestNoteCommand:
             speaker=None,
             reason=None,
             tags=[],
-            protect=False
+            protect=False,
+            relates_to=None,
         )
 
 
@@ -797,6 +802,7 @@ class TestArgumentParsing:
                     arousal=None,
                     emotional_tags=None,
                     auto_detect=True,
+                    relates_to=None,
                 )
 
     def test_parse_note_args(self):
@@ -822,7 +828,8 @@ class TestArgumentParsing:
                     speaker=None,
                     reason="Performance benefits",
                     tags=["architecture"],
-                    protect=True
+                    protect=True,
+                    relates_to=None,
                 )
 
     def test_parse_drive_set_args(self):

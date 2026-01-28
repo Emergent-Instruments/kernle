@@ -171,6 +171,7 @@ def cmd_episode(args, k: Kernle):
     outcome = validate_input(args.outcome, "outcome", 1000)
     lessons = [validate_input(lesson, "lesson", 500) for lesson in (args.lesson or [])]
     tags = [validate_input(t, "tag", 100) for t in (args.tag or [])]
+    relates_to = getattr(args, 'relates_to', None)
 
     # Get emotional arguments with defaults for backwards compatibility
     emotion = getattr(args, 'emotion', None)
@@ -193,6 +194,7 @@ def cmd_episode(args, k: Kernle):
             arousal=arousal,
             emotional_tags=emotion_tags,
             auto_detect=auto_emotion and not has_emotion_args,
+            relates_to=relates_to,
         )
     else:
         episode_id = k.episode(
@@ -200,11 +202,14 @@ def cmd_episode(args, k: Kernle):
             outcome=outcome,
             lessons=lessons,
             tags=tags,
+            relates_to=relates_to,
         )
 
     print(f"✓ Episode saved: {episode_id[:8]}...")
     if args.lesson:
         print(f"  Lessons: {len(args.lesson)}")
+    if relates_to:
+        print(f"  Links: {len(relates_to)} related memories")
     if valence is not None or arousal is not None:
         v = valence or 0.0
         a = arousal or 0.0
@@ -219,6 +224,7 @@ def cmd_note(args, k: Kernle):
     speaker = validate_input(args.speaker, "speaker", 200) if args.speaker else None
     reason = validate_input(args.reason, "reason", 1000) if args.reason else None
     tags = [validate_input(t, "tag", 100) for t in (args.tag or [])]
+    relates_to = getattr(args, 'relates_to', None)
 
     k.note(
         content=content,
@@ -227,10 +233,43 @@ def cmd_note(args, k: Kernle):
         reason=reason,
         tags=tags,
         protect=args.protect,
+        relates_to=relates_to,
     )
     print(f"✓ Note saved: {args.content[:50]}...")
     if args.tag:
         print(f"  Tags: {', '.join(args.tag)}")
+    if relates_to:
+        print(f"  Links: {len(relates_to)} related memories")
+
+
+def cmd_extract(args, k: Kernle):
+    """Extract and capture conversation context as a raw entry.
+    
+    A low-friction way to capture what's happening in a conversation
+    without having to decide immediately if it's an episode, note, or belief.
+    """
+    summary = validate_input(args.summary, "summary", 2000)
+    
+    # Build a structured capture
+    capture_parts = [f"Conversation extract: {summary}"]
+    
+    if getattr(args, 'topic', None):
+        capture_parts.append(f"Topic: {args.topic}")
+    if getattr(args, 'participants', None):
+        capture_parts.append(f"Participants: {', '.join(args.participants)}")
+    if getattr(args, 'outcome', None):
+        capture_parts.append(f"Outcome: {args.outcome}")
+    if getattr(args, 'decision', None):
+        capture_parts.append(f"Decision: {args.decision}")
+    
+    content = " | ".join(capture_parts)
+    tags = ["conversation", "extract"]
+    if getattr(args, 'topic', None):
+        tags.append(args.topic.lower().replace(" ", "-")[:20])
+    
+    raw_id = k.raw(content, tags=tags, source="conversation")
+    print(f"✓ Extracted: {summary[:50]}...")
+    print(f"  ID: {raw_id[:8]} (promote later with: kernle raw process {raw_id[:8]} --type <episode|note>)")
 
 
 def cmd_search(args, k: Kernle):
@@ -3467,6 +3506,7 @@ def main():
     p_episode.add_argument("outcome", help="What was the outcome?")
     p_episode.add_argument("--lesson", "-l", action="append", help="Lesson learned")
     p_episode.add_argument("--tag", "-t", action="append", help="Tag")
+    p_episode.add_argument("--relates-to", "-r", action="append", help="Related memory ID (repeatable)")
     p_episode.add_argument("--valence", "-v", type=float, help="Emotional valence (-1.0 to 1.0)")
     p_episode.add_argument("--arousal", "-a", type=float, help="Emotional arousal (0.0 to 1.0)")
     p_episode.add_argument("--emotion", "-e", action="append", help="Emotion tag (e.g., joy, frustration)")
@@ -3480,7 +3520,16 @@ def main():
     p_note.add_argument("--speaker", "-s", help="Speaker (for quotes)")
     p_note.add_argument("--reason", "-r", help="Reason (for decisions)")
     p_note.add_argument("--tag", action="append", help="Tag")
+    p_note.add_argument("--relates-to", action="append", help="Related memory ID (repeatable)")
     p_note.add_argument("--protect", "-p", action="store_true", help="Protect from forgetting")
+
+    # extract (conversation capture)
+    p_extract = subparsers.add_parser("extract", help="Extract conversation context")
+    p_extract.add_argument("summary", help="Summary of what's happening")
+    p_extract.add_argument("--topic", "-t", help="Conversation topic")
+    p_extract.add_argument("--participant", "-p", action="append", dest="participants", help="Participant (repeatable)")
+    p_extract.add_argument("--outcome", "-o", help="Outcome or result")
+    p_extract.add_argument("--decision", "-d", help="Decision made")
 
     # search
     p_search = subparsers.add_parser("search", help="Search memory")
@@ -3999,6 +4048,8 @@ def main():
             cmd_episode(args, k)
         elif args.command == "note":
             cmd_note(args, k)
+        elif args.command == "extract":
+            cmd_extract(args, k)
         elif args.command == "search":
             cmd_search(args, k)
         elif args.command == "status":

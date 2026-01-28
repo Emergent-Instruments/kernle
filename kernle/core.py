@@ -578,8 +578,13 @@ class Kernle:
         repeat: Optional[List[str]] = None,
         avoid: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
+        relates_to: Optional[List[str]] = None,
     ) -> str:
-        """Record an episodic experience."""
+        """Record an episodic experience.
+        
+        Args:
+            relates_to: List of memory IDs this episode relates to (for linking)
+        """
         # Validate inputs
         objective = self._validate_string_input(objective, "objective", 1000)
         outcome = self._validate_string_input(outcome, "outcome", 1000)
@@ -616,6 +621,7 @@ class Kernle:
             tags=tags or ["manual"],
             created_at=datetime.now(timezone.utc),
             confidence=0.8,
+            source_episodes=relates_to,  # Link to related memories
         )
 
         self._storage.save_episode(episode)
@@ -675,8 +681,13 @@ class Kernle:
         reason: Optional[str] = None,
         tags: Optional[List[str]] = None,
         protect: bool = False,
+        relates_to: Optional[List[str]] = None,
     ) -> str:
-        """Capture a quick note (decision, insight, quote)."""
+        """Capture a quick note (decision, insight, quote).
+        
+        Args:
+            relates_to: List of memory IDs this note relates to (for linking)
+        """
         # Validate inputs
         content = self._validate_string_input(content, "content", 2000)
 
@@ -714,6 +725,7 @@ class Kernle:
             reason=reason,
             tags=tags or [],
             created_at=datetime.now(timezone.utc),
+            source_episodes=relates_to,  # Link to related memories
         )
 
         self._storage.save_note(note)
@@ -2663,6 +2675,7 @@ class Kernle:
         arousal: Optional[float] = None,
         emotional_tags: Optional[List[str]] = None,
         auto_detect: bool = True,
+        relates_to: Optional[List[str]] = None,
     ) -> str:
         """Record an episode with emotional tagging.
 
@@ -2675,6 +2688,7 @@ class Kernle:
             arousal: Emotional arousal (0.0 to 1.0), auto-detected if None
             emotional_tags: Emotion labels, auto-detected if None
             auto_detect: If True and no emotion args given, detect from text
+            relates_to: List of memory IDs this episode relates to
 
         Returns:
             Episode ID
@@ -2717,6 +2731,7 @@ class Kernle:
             emotional_arousal=arousal or 0.0,
             emotional_tags=emotional_tags,
             confidence=0.8,
+            source_episodes=relates_to,  # Link to related memories
         )
 
         self._storage.save_episode(episode)
