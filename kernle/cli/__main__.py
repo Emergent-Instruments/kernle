@@ -2048,6 +2048,7 @@ def cmd_sync(args, k: Kernle):
             "agent_relationships": "relationships",
             "agent_playbooks": "playbooks",
             "agent_raw": "raw_captures",
+            "raw_entries": "raw_captures",  # actual local table name
         }
 
         # Build operations list for the API
@@ -2078,7 +2079,13 @@ def cmd_sync(args, k: Kernle):
                               "confidence", "drive_type", "intensity", "name", "priority",
                               "title", "status", "progress", "entity_name", "entity_type",
                               "relationship_type", "notes", "sentiment", "focus_areas",
-                              "created_at", "updated_at", "local_updated_at"]:
+                              "created_at", "updated_at", "local_updated_at",
+                              # raw_entries fields
+                              "timestamp", "source", "processed",
+                              # playbooks fields
+                              "description", "steps", "triggers",
+                              # goals fields
+                              "target_date"]:
                     if hasattr(record, field):
                         value = getattr(record, field)
                         if hasattr(value, 'isoformat'):
@@ -2305,6 +2312,7 @@ def cmd_sync(args, k: Kernle):
             "agent_relationships": "relationships",
             "agent_playbooks": "playbooks",
             "agent_raw": "raw_captures",
+            "raw_entries": "raw_captures",  # actual local table name
         }
 
         if not queued_changes:
@@ -2330,7 +2338,16 @@ def cmd_sync(args, k: Kernle):
                     record_dict = {}
                     for field in ["id", "agent_id", "content", "objective", "outcome_type",
                                   "outcome_description", "lessons_learned", "tags", "statement",
-                                  "confidence", "created_at", "updated_at", "local_updated_at"]:
+                                  "confidence", "drive_type", "intensity", "name", "priority",
+                                  "title", "status", "progress", "entity_name", "entity_type",
+                                  "relationship_type", "notes", "sentiment", "focus_areas",
+                                  "created_at", "updated_at", "local_updated_at",
+                                  # raw_entries fields
+                                  "timestamp", "source", "processed",
+                                  # playbooks fields
+                                  "description", "steps", "triggers",
+                                  # goals fields
+                                  "target_date"]:
                         if hasattr(record, field):
                             value = getattr(record, field)
                             if hasattr(value, 'isoformat'):
