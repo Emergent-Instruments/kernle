@@ -929,6 +929,16 @@ class SQLiteStorage:
                         logger.warning(f"Could not create vector table: {e}")
 
             conn.commit()
+        
+        # Set secure file permissions (owner read/write only)
+        import os
+        try:
+            os.chmod(self.db_path, 0o600)
+            os.chmod(self.db_path.parent, 0o700)
+            if self._agent_dir.exists():
+                os.chmod(self._agent_dir, 0o700)
+        except OSError as e:
+            logger.warning(f"Could not set secure permissions: {e}")
 
     def _migrate_schema(self, conn: sqlite3.Connection):
         """Run schema migrations for existing databases.
@@ -1657,6 +1667,9 @@ class SQLiteStorage:
             
             with open(self._beliefs_file, 'w', encoding='utf-8') as f:
                 f.write('\n'.join(lines))
+            # Secure permissions
+            import os
+            os.chmod(self._beliefs_file, 0o600)
         except Exception as e:
             logger.warning(f"Failed to sync beliefs to file: {e}")
 
