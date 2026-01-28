@@ -2037,6 +2037,19 @@ def cmd_sync(args, k: Kernle):
 
         print(f"Pushing {len(queued_changes)} changes to backend...")
 
+        # Map local table names to backend table names
+        TABLE_NAME_MAP = {
+            "agent_values": "values",
+            "agent_beliefs": "beliefs",
+            "agent_episodes": "episodes",
+            "agent_notes": "notes",
+            "agent_goals": "goals",
+            "agent_drives": "drives",
+            "agent_relationships": "relationships",
+            "agent_playbooks": "playbooks",
+            "agent_raw": "raw_captures",
+        }
+
         # Build operations list for the API
         operations = []
         for change in queued_changes:
@@ -2045,9 +2058,12 @@ def cmd_sync(args, k: Kernle):
 
             op_type = "update" if change.operation in ("upsert", "insert", "update") else change.operation
 
+            # Map table name for backend
+            backend_table = TABLE_NAME_MAP.get(change.table_name, change.table_name)
+
             op_data = {
                 "operation": op_type,
-                "table": change.table_name,
+                "table": backend_table,
                 "record_id": change.record_id,
                 "local_updated_at": format_datetime(change.queued_at),
                 "version": 1,
@@ -2278,6 +2294,19 @@ def cmd_sync(args, k: Kernle):
         print("Step 2: Pushing local changes...")
         queued_changes = k._storage.get_queued_changes(limit=1000)
 
+        # Map local table names to backend table names
+        TABLE_NAME_MAP = {
+            "agent_values": "values",
+            "agent_beliefs": "beliefs",
+            "agent_episodes": "episodes",
+            "agent_notes": "notes",
+            "agent_goals": "goals",
+            "agent_drives": "drives",
+            "agent_relationships": "relationships",
+            "agent_playbooks": "playbooks",
+            "agent_raw": "raw_captures",
+        }
+
         if not queued_changes:
             print("  ✓ No pending changes to push")
         else:
@@ -2286,9 +2315,12 @@ def cmd_sync(args, k: Kernle):
                 record = k._storage._get_record_for_push(change.table_name, change.record_id)
                 op_type = "update" if change.operation in ("upsert", "insert", "update") else change.operation
 
+                # Map table name for backend
+                backend_table = TABLE_NAME_MAP.get(change.table_name, change.table_name)
+
                 op_data = {
                     "operation": op_type,
-                    "table": change.table_name,
+                    "table": backend_table,
                     "record_id": change.record_id,
                     "local_updated_at": format_datetime(change.queued_at),
                     "version": 1,
