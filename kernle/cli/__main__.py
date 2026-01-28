@@ -21,6 +21,20 @@ import sys
 from kernle import Kernle
 from kernle.utils import resolve_agent_id
 
+# Import extracted command modules
+from kernle.cli.commands import (
+    cmd_anxiety,
+    cmd_belief,
+    cmd_consolidate,
+    cmd_emotion,
+    cmd_forget,
+    cmd_identity,
+    cmd_meta,
+    cmd_playbook,
+    cmd_raw,
+    resolve_raw_id,
+)
+
 # Set up logging
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
