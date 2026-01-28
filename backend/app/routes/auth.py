@@ -3,6 +3,8 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from pydantic import BaseModel
+from supabase import create_client
 
 from ..auth import (
     CurrentAgent,
@@ -42,6 +44,109 @@ from ..rate_limit import limiter
 
 logger = get_logger("kernle.auth")
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+class SupabaseTokenExchange(BaseModel):
+    """Request to exchange a Supabase access token for a Kernle token."""
+    access_token: str
+
+
+@router.post("/oauth/token", response_model=TokenResponse)
+@limiter.limit("10/minute")
+async def exchange_supabase_token(
+    request: Request,
+    token_request: SupabaseTokenExchange,
+    db: Database,
+    settings: Annotated[Settings, Depends(get_settings)],
+):
+    """
+    Exchange a Supabase OAuth access token for a Kernle access token.
+    
+    This endpoint verifies the Supabase token, extracts user info,
+    and creates/returns a Kernle agent + token.
+    """
+    try:
+        # Create a Supabase client with the user's token to verify it
+        # We use the publishable key since we're verifying a user token
+        api_key = settings.supabase_publishable_key or settings.supabase_anon_key
+        if not api_key:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Supabase publishable key not configured",
+            )
+        
+        # Create client and get user from token
+        supabase = create_client(settings.supabase_url, api_key)
+        user_response = supabase.auth.get_user(token_request.access_token)
+        
+        if not user_response or not user_response.user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired Supabase token",
+            )
+        
+        supabase_user = user_response.user
+        email = supabase_user.email
+        supabase_id = supabase_user.id
+        
+        # Use supabase user ID as agent_id (prefixed to avoid collisions)
+        agent_id = f"oauth_{supabase_id[:12]}"
+        
+        # Check if agent already exists
+        existing = await get_agent(db, agent_id)
+        
+        if existing:
+            # Agent exists, just issue a new token
+            user_id = existing.get("user_id")
+            token = create_access_token(agent_id, settings, user_id=user_id)
+            log_auth_event("oauth_login", agent_id, True)
+            
+            return TokenResponse(
+                access_token=token,
+                expires_in=settings.jwt_expire_minutes * 60,
+                user_id=user_id,
+            )
+        
+        # Create new agent for OAuth user
+        user_id = generate_user_id()
+        # OAuth users don't have a secret (they auth via Supabase)
+        # Store a random hash that can never be matched
+        secret_hash = hash_secret(generate_agent_secret())
+        
+        agent = await create_agent(
+            db,
+            agent_id=agent_id,
+            secret_hash=secret_hash,
+            user_id=user_id,
+            display_name=email.split("@")[0] if email else None,
+            email=email,
+        )
+        
+        if not agent:
+            log_auth_event("oauth_register", agent_id, False, "database error")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create agent",
+            )
+        
+        token = create_access_token(agent_id, settings, user_id=user_id)
+        log_auth_event("oauth_register", agent_id, True)
+        logger.info(f"OAuth agent created: {agent_id} for {email}")
+        
+        return TokenResponse(
+            access_token=token,
+            expires_in=settings.jwt_expire_minutes * 60,
+            user_id=user_id,
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"OAuth token exchange error: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Failed to verify Supabase token",
+        )
 
 
 @router.post("/register", response_model=TokenResponse)

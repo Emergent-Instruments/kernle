@@ -84,6 +84,13 @@ export async function getMe(): Promise<User> {
   return fetchApi<User>('/auth/me');
 }
 
+export async function exchangeOAuthToken(supabaseToken: string): Promise<TokenResponse> {
+  return fetchApi<TokenResponse>('/auth/oauth/token', {
+    method: 'POST',
+    body: JSON.stringify({ access_token: supabaseToken }),
+  });
+}
+
 // API Keys
 export interface ApiKey {
   key_id: string;
