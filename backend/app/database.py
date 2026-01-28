@@ -39,6 +39,7 @@ Database = Annotated[Client, Depends(get_db)]
 
 AGENTS_TABLE = "agents"
 API_KEYS_TABLE = "api_keys"
+API_KEY_USAGE_TABLE = "api_key_usage"
 EPISODES_TABLE = "episodes"
 BELIEFS_TABLE = "beliefs"
 VALUES_TABLE = "values"
@@ -382,7 +383,7 @@ async def verify_api_key_auth(db: Client, api_key: str) -> dict | None:
     """
     Verify an API key and return auth context if valid.
     
-    Returns dict with user_id and agent_id if valid, None otherwise.
+    Returns dict with user_id, agent_id, tier, and api_key_id if valid, None otherwise.
     Updates last_used_at on successful auth.
     """
     from .auth import get_api_key_prefix, verify_api_key
@@ -403,8 +404,264 @@ async def verify_api_key_auth(db: Client, api_key: str) -> dict | None:
                 return {
                     "user_id": key_record["user_id"],
                     "agent_id": agent["agent_id"],
+                    "tier": agent.get("tier", "free"),
+                    "api_key_id": str(key_record["id"]),
                 }
             # Key valid but no agent found (shouldn't happen)
             return None
     
     return None
+
+
+# =============================================================================
+# Usage Tracking Operations
+# =============================================================================
+
+# Tier limits configuration
+TIER_LIMITS = {
+    "free": {"daily": 100, "monthly": 1000},
+    "unlimited": {"daily": None, "monthly": None},  # None = no limit
+    "paid": {"daily": 10000, "monthly": 100000},  # Future paid tier
+}
+
+
+async def get_or_create_usage(db: Client, api_key_id: str, user_id: str) -> dict:
+    """Get or create usage record for an API key."""
+    # Try to get existing
+    result = (
+        db.table(API_KEY_USAGE_TABLE)
+        .select("*")
+        .eq("api_key_id", api_key_id)
+        .execute()
+    )
+    
+    if result.data:
+        return result.data[0]
+    
+    # Create new usage record
+    data = {
+        "api_key_id": api_key_id,
+        "user_id": user_id,
+    }
+    result = db.table(API_KEY_USAGE_TABLE).insert(data).execute()
+    return result.data[0] if result.data else None
+
+
+async def get_usage_for_user(db: Client, user_id: str) -> dict | None:
+    """Get aggregated usage for a user (sum across all their API keys)."""
+    from datetime import datetime, timezone
+    
+    result = (
+        db.table(API_KEY_USAGE_TABLE)
+        .select("*")
+        .eq("user_id", user_id)
+        .execute()
+    )
+    
+    if not result.data:
+        return None
+    
+    # Aggregate across all keys, respecting reset times
+    now = datetime.now(timezone.utc)
+    total_daily = 0
+    total_monthly = 0
+    earliest_daily_reset = None
+    earliest_monthly_reset = None
+    
+    for record in result.data:
+        # Check if daily reset needed
+        daily_reset = record.get("daily_reset_at")
+        if daily_reset:
+            from dateutil.parser import parse
+            reset_dt = parse(daily_reset) if isinstance(daily_reset, str) else daily_reset
+            if now >= reset_dt:
+                # Counter should be reset
+                pass
+            else:
+                total_daily += record.get("daily_requests", 0)
+                if earliest_daily_reset is None or reset_dt < earliest_daily_reset:
+                    earliest_daily_reset = reset_dt
+        
+        # Check if monthly reset needed
+        monthly_reset = record.get("monthly_reset_at")
+        if monthly_reset:
+            from dateutil.parser import parse
+            reset_dt = parse(monthly_reset) if isinstance(monthly_reset, str) else monthly_reset
+            if now >= reset_dt:
+                # Counter should be reset
+                pass
+            else:
+                total_monthly += record.get("monthly_requests", 0)
+                if earliest_monthly_reset is None or reset_dt < earliest_monthly_reset:
+                    earliest_monthly_reset = reset_dt
+    
+    return {
+        "daily_requests": total_daily,
+        "monthly_requests": total_monthly,
+        "daily_reset_at": earliest_daily_reset.isoformat() if earliest_daily_reset else None,
+        "monthly_reset_at": earliest_monthly_reset.isoformat() if earliest_monthly_reset else None,
+    }
+
+
+async def increment_usage(db: Client, api_key_id: str, user_id: str) -> dict:
+    """
+    Increment usage counters for an API key.
+    Handles automatic reset when period expires.
+    Returns updated usage record.
+    """
+    from datetime import datetime, timezone
+    
+    now = datetime.now(timezone.utc)
+    
+    # Get or create usage record
+    usage = await get_or_create_usage(db, api_key_id, user_id)
+    if not usage:
+        # Fallback: create inline
+        usage = {
+            "api_key_id": api_key_id,
+            "user_id": user_id,
+            "daily_requests": 0,
+            "monthly_requests": 0,
+        }
+    
+    # Parse reset times
+    from dateutil.parser import parse
+    daily_reset = usage.get("daily_reset_at")
+    monthly_reset = usage.get("monthly_reset_at")
+    
+    if isinstance(daily_reset, str):
+        daily_reset = parse(daily_reset)
+    if isinstance(monthly_reset, str):
+        monthly_reset = parse(monthly_reset)
+    
+    # Calculate new values
+    daily_count = usage.get("daily_requests", 0)
+    monthly_count = usage.get("monthly_requests", 0)
+    
+    # Reset daily if needed
+    if daily_reset and now >= daily_reset:
+        daily_count = 0
+        # Set next reset to tomorrow midnight UTC
+        next_daily = (now.replace(hour=0, minute=0, second=0, microsecond=0) + 
+                     __import__('datetime').timedelta(days=1))
+        daily_reset = next_daily
+    
+    # Reset monthly if needed
+    if monthly_reset and now >= monthly_reset:
+        monthly_count = 0
+        # Set next reset to 1st of next month UTC
+        if now.month == 12:
+            next_monthly = now.replace(year=now.year + 1, month=1, day=1,
+                                       hour=0, minute=0, second=0, microsecond=0)
+        else:
+            next_monthly = now.replace(month=now.month + 1, day=1,
+                                       hour=0, minute=0, second=0, microsecond=0)
+        monthly_reset = next_monthly
+    
+    # Increment counters
+    daily_count += 1
+    monthly_count += 1
+    
+    # Update database
+    update_data = {
+        "daily_requests": daily_count,
+        "monthly_requests": monthly_count,
+        "updated_at": now.isoformat(),
+    }
+    
+    if daily_reset:
+        update_data["daily_reset_at"] = daily_reset.isoformat() if hasattr(daily_reset, 'isoformat') else daily_reset
+    if monthly_reset:
+        update_data["monthly_reset_at"] = monthly_reset.isoformat() if hasattr(monthly_reset, 'isoformat') else monthly_reset
+    
+    db.table(API_KEY_USAGE_TABLE).upsert({
+        "api_key_id": api_key_id,
+        "user_id": user_id,
+        **update_data,
+    }).execute()
+    
+    return {
+        "daily_requests": daily_count,
+        "monthly_requests": monthly_count,
+        "daily_reset_at": daily_reset,
+        "monthly_reset_at": monthly_reset,
+    }
+
+
+async def check_quota(db: Client, api_key_id: str, user_id: str, tier: str) -> tuple[bool, dict]:
+    """
+    Check if user is within their quota limits.
+    
+    Returns:
+        (allowed, info) where:
+        - allowed: bool - whether the request should proceed
+        - info: dict with current usage, limits, and reset times
+    """
+    from datetime import datetime, timezone
+    
+    limits = TIER_LIMITS.get(tier, TIER_LIMITS["free"])
+    
+    # Unlimited tier always allowed
+    if limits["daily"] is None and limits["monthly"] is None:
+        return True, {
+            "tier": tier,
+            "daily_limit": None,
+            "monthly_limit": None,
+            "daily_requests": 0,
+            "monthly_requests": 0,
+        }
+    
+    # Get current usage
+    usage = await get_or_create_usage(db, api_key_id, user_id)
+    if not usage:
+        return True, {}  # Allow if we can't get usage (fail open)
+    
+    now = datetime.now(timezone.utc)
+    from dateutil.parser import parse
+    
+    # Check daily reset
+    daily_reset = usage.get("daily_reset_at")
+    if isinstance(daily_reset, str):
+        daily_reset = parse(daily_reset)
+    
+    daily_count = usage.get("daily_requests", 0)
+    if daily_reset and now >= daily_reset:
+        daily_count = 0  # Would be reset
+    
+    # Check monthly reset
+    monthly_reset = usage.get("monthly_reset_at")
+    if isinstance(monthly_reset, str):
+        monthly_reset = parse(monthly_reset)
+    
+    monthly_count = usage.get("monthly_requests", 0)
+    if monthly_reset and now >= monthly_reset:
+        monthly_count = 0  # Would be reset
+    
+    info = {
+        "tier": tier,
+        "daily_limit": limits["daily"],
+        "monthly_limit": limits["monthly"],
+        "daily_requests": daily_count,
+        "monthly_requests": monthly_count,
+        "daily_reset_at": daily_reset.isoformat() if daily_reset else None,
+        "monthly_reset_at": monthly_reset.isoformat() if monthly_reset else None,
+    }
+    
+    # Check limits
+    if limits["daily"] is not None and daily_count >= limits["daily"]:
+        info["exceeded"] = "daily"
+        return False, info
+    
+    if limits["monthly"] is not None and monthly_count >= limits["monthly"]:
+        info["exceeded"] = "monthly"
+        return False, info
+    
+    return True, info
+
+
+async def get_agent_tier(db: Client, agent_id: str) -> str:
+    """Get the tier for an agent."""
+    agent = await get_agent(db, agent_id)
+    if agent:
+        return agent.get("tier", "free")
+    return "free"

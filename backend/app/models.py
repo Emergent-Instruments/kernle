@@ -152,3 +152,45 @@ class MemorySearchResponse(BaseModel):
     results: list[MemorySearchResult]
     query: str
     total: int
+
+
+# =============================================================================
+# Usage & Tier Models
+# =============================================================================
+
+TierType = Literal["free", "unlimited", "paid"]
+
+
+class UsageLimits(BaseModel):
+    """Usage limits for a tier."""
+    daily_limit: int | None = None  # None = unlimited
+    monthly_limit: int | None = None
+
+
+class UsageStats(BaseModel):
+    """Current usage statistics."""
+    daily_requests: int = 0
+    monthly_requests: int = 0
+    daily_reset_at: datetime | None = None
+    monthly_reset_at: datetime | None = None
+
+
+class UsageResponse(BaseModel):
+    """Response for /auth/usage endpoint."""
+    tier: TierType
+    limits: UsageLimits
+    usage: UsageStats
+    daily_remaining: int | None = None  # None = unlimited
+    monthly_remaining: int | None = None
+
+
+class AgentInfoWithUsage(BaseModel):
+    """Agent information including usage data."""
+    agent_id: str
+    display_name: str | None
+    created_at: datetime
+    last_sync_at: datetime | None
+    user_id: str | None = None
+    tier: TierType = "free"
+    usage: UsageStats | None = None
+    limits: UsageLimits | None = None

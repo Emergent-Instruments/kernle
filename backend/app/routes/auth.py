@@ -20,6 +20,7 @@ from ..auth import (
 from ..config import Settings, get_settings
 from ..database import (
     Database,
+    TIER_LIMITS,
     create_agent,
     create_api_key,
     create_seed_beliefs,
@@ -28,11 +29,13 @@ from ..database import (
     get_agent,
     get_agent_by_email,
     get_api_key,
+    get_usage_for_user,
     list_api_keys,
 )
 from ..logging_config import get_logger, log_auth_event
 from ..models import (
     AgentInfo,
+    AgentInfoWithUsage,
     AgentLogin,
     AgentRegister,
     APIKeyCreate,
@@ -42,6 +45,9 @@ from ..models import (
     APIKeyResponse,
     LoginResponse,
     TokenResponse,
+    UsageLimits,
+    UsageResponse,
+    UsageStats,
 )
 from ..rate_limit import limiter
 
@@ -357,13 +363,13 @@ async def get_token(
     )
 
 
-@router.get("/me", response_model=AgentInfo)
+@router.get("/me", response_model=AgentInfoWithUsage)
 async def get_current_agent_info(
     auth: CurrentAgent,
     db: Database,
 ):
     """
-    Get information about the currently authenticated agent.
+    Get information about the currently authenticated agent, including tier and usage.
     """
     agent = await get_agent(db, auth.agent_id)
     if not agent:
@@ -372,12 +378,85 @@ async def get_current_agent_info(
             detail="Agent not found",
         )
 
-    return AgentInfo(
+    tier = agent.get("tier", "free")
+    limits_config = TIER_LIMITS.get(tier, TIER_LIMITS["free"])
+    
+    # Get usage stats if user_id available
+    usage_stats = None
+    if auth.user_id:
+        usage_data = await get_usage_for_user(db, auth.user_id)
+        if usage_data:
+            usage_stats = UsageStats(
+                daily_requests=usage_data.get("daily_requests", 0),
+                monthly_requests=usage_data.get("monthly_requests", 0),
+                daily_reset_at=usage_data.get("daily_reset_at"),
+                monthly_reset_at=usage_data.get("monthly_reset_at"),
+            )
+    
+    return AgentInfoWithUsage(
         agent_id=agent["agent_id"],
         display_name=agent.get("display_name"),
         created_at=agent["created_at"],
         last_sync_at=agent.get("last_sync_at"),
         user_id=agent.get("user_id"),
+        tier=tier,
+        usage=usage_stats,
+        limits=UsageLimits(
+            daily_limit=limits_config["daily"],
+            monthly_limit=limits_config["monthly"],
+        ),
+    )
+
+
+@router.get("/usage", response_model=UsageResponse)
+async def get_usage_stats(
+    auth: CurrentAgent,
+    db: Database,
+):
+    """
+    Get current usage statistics for the authenticated user.
+    
+    Returns tier, limits, current usage, and remaining quota.
+    """
+    agent = await get_agent(db, auth.agent_id)
+    if not agent:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Agent not found",
+        )
+    
+    tier = agent.get("tier", "free")
+    limits_config = TIER_LIMITS.get(tier, TIER_LIMITS["free"])
+    
+    # Get usage stats
+    usage_data = None
+    if auth.user_id:
+        usage_data = await get_usage_for_user(db, auth.user_id)
+    
+    daily_requests = usage_data.get("daily_requests", 0) if usage_data else 0
+    monthly_requests = usage_data.get("monthly_requests", 0) if usage_data else 0
+    
+    # Calculate remaining
+    daily_limit = limits_config["daily"]
+    monthly_limit = limits_config["monthly"]
+    
+    daily_remaining = None if daily_limit is None else max(0, daily_limit - daily_requests)
+    monthly_remaining = None if monthly_limit is None else max(0, monthly_limit - monthly_requests)
+    
+    return UsageResponse(
+        tier=tier,
+        limits=UsageLimits(
+            daily_limit=daily_limit,
+            monthly_limit=monthly_limit,
+        ),
+        usage=UsageStats(
+            daily_requests=daily_requests,
+            monthly_requests=monthly_requests,
+            daily_reset_at=usage_data.get("daily_reset_at") if usage_data else None,
+            monthly_reset_at=usage_data.get("monthly_reset_at") if usage_data else None,
+        ),
+        daily_remaining=daily_remaining,
+        monthly_remaining=monthly_remaining,
     )
 
 

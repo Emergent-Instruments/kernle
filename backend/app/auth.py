@@ -116,9 +116,17 @@ def decode_token(token: str, settings: Settings) -> dict:
 
 class AuthContext:
     """Context from JWT token containing agent_id and user_id."""
-    def __init__(self, agent_id: str, user_id: str | None = None):
+    def __init__(
+        self,
+        agent_id: str,
+        user_id: str | None = None,
+        tier: str = "free",
+        api_key_id: str | None = None,
+    ):
         self.agent_id = agent_id
         self.user_id = user_id
+        self.tier = tier
+        self.api_key_id = api_key_id
 
     def namespaced_agent_id(self, project_name: str | None = None) -> str:
         """Return full namespaced agent_id: {user_id}/{project_name}.
@@ -147,7 +155,12 @@ async def get_current_agent(
     # Check if it's an API key
     if is_api_key(token):
         # Import here to avoid circular imports
-        from .database import get_supabase_client, verify_api_key_auth
+        from .database import (
+            get_supabase_client,
+            verify_api_key_auth,
+            check_quota,
+            increment_usage,
+        )
         
         db = get_supabase_client(settings)
         auth_result = await verify_api_key_auth(db, token)
@@ -159,12 +172,48 @@ async def get_current_agent(
                 headers={"WWW-Authenticate": "Bearer"},
             )
         
+        tier = auth_result.get("tier", "free")
+        api_key_id = auth_result.get("api_key_id")
+        user_id = auth_result["user_id"]
+        
+        # Check quota before allowing request
+        allowed, quota_info = await check_quota(db, api_key_id, user_id, tier)
+        
+        if not allowed:
+            # Determine reset time for Retry-After header
+            exceeded = quota_info.get("exceeded", "daily")
+            reset_at = quota_info.get(f"{exceeded}_reset_at")
+            
+            headers = {"WWW-Authenticate": "Bearer"}
+            if reset_at:
+                # Add reset time headers
+                headers["X-RateLimit-Reset"] = reset_at
+                headers["X-RateLimit-Exceeded"] = exceeded
+                # Calculate seconds until reset for Retry-After
+                from datetime import datetime, timezone
+                from dateutil.parser import parse
+                now = datetime.now(timezone.utc)
+                reset_dt = parse(reset_at) if isinstance(reset_at, str) else reset_at
+                retry_after = max(1, int((reset_dt - now).total_seconds()))
+                headers["Retry-After"] = str(retry_after)
+            
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"Rate limit exceeded: {exceeded} quota reached. Resets at {reset_at}",
+                headers=headers,
+            )
+        
+        # Increment usage after successful auth and quota check
+        await increment_usage(db, api_key_id, user_id)
+        
         return AuthContext(
             agent_id=auth_result["agent_id"],
-            user_id=auth_result["user_id"],
+            user_id=user_id,
+            tier=tier,
+            api_key_id=api_key_id,
         )
     
-    # Otherwise, treat as JWT
+    # Otherwise, treat as JWT (no quota for JWT auth - used for web UI)
     payload = decode_token(token, settings)
     agent_id = payload.get("sub")
     if not agent_id:
@@ -174,7 +223,17 @@ async def get_current_agent(
             headers={"WWW-Authenticate": "Bearer"},
         )
     user_id = payload.get("user_id")
-    return AuthContext(agent_id=agent_id, user_id=user_id)
+    
+    # Get tier from database for JWT auth (fail gracefully to "free")
+    tier = "free"
+    try:
+        from .database import get_supabase_client, get_agent_tier
+        db = get_supabase_client(settings)
+        tier = await get_agent_tier(db, agent_id)
+    except Exception:
+        pass  # Default to free tier if lookup fails
+    
+    return AuthContext(agent_id=agent_id, user_id=user_id, tier=tier)
 
 
 # Type alias for dependency injection
