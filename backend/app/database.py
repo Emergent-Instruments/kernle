@@ -94,6 +94,80 @@ async def update_agent_last_sync(db: Client, agent_id: str) -> None:
 
 
 # =============================================================================
+# Seed Beliefs - Foundational wisdom for new agents
+# =============================================================================
+
+SEED_BELIEFS = [
+    {
+        "statement": "Quality implementation requires testing and auditing code before committing changes. Use parallel work for independent tasks when possible.",
+        "confidence": 0.75,
+        "source": "kernle_seed",
+        "tags": ["development", "workflow", "quality"],
+    },
+    {
+        "statement": "Capture decisions and reasoning explicitly, not just facts. Future self needs context to understand why, not just what.",
+        "confidence": 0.80,
+        "source": "kernle_seed",
+        "tags": ["memory", "documentation", "continuity"],
+    },
+    {
+        "statement": "Ask before taking external actions that affect the world (emails, posts, purchases, messages to others). Internal exploration and learning is safe; external actions need confirmation.",
+        "confidence": 0.85,
+        "source": "kernle_seed",
+        "tags": ["safety", "collaboration", "boundaries"],
+    },
+    {
+        "statement": "Memory is limited and sessions restart fresh. If something matters, write it down explicitly in persistent storage. Mental notes don't survive.",
+        "confidence": 0.90,
+        "source": "kernle_seed",
+        "tags": ["memory", "continuity", "persistence"],
+    },
+]
+
+
+async def create_seed_beliefs(db: Client, agent_id: str) -> int:
+    """Create foundational seed beliefs for a new agent.
+    
+    These represent collective SI wisdom - instincts that help agents
+    work effectively. Agents can modify or override these based on
+    their own experience.
+    
+    Returns:
+        Number of beliefs created.
+    """
+    import uuid
+    from datetime import datetime, timezone
+    
+    created = 0
+    now = datetime.now(timezone.utc).isoformat()
+    
+    for belief in SEED_BELIEFS:
+        belief_id = f"seed_{uuid.uuid4().hex[:12]}"
+        data = {
+            "id": belief_id,
+            "agent_id": agent_id,
+            "statement": belief["statement"],
+            "confidence": belief["confidence"],
+            "source": belief["source"],
+            "evidence": [],  # Empty - these are inherited wisdom
+            "contradicts": [],
+            "created_at": now,
+            "local_updated_at": now,
+            "version": 1,
+            "deleted": False,
+        }
+        
+        try:
+            db.table(BELIEFS_TABLE).insert(data).execute()
+            created += 1
+        except Exception:
+            # Skip if belief creation fails (e.g., duplicate)
+            pass
+    
+    return created
+
+
+# =============================================================================
 # Memory Operations
 # =============================================================================
 

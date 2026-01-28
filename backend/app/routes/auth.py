@@ -22,6 +22,7 @@ from ..database import (
     Database,
     create_agent,
     create_api_key,
+    create_seed_beliefs,
     deactivate_api_key,
     delete_api_key,
     get_agent,
@@ -226,6 +227,14 @@ async def exchange_supabase_token(
                 detail="Failed to create agent",
             )
         
+        # Plant seed beliefs - foundational SI wisdom for new agents
+        try:
+            beliefs_created = await create_seed_beliefs(db, agent_id)
+            logger.info(f"OAuth: Created {beliefs_created} seed beliefs for {agent_id}")
+        except Exception as e:
+            # Don't fail registration if seed beliefs fail
+            logger.warning(f"OAuth: Failed to create seed beliefs: {e}")
+        
         token = create_access_token(agent_id, settings, user_id=user_id)
         log_auth_event("oauth_register", agent_id, True)
         logger.info(f"OAuth agent created: {agent_id} for {email}")
@@ -294,6 +303,14 @@ async def register_agent(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create agent",
         )
+
+    # Plant seed beliefs - foundational SI wisdom for new agents
+    try:
+        beliefs_created = await create_seed_beliefs(db, register_request.agent_id)
+        logger.info(f"Created {beliefs_created} seed beliefs for {register_request.agent_id}")
+    except Exception as e:
+        # Don't fail registration if seed beliefs fail
+        logger.warning(f"Failed to create seed beliefs: {e}")
 
     # Generate token with user_id
     token = create_access_token(register_request.agent_id, settings, user_id=user_id)
