@@ -2075,6 +2075,36 @@ def cmd_raw(args, k: Kernle):
                     print(f"  ✗ Failed to delete {entry['id'][:8]}: {e}")
             print(f"\n✓ Deleted {deleted} stale raw entries.")
 
+    elif args.raw_action == "files":
+        # Show flat file locations
+        raw_dir = k._storage.get_raw_dir()
+        files = k._storage.get_raw_files()
+        
+        print(f"Raw Flat Files Directory: {raw_dir}")
+        print("=" * 50)
+        
+        if not files:
+            print("\nNo raw files yet. Capture something with: kernle raw \"thought\"")
+        else:
+            print(f"\nFiles ({len(files)} total):")
+            total_size = 0
+            for f in files[:10]:
+                size = f.stat().st_size
+                total_size += size
+                print(f"  {f.name:20} {size:>6} bytes")
+            if len(files) > 10:
+                print(f"  ... and {len(files) - 10} more")
+            print(f"\nTotal: {total_size:,} bytes")
+        
+        print(f"\n💡 Tips:")
+        print(f"  • Edit directly: vim {raw_dir}/<date>.md")
+        print(f"  • Search: grep -r 'pattern' {raw_dir}/")
+        print(f"  • Git track: cd {raw_dir.parent} && git init")
+        
+        if getattr(args, 'open', False):
+            import subprocess
+            subprocess.run(["open", str(raw_dir)], check=False)
+
 
 def cmd_belief(args, k: Kernle):
     """Handle belief revision subcommands."""
@@ -3838,6 +3868,10 @@ def main():
     raw_clean.add_argument("--age", "-a", type=int, default=7, help="Delete entries older than N days (default: 7)")
     raw_clean.add_argument("--confirm", "-y", action="store_true", help="Actually delete (otherwise dry run)")
 
+    # kernle raw files - show flat file locations
+    raw_files = raw_sub.add_parser("files", help="Show raw flat file locations")
+    raw_files.add_argument("--open", "-o", action="store_true", help="Open directory in file manager")
+
     # dump
     p_dump = subparsers.add_parser("dump", help="Dump all memory to stdout")
     p_dump.add_argument("--format", "-f", choices=["markdown", "json"], default="markdown",
@@ -4062,7 +4096,7 @@ def main():
 
     # Pre-process arguments: handle `kernle raw "content"` by inserting "capture"
     # This is needed because argparse subparsers consume positional args before parent parser
-    raw_subcommands = {"list", "show", "process", "capture", "review", "clean"}
+    raw_subcommands = {"list", "show", "process", "capture", "review", "clean", "files"}
     argv = sys.argv[1:]  # Skip program name
 
     # Find position of "raw" in argv (accounting for -a/--agent which takes a value)

@@ -463,6 +463,10 @@ class SQLiteStorage:
         # Initialize embedder
         self._embedder = embedder or (HashEmbedder() if not embedder else embedder)
 
+        # Initialize flat file directory for raw entries
+        self._raw_dir = self.db_path.parent / agent_id / "raw"
+        self._raw_dir.mkdir(parents=True, exist_ok=True)
+
         # Initialize database
         self._init_db()
 
@@ -2442,10 +2446,19 @@ class SQLiteStorage:
     # === Raw Entries ===
 
     def save_raw(self, content: str, source: str = "manual", tags: Optional[List[str]] = None) -> str:
-        """Save a raw entry for later processing."""
+        """Save a raw entry for later processing.
+        
+        Writes to both:
+        1. Flat markdown file (human-readable, greppable, git-friendly)
+        2. SQLite database (for indexing and search)
+        """
         raw_id = str(uuid.uuid4())
         now = self._now()
 
+        # 1. Write to flat file first (source of truth)
+        self._append_raw_to_file(raw_id, content, now, source, tags)
+
+        # 2. Index in SQLite
         with self._connect() as conn:
             conn.execute("""
                 INSERT INTO raw_entries
@@ -2486,6 +2499,62 @@ class SQLiteStorage:
             conn.commit()
 
         return raw_id
+
+    def _append_raw_to_file(
+        self,
+        raw_id: str,
+        content: str,
+        timestamp: str,
+        source: str,
+        tags: Optional[List[str]] = None,
+    ) -> None:
+        """Append a raw entry to the daily flat file.
+        
+        File format (greppable, human-readable):
+        ```
+        ## HH:MM:SS [id_prefix] source
+        Content goes here
+        Tags: tag1, tag2
+        
+        ```
+        """
+        try:
+            # Parse date from timestamp for filename
+            dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+            date_str = dt.strftime("%Y-%m-%d")
+            time_str = dt.strftime("%H:%M:%S")
+            
+            daily_file = self._raw_dir / f"{date_str}.md"
+            
+            # Build entry
+            lines = []
+            lines.append(f"## {time_str} [{raw_id[:8]}] {source}")
+            lines.append(content)
+            if tags:
+                lines.append(f"Tags: {', '.join(tags)}")
+            lines.append("")  # Blank line separator
+            
+            # Append to file
+            with open(daily_file, "a", encoding="utf-8") as f:
+                # Add header if new file
+                if daily_file.stat().st_size == 0 if daily_file.exists() else True:
+                    f.write(f"# Raw Captures - {date_str}\n\n")
+                f.write("\n".join(lines) + "\n")
+                
+        except Exception as e:
+            logger.warning(f"Failed to write raw entry to flat file: {e}")
+            # Don't fail - SQLite is the backup
+
+    def get_raw_dir(self) -> Path:
+        """Get the path to the raw flat files directory."""
+        return self._raw_dir
+
+    def get_raw_files(self) -> List[Path]:
+        """Get list of raw flat files, sorted by date descending."""
+        if not self._raw_dir.exists():
+            return []
+        files = sorted(self._raw_dir.glob("*.md"), reverse=True)
+        return files
 
     def get_raw(self, raw_id: str) -> Optional[RawEntry]:
         """Get a specific raw entry by ID."""
