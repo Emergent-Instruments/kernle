@@ -350,11 +350,19 @@ async def update_api_key_last_used(db: Client, key_id: str) -> None:
 
 
 async def get_active_api_keys_by_prefix(db: Client, prefix: str) -> list[dict]:
-    """Get active API keys matching a prefix (for auth lookup)."""
+    """Get active API keys matching a prefix (for auth lookup).
+    
+    Uses LIKE match to handle both old (8-char) and new (12-char) prefixes.
+    The prefix stored in DB may be shorter than the lookup prefix.
+    """
+    # Use the shorter prefix for lookup (backward compatible with old 8-char prefixes)
+    # Old keys have 8-char prefix, new keys have 12-char prefix
+    lookup_prefix = prefix[:8]  # "knl_sk_X" - minimum discriminating prefix
+    
     result = (
         db.table(API_KEYS_TABLE)
-        .select("id, user_id, key_hash")
-        .eq("key_prefix", prefix)
+        .select("id, user_id, key_hash, key_prefix")
+        .like("key_prefix", f"{lookup_prefix}%")
         .eq("is_active", True)
         .execute()
     )

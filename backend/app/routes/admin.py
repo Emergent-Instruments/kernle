@@ -336,15 +336,23 @@ async def get_agent(
     agent_id: str,
     auth: CurrentAgent,
     db: Database,
+    user_id: str | None = Query(default=None, description="Filter by user_id (for multi-tenant)"),
 ):
-    """Get detailed stats for a specific agent."""
-    result = (
+    """Get detailed stats for a specific agent.
+    
+    If multiple users have agents with the same agent_id, use user_id parameter
+    to specify which one. Without user_id, returns the first match.
+    """
+    query = (
         db.table("agents")
         .select("agent_id, user_id, tier, created_at")
         .eq("agent_id", agent_id)
-        .single()
-        .execute()
     )
+    
+    if user_id:
+        query = query.eq("user_id", user_id)
+    
+    result = query.limit(1).execute()
     
     if not result.data:
         raise HTTPException(
@@ -352,7 +360,7 @@ async def get_agent(
             detail=f"Agent {agent_id} not found"
         )
     
-    row = result.data
+    row = result.data[0]
     counts, coverage = await _get_agent_memory_stats(db, agent_id)
     
     return AgentSummary(
