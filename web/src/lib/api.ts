@@ -97,21 +97,23 @@ export async function exchangeOAuthToken(supabaseToken: string): Promise<TokenRe
   });
 }
 
-// API Keys
+// API Keys - matches backend APIKeyInfo model
 export interface ApiKey {
-  key_id: string;
-  prefix: string;
-  name: string | null;
+  id: string;  // UUID
+  key_prefix: string;  // e.g. "knl_sk_XXXXX..."
+  name: string;
   created_at: string;
   last_used_at: string | null;
-  revoked_at: string | null;
+  is_active: boolean;
 }
 
+// Response from creating a new key - includes raw key ONCE
 export interface CreateKeyResponse {
-  key_id: string;
-  api_key: string;
-  prefix: string;
-  name: string | null;
+  id: string;
+  key: string;  // Full API key, shown only once
+  key_prefix: string;
+  name: string;
+  created_at: string;
 }
 
 export async function listApiKeys(): Promise<ApiKey[]> {

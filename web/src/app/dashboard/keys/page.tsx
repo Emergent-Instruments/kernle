@@ -111,8 +111,8 @@ export default function ApiKeysPage() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const activeKeys = keys.filter((k) => !k.revoked_at);
-  const revokedKeys = keys.filter((k) => k.revoked_at);
+  const activeKeys = keys.filter((k) => k.is_active);
+  const revokedKeys = keys.filter((k) => !k.is_active);
 
   return (
     <div className="space-y-8">
@@ -170,11 +170,11 @@ export default function ApiKeysPage() {
             </p>
             <div className="flex items-center space-x-2">
               <code className="flex-1 p-3 bg-white dark:bg-black rounded border font-mono text-sm break-all">
-                {newKey.api_key}
+                {newKey.key}
               </code>
               <Button
                 variant="outline"
-                onClick={() => copyToClipboard(newKey.api_key)}
+                onClick={() => copyToClipboard(newKey.key)}
               >
                 {copied ? 'Copied!' : 'Copy'}
               </Button>
@@ -216,12 +216,12 @@ export default function ApiKeysPage() {
               </TableHeader>
               <TableBody>
                 {activeKeys.map((key) => (
-                  <TableRow key={key.key_id}>
+                  <TableRow key={key.id}>
                     <TableCell>
                       {key.name || <span className="text-muted-foreground">Unnamed</span>}
                     </TableCell>
                     <TableCell>
-                      <code className="text-sm">{key.prefix}...</code>
+                      <code className="text-sm">{key.key_prefix}...</code>
                     </TableCell>
                     <TableCell>
                       {new Date(key.created_at).toLocaleDateString()}
@@ -235,14 +235,14 @@ export default function ApiKeysPage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => handleCycle(key.key_id)}
+                        onClick={() => handleCycle(key.id)}
                       >
                         Cycle
                       </Button>
                       <Button
                         variant="destructive"
                         size="sm"
-                        onClick={() => handleRevoke(key.key_id)}
+                        onClick={() => handleRevoke(key.id)}
                       >
                         Revoke
                       </Button>
@@ -274,18 +274,18 @@ export default function ApiKeysPage() {
               </TableHeader>
               <TableBody>
                 {revokedKeys.map((key) => (
-                  <TableRow key={key.key_id}>
+                  <TableRow key={key.id}>
                     <TableCell>
                       {key.name || <span className="text-muted-foreground">Unnamed</span>}
                     </TableCell>
                     <TableCell>
-                      <code className="text-sm">{key.prefix}...</code>
+                      <code className="text-sm">{key.key_prefix}...</code>
                     </TableCell>
                     <TableCell>
                       {new Date(key.created_at).toLocaleDateString()}
                     </TableCell>
                     <TableCell>
-                      {key.revoked_at && new Date(key.revoked_at).toLocaleDateString()}
+                      <span className="text-muted-foreground">—</span>
                     </TableCell>
                     <TableCell>
                       <Badge variant="destructive">Revoked</Badge>

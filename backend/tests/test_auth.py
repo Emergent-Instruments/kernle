@@ -89,14 +89,9 @@ class TestAuthEndpoints:
         assert response.status_code == 401  # Unauthorized (no auth header)
 
     def test_me_with_auth(self, client, auth_headers):
-        """Test /auth/me with valid auth - tests auth passes even if DB fails."""
-        # This test verifies auth works. The actual response depends on DB
-        # In a real test, we'd mock the database
-        # For now, we just verify we get past auth (not 401)
-        try:
-            response = client.get("/auth/me", headers=auth_headers)
-            # Any response other than 401 means auth passed
-            assert response.status_code != 401 or True  # Pass regardless - DB mock needed
-        except Exception:
-            # Connection errors to mock DB are expected
-            pass
+        """Test /auth/me with valid auth token."""
+        response = client.get("/auth/me", headers=auth_headers)
+        # Should pass auth (not 401/403) - may fail on DB lookup (500) but that's auth success
+        assert response.status_code != 401, "Auth should not fail with valid token"
+        assert response.status_code != 403, "Auth should not be forbidden with valid token"
+        # 200 = full success, 500 = auth passed but DB issue (acceptable for unit test)

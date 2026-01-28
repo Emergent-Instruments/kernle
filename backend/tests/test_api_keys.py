@@ -18,10 +18,10 @@ class TestAPIKeyUtilities:
     def test_generate_api_key_format(self):
         """Test API key generation format: knl_sk_ + 32 hex chars."""
         key = generate_api_key()
-        
+
         assert key.startswith(API_KEY_PREFIX)
         assert len(key) == len(API_KEY_PREFIX) + 32  # prefix + 32 hex chars
-        
+
         # Extract hex part and verify it's valid hex
         hex_part = key[len(API_KEY_PREFIX):]
         assert len(hex_part) == 32
@@ -37,18 +37,19 @@ class TestAPIKeyUtilities:
         key = "knl_sk_abc123def456789012345678901234567890"
         prefix = get_api_key_prefix(key)
         
-        assert prefix == "knl_sk_a"
-        assert len(prefix) == 8
+        # Prefix is now 12 chars (knl_sk_ + 5 hex chars) for collision resistance
+        assert prefix == "knl_sk_abc12"
+        assert len(prefix) == 12
 
     def test_hash_api_key(self):
         """Test API key hashing produces bcrypt hash."""
         key = generate_api_key()
         hashed = hash_api_key(key)
-        
+
         # bcrypt hashes start with $2b$ or $2a$
         assert hashed.startswith("$2")
         assert len(hashed) == 60  # bcrypt standard length
-        
+
         # Hash should be different from original
         assert hashed != key
 
@@ -56,21 +57,21 @@ class TestAPIKeyUtilities:
         """Test verification of valid API key."""
         key = generate_api_key()
         hashed = hash_api_key(key)
-        
+
         assert verify_api_key(key, hashed) is True
 
     def test_verify_api_key_invalid(self):
         """Test verification fails for wrong key."""
         key = generate_api_key()
         hashed = hash_api_key(key)
-        
+
         wrong_key = generate_api_key()
         assert verify_api_key(wrong_key, hashed) is False
 
     def test_verify_api_key_handles_bad_hash(self):
         """Test verification handles malformed hash gracefully."""
         key = generate_api_key()
-        
+
         assert verify_api_key(key, "not-a-hash") is False
         assert verify_api_key(key, "") is False
 
@@ -78,7 +79,7 @@ class TestAPIKeyUtilities:
         """Test is_api_key returns True for API keys."""
         key = generate_api_key()
         assert is_api_key(key) is True
-        
+
         # Manual prefix check
         assert is_api_key("knl_sk_anything") is True
 
@@ -87,7 +88,7 @@ class TestAPIKeyUtilities:
         # JWTs have three dot-separated parts
         jwt = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0In0.sig"
         assert is_api_key(jwt) is False
-        
+
         # Other random strings
         assert is_api_key("random-token") is False
         assert is_api_key("") is False
@@ -117,22 +118,25 @@ class TestAPIKeyEndpoints:
         assert response.status_code == 401
 
     def test_list_keys_with_auth(self, client, auth_headers):
-        """Test listing keys with valid auth (may fail due to no user_id in test token)."""
+        """Test listing keys with valid auth."""
         response = client.get("/auth/keys", headers=auth_headers)
-        # Either 200 (success) or 400 (no user_id) are valid
-        # 401 would mean auth failed
-        assert response.status_code in [200, 400]
+        # Auth should pass (not 401/403)
+        assert response.status_code not in [401, 403], "Auth should pass with valid token"
+        # 200 = success, 400 = missing user_id (test token limitation), 500 = unacceptable
+        assert response.status_code != 500, f"Server error: {response.json()}"
 
     def test_create_key_with_auth(self, client, auth_headers):
-        """Test creating key with valid auth (may fail due to no user_id in test token)."""
+        """Test creating key with valid auth."""
         response = client.post(
             "/auth/keys",
             headers=auth_headers,
             json={"name": "Test Key"},
         )
-        # Either 200 (success), 400 (no user_id), or 500 (DB error) are valid
-        # 401 would mean auth failed
-        assert response.status_code in [200, 400, 500]
+        # Auth should pass (not 401/403)
+        assert response.status_code not in [401, 403], "Auth should pass with valid token"
+        # 500 is never acceptable - indicates a bug
+        if response.status_code == 500:
+            pytest.fail(f"Server error during key creation: {response.json()}")
 
 
 class TestAPIKeyIntegration:

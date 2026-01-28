@@ -63,8 +63,21 @@ async def root():
 
 @app.get("/health")
 async def health():
-    """Detailed health check."""
+    """Detailed health check with actual database verification."""
+    from .database import get_supabase
+    
+    db_status = "disconnected"
+    try:
+        db = get_supabase()
+        # Simple query to verify connection
+        result = db.table("agents").select("id").limit(1).execute()
+        db_status = "connected"
+    except Exception as e:
+        db_status = f"error: {str(e)[:50]}"
+    
+    overall_status = "healthy" if db_status == "connected" else "degraded"
+    
     return {
-        "status": "healthy",
-        "database": "connected",  # TODO: Add actual DB check
+        "status": overall_status,
+        "database": db_status,
     }

@@ -20,7 +20,7 @@ router = APIRouter(prefix="/memories", tags=["memories"])
 @router.post("/search", response_model=MemorySearchResponse)
 async def search_memories(
     request: MemorySearchRequest,
-    agent_id: CurrentAgent,
+    auth: CurrentAgent,
     db: Database,
 ):
     """
@@ -46,10 +46,11 @@ async def search_memories(
         # Note: For production, implement pgvector similarity search
         try:
             # Try to search common content fields
+            # Use auth.agent_id (string) not auth (AuthContext object)
             query = (
                 db.table(table_name)
                 .select("*")
-                .eq("agent_id", agent_id)
+                .eq("agent_id", auth.agent_id)
                 .eq("deleted", False)
                 .limit(request.limit)
             )

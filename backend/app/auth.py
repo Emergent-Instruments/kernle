@@ -30,11 +30,15 @@ def generate_api_key() -> str:
 
 
 def get_api_key_prefix(key: str) -> str:
-    """Extract prefix from API key for storage (first 8 chars after knl_sk_)."""
-    # Format: knl_sk_XXXXXXXX... -> knl_sk_X (8 chars for display)
+    """Extract prefix from API key for storage (first 12 chars after knl_sk_).
+    
+    Using 12 chars gives us 5 hex chars after 'knl_sk_' = 16^5 = ~1M possible
+    prefixes, making collision-based timing attacks impractical.
+    """
+    # Format: knl_sk_XXXXXXXX... -> knl_sk_XXXXX (12 chars for lookup)
     if key.startswith(API_KEY_PREFIX):
-        return key[:8]  # "knl_sk_X"
-    return key[:8]
+        return key[:12]  # "knl_sk_XXXXX" - 5 hex chars = 1M possibilities
+    return key[:12]
 
 
 def hash_api_key(key: str) -> str:

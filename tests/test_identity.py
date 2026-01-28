@@ -58,9 +58,10 @@ class TestSynthesizeIdentity:
         # The significant episodes should not include checkpoint-tagged ones
         # (the filtering happens at the recent_work level)
         for ep in identity["significant_episodes"]:
-            ep.get("objective", "")
+            objective = ep.get("objective", "")
             # Checkpoint episodes should not be in significant_episodes
-            # (they are filtered in load_recent_work)
+            assert "[CHECKPOINT]" not in objective, \
+                f"Checkpoint episode found in significant_episodes: {objective}"
 
     def test_synthesize_identity_high_confidence_beliefs_only(self, kernle_instance):
         """Test that beliefs are sorted by confidence."""
