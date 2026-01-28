@@ -3,6 +3,7 @@
 from typing import Annotated
 
 from fastapi import Depends
+
 from supabase import Client, create_client
 
 from .config import Settings, get_settings
@@ -58,6 +59,7 @@ async def create_agent(
     db: Client,
     agent_id: str,
     secret_hash: str,
+    user_id: str,
     display_name: str | None = None,
     email: str | None = None,
 ) -> dict:
@@ -65,6 +67,7 @@ async def create_agent(
     data = {
         "agent_id": agent_id,
         "secret_hash": secret_hash,
+        "user_id": user_id,
         "display_name": display_name,
         "email": email,
     }

@@ -28,7 +28,7 @@ router = APIRouter(prefix="/sync", tags=["sync"])
 @router.post("/push", response_model=SyncPushResponse)
 async def push_changes(
     request: SyncPushRequest,
-    agent_id: CurrentAgent,
+    auth: CurrentAgent,
     db: Database,
 ):
     """
@@ -39,8 +39,16 @@ async def push_changes(
     - delete: Soft-delete the record
 
     Returns count of synced operations and any conflicts.
+    
+    Agent ID namespacing:
+    - Client can send just project_name (e.g., "claire")
+    - Server uses agent_id from JWT for DB (maintains FK integrity)
+    - user_id is available for future multi-tenant queries
     """
-    logger.info(f"PUSH | {agent_id} | {len(request.operations)} operations")
+    # Use agent_id from JWT (maintains FK to agents table)
+    agent_id = auth.agent_id
+    log_prefix = f"{auth.user_id}/{agent_id}" if auth.user_id else agent_id
+    logger.info(f"PUSH | {log_prefix} | {len(request.operations)} operations")
     synced = 0
     conflicts = []
 
@@ -48,21 +56,21 @@ async def push_changes(
         try:
             if op.operation == "delete":
                 await delete_memory(db, agent_id, op.table, op.record_id)
-                log_sync_operation(agent_id, "delete", op.table, op.record_id, True)
+                log_sync_operation(log_prefix, "delete", op.table, op.record_id, True)
             else:
                 # insert or update
                 if op.data is None:
-                    log_sync_operation(agent_id, op.operation, op.table, op.record_id, False, "Missing data")
+                    log_sync_operation(log_prefix, op.operation, op.table, op.record_id, False, "Missing data")
                     conflicts.append({
                         "record_id": op.record_id,
                         "error": "Missing data for insert/update",
                     })
                     continue
                 await upsert_memory(db, agent_id, op.table, op.record_id, op.data)
-                log_sync_operation(agent_id, op.operation, op.table, op.record_id, True)
+                log_sync_operation(log_prefix, op.operation, op.table, op.record_id, True)
             synced += 1
         except ValueError as e:
-            log_sync_operation(agent_id, op.operation, op.table, op.record_id, False, str(e))
+            log_sync_operation(log_prefix, op.operation, op.table, op.record_id, False, str(e))
             conflicts.append({
                 "record_id": op.record_id,
                 "error": str(e),
@@ -70,7 +78,7 @@ async def push_changes(
         except Exception as e:
             # Log full error server-side for debugging
             logger.error(f"Database error during {op.operation} on {op.table}/{op.record_id}: {e}")
-            log_sync_operation(agent_id, op.operation, op.table, op.record_id, False, str(e))
+            log_sync_operation(log_prefix, op.operation, op.table, op.record_id, False, str(e))
             # Return generic message to client to avoid leaking internal details
             conflicts.append({
                 "record_id": op.record_id,
@@ -80,7 +88,7 @@ async def push_changes(
     # Update agent's last sync time
     await update_agent_last_sync(db, agent_id)
 
-    logger.info(f"PUSH COMPLETE | {agent_id} | synced={synced} conflicts={len(conflicts)}")
+    logger.info(f"PUSH COMPLETE | {log_prefix} | synced={synced} conflicts={len(conflicts)}")
 
     return SyncPushResponse(
         synced=synced,
@@ -92,7 +100,7 @@ async def push_changes(
 @router.post("/pull", response_model=SyncPullResponse)
 async def pull_changes(
     request: SyncPullRequest,
-    agent_id: CurrentAgent,
+    auth: CurrentAgent,
     db: Database,
 ):
     """
@@ -102,7 +110,9 @@ async def pull_changes(
     - Initial sync (since=None gets all records)
     - Incremental sync (since=last_sync_at)
     """
-    logger.info(f"PULL | {agent_id} | since={request.since}")
+    agent_id = auth.agent_id
+    log_prefix = f"{auth.user_id}/{agent_id}" if auth.user_id else agent_id
+    logger.info(f"PULL | {log_prefix} | since={request.since}")
 
     since_str = request.since.isoformat() if request.since else None
     changes = await get_changes_since(db, agent_id, since_str)
@@ -127,7 +137,7 @@ async def pull_changes(
             version=data.get("version", 1),
         ))
 
-    logger.info(f"PULL COMPLETE | {agent_id} | {len(operations)} operations")
+    logger.info(f"PULL COMPLETE | {log_prefix} | {len(operations)} operations")
 
     return SyncPullResponse(
         operations=operations,
@@ -138,7 +148,7 @@ async def pull_changes(
 
 @router.post("/full", response_model=SyncPullResponse)
 async def full_sync(
-    agent_id: CurrentAgent,
+    auth: CurrentAgent,
     db: Database,
 ):
     """
@@ -148,6 +158,7 @@ async def full_sync(
     - Initial setup on new device
     - Recovery after data loss
     """
+    agent_id = auth.agent_id
     changes = await get_changes_since(db, agent_id, None)
 
     operations = [

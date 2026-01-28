@@ -1121,17 +1121,16 @@ def main(agent_id: str = "default"):
     """Entry point for MCP server.
     
     Agent ID resolution (in order):
-    1. Explicit agent_id argument
+    1. Explicit agent_id argument (if not "default")
     2. KERNLE_AGENT_ID environment variable
-    3. Default: "default"
+    3. Auto-generated from machine + project path
     """
-    import os
-    
-    # If default, check env var
-    if agent_id == "default":
-        agent_id = os.environ.get("KERNLE_AGENT_ID", "default")
-    
-    set_agent_id(agent_id)
+    from kernle.utils import resolve_agent_id
+
+    # Use resolve_agent_id for consistent fallback logic
+    resolved_id = resolve_agent_id(agent_id if agent_id != "default" else None)
+
+    set_agent_id(resolved_id)
     asyncio.run(run_server())
 
 

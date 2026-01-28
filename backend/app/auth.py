@@ -1,6 +1,7 @@
 """Authentication utilities for Kernle backend."""
 
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
@@ -13,6 +14,11 @@ from .config import Settings, get_settings
 
 # Bearer token scheme
 security = HTTPBearer()
+
+
+def generate_user_id() -> str:
+    """Generate a stable user_id (usr_ + 12 char hex)."""
+    return f"usr_{uuid.uuid4().hex[:12]}"
 
 
 def hash_secret(secret: str) -> str:
@@ -37,6 +43,7 @@ def create_access_token(
     agent_id: str,
     settings: Settings,
     expires_delta: timedelta | None = None,
+    user_id: str | None = None,
 ) -> str:
     """Create a JWT access token for an agent."""
     if expires_delta:
@@ -50,6 +57,9 @@ def create_access_token(
         "iat": datetime.now(timezone.utc),
         "type": "access",
     }
+    # Include user_id if provided (for namespacing)
+    if user_id:
+        to_encode["user_id"] = user_id
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
@@ -70,11 +80,33 @@ def decode_token(token: str, settings: Settings) -> dict:
         )
 
 
+class AuthContext:
+    """Context from JWT token containing agent_id and user_id."""
+    def __init__(self, agent_id: str, user_id: str | None = None):
+        self.agent_id = agent_id
+        self.user_id = user_id
+
+    def namespaced_agent_id(self, project_name: str | None = None) -> str:
+        """Return full namespaced agent_id: {user_id}/{project_name}.
+        
+        If project_name contains '/', it's already namespaced - return as-is.
+        If no project_name given, returns the agent_id from token.
+        """
+        name = project_name or self.agent_id
+        # Already namespaced?
+        if "/" in name:
+            return name
+        # Namespace with user_id
+        if self.user_id:
+            return f"{self.user_id}/{name}"
+        return name
+
+
 async def get_current_agent(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
     settings: Annotated[Settings, Depends(get_settings)],
-) -> str:
-    """Get the current authenticated agent ID from the token."""
+) -> AuthContext:
+    """Get the current authenticated agent context from the token."""
     payload = decode_token(credentials.credentials, settings)
     agent_id = payload.get("sub")
     if not agent_id:
@@ -83,8 +115,9 @@ async def get_current_agent(
             detail="Invalid token payload",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return agent_id
+    user_id = payload.get("user_id")
+    return AuthContext(agent_id=agent_id, user_id=user_id)
 
 
 # Type alias for dependency injection
-CurrentAgent = Annotated[str, Depends(get_current_agent)]
+CurrentAgent = Annotated[AuthContext, Depends(get_current_agent)]

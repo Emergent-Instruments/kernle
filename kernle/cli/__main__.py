@@ -19,6 +19,7 @@ import re
 import sys
 
 from kernle import Kernle
+from kernle.utils import resolve_agent_id
 
 # Set up logging
 logging.basicConfig(level=logging.WARNING)
@@ -1898,11 +1899,37 @@ def cmd_sync(args, k: Kernle):
     from datetime import datetime, timezone
     from pathlib import Path
 
-    # Get backend configuration
-    backend_url = os.environ.get("KERNLE_BACKEND_URL")
-    auth_token = os.environ.get("KERNLE_AUTH_TOKEN")
+    # Load credentials with priority:
+    # 1. ~/.kernle/credentials.json (preferred)
+    # 2. Environment variables (fallback)
+    # 3. ~/.kernle/config.json (legacy fallback)
 
-    # Also check stored credentials in ~/.kernle/config
+    backend_url = None
+    auth_token = None
+    user_id = None
+
+    # Try credentials.json first (preferred)
+    credentials_path = Path.home() / ".kernle" / "credentials.json"
+    if credentials_path.exists():
+        try:
+            import json as json_module
+            with open(credentials_path) as f:
+                creds = json_module.load(f)
+                backend_url = creds.get("backend_url")
+                auth_token = creds.get("auth_token")
+                user_id = creds.get("user_id")
+        except Exception:
+            pass  # Fall through to env vars
+
+    # Fall back to environment variables
+    if not backend_url:
+        backend_url = os.environ.get("KERNLE_BACKEND_URL")
+    if not auth_token:
+        auth_token = os.environ.get("KERNLE_AUTH_TOKEN")
+    if not user_id:
+        user_id = os.environ.get("KERNLE_USER_ID")
+
+    # Legacy fallback: check config.json
     config_path = Path.home() / ".kernle" / "config.json"
     if config_path.exists() and (not backend_url or not auth_token):
         try:
@@ -1913,6 +1940,22 @@ def cmd_sync(args, k: Kernle):
                 auth_token = auth_token or config.get("auth_token")
         except Exception:
             pass  # Ignore config read errors
+
+    def get_local_project_name():
+        """Extract the local project name from agent_id (without namespace)."""
+        # k.agent_id might be "roundtable" or "user123/roundtable"
+        # We want just "roundtable"
+        agent_id = k.agent_id
+        if "/" in agent_id:
+            return agent_id.split("/")[-1]
+        return agent_id
+
+    def get_namespaced_agent_id():
+        """Get the full namespaced agent ID (user_id/project_name)."""
+        project_name = get_local_project_name()
+        if user_id:
+            return f"{user_id}/{project_name}"
+        return project_name
 
     def get_http_client():
         """Get an HTTP client for backend requests."""
@@ -1926,9 +1969,9 @@ def cmd_sync(args, k: Kernle):
     def check_backend_connection(httpx_client):
         """Check if backend is reachable and authenticated."""
         if not backend_url:
-            return False, "No backend URL configured (set KERNLE_BACKEND_URL)"
+            return False, "No backend URL configured"
         if not auth_token:
-            return False, "No auth token configured (set KERNLE_AUTH_TOKEN)"
+            return False, "Not authenticated (run `kernle auth login`)"
 
         try:
             response = httpx_client.get(
@@ -1967,14 +2010,22 @@ def cmd_sync(args, k: Kernle):
         # Check backend connection
         backend_connected, connection_msg = check_backend_connection(httpx)
 
+        # Get namespaced agent ID for display
+        local_project = get_local_project_name()
+        namespaced_id = get_namespaced_agent_id()
+
         if args.json:
             status_data = {
+                "local_agent_id": local_project,
+                "namespaced_agent_id": namespaced_id if user_id else None,
+                "user_id": user_id,
                 "pending_operations": pending_count,
                 "last_sync_time": format_datetime(last_sync),
                 "local_storage_online": is_online,
                 "backend_url": backend_url or "(not configured)",
                 "backend_connected": backend_connected,
                 "connection_status": connection_msg,
+                "authenticated": bool(auth_token),
             }
             print(json.dumps(status_data, indent=2, default=str))
         else:
@@ -1982,11 +2033,21 @@ def cmd_sync(args, k: Kernle):
             print("=" * 50)
             print()
 
+            # Agent/Project info
+            print(f"📦 Local project: {local_project}")
+            if user_id and backend_connected:
+                print(f"   Synced as: {namespaced_id}")
+            elif user_id:
+                print(f"   Will sync as: {namespaced_id}")
+            print()
+
             # Connection status
             conn_icon = "🟢" if backend_connected else "🔴"
             print(f"{conn_icon} Backend: {connection_msg}")
             if backend_url:
                 print(f"   URL: {backend_url}")
+            if user_id:
+                print(f"   User: {user_id}")
             print()
 
             # Pending operations
@@ -2017,16 +2078,25 @@ def cmd_sync(args, k: Kernle):
             print()
             if pending_count > 0 and backend_connected:
                 print("💡 Run `kernle sync push` to upload pending changes")
+            elif not backend_connected and not auth_token:
+                print("💡 Run `kernle auth login` to authenticate")
             elif not backend_connected:
-                print("💡 Check your KERNLE_BACKEND_URL and KERNLE_AUTH_TOKEN")
+                print("💡 Check backend connection or run `kernle auth login`")
 
     elif args.sync_action == "push":
         httpx = get_http_client()
 
-        if not backend_url or not auth_token:
+        if not backend_url:
             print("✗ Backend not configured")
-            print("  Set KERNLE_BACKEND_URL and KERNLE_AUTH_TOKEN environment variables")
+            print("  Run `kernle auth login` or set KERNLE_BACKEND_URL")
             sys.exit(1)
+        if not auth_token:
+            print("✗ Not authenticated")
+            print("  Run `kernle auth login` or set KERNLE_AUTH_TOKEN")
+            sys.exit(1)
+
+        # Use local project name - backend will namespace with user_id
+        local_project = get_local_project_name()
 
         # Get pending changes from storage
         queued_changes = k._storage.get_queued_changes(limit=args.limit)
@@ -2096,11 +2166,16 @@ def cmd_sync(args, k: Kernle):
             operations.append(op_data)
 
         # Send to backend
+        # Include agent_id as just the local project name
+        # Backend will namespace it with the authenticated user_id
         try:
             response = httpx.post(
                 f"{backend_url.rstrip('/')}/sync/push",
                 headers=get_headers(),
-                json={"operations": operations},
+                json={
+                    "agent_id": local_project,  # Local name only, backend namespaces
+                    "operations": operations,
+                },
                 timeout=30.0,
             )
 
@@ -2120,15 +2195,21 @@ def cmd_sync(args, k: Kernle):
                 k._storage._set_sync_meta("last_sync_time", k._storage._now())
 
                 if args.json:
+                    result["local_project"] = local_project
+                    result["namespaced_id"] = get_namespaced_agent_id()
                     print(json.dumps(result, indent=2, default=str))
                 else:
+                    namespaced = get_namespaced_agent_id()
                     print(f"✓ Pushed {synced} changes")
+                    if user_id:
+                        print(f"  Synced as: {namespaced}")
                     if conflicts:
                         print(f"⚠️  {len(conflicts)} conflicts:")
                         for c in conflicts[:5]:
                             print(f"   - {c.get('record_id', 'unknown')}: {c.get('error', 'unknown error')}")
             elif response.status_code == 401:
-                print("✗ Authentication failed - check your KERNLE_AUTH_TOKEN")
+                print("✗ Authentication failed")
+                print("  Run `kernle auth login` to re-authenticate")
                 sys.exit(1)
             else:
                 print(f"✗ Push failed: {response.status_code}")
@@ -2142,10 +2223,17 @@ def cmd_sync(args, k: Kernle):
     elif args.sync_action == "pull":
         httpx = get_http_client()
 
-        if not backend_url or not auth_token:
+        if not backend_url:
             print("✗ Backend not configured")
-            print("  Set KERNLE_BACKEND_URL and KERNLE_AUTH_TOKEN environment variables")
+            print("  Run `kernle auth login` or set KERNLE_BACKEND_URL")
             sys.exit(1)
+        if not auth_token:
+            print("✗ Not authenticated")
+            print("  Run `kernle auth login` or set KERNLE_AUTH_TOKEN")
+            sys.exit(1)
+
+        # Use local project name - backend will namespace with user_id
+        local_project = get_local_project_name()
 
         # Get last sync time for incremental pull
         since = k._storage.get_last_sync_time() if not args.full else None
@@ -2153,7 +2241,10 @@ def cmd_sync(args, k: Kernle):
         print(f"Pulling changes from backend{' (full)' if args.full else ''}...")
 
         try:
-            request_data = {}
+            # Include agent_id - backend will namespace with user_id
+            request_data = {
+                "agent_id": local_project,  # Local name only, backend namespaces
+            }
             if since and not args.full:
                 request_data["since"] = format_datetime(since)
 
@@ -2247,16 +2338,21 @@ def cmd_sync(args, k: Kernle):
                         "pulled": applied,
                         "conflicts": conflicts,
                         "has_more": has_more,
+                        "local_project": local_project,
+                        "namespaced_id": get_namespaced_agent_id(),
                     }, indent=2))
                 else:
                     print(f"✓ Pulled {applied} changes")
+                    if user_id:
+                        print(f"  From: {get_namespaced_agent_id()}")
                     if conflicts > 0:
                         print(f"⚠️  {conflicts} conflicts during apply")
                     if has_more:
                         print("ℹ️  More changes available - run `kernle sync pull` again")
 
             elif response.status_code == 401:
-                print("✗ Authentication failed - check your KERNLE_AUTH_TOKEN")
+                print("✗ Authentication failed")
+                print("  Run `kernle auth login` to re-authenticate")
                 sys.exit(1)
             else:
                 print(f"✗ Pull failed: {response.status_code}")
@@ -2270,12 +2366,21 @@ def cmd_sync(args, k: Kernle):
     elif args.sync_action == "full":
         httpx = get_http_client()
 
-        if not backend_url or not auth_token:
+        if not backend_url:
             print("✗ Backend not configured")
-            print("  Set KERNLE_BACKEND_URL and KERNLE_AUTH_TOKEN environment variables")
+            print("  Run `kernle auth login` or set KERNLE_BACKEND_URL")
+            sys.exit(1)
+        if not auth_token:
+            print("✗ Not authenticated")
+            print("  Run `kernle auth login` or set KERNLE_AUTH_TOKEN")
             sys.exit(1)
 
+        # Use local project name - backend will namespace with user_id
+        local_project = get_local_project_name()
+
         print("Running full bidirectional sync...")
+        if user_id:
+            print(f"  Syncing as: {get_namespaced_agent_id()}")
         print()
 
         # Step 1: Pull first (to get remote changes)
@@ -2284,7 +2389,10 @@ def cmd_sync(args, k: Kernle):
             response = httpx.post(
                 f"{backend_url.rstrip('/')}/sync/pull",
                 headers=get_headers(),
-                json={"since": format_datetime(k._storage.get_last_sync_time())},
+                json={
+                    "agent_id": local_project,
+                    "since": format_datetime(k._storage.get_last_sync_time()),
+                },
                 timeout=30.0,
             )
 
@@ -2361,7 +2469,10 @@ def cmd_sync(args, k: Kernle):
                 response = httpx.post(
                     f"{backend_url.rstrip('/')}/sync/push",
                     headers=get_headers(),
-                    json={"operations": operations},
+                    json={
+                        "agent_id": local_project,  # Local name only, backend namespaces
+                        "operations": operations,
+                    },
                     timeout=30.0,
                 )
 
@@ -2392,6 +2503,341 @@ def cmd_sync(args, k: Kernle):
         remaining = k._storage.get_pending_sync_count()
         if remaining > 0:
             print(f"ℹ️  {remaining} operations still pending")
+
+
+def get_credentials_path():
+    """Get the path to the credentials file."""
+    from pathlib import Path
+    return Path.home() / ".kernle" / "credentials.json"
+
+
+def load_credentials():
+    """Load credentials from ~/.kernle/credentials.json."""
+    creds_path = get_credentials_path()
+    if not creds_path.exists():
+        return None
+    try:
+        with open(creds_path) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, IOError):
+        return None
+
+
+def save_credentials(credentials: dict):
+    """Save credentials to ~/.kernle/credentials.json."""
+    creds_path = get_credentials_path()
+    creds_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(creds_path, "w") as f:
+        json.dump(credentials, f, indent=2)
+    # Set restrictive permissions (owner read/write only)
+    creds_path.chmod(0o600)
+
+
+def clear_credentials():
+    """Remove the credentials file."""
+    creds_path = get_credentials_path()
+    if creds_path.exists():
+        creds_path.unlink()
+        return True
+    return False
+
+
+def prompt_backend_url(current_url: str = None) -> str:
+    """Prompt user for backend URL."""
+    default = current_url or "https://api.kernle.io"
+    print(f"Backend URL [{default}]: ", end="", flush=True)
+    try:
+        url = input().strip()
+        return url if url else default
+    except (EOFError, KeyboardInterrupt):
+        print("\nAborted.")
+        sys.exit(1)
+
+
+def cmd_auth(args, k: Kernle = None):
+    """Handle auth subcommands."""
+    from datetime import datetime, timezone
+
+    def get_http_client():
+        """Get an HTTP client for backend requests."""
+        try:
+            import httpx
+            return httpx
+        except ImportError:
+            print("✗ httpx not installed. Run: pip install httpx")
+            sys.exit(1)
+
+    if args.auth_action == "register":
+        httpx = get_http_client()
+
+        # Load existing credentials to get backend_url if set
+        existing = load_credentials()
+        backend_url = args.backend_url or (existing.get("backend_url") if existing else None)
+
+        # Prompt for backend URL if not provided
+        if not backend_url:
+            backend_url = prompt_backend_url()
+
+        backend_url = backend_url.rstrip("/")
+
+        print(f"Registering with {backend_url}...")
+        print()
+
+        # Prompt for email if not provided
+        email = args.email
+        if not email:
+            print("Email: ", end="", flush=True)
+            try:
+                email = input().strip()
+                if not email:
+                    print("✗ Email is required")
+                    sys.exit(1)
+            except (EOFError, KeyboardInterrupt):
+                print("\nAborted.")
+                sys.exit(1)
+
+        # Call registration endpoint
+        try:
+            response = httpx.post(
+                f"{backend_url}/auth/register",
+                json={"email": email},
+                timeout=30.0,
+            )
+
+            if response.status_code == 200 or response.status_code == 201:
+                result = response.json()
+                user_id = result.get("user_id")
+                api_key = result.get("api_key")
+                token = result.get("token")
+                token_expires = result.get("token_expires")
+
+                if not user_id or not api_key:
+                    print("✗ Registration failed: Invalid response from server")
+                    print(f"  Response: {response.text[:200]}")
+                    sys.exit(1)
+
+                # Save credentials
+                credentials = {
+                    "user_id": user_id,
+                    "api_key": api_key,
+                    "backend_url": backend_url,
+                    "token": token,
+                    "token_expires": token_expires,
+                }
+                save_credentials(credentials)
+
+                if args.json:
+                    print(json.dumps({
+                        "status": "success",
+                        "user_id": user_id,
+                        "backend_url": backend_url,
+                    }, indent=2))
+                else:
+                    print("✓ Registration successful!")
+                    print()
+                    print(f"  User ID:     {user_id}")
+                    print(f"  API Key:     {api_key[:20]}..." if len(api_key) > 20 else f"  API Key:     {api_key}")
+                    print(f"  Backend:     {backend_url}")
+                    print()
+                    print(f"Credentials saved to {get_credentials_path()}")
+
+            elif response.status_code == 409:
+                print("✗ Email already registered")
+                print("  Use `kernle auth login` to log in with existing credentials")
+                sys.exit(1)
+            elif response.status_code == 400:
+                error = response.json().get("detail", response.text)
+                print(f"✗ Registration failed: {error}")
+                sys.exit(1)
+            else:
+                print(f"✗ Registration failed: HTTP {response.status_code}")
+                print(f"  {response.text[:200]}")
+                sys.exit(1)
+
+        except httpx.ConnectError:
+            print(f"✗ Could not connect to {backend_url}")
+            print("  Check that the backend URL is correct and the server is running")
+            sys.exit(1)
+        except Exception as e:
+            print(f"✗ Registration failed: {e}")
+            sys.exit(1)
+
+    elif args.auth_action == "login":
+        httpx = get_http_client()
+
+        # Load existing credentials
+        existing = load_credentials()
+        backend_url = args.backend_url or (existing.get("backend_url") if existing else None)
+        api_key = args.api_key or (existing.get("api_key") if existing else None)
+
+        # Prompt for backend URL if not provided
+        if not backend_url:
+            backend_url = prompt_backend_url()
+
+        backend_url = backend_url.rstrip("/")
+
+        # Prompt for API key if not provided
+        if not api_key:
+            print("API Key: ", end="", flush=True)
+            try:
+                api_key = input().strip()
+                if not api_key:
+                    print("✗ API Key is required")
+                    sys.exit(1)
+            except (EOFError, KeyboardInterrupt):
+                print("\nAborted.")
+                sys.exit(1)
+
+        print(f"Logging in to {backend_url}...")
+
+        # Call login endpoint to refresh token
+        try:
+            response = httpx.post(
+                f"{backend_url}/auth/login",
+                headers={"Authorization": f"Bearer {api_key}"},
+                timeout=30.0,
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                user_id = result.get("user_id")
+                token = result.get("token")
+                token_expires = result.get("token_expires")
+
+                # Update credentials
+                credentials = {
+                    "user_id": user_id,
+                    "api_key": api_key,
+                    "backend_url": backend_url,
+                    "token": token,
+                    "token_expires": token_expires,
+                }
+                save_credentials(credentials)
+
+                if args.json:
+                    print(json.dumps({
+                        "status": "success",
+                        "user_id": user_id,
+                        "token_expires": token_expires,
+                    }, indent=2))
+                else:
+                    print("✓ Login successful!")
+                    print()
+                    print(f"  User ID:       {user_id}")
+                    print(f"  Backend:       {backend_url}")
+                    if token_expires:
+                        print(f"  Token expires: {token_expires}")
+                    print()
+                    print(f"Credentials saved to {get_credentials_path()}")
+
+            elif response.status_code == 401:
+                print("✗ Invalid API key")
+                sys.exit(1)
+            else:
+                print(f"✗ Login failed: HTTP {response.status_code}")
+                print(f"  {response.text[:200]}")
+                sys.exit(1)
+
+        except httpx.ConnectError:
+            print(f"✗ Could not connect to {backend_url}")
+            print("  Check that the backend URL is correct and the server is running")
+            sys.exit(1)
+        except Exception as e:
+            print(f"✗ Login failed: {e}")
+            sys.exit(1)
+
+    elif args.auth_action == "status":
+        credentials = load_credentials()
+
+        if not credentials:
+            if args.json:
+                print(json.dumps({"authenticated": False, "reason": "No credentials found"}, indent=2))
+            else:
+                print("Not authenticated")
+                print()
+                print("Run `kernle auth register` to create an account")
+                print("Run `kernle auth login` to log in with an existing API key")
+            return
+
+        user_id = credentials.get("user_id")
+        api_key = credentials.get("api_key")
+        backend_url = credentials.get("backend_url")
+        token = credentials.get("token")
+        token_expires = credentials.get("token_expires")
+
+        # Check if token is expired
+        token_valid = False
+        expires_in = None
+        if token_expires:
+            try:
+                # Parse ISO format timestamp
+                expires_dt = datetime.fromisoformat(token_expires.replace("Z", "+00:00"))
+                now = datetime.now(timezone.utc)
+                if expires_dt > now:
+                    token_valid = True
+                    delta = expires_dt - now
+                    if delta.total_seconds() < 3600:
+                        expires_in = f"{int(delta.total_seconds() / 60)} minutes"
+                    elif delta.total_seconds() < 86400:
+                        expires_in = f"{int(delta.total_seconds() / 3600)} hours"
+                    else:
+                        expires_in = f"{int(delta.total_seconds() / 86400)} days"
+            except (ValueError, TypeError):
+                pass
+
+        if args.json:
+            print(json.dumps({
+                "authenticated": True,
+                "user_id": user_id,
+                "backend_url": backend_url,
+                "has_api_key": bool(api_key),
+                "has_token": bool(token),
+                "token_valid": token_valid,
+                "token_expires": token_expires,
+            }, indent=2))
+        else:
+            print("Auth Status")
+            print("=" * 40)
+            print()
+
+            auth_icon = "🟢" if token_valid else ("🟡" if api_key else "🔴")
+            print(f"{auth_icon} Authenticated: {'Yes' if api_key else 'No'}")
+            print()
+
+            if user_id:
+                print(f"  User ID:     {user_id}")
+            if backend_url:
+                print(f"  Backend:     {backend_url}")
+            if api_key:
+                masked_key = api_key[:12] + "..." + api_key[-4:] if len(api_key) > 20 else api_key
+                print(f"  API Key:     {masked_key}")
+
+            if token:
+                if token_valid:
+                    print(f"  Token:       ✓ Valid (expires in {expires_in})")
+                else:
+                    print("  Token:       ✗ Expired")
+                    print()
+                    print("Run `kernle auth login` to refresh your token")
+            else:
+                print("  Token:       Not set")
+
+            print()
+            print(f"Credentials: {get_credentials_path()}")
+
+    elif args.auth_action == "logout":
+        creds_path = get_credentials_path()
+        if clear_credentials():
+            if args.json:
+                print(json.dumps({"status": "success", "message": "Credentials cleared"}, indent=2))
+            else:
+                print("✓ Logged out")
+                print(f"  Removed {creds_path}")
+        else:
+            if args.json:
+                print(json.dumps({"status": "success", "message": "No credentials to clear"}, indent=2))
+            else:
+                print("Already logged out (no credentials found)")
 
 
 def main():
@@ -2829,6 +3275,34 @@ def main():
     sync_full.add_argument("--json", "-j", action="store_true",
                           help="Output as JSON")
 
+    # auth (authentication and credentials management)
+    p_auth = subparsers.add_parser("auth", help="Authentication and credentials management")
+    auth_sub = p_auth.add_subparsers(dest="auth_action", required=True)
+
+    # kernle auth register [--email EMAIL] [--backend-url URL]
+    auth_register = auth_sub.add_parser("register", help="Register a new account")
+    auth_register.add_argument("--email", "-e", help="Email address")
+    auth_register.add_argument("--backend-url", "-b", help="Backend URL (e.g., https://api.kernle.io)")
+    auth_register.add_argument("--json", "-j", action="store_true",
+                               help="Output as JSON")
+
+    # kernle auth login [--api-key KEY] [--backend-url URL]
+    auth_login = auth_sub.add_parser("login", help="Log in with existing credentials")
+    auth_login.add_argument("--api-key", "-k", help="API key")
+    auth_login.add_argument("--backend-url", "-b", help="Backend URL")
+    auth_login.add_argument("--json", "-j", action="store_true",
+                            help="Output as JSON")
+
+    # kernle auth status
+    auth_status = auth_sub.add_parser("status", help="Show current auth status")
+    auth_status.add_argument("--json", "-j", action="store_true",
+                             help="Output as JSON")
+
+    # kernle auth logout
+    auth_logout = auth_sub.add_parser("logout", help="Clear stored credentials")
+    auth_logout.add_argument("--json", "-j", action="store_true",
+                             help="Output as JSON")
+
     # Pre-process arguments: handle `kernle raw "content"` by inserting "capture"
     # This is needed because argparse subparsers consume positional args before parent parser
     raw_subcommands = {"list", "show", "process", "capture"}
@@ -2853,7 +3327,11 @@ def main():
 
     # Initialize Kernle with error handling
     try:
-        agent_id = validate_input(args.agent, "agent_id", 100) if args.agent else None
+        # Resolve agent ID: explicit > env var > auto-generated
+        if args.agent:
+            agent_id = validate_input(args.agent, "agent_id", 100)
+        else:
+            agent_id = resolve_agent_id()
         k = Kernle(agent_id=agent_id)
     except (ValueError, TypeError) as e:
         logger.error(f"Failed to initialize Kernle: {e}")
@@ -2907,6 +3385,8 @@ def main():
             cmd_export(args, k)
         elif args.command == "sync":
             cmd_sync(args, k)
+        elif args.command == "auth":
+            cmd_auth(args, k)
         elif args.command == "mcp":
             cmd_mcp(args)
     except (ValueError, TypeError) as e:

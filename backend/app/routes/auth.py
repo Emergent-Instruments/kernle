@@ -8,6 +8,7 @@ from ..auth import (
     CurrentAgent,
     create_access_token,
     generate_agent_secret,
+    generate_user_id,
     hash_secret,
     verify_secret,
 )
@@ -45,7 +46,8 @@ async def register_agent(
             detail=f"Agent '{register_request.agent_id}' already exists",
         )
 
-    # Generate and hash secret
+    # Generate user_id and secret
+    user_id = generate_user_id()
     secret = generate_agent_secret()
     secret_hash = hash_secret(secret)
 
@@ -54,6 +56,7 @@ async def register_agent(
         db,
         agent_id=register_request.agent_id,
         secret_hash=secret_hash,
+        user_id=user_id,
         display_name=register_request.display_name,
         email=register_request.email,
     )
@@ -65,17 +68,17 @@ async def register_agent(
             detail="Failed to create agent",
         )
 
-    # Generate token
-    token = create_access_token(register_request.agent_id, settings)
+    # Generate token with user_id
+    token = create_access_token(register_request.agent_id, settings, user_id=user_id)
 
     log_auth_event("register", register_request.agent_id, True)
-    logger.debug(f"Agent {register_request.agent_id} registered successfully")
+    logger.debug(f"Agent {register_request.agent_id} registered with user_id={user_id}")
 
     return TokenResponse(
         access_token=token,
         expires_in=settings.jwt_expire_minutes * 60,
-        # Include secret in response header (one-time display)
-        # Client should store this securely
+        user_id=user_id,
+        secret=secret,  # One-time display
     )
 
 
@@ -103,23 +106,25 @@ async def get_token(
             detail="Invalid agent ID or secret",
         )
 
-    token = create_access_token(login_request.agent_id, settings)
+    user_id = agent.get("user_id")
+    token = create_access_token(login_request.agent_id, settings, user_id=user_id)
 
     return TokenResponse(
         access_token=token,
         expires_in=settings.jwt_expire_minutes * 60,
+        user_id=user_id,
     )
 
 
 @router.get("/me", response_model=AgentInfo)
 async def get_current_agent_info(
-    agent_id: CurrentAgent,
+    auth: CurrentAgent,
     db: Database,
 ):
     """
     Get information about the currently authenticated agent.
     """
-    agent = await get_agent(db, agent_id)
+    agent = await get_agent(db, auth.agent_id)
     if not agent:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -131,4 +136,5 @@ async def get_current_agent_info(
         display_name=agent.get("display_name"),
         created_at=agent["created_at"],
         last_sync_at=agent.get("last_sync_at"),
+        user_id=agent.get("user_id"),
     )

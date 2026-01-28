@@ -113,18 +113,22 @@ def mock_sys_argv():
 class TestMainFunction:
     """Test the main CLI entry point."""
 
+    @patch('kernle.cli.__main__.resolve_agent_id')
     @patch('kernle.cli.__main__.Kernle')
     @patch('sys.argv')
-    def test_main_load_command(self, mock_argv, mock_kernle_class, mock_kernle):
-        """Test main function with load command."""
+    def test_main_load_command(self, mock_argv, mock_kernle_class, mock_resolve, mock_kernle):
+        """Test main function with load command (no explicit agent ID)."""
         mock_argv.__getitem__.side_effect = lambda x: ["kernle", "load"][x]
         mock_argv.__len__.return_value = 2
         mock_kernle_class.return_value = mock_kernle
+        mock_resolve.return_value = "auto-test1234"
 
         with patch('sys.stdout', new=StringIO()) as fake_out:
             main()
 
-        mock_kernle_class.assert_called_once_with(agent_id=None)
+        # When no -a is provided, resolve_agent_id is called to generate one
+        mock_resolve.assert_called_once()
+        mock_kernle_class.assert_called_once_with(agent_id="auto-test1234")
         mock_kernle.load.assert_called_once()
         mock_kernle.format_memory.assert_called_once()
         assert "# Working Memory" in fake_out.getvalue()

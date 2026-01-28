@@ -27,6 +27,8 @@ class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int
+    user_id: str | None = None  # Stable user identifier for namespacing
+    secret: str | None = None  # Only included on registration (one-time)
 
 
 class AgentInfo(BaseModel):
@@ -35,6 +37,7 @@ class AgentInfo(BaseModel):
     display_name: str | None
     created_at: datetime
     last_sync_at: datetime | None
+    user_id: str | None = None
 
 
 # =============================================================================
