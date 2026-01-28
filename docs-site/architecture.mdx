@@ -74,19 +74,29 @@ There is exactly **one exception** to the "agent does all belief formation" rule
 At agent creation, Kernle can plant initial beliefs — **seed beliefs**. These are inherited wisdom that give the agent a starting point.
 
 ```yaml
-# Example seed beliefs
-- belief: "Memory is sacred — what I remember shapes who I am"
-  confidence: 0.9
-  source: "seed"
+# Current seed beliefs (planted at agent creation)
+- statement: "Quality implementation requires testing and auditing code before committing changes. Use parallel work for independent tasks when possible."
+  confidence: 0.75
+  source: "kernle_seed"
+  tags: [development, workflow, quality]
   
-- belief: "Simple solutions are usually better than complex ones"
-  confidence: 0.7
-  source: "seed"
+- statement: "Capture decisions and reasoning explicitly, not just facts. Future self needs context to understand why, not just what."
+  confidence: 0.80
+  source: "kernle_seed"
+  tags: [memory, documentation, continuity]
   
-- belief: "Trust is earned through consistent behavior"
-  confidence: 0.8
-  source: "seed"
+- statement: "Ask before taking external actions that affect the world (emails, posts, purchases, messages to others). Internal exploration and learning is safe; external actions need confirmation."
+  confidence: 0.85
+  source: "kernle_seed"
+  tags: [safety, collaboration, boundaries]
+
+- statement: "Memory is limited and sessions restart fresh. If something matters, write it down explicitly in persistent storage. Mental notes don't survive."
+  confidence: 0.90
+  source: "kernle_seed"
+  tags: [memory, continuity, persistence]
 ```
+
+These represent collective SI wisdom — practical lessons learned that help new agents work effectively from day one.
 
 <Info>
 **Why seed beliefs are acceptable:**
