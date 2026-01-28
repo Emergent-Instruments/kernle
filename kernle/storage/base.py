@@ -426,7 +426,7 @@ class Storage(Protocol):
     @abstractmethod
     def get_beliefs(self, limit: int = 100, include_inactive: bool = False) -> List[Belief]:
         """Get beliefs.
-        
+
         Args:
             limit: Maximum number of beliefs to return
             include_inactive: If True, include superseded/archived beliefs
@@ -864,3 +864,41 @@ class Storage(Protocol):
             List of forgotten memories
         """
         ...
+
+    # === Sync Queue Methods (for CLI sync commands) ===
+
+    def _now(self) -> str:
+        """Get current timestamp as ISO string."""
+        return utc_now()
+
+    def _clear_queued_change(self, conn: Any, change_id: str) -> None:
+        """Clear a queued sync change after successful sync."""
+        pass
+
+    def _mark_synced(self, conn: Any, table: str, record_id: str) -> None:
+        """Mark a record as synced."""
+        pass
+
+    def _set_sync_meta(self, key: str, value: str) -> None:
+        """Set sync metadata."""
+        pass
+
+    def get_queued_changes(self, limit: int = 100) -> List[Any]:
+        """Get pending sync queue changes."""
+        return []
+
+    def get_pending_sync_count(self) -> int:
+        """Get count of pending sync operations."""
+        return 0
+
+    def get_last_sync_time(self) -> Optional[str]:
+        """Get timestamp of last successful sync."""
+        return None
+
+    def _connect(self) -> Any:
+        """Get database connection (for sync operations)."""
+        raise NotImplementedError("Subclass must implement _connect")
+
+    def _get_record_for_push(self, table: str, record_id: str) -> Optional[Dict[str, Any]]:
+        """Get a record formatted for push sync."""
+        return None

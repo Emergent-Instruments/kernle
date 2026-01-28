@@ -389,7 +389,7 @@ class SupabaseStorage:
 
     def get_beliefs(self, limit: int = 100, include_inactive: bool = False) -> List[Belief]:
         """Get beliefs.
-        
+
         Args:
             limit: Maximum number of beliefs to return
             include_inactive: If True, include superseded/archived beliefs

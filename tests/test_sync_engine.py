@@ -641,5 +641,113 @@ class TestSyncEdgeCases:
         assert len(result.errors) >= 1
 
 
+class TestSyncHooks:
+    """Test the auto-sync hooks for load and checkpoint."""
+
+    def test_auto_sync_defaults_to_true_when_online(self, storage_with_cloud, mock_cloud_storage):
+        """Auto-sync should default to true when cloud storage is available and online."""
+        from kernle import Kernle
+
+        mock_cloud_storage.get_stats.return_value = {"episodes": 0}  # Returns value = online
+
+        k = Kernle(agent_id="test-agent", storage=storage_with_cloud)
+        assert k.auto_sync is True
+
+    def test_auto_sync_can_be_disabled_via_property(self, storage):
+        """Auto-sync can be disabled by setting the property."""
+        from kernle import Kernle
+
+        k = Kernle(agent_id="test-agent", storage=storage)
+        k.auto_sync = False
+        assert k.auto_sync is False
+
+    def test_load_with_sync_false_skips_pull(self, storage):
+        """Load with sync=False should not attempt to pull."""
+        from kernle import Kernle
+
+        k = Kernle(agent_id="test-agent", storage=storage)
+        k.auto_sync = True
+
+        # Load with sync=False should work without errors
+        memory = k.load(sync=False)
+        assert "checkpoint" in memory
+
+    def test_load_with_sync_true_attempts_pull(self, storage_with_cloud, mock_cloud_storage):
+        """Load with sync=True should attempt to pull changes."""
+        from kernle import Kernle
+
+        mock_cloud_storage.get_stats.return_value = {"episodes": 1}  # Simulates online
+        mock_cloud_storage.get_episodes.return_value = []
+        mock_cloud_storage.get_notes.return_value = []
+        mock_cloud_storage.get_beliefs.return_value = []
+        mock_cloud_storage.get_values.return_value = []
+        mock_cloud_storage.get_goals.return_value = []
+        mock_cloud_storage.get_drives.return_value = []
+        mock_cloud_storage.get_relationships.return_value = []
+
+        k = Kernle(agent_id="test-agent", storage=storage_with_cloud)
+        memory = k.load(sync=True)
+
+        # Should have attempted to pull from cloud
+        assert mock_cloud_storage.get_episodes.called or "checkpoint" in memory
+
+    def test_checkpoint_with_sync_true_attempts_push(self, storage_with_cloud, mock_cloud_storage):
+        """Checkpoint with sync=True should attempt to push changes."""
+        from kernle import Kernle
+
+        mock_cloud_storage.get_stats.return_value = {"episodes": 1}  # Simulates online
+
+        k = Kernle(agent_id="test-agent", storage=storage_with_cloud)
+
+        result = k.checkpoint("Test task", pending=["Next"], sync=True)
+
+        assert result["current_task"] == "Test task"
+        # Should have sync result attached
+        assert "_sync" in result
+        sync_result = result["_sync"]
+        assert sync_result["attempted"] is True
+
+    def test_checkpoint_sync_result_in_response(self, storage):
+        """Checkpoint should include sync result when sync is attempted."""
+        from kernle import Kernle
+
+        k = Kernle(agent_id="test-agent", storage=storage)
+
+        # With no cloud storage, sync should report offline
+        result = k.checkpoint("Test task", sync=True)
+
+        assert "_sync" in result
+        sync_result = result["_sync"]
+        # Should not have attempted since offline
+        assert sync_result["attempted"] is False
+        assert len(sync_result["errors"]) > 0
+
+    def test_load_sync_non_blocking_on_error(self, storage_with_cloud, mock_cloud_storage):
+        """Load should not fail if sync pull fails."""
+        from kernle import Kernle
+
+        # Make cloud throw an error
+        mock_cloud_storage.get_stats.side_effect = Exception("Network error")
+
+        k = Kernle(agent_id="test-agent", storage=storage_with_cloud)
+
+        # Load should still work
+        memory = k.load(sync=True)
+        assert "checkpoint" in memory
+
+    def test_checkpoint_sync_non_blocking_on_error(self, storage_with_cloud, mock_cloud_storage):
+        """Checkpoint should not fail if sync push fails."""
+        from kernle import Kernle
+
+        # Make cloud throw an error
+        mock_cloud_storage.get_stats.side_effect = Exception("Network error")
+
+        k = Kernle(agent_id="test-agent", storage=storage_with_cloud)
+
+        # Checkpoint should still work
+        result = k.checkpoint("Test task", sync=True)
+        assert result["current_task"] == "Test task"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

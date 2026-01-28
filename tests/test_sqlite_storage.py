@@ -490,5 +490,182 @@ class TestOfflineOperation:
                     os.environ[key] = val
 
 
+class TestSyncQueue:
+    """Tests for the enhanced sync queue functionality."""
+
+    def test_queue_sync_operation(self, storage):
+        """Test manually queueing a sync operation."""
+        queue_id = storage.queue_sync_operation(
+            operation="insert",
+            table="episodes",
+            record_id="test-ep-1",
+            data={"objective": "Test", "outcome": "Testing queue"}
+        )
+        assert queue_id is not None
+        assert isinstance(queue_id, int)
+
+    def test_get_pending_sync_operations(self, storage):
+        """Test getting pending sync operations."""
+        # Save some records (which automatically queue sync)
+        storage.save_episode(Episode(
+            id="ep1",
+            agent_id="test-agent",
+            objective="Test",
+            outcome="Test"
+        ))
+        storage.save_note(Note(
+            id="n1",
+            agent_id="test-agent",
+            content="Test note"
+        ))
+
+        pending = storage.get_pending_sync_operations()
+        assert len(pending) >= 2
+
+        # Check structure of pending operations
+        for op in pending:
+            assert "id" in op
+            assert "operation" in op
+            assert "table_name" in op
+            assert "record_id" in op
+            assert "data" in op
+            assert "local_updated_at" in op
+
+    def test_pending_operations_have_data(self, storage):
+        """Test that pending operations include record data."""
+        storage.save_episode(Episode(
+            id="ep-with-data",
+            agent_id="test-agent",
+            objective="Data test",
+            outcome="Should have data in queue"
+        ))
+
+        pending = storage.get_pending_sync_operations()
+        episode_ops = [op for op in pending if op["record_id"] == "ep-with-data"]
+        assert len(episode_ops) == 1
+
+        op = episode_ops[0]
+        assert op["data"] is not None
+        assert op["data"]["objective"] == "Data test"
+        assert op["data"]["outcome"] == "Should have data in queue"
+
+    def test_mark_synced(self, storage):
+        """Test marking operations as synced."""
+        # Create some pending operations
+        storage.save_episode(Episode(
+            id="ep1",
+            agent_id="test-agent",
+            objective="Test",
+            outcome="Test"
+        ))
+        storage.save_note(Note(
+            id="n1",
+            agent_id="test-agent",
+            content="Test"
+        ))
+
+        # Get pending
+        pending = storage.get_pending_sync_operations()
+        initial_count = len(pending)
+        assert initial_count >= 2
+
+        # Mark first one as synced
+        ids_to_mark = [pending[0]["id"]]
+        marked = storage.mark_synced(ids_to_mark)
+        assert marked == 1
+
+        # Verify count decreased
+        pending_after = storage.get_pending_sync_operations()
+        assert len(pending_after) == initial_count - 1
+
+    def test_mark_synced_multiple(self, storage):
+        """Test marking multiple operations as synced."""
+        # Create operations
+        storage.save_episode(Episode(
+            id="ep1", agent_id="test-agent",
+            objective="Test1", outcome="Test1"
+        ))
+        storage.save_episode(Episode(
+            id="ep2", agent_id="test-agent",
+            objective="Test2", outcome="Test2"
+        ))
+        storage.save_episode(Episode(
+            id="ep3", agent_id="test-agent",
+            objective="Test3", outcome="Test3"
+        ))
+
+        pending = storage.get_pending_sync_operations()
+        ids_to_mark = [op["id"] for op in pending[:2]]
+
+        marked = storage.mark_synced(ids_to_mark)
+        assert marked == 2
+
+    def test_get_sync_status(self, storage):
+        """Test getting sync status summary."""
+        # Create some operations
+        storage.save_episode(Episode(
+            id="ep1", agent_id="test-agent",
+            objective="Test", outcome="Test"
+        ))
+        storage.save_note(Note(
+            id="n1", agent_id="test-agent",
+            content="Test"
+        ))
+
+        status = storage.get_sync_status()
+
+        # Check structure
+        assert "pending" in status
+        assert "synced" in status
+        assert "total" in status
+        assert "by_table" in status
+        assert "by_operation" in status
+
+        # Check values
+        assert status["pending"] >= 2
+        assert status["total"] == status["pending"] + status["synced"]
+
+        # Check breakdown
+        assert "episodes" in status["by_table"]
+        assert "notes" in status["by_table"]
+
+    def test_sync_status_by_operation(self, storage):
+        """Test sync status breakdown by operation type."""
+        storage.save_episode(Episode(
+            id="ep1", agent_id="test-agent",
+            objective="Test", outcome="Test"
+        ))
+
+        status = storage.get_sync_status()
+
+        # All saves should queue as "upsert"
+        assert "upsert" in status["by_operation"]
+        assert status["by_operation"]["upsert"] >= 1
+
+    def test_queue_deduplication(self, storage):
+        """Test that multiple saves to same record don't create duplicate queue entries."""
+        # Save same episode multiple times
+        for i in range(3):
+            storage.save_episode(Episode(
+                id="ep-same",
+                agent_id="test-agent",
+                objective=f"Update {i}",
+                outcome="Test"
+            ))
+
+        # Should only have one pending operation for this record
+        pending = storage.get_pending_sync_operations()
+        ep_ops = [op for op in pending if op["record_id"] == "ep-same"]
+        assert len(ep_ops) == 1
+
+        # Should have the latest data
+        assert ep_ops[0]["data"]["objective"] == "Update 2"
+
+    def test_mark_synced_empty_list(self, storage):
+        """Test marking empty list returns 0."""
+        marked = storage.mark_synced([])
+        assert marked == 0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

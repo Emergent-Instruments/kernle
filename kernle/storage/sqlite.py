@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 9  # Bumped for forgetting fields
+SCHEMA_VERSION = 10  # Bumped for enhanced sync queue
 
 SCHEMA = """
 -- Schema version tracking
@@ -374,17 +374,21 @@ CREATE INDEX IF NOT EXISTS idx_raw_agent ON raw_entries(agent_id);
 CREATE INDEX IF NOT EXISTS idx_raw_processed ON raw_entries(agent_id, processed);
 CREATE INDEX IF NOT EXISTS idx_raw_timestamp ON raw_entries(agent_id, timestamp);
 
--- Sync queue for offline changes
+-- Sync queue for offline changes (enhanced v2)
 CREATE TABLE IF NOT EXISTS sync_queue (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     table_name TEXT NOT NULL,
     record_id TEXT NOT NULL,
     operation TEXT NOT NULL,  -- insert, update, delete
-    payload TEXT,  -- JSON payload of the change (for offline queuing)
-    queued_at TEXT NOT NULL
+    data TEXT,  -- JSON payload of the record data
+    local_updated_at TEXT NOT NULL,
+    synced INTEGER DEFAULT 0,  -- 0 = pending, 1 = synced
+    payload TEXT,  -- Legacy: JSON payload (kept for backward compatibility)
+    queued_at TEXT  -- Legacy: kept for backward compatibility
 );
 CREATE INDEX IF NOT EXISTS idx_sync_queue_table ON sync_queue(table_name);
 CREATE INDEX IF NOT EXISTS idx_sync_queue_record ON sync_queue(record_id);
+CREATE INDEX IF NOT EXISTS idx_sync_queue_synced ON sync_queue(synced);
 
 -- Sync metadata (tracks last sync time and state)
 CREATE TABLE IF NOT EXISTS sync_meta (
@@ -739,11 +743,17 @@ class SQLiteStorage:
             if 'confidence_history' not in rel_cols:
                 migrations.append("ALTER TABLE relationships ADD COLUMN confidence_history TEXT")
 
-        # Migrations for sync_queue table
+        # Migrations for sync_queue table (enhanced v2)
         sync_cols = get_columns('sync_queue')
         if 'sync_queue' in table_names:
             if 'payload' not in sync_cols:
                 migrations.append("ALTER TABLE sync_queue ADD COLUMN payload TEXT")
+            if 'data' not in sync_cols:
+                migrations.append("ALTER TABLE sync_queue ADD COLUMN data TEXT")
+            if 'local_updated_at' not in sync_cols:
+                migrations.append("ALTER TABLE sync_queue ADD COLUMN local_updated_at TEXT")
+            if 'synced' not in sync_cols:
+                migrations.append("ALTER TABLE sync_queue ADD COLUMN synced INTEGER DEFAULT 0")
 
         # === Forgetting field migrations ===
         # Add forgetting fields to all memory tables
@@ -847,17 +857,42 @@ class SQLiteStorage:
         except (IndexError, KeyError):
             return default
 
+    def _record_to_dict(self, record: Any) -> Dict[str, Any]:
+        """Serialize a record to a dictionary for sync queue data.
+
+        Handles datetime conversion and nested objects.
+        """
+        import dataclasses
+
+        if not dataclasses.is_dataclass(record):
+            return {}
+
+        result = {}
+        for field in dataclasses.fields(record):
+            value = getattr(record, field.name)
+            if value is None:
+                result[field.name] = None
+            elif isinstance(value, datetime):
+                result[field.name] = value.isoformat()
+            elif isinstance(value, (list, dict)):
+                result[field.name] = value
+            else:
+                result[field.name] = value
+        return result
+
     def _queue_sync(
         self,
         conn: sqlite3.Connection,
         table: str,
         record_id: str,
         operation: str,
-        payload: Optional[str] = None
+        payload: Optional[str] = None,
+        data: Optional[str] = None
     ):
         """Queue a change for sync.
 
         Deduplicates by (table, record_id) - only keeps latest operation.
+        Updates existing unsynced entries rather than creating duplicates.
 
         IMPORTANT: Caller must ensure this runs within a transaction for atomicity.
         The connection should be used as a context manager: `with conn:` or
@@ -865,17 +900,28 @@ class SQLiteStorage:
         """
         now = self._now()
 
-        # Delete any existing entry for this record, then insert fresh
-        # Atomicity is guaranteed by SQLite's transaction handling when
-        # the caller uses `with conn:` or explicit transaction control
-        conn.execute(
-            "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
+        # Check for existing unsynced entry for this record
+        existing = conn.execute(
+            "SELECT id FROM sync_queue WHERE table_name = ? AND record_id = ? AND synced = 0",
             (table, record_id)
-        )
-        conn.execute(
-            "INSERT INTO sync_queue (table_name, record_id, operation, payload, queued_at) VALUES (?, ?, ?, ?, ?)",
-            (table, record_id, operation, payload, now)
-        )
+        ).fetchone()
+
+        if existing:
+            # Update existing entry with new operation and data
+            conn.execute(
+                """UPDATE sync_queue
+                   SET operation = ?, data = ?, local_updated_at = ?, payload = ?, queued_at = ?
+                   WHERE id = ?""",
+                (operation, data, now, payload, now, existing["id"])
+            )
+        else:
+            # Insert new entry
+            conn.execute(
+                """INSERT INTO sync_queue
+                   (table_name, record_id, operation, data, local_updated_at, synced, payload, queued_at)
+                   VALUES (?, ?, ?, ?, ?, 0, ?, ?)""",
+                (table, record_id, operation, data, now, payload, now)
+            )
 
     def _content_hash(self, content: str) -> str:
         """Hash content for change detection."""
@@ -987,7 +1033,9 @@ class SQLiteStorage:
                 episode.version,
                 1 if episode.deleted else 0
             ))
-            self._queue_sync(conn, "episodes", episode.id, "upsert")
+            # Queue for sync with record data
+            episode_data = self._to_json(self._record_to_dict(episode))
+            self._queue_sync(conn, "episodes", episode.id, "upsert", data=episode_data)
 
             # Save embedding for search
             content = self._get_searchable_content("episode", episode)
@@ -1229,7 +1277,9 @@ class SQLiteStorage:
                 belief.version,
                 1 if belief.deleted else 0
             ))
-            self._queue_sync(conn, "beliefs", belief.id, "upsert")
+            # Queue for sync with record data
+            belief_data = self._to_json(self._record_to_dict(belief))
+            self._queue_sync(conn, "beliefs", belief.id, "upsert", data=belief_data)
 
             # Save embedding for search
             self._save_embedding(conn, "beliefs", belief.id, belief.statement)
@@ -1340,7 +1390,9 @@ class SQLiteStorage:
                 value.version,
                 1 if value.deleted else 0
             ))
-            self._queue_sync(conn, "agent_values", value.id, "upsert")
+            # Queue for sync with record data
+            value_data = self._to_json(self._record_to_dict(value))
+            self._queue_sync(conn, "agent_values", value.id, "upsert", data=value_data)
 
             # Save embedding for search
             content = f"{value.name}: {value.statement}"
@@ -1427,7 +1479,9 @@ class SQLiteStorage:
                 goal.version,
                 1 if goal.deleted else 0
             ))
-            self._queue_sync(conn, "goals", goal.id, "upsert")
+            # Queue for sync with record data
+            goal_data = self._to_json(self._record_to_dict(goal))
+            self._queue_sync(conn, "goals", goal.id, "upsert", data=goal_data)
 
             # Save embedding for search
             content = f"{goal.title} {goal.description or ''}"
@@ -1523,7 +1577,9 @@ class SQLiteStorage:
                 note.version,
                 1 if note.deleted else 0
             ))
-            self._queue_sync(conn, "notes", note.id, "upsert")
+            # Queue for sync with record data
+            note_data = self._to_json(self._record_to_dict(note))
+            self._queue_sync(conn, "notes", note.id, "upsert", data=note_data)
 
             # Save embedding for search
             self._save_embedding(conn, "notes", note.id, note.content)
@@ -1659,7 +1715,9 @@ class SQLiteStorage:
                     0
                 ))
 
-            self._queue_sync(conn, "drives", drive.id, "upsert")
+            # Queue for sync with record data
+            drive_data = self._to_json(self._record_to_dict(drive))
+            self._queue_sync(conn, "drives", drive.id, "upsert", data=drive_data)
             conn.commit()
 
         return drive.id
@@ -1792,7 +1850,9 @@ class SQLiteStorage:
                     0
                 ))
 
-            self._queue_sync(conn, "relationships", relationship.id, "upsert")
+            # Queue for sync with record data
+            relationship_data = self._to_json(self._record_to_dict(relationship))
+            self._queue_sync(conn, "relationships", relationship.id, "upsert", data=relationship_data)
             conn.commit()
 
         return relationship.id
@@ -1891,8 +1951,9 @@ class SQLiteStorage:
                 0,  # deleted
             ))
 
-            # Queue for sync
-            self._queue_sync(conn, "playbooks", playbook.id, "upsert")
+            # Queue for sync with record data
+            playbook_data = self._to_json(self._record_to_dict(playbook))
+            self._queue_sync(conn, "playbooks", playbook.id, "upsert", data=playbook_data)
 
             # Add embedding for search
             content = f"{playbook.name} {playbook.description} {' '.join(playbook.trigger_conditions)}"
@@ -2091,7 +2152,17 @@ class SQLiteStorage:
                 1,
                 0
             ))
-            self._queue_sync(conn, "raw_entries", raw_id, "upsert")
+            # Queue for sync with record data
+            raw_data = self._to_json({
+                "id": raw_id,
+                "agent_id": self.agent_id,
+                "content": content,
+                "timestamp": now,
+                "source": source,
+                "processed": False,
+                "tags": tags,
+            })
+            self._queue_sync(conn, "raw_entries", raw_id, "upsert", data=raw_data)
 
             # Save embedding for search
             self._save_embedding(conn, "raw_entries", raw_id, content)
@@ -3132,19 +3203,167 @@ class SQLiteStorage:
 
         return results[:limit]
 
-    # === Sync ===
+    # === Sync Queue ===
+
+    def queue_sync_operation(
+        self,
+        operation: str,
+        table: str,
+        record_id: str,
+        data: Optional[Dict[str, Any]] = None
+    ) -> int:
+        """Queue a sync operation for later synchronization.
+
+        Args:
+            operation: Operation type ('insert', 'update', 'delete')
+            table: Table name (e.g., 'episodes', 'notes')
+            record_id: ID of the record
+            data: Optional JSON-serializable data payload
+
+        Returns:
+            The queue entry ID
+        """
+        now = self._now()
+        data_json = self._to_json(data) if data else None
+
+        with self._connect() as conn:
+            # Check for existing unsynced entry
+            existing = conn.execute(
+                "SELECT id FROM sync_queue WHERE table_name = ? AND record_id = ? AND synced = 0",
+                (table, record_id)
+            ).fetchone()
+
+            if existing:
+                # Update existing entry
+                conn.execute(
+                    """UPDATE sync_queue
+                       SET operation = ?, data = ?, local_updated_at = ?
+                       WHERE id = ?""",
+                    (operation, data_json, now, existing["id"])
+                )
+                conn.commit()
+                return existing["id"]
+            else:
+                # Insert new entry
+                cursor = conn.execute(
+                    """INSERT INTO sync_queue
+                       (table_name, record_id, operation, data, local_updated_at, synced, queued_at)
+                       VALUES (?, ?, ?, ?, ?, 0, ?)""",
+                    (table, record_id, operation, data_json, now, now)
+                )
+                conn.commit()
+                return cursor.lastrowid
+
+    def get_pending_sync_operations(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get all unsynced operations from the queue.
+
+        Returns:
+            List of dicts with: id, operation, table_name, record_id, data, local_updated_at
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT id, operation, table_name, record_id, data, local_updated_at
+                   FROM sync_queue
+                   WHERE synced = 0
+                   ORDER BY id
+                   LIMIT ?""",
+                (limit,)
+            ).fetchall()
+
+        return [
+            {
+                "id": row["id"],
+                "operation": row["operation"],
+                "table_name": row["table_name"],
+                "record_id": row["record_id"],
+                "data": self._from_json(row["data"]) if row["data"] else None,
+                "local_updated_at": self._parse_datetime(row["local_updated_at"]),
+            }
+            for row in rows
+        ]
+
+    def mark_synced(self, ids: List[int]) -> int:
+        """Mark sync queue entries as synced.
+
+        Args:
+            ids: List of sync queue entry IDs to mark as synced
+
+        Returns:
+            Number of entries marked as synced
+        """
+        if not ids:
+            return 0
+
+        with self._connect() as conn:
+            placeholders = ",".join("?" * len(ids))
+            cursor = conn.execute(
+                f"UPDATE sync_queue SET synced = 1 WHERE id IN ({placeholders})",
+                ids
+            )
+            conn.commit()
+            return cursor.rowcount
+
+    def get_sync_status(self) -> Dict[str, Any]:
+        """Get sync queue status with counts.
+
+        Returns:
+            Dict with:
+                - pending: count of unsynced operations
+                - synced: count of synced operations
+                - total: total queue entries
+                - by_table: breakdown by table name
+                - by_operation: breakdown by operation type
+        """
+        with self._connect() as conn:
+            # Overall counts
+            pending = conn.execute(
+                "SELECT COUNT(*) FROM sync_queue WHERE synced = 0"
+            ).fetchone()[0]
+            synced = conn.execute(
+                "SELECT COUNT(*) FROM sync_queue WHERE synced = 1"
+            ).fetchone()[0]
+
+            # Breakdown by table (pending only)
+            table_rows = conn.execute(
+                """SELECT table_name, COUNT(*) as count
+                   FROM sync_queue WHERE synced = 0
+                   GROUP BY table_name"""
+            ).fetchall()
+            by_table = {row["table_name"]: row["count"] for row in table_rows}
+
+            # Breakdown by operation (pending only)
+            op_rows = conn.execute(
+                """SELECT operation, COUNT(*) as count
+                   FROM sync_queue WHERE synced = 0
+                   GROUP BY operation"""
+            ).fetchall()
+            by_operation = {row["operation"]: row["count"] for row in op_rows}
+
+        return {
+            "pending": pending,
+            "synced": synced,
+            "total": pending + synced,
+            "by_table": by_table,
+            "by_operation": by_operation,
+        }
 
     def get_pending_sync_count(self) -> int:
         """Get count of records pending sync."""
         with self._connect() as conn:
-            count = conn.execute("SELECT COUNT(*) FROM sync_queue").fetchone()[0]
+            count = conn.execute(
+                "SELECT COUNT(*) FROM sync_queue WHERE synced = 0"
+            ).fetchone()[0]
         return count
 
     def get_queued_changes(self, limit: int = 100) -> List[QueuedChange]:
-        """Get queued changes for sync."""
+        """Get queued changes for sync (legacy method, returns unsynced items)."""
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT id, table_name, record_id, operation, payload, queued_at FROM sync_queue ORDER BY id LIMIT ?",
+                """SELECT id, table_name, record_id, operation, payload, queued_at
+                   FROM sync_queue
+                   WHERE synced = 0
+                   ORDER BY id
+                   LIMIT ?""",
                 (limit,)
             ).fetchall()
 
@@ -3161,8 +3380,8 @@ class SQLiteStorage:
         ]
 
     def _clear_queued_change(self, conn: sqlite3.Connection, queue_id: int):
-        """Remove a change from the queue after successful sync."""
-        conn.execute("DELETE FROM sync_queue WHERE id = ?", (queue_id,))
+        """Mark a change as synced (legacy behavior kept for compatibility)."""
+        conn.execute("UPDATE sync_queue SET synced = 1 WHERE id = ?", (queue_id,))
 
     def _get_sync_meta(self, key: str) -> Optional[str]:
         """Get a sync metadata value."""

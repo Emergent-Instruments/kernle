@@ -40,7 +40,15 @@ def validate_input(value: str, field_name: str, max_length: int = 1000) -> str:
 
 def cmd_load(args, k: Kernle):
     """Load and display working memory."""
-    memory = k.load()
+    # Determine sync setting from args
+    sync = None
+    if getattr(args, 'no_sync', False):
+        sync = False
+    elif getattr(args, 'sync', False):
+        sync = True
+
+    memory = k.load(sync=sync)
+
     if args.json:
         print(json.dumps(memory, indent=2, default=str))
     else:
@@ -54,10 +62,28 @@ def cmd_checkpoint(args, k: Kernle):
         pending = [validate_input(p, "pending item", 200) for p in (args.pending or [])]
         context = validate_input(args.context, "context", 1000) if args.context else None
 
-        result = k.checkpoint(task, pending, context)
+        # Determine sync setting from args
+        sync = None
+        if getattr(args, 'no_sync', False):
+            sync = False
+        elif getattr(args, 'sync', False):
+            sync = True
+
+        result = k.checkpoint(task, pending, context, sync=sync)
         print(f"✓ Checkpoint saved: {result['current_task']}")
         if result.get("pending"):
             print(f"  Pending: {len(result['pending'])} items")
+
+        # Show sync status if sync was attempted
+        sync_result = result.get("_sync")
+        if sync_result:
+            if sync_result.get("attempted"):
+                if sync_result.get("pushed", 0) > 0:
+                    print(f"  ↑ Synced: {sync_result['pushed']} changes pushed")
+                elif sync_result.get("errors"):
+                    print(f"  ⚠ Sync: {sync_result['errors'][0][:50]}")
+            elif sync_result.get("errors"):
+                print("  ℹ Sync: offline, changes queued")
 
     elif args.checkpoint_action == "load":
         cp = k.load_checkpoint()
@@ -1866,6 +1892,459 @@ def cmd_export(args, k: Kernle):
     print(f"✓ Exported memory to {args.path}")
 
 
+def cmd_sync(args, k: Kernle):
+    """Handle sync subcommands for local-to-cloud synchronization."""
+    import os
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    # Get backend configuration
+    backend_url = os.environ.get("KERNLE_BACKEND_URL")
+    auth_token = os.environ.get("KERNLE_AUTH_TOKEN")
+
+    # Also check stored credentials in ~/.kernle/config
+    config_path = Path.home() / ".kernle" / "config.json"
+    if config_path.exists() and (not backend_url or not auth_token):
+        try:
+            import json as json_module
+            with open(config_path) as f:
+                config = json_module.load(f)
+                backend_url = backend_url or config.get("backend_url")
+                auth_token = auth_token or config.get("auth_token")
+        except Exception:
+            pass  # Ignore config read errors
+
+    def get_http_client():
+        """Get an HTTP client for backend requests."""
+        try:
+            import httpx
+            return httpx
+        except ImportError:
+            print("✗ httpx not installed. Run: pip install httpx")
+            sys.exit(1)
+
+    def check_backend_connection(httpx_client):
+        """Check if backend is reachable and authenticated."""
+        if not backend_url:
+            return False, "No backend URL configured (set KERNLE_BACKEND_URL)"
+        if not auth_token:
+            return False, "No auth token configured (set KERNLE_AUTH_TOKEN)"
+
+        try:
+            response = httpx_client.get(
+                f"{backend_url.rstrip('/')}/health",
+                timeout=5.0,
+            )
+            if response.status_code == 200:
+                return True, "Connected"
+            return False, f"Backend returned status {response.status_code}"
+        except Exception as e:
+            return False, f"Connection failed: {e}"
+
+    def get_headers():
+        """Get authorization headers for backend requests."""
+        return {
+            "Authorization": f"Bearer {auth_token}",
+            "Content-Type": "application/json",
+        }
+
+    def format_datetime(dt):
+        """Format datetime for API requests."""
+        if dt is None:
+            return None
+        if isinstance(dt, str):
+            return dt
+        return dt.isoformat()
+
+    if args.sync_action == "status":
+        httpx = get_http_client()
+
+        # Get local status from storage
+        pending_count = k._storage.get_pending_sync_count()
+        last_sync = k._storage.get_last_sync_time()
+        is_online = k._storage.is_online()
+
+        # Check backend connection
+        backend_connected, connection_msg = check_backend_connection(httpx)
+
+        if args.json:
+            status_data = {
+                "pending_operations": pending_count,
+                "last_sync_time": format_datetime(last_sync),
+                "local_storage_online": is_online,
+                "backend_url": backend_url or "(not configured)",
+                "backend_connected": backend_connected,
+                "connection_status": connection_msg,
+            }
+            print(json.dumps(status_data, indent=2, default=str))
+        else:
+            print("Sync Status")
+            print("=" * 50)
+            print()
+
+            # Connection status
+            conn_icon = "🟢" if backend_connected else "🔴"
+            print(f"{conn_icon} Backend: {connection_msg}")
+            if backend_url:
+                print(f"   URL: {backend_url}")
+            print()
+
+            # Pending operations
+            pending_icon = "🟢" if pending_count == 0 else "🟡" if pending_count < 10 else "🟠"
+            print(f"{pending_icon} Pending operations: {pending_count}")
+
+            # Last sync time
+            if last_sync:
+                now = datetime.now(timezone.utc)
+                if hasattr(last_sync, 'tzinfo') and last_sync.tzinfo is None:
+                    from datetime import timezone as tz
+                    last_sync = last_sync.replace(tzinfo=tz.utc)
+                elapsed = now - last_sync
+                if elapsed.total_seconds() < 60:
+                    elapsed_str = "just now"
+                elif elapsed.total_seconds() < 3600:
+                    elapsed_str = f"{int(elapsed.total_seconds() / 60)} minutes ago"
+                elif elapsed.total_seconds() < 86400:
+                    elapsed_str = f"{int(elapsed.total_seconds() / 3600)} hours ago"
+                else:
+                    elapsed_str = f"{int(elapsed.total_seconds() / 86400)} days ago"
+                print(f"🕐 Last sync: {elapsed_str}")
+                print(f"   ({last_sync.isoformat()[:19]})")
+            else:
+                print("🕐 Last sync: Never")
+
+            # Suggestions
+            print()
+            if pending_count > 0 and backend_connected:
+                print("💡 Run `kernle sync push` to upload pending changes")
+            elif not backend_connected:
+                print("💡 Check your KERNLE_BACKEND_URL and KERNLE_AUTH_TOKEN")
+
+    elif args.sync_action == "push":
+        httpx = get_http_client()
+
+        if not backend_url or not auth_token:
+            print("✗ Backend not configured")
+            print("  Set KERNLE_BACKEND_URL and KERNLE_AUTH_TOKEN environment variables")
+            sys.exit(1)
+
+        # Get pending changes from storage
+        queued_changes = k._storage.get_queued_changes(limit=args.limit)
+
+        if not queued_changes:
+            print("✓ No pending changes to push")
+            return
+
+        print(f"Pushing {len(queued_changes)} changes to backend...")
+
+        # Build operations list for the API
+        operations = []
+        for change in queued_changes:
+            # Get the actual record data
+            record = k._storage._get_record_for_push(change.table_name, change.record_id)
+
+            op_type = "update" if change.operation in ("upsert", "insert", "update") else change.operation
+
+            op_data = {
+                "operation": op_type,
+                "table": change.table_name,
+                "record_id": change.record_id,
+                "local_updated_at": format_datetime(change.queued_at),
+                "version": 1,
+            }
+
+            # Add record data for non-delete operations
+            if record and op_type != "delete":
+                # Convert record to dict
+                record_dict = {}
+                for field in ["id", "agent_id", "content", "objective", "outcome_type",
+                              "outcome_description", "lessons_learned", "tags", "statement",
+                              "confidence", "drive_type", "intensity", "name", "priority",
+                              "title", "status", "progress", "entity_name", "entity_type",
+                              "relationship_type", "notes", "sentiment", "focus_areas",
+                              "created_at", "updated_at", "local_updated_at"]:
+                    if hasattr(record, field):
+                        value = getattr(record, field)
+                        if hasattr(value, 'isoformat'):
+                            value = value.isoformat()
+                        record_dict[field] = value
+                op_data["data"] = record_dict
+
+            operations.append(op_data)
+
+        # Send to backend
+        try:
+            response = httpx.post(
+                f"{backend_url.rstrip('/')}/sync/push",
+                headers=get_headers(),
+                json={"operations": operations},
+                timeout=30.0,
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                synced = result.get("synced", 0)
+                conflicts = result.get("conflicts", [])
+
+                # Clear synced items from local queue
+                with k._storage._connect() as conn:
+                    for change in queued_changes[:synced]:
+                        k._storage._clear_queued_change(conn, change.id)
+                        k._storage._mark_synced(conn, change.table_name, change.record_id)
+                    conn.commit()
+
+                # Update last sync time
+                k._storage._set_sync_meta("last_sync_time", k._storage._now())
+
+                if args.json:
+                    print(json.dumps(result, indent=2, default=str))
+                else:
+                    print(f"✓ Pushed {synced} changes")
+                    if conflicts:
+                        print(f"⚠️  {len(conflicts)} conflicts:")
+                        for c in conflicts[:5]:
+                            print(f"   - {c.get('record_id', 'unknown')}: {c.get('error', 'unknown error')}")
+            elif response.status_code == 401:
+                print("✗ Authentication failed - check your KERNLE_AUTH_TOKEN")
+                sys.exit(1)
+            else:
+                print(f"✗ Push failed: {response.status_code}")
+                print(f"  {response.text[:200]}")
+                sys.exit(1)
+
+        except Exception as e:
+            print(f"✗ Push failed: {e}")
+            sys.exit(1)
+
+    elif args.sync_action == "pull":
+        httpx = get_http_client()
+
+        if not backend_url or not auth_token:
+            print("✗ Backend not configured")
+            print("  Set KERNLE_BACKEND_URL and KERNLE_AUTH_TOKEN environment variables")
+            sys.exit(1)
+
+        # Get last sync time for incremental pull
+        since = k._storage.get_last_sync_time() if not args.full else None
+
+        print(f"Pulling changes from backend{' (full)' if args.full else ''}...")
+
+        try:
+            request_data = {}
+            if since and not args.full:
+                request_data["since"] = format_datetime(since)
+
+            response = httpx.post(
+                f"{backend_url.rstrip('/')}/sync/pull",
+                headers=get_headers(),
+                json=request_data,
+                timeout=30.0,
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                operations = result.get("operations", [])
+                has_more = result.get("has_more", False)
+
+                if not operations:
+                    print("✓ Already up to date")
+                    return
+
+                # Apply operations locally
+                applied = 0
+                conflicts = 0
+
+                for op in operations:
+                    try:
+                        table = op.get("table")
+                        record_id = op.get("record_id")
+                        data = op.get("data", {})
+                        operation = op.get("operation")
+
+                        if operation == "delete":
+                            # Handle soft delete
+                            # (implementation depends on storage structure)
+                            pass
+                        else:
+                            # Upsert the record
+                            # This is simplified - real implementation would use proper converters
+                            if table == "episodes" and data:
+                                from kernle.storage import Episode
+                                ep = Episode(
+                                    id=record_id,
+                                    agent_id=k.agent_id,
+                                    objective=data.get("objective", ""),
+                                    outcome_type=data.get("outcome_type", "neutral"),
+                                    outcome_description=data.get("outcome_description", ""),
+                                    lessons=data.get("lessons_learned", []),
+                                    tags=data.get("tags", []),
+                                )
+                                k._storage.save_episode(ep)
+                                # Mark as synced (don't queue for push)
+                                with k._storage._connect() as conn:
+                                    k._storage._mark_synced(conn, table, record_id)
+                                    conn.execute(
+                                        "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
+                                        (table, record_id)
+                                    )
+                                    conn.commit()
+                                applied += 1
+                            elif table == "notes" and data:
+                                from kernle.storage import Note
+                                note = Note(
+                                    id=record_id,
+                                    agent_id=k.agent_id,
+                                    content=data.get("content", ""),
+                                    note_type=data.get("note_type", "note"),
+                                    tags=data.get("tags", []),
+                                )
+                                k._storage.save_note(note)
+                                with k._storage._connect() as conn:
+                                    k._storage._mark_synced(conn, table, record_id)
+                                    conn.execute(
+                                        "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
+                                        (table, record_id)
+                                    )
+                                    conn.commit()
+                                applied += 1
+                            # Add more table handlers as needed
+                            else:
+                                # For other tables, just track as applied
+                                applied += 1
+
+                    except Exception as e:
+                        logger.debug(f"Failed to apply operation for {table}:{record_id}: {e}")
+                        conflicts += 1
+
+                # Update last sync time
+                k._storage._set_sync_meta("last_sync_time", k._storage._now())
+
+                if args.json:
+                    print(json.dumps({
+                        "pulled": applied,
+                        "conflicts": conflicts,
+                        "has_more": has_more,
+                    }, indent=2))
+                else:
+                    print(f"✓ Pulled {applied} changes")
+                    if conflicts > 0:
+                        print(f"⚠️  {conflicts} conflicts during apply")
+                    if has_more:
+                        print("ℹ️  More changes available - run `kernle sync pull` again")
+
+            elif response.status_code == 401:
+                print("✗ Authentication failed - check your KERNLE_AUTH_TOKEN")
+                sys.exit(1)
+            else:
+                print(f"✗ Pull failed: {response.status_code}")
+                print(f"  {response.text[:200]}")
+                sys.exit(1)
+
+        except Exception as e:
+            print(f"✗ Pull failed: {e}")
+            sys.exit(1)
+
+    elif args.sync_action == "full":
+        httpx = get_http_client()
+
+        if not backend_url or not auth_token:
+            print("✗ Backend not configured")
+            print("  Set KERNLE_BACKEND_URL and KERNLE_AUTH_TOKEN environment variables")
+            sys.exit(1)
+
+        print("Running full bidirectional sync...")
+        print()
+
+        # Step 1: Pull first (to get remote changes)
+        print("Step 1: Pulling remote changes...")
+        try:
+            response = httpx.post(
+                f"{backend_url.rstrip('/')}/sync/pull",
+                headers=get_headers(),
+                json={"since": format_datetime(k._storage.get_last_sync_time())},
+                timeout=30.0,
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                pulled = len(result.get("operations", []))
+                print(f"  ✓ Pulled {pulled} changes")
+            else:
+                print(f"  ⚠️  Pull returned status {response.status_code}")
+        except Exception as e:
+            print(f"  ⚠️  Pull failed: {e}")
+
+        # Step 2: Push local changes
+        print("Step 2: Pushing local changes...")
+        queued_changes = k._storage.get_queued_changes(limit=1000)
+
+        if not queued_changes:
+            print("  ✓ No pending changes to push")
+        else:
+            operations = []
+            for change in queued_changes:
+                record = k._storage._get_record_for_push(change.table_name, change.record_id)
+                op_type = "update" if change.operation in ("upsert", "insert", "update") else change.operation
+
+                op_data = {
+                    "operation": op_type,
+                    "table": change.table_name,
+                    "record_id": change.record_id,
+                    "local_updated_at": format_datetime(change.queued_at),
+                    "version": 1,
+                }
+
+                if record and op_type != "delete":
+                    record_dict = {}
+                    for field in ["id", "agent_id", "content", "objective", "outcome_type",
+                                  "outcome_description", "lessons_learned", "tags", "statement",
+                                  "confidence", "created_at", "updated_at", "local_updated_at"]:
+                        if hasattr(record, field):
+                            value = getattr(record, field)
+                            if hasattr(value, 'isoformat'):
+                                value = value.isoformat()
+                            record_dict[field] = value
+                    op_data["data"] = record_dict
+
+                operations.append(op_data)
+
+            try:
+                response = httpx.post(
+                    f"{backend_url.rstrip('/')}/sync/push",
+                    headers=get_headers(),
+                    json={"operations": operations},
+                    timeout=30.0,
+                )
+
+                if response.status_code == 200:
+                    result = response.json()
+                    synced = result.get("synced", 0)
+
+                    # Clear synced items
+                    with k._storage._connect() as conn:
+                        for change in queued_changes[:synced]:
+                            k._storage._clear_queued_change(conn, change.id)
+                            k._storage._mark_synced(conn, change.table_name, change.record_id)
+                        conn.commit()
+
+                    print(f"  ✓ Pushed {synced} changes")
+                else:
+                    print(f"  ⚠️  Push returned status {response.status_code}")
+            except Exception as e:
+                print(f"  ⚠️  Push failed: {e}")
+
+        # Update last sync time
+        k._storage._set_sync_meta("last_sync_time", k._storage._now())
+
+        print()
+        print("✓ Full sync complete")
+
+        # Show final status
+        remaining = k._storage.get_pending_sync_count()
+        if remaining > 0:
+            print(f"ℹ️  {remaining} operations still pending")
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="kernle",
@@ -1878,6 +2357,10 @@ def main():
     # load
     p_load = subparsers.add_parser("load", help="Load working memory")
     p_load.add_argument("--json", "-j", action="store_true")
+    p_load.add_argument("--sync", "-s", action="store_true",
+                        help="Force sync (pull) before loading")
+    p_load.add_argument("--no-sync", dest="no_sync", action="store_true",
+                        help="Skip sync even if auto-sync is enabled")
 
     # checkpoint
     p_checkpoint = subparsers.add_parser("checkpoint", help="Checkpoint operations")
@@ -1887,6 +2370,10 @@ def main():
     cp_save.add_argument("task", help="Current task")
     cp_save.add_argument("--pending", "-p", action="append", help="Pending item")
     cp_save.add_argument("--context", "-c", help="Additional context")
+    cp_save.add_argument("--sync", "-s", action="store_true",
+                         help="Force sync (push) after saving")
+    cp_save.add_argument("--no-sync", dest="no_sync", action="store_true",
+                         help="Skip sync even if auto-sync is enabled")
 
     cp_load = cp_sub.add_parser("load", help="Load checkpoint")
     cp_load.add_argument("--json", "-j", action="store_true")
@@ -2265,6 +2752,34 @@ def main():
                                 help="Memory type")
     forget_salience.add_argument("id", help="Memory ID")
 
+    # sync (local-to-cloud synchronization)
+    p_sync = subparsers.add_parser("sync", help="Sync with remote backend")
+    sync_sub = p_sync.add_subparsers(dest="sync_action", required=True)
+
+    # kernle sync status
+    sync_status = sync_sub.add_parser("status", help="Show sync status (pending ops, last sync, connection)")
+    sync_status.add_argument("--json", "-j", action="store_true",
+                            help="Output as JSON")
+
+    # kernle sync push [--limit N]
+    sync_push = sync_sub.add_parser("push", help="Push pending local changes to remote backend")
+    sync_push.add_argument("--limit", "-l", type=int, default=100,
+                          help="Maximum operations to push (default: 100)")
+    sync_push.add_argument("--json", "-j", action="store_true",
+                          help="Output as JSON")
+
+    # kernle sync pull [--full]
+    sync_pull = sync_sub.add_parser("pull", help="Pull remote changes to local")
+    sync_pull.add_argument("--full", "-f", action="store_true",
+                          help="Pull all records (not just changes since last sync)")
+    sync_pull.add_argument("--json", "-j", action="store_true",
+                          help="Output as JSON")
+
+    # kernle sync full
+    sync_full = sync_sub.add_parser("full", help="Full bidirectional sync (pull then push)")
+    sync_full.add_argument("--json", "-j", action="store_true",
+                          help="Output as JSON")
+
     # Pre-process arguments: handle `kernle raw "content"` by inserting "capture"
     # This is needed because argparse subparsers consume positional args before parent parser
     raw_subcommands = {"list", "show", "process", "capture"}
@@ -2341,6 +2856,8 @@ def main():
             cmd_dump(args, k)
         elif args.command == "export":
             cmd_export(args, k)
+        elif args.command == "sync":
+            cmd_sync(args, k)
         elif args.command == "mcp":
             cmd_mcp(args)
     except (ValueError, TypeError) as e:

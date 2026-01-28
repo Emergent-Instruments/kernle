@@ -84,7 +84,18 @@ class Kernle:
                 supabase_key=self._supabase_key,
             )
 
-        logger.debug(f"Kernle initialized with storage: {type(self._storage).__name__}")
+        # Auto-sync configuration: enabled by default if sync is available
+        # Can be disabled via KERNLE_AUTO_SYNC=false
+        auto_sync_env = os.environ.get("KERNLE_AUTO_SYNC", "").lower()
+        if auto_sync_env in ("false", "0", "no", "off"):
+            self._auto_sync = False
+        elif auto_sync_env in ("true", "1", "yes", "on"):
+            self._auto_sync = True
+        else:
+            # Default: enabled if storage supports sync (has cloud_storage or is cloud-based)
+            self._auto_sync = self._storage.is_online() or self._storage.get_pending_sync_count() > 0
+
+        logger.debug(f"Kernle initialized with storage: {type(self._storage).__name__}, auto_sync: {self._auto_sync}")
 
     @property
     def storage(self) -> "StorageProtocol":
@@ -107,6 +118,21 @@ class Kernle:
             "Direct Supabase client access not available with SQLite storage. "
             "Use storage abstraction methods instead, or configure Supabase credentials."
         )
+
+    @property
+    def auto_sync(self) -> bool:
+        """Whether auto-sync is enabled.
+
+        When enabled:
+        - load() will pull remote changes first
+        - checkpoint() will push local changes after saving
+        """
+        return self._auto_sync
+
+    @auto_sync.setter
+    def auto_sync(self, value: bool):
+        """Enable or disable auto-sync."""
+        self._auto_sync = value
 
     def _validate_agent_id(self, agent_id: str) -> str:
         """Validate and sanitize agent ID."""
@@ -182,12 +208,27 @@ class Kernle:
     # LOAD
     # =========================================================================
 
-    def load(self, budget: int = 6000) -> Dict[str, Any]:
+    def load(self, budget: int = 6000, sync: Optional[bool] = None) -> Dict[str, Any]:
         """Load working memory context.
+
+        If auto_sync is enabled (or sync=True), pulls remote changes first
+        to ensure the local database has the latest data before loading.
 
         Uses batched loading when available to optimize database queries,
         reducing 9 sequential queries to a single batched operation.
+
+        Args:
+            budget: Token budget for memory (unused currently, for future optimization)
+            sync: Override auto_sync setting. If None, uses self.auto_sync.
+
+        Returns:
+            Dict containing all memory layers
         """
+        # Sync before load if enabled
+        should_sync = sync if sync is not None else self._auto_sync
+        if should_sync:
+            self._sync_before_load()
+
         # Try batched loading first (available in SQLiteStorage)
         batched = self._storage.load_all(
             values_limit=10,
@@ -414,8 +455,22 @@ class Kernle:
         task: str,
         pending: Optional[list[str]] = None,
         context: Optional[str] = None,
+        sync: Optional[bool] = None,
     ) -> dict:
-        """Save current working state."""
+        """Save current working state.
+
+        If auto_sync is enabled (or sync=True), pushes local changes to remote
+        after saving the checkpoint locally.
+
+        Args:
+            task: Description of the current task/state
+            pending: List of pending items to continue later
+            context: Additional context about the state
+            sync: Override auto_sync setting. If None, uses self.auto_sync.
+
+        Returns:
+            Dict containing the checkpoint data
+        """
         checkpoint_data = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "agent_id": self.agent_id,
@@ -470,6 +525,12 @@ class Kernle:
         except Exception as e:
             logger.warning(f"Failed to save checkpoint to database: {e}")
             # Local save is sufficient, continue
+
+        # Sync after checkpoint if enabled
+        should_sync = sync if sync is not None else self._auto_sync
+        if should_sync:
+            sync_result = self._sync_after_checkpoint()
+            checkpoint_data["_sync"] = sync_result
 
         return checkpoint_data
 
@@ -3365,6 +3426,87 @@ class Kernle:
             "pending": self._storage.get_pending_sync_count(),
             "online": self._storage.is_online(),
         }
+
+    def _sync_before_load(self) -> Dict[str, Any]:
+        """Pull remote changes before loading local state.
+
+        Called automatically by load() when auto_sync is enabled.
+        Non-blocking: logs errors but doesn't fail the load.
+
+        Returns:
+            Dict with pull result or error info
+        """
+        result = {
+            "attempted": False,
+            "pulled": 0,
+            "conflicts": 0,
+            "errors": [],
+        }
+
+        try:
+            # Check if sync is available
+            if not self._storage.is_online():
+                logger.debug("Sync before load: offline, skipping pull")
+                return result
+
+            result["attempted"] = True
+            pull_result = self._storage.pull_changes()
+            result["pulled"] = pull_result.pulled
+            result["conflicts"] = pull_result.conflicts
+            result["errors"] = pull_result.errors
+
+            if pull_result.pulled > 0:
+                logger.info(f"Sync before load: pulled {pull_result.pulled} changes")
+            if pull_result.errors:
+                logger.warning(f"Sync before load: {len(pull_result.errors)} errors: {pull_result.errors[:3]}")
+
+        except Exception as e:
+            # Don't fail the load on sync errors
+            logger.warning(f"Sync before load failed (continuing with local data): {e}")
+            result["errors"].append(str(e))
+
+        return result
+
+    def _sync_after_checkpoint(self) -> Dict[str, Any]:
+        """Push local changes after saving a checkpoint.
+
+        Called automatically by checkpoint() when auto_sync is enabled.
+        Non-blocking: logs errors but doesn't fail the checkpoint save.
+
+        Returns:
+            Dict with push result or error info
+        """
+        result = {
+            "attempted": False,
+            "pushed": 0,
+            "conflicts": 0,
+            "errors": [],
+        }
+
+        try:
+            # Check if sync is available
+            if not self._storage.is_online():
+                logger.debug("Sync after checkpoint: offline, changes queued for later")
+                result["errors"].append("Offline - changes queued")
+                return result
+
+            result["attempted"] = True
+            sync_result = self._storage.sync()
+            result["pushed"] = sync_result.pushed
+            result["conflicts"] = sync_result.conflicts
+            result["errors"] = sync_result.errors
+
+            if sync_result.pushed > 0:
+                logger.info(f"Sync after checkpoint: pushed {sync_result.pushed} changes")
+            if sync_result.errors:
+                logger.warning(f"Sync after checkpoint: {len(sync_result.errors)} errors: {sync_result.errors[:3]}")
+
+        except Exception as e:
+            # Don't fail the checkpoint on sync errors
+            logger.warning(f"Sync after checkpoint failed (local save succeeded): {e}")
+            result["errors"].append(str(e))
+
+        return result
 
     # =========================================================================
     # ANXIETY TRACKING

@@ -193,7 +193,9 @@ class TestCheckpointCommands:
             checkpoint_action="save",
             task="Complete testing",
             pending=["write docs", "run CI"],
-            context="Working on comprehensive tests"
+            context="Working on comprehensive tests",
+            sync=False,
+            no_sync=False,
         )
 
         with patch('sys.stdout', new=StringIO()) as fake_out:
@@ -202,7 +204,8 @@ class TestCheckpointCommands:
         mock_kernle.checkpoint.assert_called_once_with(
             "Complete testing",
             ["write docs", "run CI"],
-            "Working on comprehensive tests"
+            "Working on comprehensive tests",
+            sync=None,  # Neither --sync nor --no-sync specified
         )
         assert "✓ Checkpoint saved: Test task" in fake_out.getvalue()
 
@@ -212,13 +215,15 @@ class TestCheckpointCommands:
             checkpoint_action="save",
             task="Simple task",
             pending=None,
-            context=None
+            context=None,
+            sync=False,
+            no_sync=False,
         )
 
         with patch('sys.stdout', new=StringIO()):
             cmd_checkpoint(args, mock_kernle)
 
-        mock_kernle.checkpoint.assert_called_once_with("Simple task", [], None)
+        mock_kernle.checkpoint.assert_called_once_with("Simple task", [], None, sync=None)
 
     def test_cmd_checkpoint_load_formatted(self, mock_kernle):
         """Test checkpoint load with formatted output."""
@@ -665,7 +670,7 @@ class TestArgumentParsing:
                     main()
 
                 mock_kernle.checkpoint.assert_called_once_with(
-                    "Test task", ["item1", "item2"], "Test context"
+                    "Test task", ["item1", "item2"], "Test context", sync=None
                 )
 
     def test_parse_episode_args(self):
