@@ -188,14 +188,47 @@ From Claire's attempt to use Kernle (2026-01-27):
 | **Meta-cognition** | Q1 2026 | ✅ Complete |
 | 2.1 Railway API | Q1 2026 | ✅ Complete |
 | 2.2 User Auth & Namespacing | Q1 2026 | ✅ Complete |
-| 2.3 API Key Management | Q1 2026 | 🔄 In Progress |
-| 2.4 Web Dashboard (Next.js) | Q1 2026 | 🔄 In Progress |
+| 2.3 API Key Management | Q1 2026 | ✅ Complete |
+| 2.4 Usage Tracking & Tiers | Q1 2026 | ✅ Complete |
+| 2.5 Admin Dashboard & Payments | Q1 2026 | 📋 Next |
+| 2.6 Web Dashboard (Next.js) | Q2 2026 | 📋 Planned |
 | 3.x Cross-agent | Q3 2026 | Not started |
 | 4.x Premium | Q4 2026 | Not started |
 
-**Test count: 559 passing** (as of January 27, 2026)  
-**Test coverage: 60%** overall (core: 76%, storage/sqlite: 78%)  
+**Test count: 718 passing** (as of January 28, 2026)  
+**Test coverage: 57%** overall  
 **Architecture audit: B+** (production ready - see ARCHITECTURE_AUDIT.md)
+
+---
+
+## Recent Completions (2026-01-28)
+
+### Multi-Tenant Schema Refactor ✅
+
+**UUID FK approach for agent namespacing:**
+- Memory tables now use `agent_ref` (UUID) FK to `agents.id`
+- `agent_id` kept for filtering/display (no longer globally unique)
+- `(user_id, agent_id)` composite unique constraint
+- Multiple users can have agents with same name (e.g., "claire")
+- Migration 008: Added agent_ref to all 11 memory tables
+
+### Usage Tracking & Rate Limits ✅
+
+**Tier-based API quotas:**
+- `api_key_usage` table tracks daily/monthly requests per key
+- Automatic reset at UTC midnight and month start
+- Tiers: free (100/day, 1000/month), unlimited, paid (10k/day)
+- `GET /auth/usage` returns quota status
+- 429 responses with `Retry-After` when exceeded
+- Fail-open design for resilience
+
+### Local-to-Remote Sync Working ✅
+
+**Full sync pipeline operational:**
+- CLI: `kernle auth login --api-key KEY`
+- CLI: `kernle sync push/pull/status`
+- Backend: Proper agent namespacing with user_id
+- Claire registered and syncing at api.kernle.ai
 
 ---
 
@@ -231,22 +264,70 @@ From Claire's attempt to use Kernle (2026-01-27):
 - Same directory = same agent (consistent)
 - Different path = different agent (isolated)
 
-### Phase 2.3: API Key Management 🔄
+### Phase 2.3: API Key Management ✅
 
-**In progress:**
+**Completed 2026-01-28:**
 - Key format: `knl_sk_` + 32 hex chars
 - Multiple keys per user
 - Key cycling (atomic new + revoke old)
 - Backend endpoints: `/auth/keys` CRUD
-- CLI: `kernle auth keys list/create/revoke/cycle`
+- CLI: `kernle auth login --api-key`
 
-### Phase 2.4: Web Dashboard 🔄
+### Phase 2.4: Usage Tracking & Tiers ✅
+
+**Completed 2026-01-28:**
+- Per-API-key request tracking (daily/monthly counters)
+- Automatic counter reset at UTC midnight / month start
+- Tier system: `free` (100/day, 1000/month), `unlimited`, `paid`
+- `GET /auth/usage` endpoint for checking quota
+- 429 responses when quota exceeded with `Retry-After` header
+- Fail-open design (usage tracking errors don't block requests)
+
+### Phase 2.5: Admin Dashboard & Payments 📋
+
+**Next up:**
+
+**Admin View:**
+- Account overview (all users, agents, usage stats)
+- API key usage metrics (requests/day, top users)
+- Tier management (upgrade/downgrade users)
+- Audit logs (auth events, sync operations)
+
+**User Dashboard:**
+- Current usage vs limits visualization
+- API key management UI
+- Billing history and invoices
+- Plan upgrade/downgrade
+
+**Payment Integration:**
+- Stripe integration for subscriptions
+- Tier pricing: Free → Paid ($X/month for higher limits)
+- Usage-based billing option (pay per 1000 requests)
+- Webhook handling for payment events
+- Grace period on failed payments
+
+**Endpoints needed:**
+```
+# Admin
+GET  /admin/users           - List all users with usage
+GET  /admin/users/:id       - User detail + keys + usage
+POST /admin/users/:id/tier  - Change user tier
+
+# Billing
+GET  /billing/plans         - Available plans
+POST /billing/subscribe     - Create subscription
+POST /billing/webhook       - Stripe webhook handler
+GET  /billing/invoices      - User's invoice history
+```
+
+### Phase 2.6: Web Dashboard (Next.js) 📋
 
 **Planned:**
 - Next.js app for user management
-- Sign up / login flows
+- Sign up / login flows (OAuth + email)
 - API key management UI
-- Usage dashboard
+- Usage dashboard with charts
+- Billing/subscription management
 - Required for remote sync to be usable by end users
 
 ## Implementation Notes
