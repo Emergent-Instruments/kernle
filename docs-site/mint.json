@@ -5,7 +5,12 @@
     "dark": "/logo/dark.svg",
     "light": "/logo/light.svg"
   },
-  "favicon": "/favicon.svg",
+  "favicon": "/favicon.png",
+  "metadata": {
+    "og:image": "/og-image.png",
+    "og:site_name": "Kernle Docs",
+    "twitter:card": "summary_large_image"
+  },
   "colors": {
     "primary": "#10B981",
     "light": "#34D399",
