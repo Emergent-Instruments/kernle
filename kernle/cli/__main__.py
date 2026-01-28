@@ -2085,6 +2085,17 @@ def cmd_auth_keys(args):
             sys.exit(1)
 
 
+def cmd_mcp(args):
+    """Start the MCP server for Claude Code and other MCP clients."""
+    from kernle.mcp.server import main as mcp_main
+    
+    # Get agent_id from --agent flag
+    agent_id = getattr(args, 'agent', None) or 'default'
+    
+    print(f"Starting Kernle MCP server for agent: {agent_id}", file=sys.stderr)
+    mcp_main(agent_id=agent_id)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="kernle",
