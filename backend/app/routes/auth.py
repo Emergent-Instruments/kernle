@@ -25,6 +25,7 @@ from ..database import (
     deactivate_api_key,
     delete_api_key,
     get_agent,
+    get_agent_by_email,
     get_api_key,
     list_api_keys,
 )
@@ -170,7 +171,6 @@ async def exchange_supabase_token(
         # This enables account merging across OAuth providers (Google, GitHub, etc.)
         existing_by_email = None
         if email:
-            from .database import get_agent_by_email
             existing_by_email = await get_agent_by_email(db, email)
         
         # Check if agent already exists by agent_id
