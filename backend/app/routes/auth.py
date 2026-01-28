@@ -8,14 +8,36 @@ from ..auth import (
     CurrentAgent,
     create_access_token,
     generate_agent_secret,
+    generate_api_key,
     generate_user_id,
+    get_api_key_prefix,
+    hash_api_key,
     hash_secret,
     verify_secret,
 )
 from ..config import Settings, get_settings
-from ..database import Database, create_agent, get_agent
+from ..database import (
+    Database,
+    create_agent,
+    create_api_key,
+    deactivate_api_key,
+    delete_api_key,
+    get_agent,
+    get_api_key,
+    list_api_keys,
+)
 from ..logging_config import get_logger, log_auth_event
-from ..models import AgentInfo, AgentLogin, AgentRegister, TokenResponse
+from ..models import (
+    AgentInfo,
+    AgentLogin,
+    AgentRegister,
+    APIKeyCreate,
+    APIKeyCycleResponse,
+    APIKeyInfo,
+    APIKeyList,
+    APIKeyResponse,
+    TokenResponse,
+)
 from ..rate_limit import limiter
 
 logger = get_logger("kernle.auth")
@@ -137,4 +159,200 @@ async def get_current_agent_info(
         created_at=agent["created_at"],
         last_sync_at=agent.get("last_sync_at"),
         user_id=agent.get("user_id"),
+    )
+
+
+# =============================================================================
+# API Key Endpoints
+# =============================================================================
+
+
+@router.post("/keys", response_model=APIKeyResponse)
+@limiter.limit("10/minute")
+async def create_new_api_key(
+    request: Request,
+    auth: CurrentAgent,
+    db: Database,
+    key_request: APIKeyCreate | None = None,
+):
+    """
+    Create a new API key for the authenticated user.
+    
+    Returns the raw key ONCE - store it safely as it cannot be retrieved again.
+    """
+    if not auth.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User ID not found. Please re-register to get a user_id.",
+        )
+    
+    name = key_request.name if key_request else "Default"
+    
+    # Generate the key
+    raw_key = generate_api_key()
+    key_hash = hash_api_key(raw_key)
+    key_prefix = get_api_key_prefix(raw_key)
+    
+    # Store in database
+    key_record = await create_api_key(
+        db,
+        user_id=auth.user_id,
+        key_hash=key_hash,
+        key_prefix=key_prefix,
+        name=name,
+    )
+    
+    if not key_record:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create API key",
+        )
+    
+    logger.info(f"API key created for user {auth.user_id}: {key_prefix}...")
+    
+    return APIKeyResponse(
+        id=str(key_record["id"]),
+        name=key_record["name"],
+        key=raw_key,  # Shown only once!
+        key_prefix=key_prefix,
+        created_at=key_record["created_at"],
+    )
+
+
+@router.get("/keys", response_model=APIKeyList)
+async def list_user_api_keys(
+    auth: CurrentAgent,
+    db: Database,
+):
+    """
+    List all API keys for the authenticated user.
+    
+    Returns metadata only - the raw keys are never stored or retrievable.
+    """
+    if not auth.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User ID not found.",
+        )
+    
+    keys = await list_api_keys(db, auth.user_id)
+    
+    return APIKeyList(
+        keys=[
+            APIKeyInfo(
+                id=str(k["id"]),
+                name=k["name"],
+                key_prefix=f"{k['key_prefix']}...",
+                created_at=k["created_at"],
+                last_used_at=k.get("last_used_at"),
+                is_active=k["is_active"],
+            )
+            for k in keys
+        ]
+    )
+
+
+@router.delete("/keys/{key_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def revoke_api_key(
+    key_id: str,
+    auth: CurrentAgent,
+    db: Database,
+):
+    """
+    Revoke (delete) an API key.
+    
+    The key will immediately stop working.
+    """
+    if not auth.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User ID not found.",
+        )
+    
+    # Check key exists and belongs to user
+    key = await get_api_key(db, key_id, auth.user_id)
+    if not key:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="API key not found",
+        )
+    
+    deleted = await delete_api_key(db, key_id, auth.user_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to delete API key",
+        )
+    
+    logger.info(f"API key revoked for user {auth.user_id}: {key['key_prefix']}...")
+
+
+@router.post("/keys/{key_id}/cycle", response_model=APIKeyCycleResponse)
+@limiter.limit("10/minute")
+async def cycle_api_key(
+    request: Request,
+    key_id: str,
+    auth: CurrentAgent,
+    db: Database,
+):
+    """
+    Cycle an API key: deactivate the old one and create a new one atomically.
+    
+    Returns the new raw key ONCE - store it safely.
+    The old key is deactivated (not deleted) for audit purposes.
+    """
+    if not auth.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User ID not found.",
+        )
+    
+    # Check old key exists and belongs to user
+    old_key = await get_api_key(db, key_id, auth.user_id)
+    if not old_key:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="API key not found",
+        )
+    
+    if not old_key["is_active"]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot cycle an already inactive key",
+        )
+    
+    # Generate new key with same name
+    raw_key = generate_api_key()
+    key_hash = hash_api_key(raw_key)
+    key_prefix = get_api_key_prefix(raw_key)
+    
+    # Create new key
+    new_key_record = await create_api_key(
+        db,
+        user_id=auth.user_id,
+        key_hash=key_hash,
+        key_prefix=key_prefix,
+        name=old_key["name"],
+    )
+    
+    if not new_key_record:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create new API key",
+        )
+    
+    # Deactivate old key (after new one is created for atomicity)
+    await deactivate_api_key(db, key_id, auth.user_id)
+    
+    logger.info(f"API key cycled for user {auth.user_id}: {old_key['key_prefix']}... -> {key_prefix}...")
+    
+    return APIKeyCycleResponse(
+        old_key_id=key_id,
+        new_key=APIKeyResponse(
+            id=str(new_key_record["id"]),
+            name=new_key_record["name"],
+            key=raw_key,
+            key_prefix=key_prefix,
+            created_at=new_key_record["created_at"],
+        ),
     )

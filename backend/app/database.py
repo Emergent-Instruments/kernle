@@ -38,6 +38,7 @@ Database = Annotated[Client, Depends(get_db)]
 # =============================================================================
 
 AGENTS_TABLE = "agents"
+API_KEYS_TABLE = "api_keys"
 EPISODES_TABLE = "episodes"
 BELIEFS_TABLE = "beliefs"
 VALUES_TABLE = "values"
@@ -167,3 +168,129 @@ async def get_changes_since(
             })
 
     return changes
+
+
+# =============================================================================
+# API Key Operations
+# =============================================================================
+
+async def create_api_key(
+    db: Client,
+    user_id: str,
+    key_hash: str,
+    key_prefix: str,
+    name: str = "Default",
+) -> dict:
+    """Create a new API key record."""
+    data = {
+        "user_id": user_id,
+        "key_hash": key_hash,
+        "key_prefix": key_prefix,
+        "name": name,
+        "is_active": True,
+    }
+    result = db.table(API_KEYS_TABLE).insert(data).execute()
+    return result.data[0] if result.data else None
+
+
+async def list_api_keys(db: Client, user_id: str) -> list[dict]:
+    """List all API keys for a user (active and inactive)."""
+    result = (
+        db.table(API_KEYS_TABLE)
+        .select("id, name, key_prefix, created_at, last_used_at, is_active")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return result.data
+
+
+async def get_api_key(db: Client, key_id: str, user_id: str) -> dict | None:
+    """Get an API key by ID (must belong to user)."""
+    result = (
+        db.table(API_KEYS_TABLE)
+        .select("*")
+        .eq("id", key_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
+async def delete_api_key(db: Client, key_id: str, user_id: str) -> bool:
+    """Delete (revoke) an API key."""
+    result = (
+        db.table(API_KEYS_TABLE)
+        .delete()
+        .eq("id", key_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return len(result.data) > 0
+
+
+async def deactivate_api_key(db: Client, key_id: str, user_id: str) -> bool:
+    """Deactivate an API key (soft revoke, keeps record)."""
+    result = (
+        db.table(API_KEYS_TABLE)
+        .update({"is_active": False})
+        .eq("id", key_id)
+        .eq("user_id", user_id)
+        .execute()
+    )
+    return len(result.data) > 0
+
+
+async def update_api_key_last_used(db: Client, key_id: str) -> None:
+    """Update the last_used_at timestamp for an API key."""
+    db.table(API_KEYS_TABLE).update({"last_used_at": "now()"}).eq("id", key_id).execute()
+
+
+async def get_active_api_keys_by_prefix(db: Client, prefix: str) -> list[dict]:
+    """Get active API keys matching a prefix (for auth lookup)."""
+    result = (
+        db.table(API_KEYS_TABLE)
+        .select("id, user_id, key_hash")
+        .eq("key_prefix", prefix)
+        .eq("is_active", True)
+        .execute()
+    )
+    return result.data
+
+
+async def get_agent_by_user_id(db: Client, user_id: str) -> dict | None:
+    """Get an agent by user_id."""
+    result = db.table(AGENTS_TABLE).select("*").eq("user_id", user_id).execute()
+    return result.data[0] if result.data else None
+
+
+async def verify_api_key_auth(db: Client, api_key: str) -> dict | None:
+    """
+    Verify an API key and return auth context if valid.
+    
+    Returns dict with user_id and agent_id if valid, None otherwise.
+    Updates last_used_at on successful auth.
+    """
+    from .auth import get_api_key_prefix, verify_api_key
+    
+    prefix = get_api_key_prefix(api_key)
+    
+    # Get all active keys with this prefix
+    candidates = await get_active_api_keys_by_prefix(db, prefix)
+    
+    for key_record in candidates:
+        if verify_api_key(api_key, key_record["key_hash"]):
+            # Found matching key - update last_used and return auth context
+            await update_api_key_last_used(db, key_record["id"])
+            
+            # Get the agent for this user_id
+            agent = await get_agent_by_user_id(db, key_record["user_id"])
+            if agent:
+                return {
+                    "user_id": key_record["user_id"],
+                    "agent_id": agent["agent_id"],
+                }
+            # Key valid but no agent found (shouldn't happen)
+            return None
+    
+    return None

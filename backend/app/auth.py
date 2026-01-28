@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 import bcrypt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
@@ -15,10 +15,44 @@ from .config import Settings, get_settings
 # Bearer token scheme
 security = HTTPBearer()
 
+# API Key prefix
+API_KEY_PREFIX = "knl_sk_"
+
 
 def generate_user_id() -> str:
     """Generate a stable user_id (usr_ + 12 char hex)."""
     return f"usr_{uuid.uuid4().hex[:12]}"
+
+
+def generate_api_key() -> str:
+    """Generate an API key in format: knl_sk_ + 32 hex chars."""
+    return f"{API_KEY_PREFIX}{secrets.token_hex(16)}"
+
+
+def get_api_key_prefix(key: str) -> str:
+    """Extract prefix from API key for storage (first 8 chars after knl_sk_)."""
+    # Format: knl_sk_XXXXXXXX... -> knl_sk_X (8 chars for display)
+    if key.startswith(API_KEY_PREFIX):
+        return key[:8]  # "knl_sk_X"
+    return key[:8]
+
+
+def hash_api_key(key: str) -> str:
+    """Hash an API key using bcrypt."""
+    return bcrypt.hashpw(key.encode(), bcrypt.gensalt()).decode()
+
+
+def verify_api_key(plain_key: str, hashed: str) -> bool:
+    """Verify an API key against its hash."""
+    try:
+        return bcrypt.checkpw(plain_key.encode(), hashed.encode())
+    except Exception:
+        return False
+
+
+def is_api_key(token: str) -> bool:
+    """Check if a token is an API key (vs JWT)."""
+    return token.startswith(API_KEY_PREFIX)
 
 
 def hash_secret(secret: str) -> str:
@@ -105,9 +139,33 @@ class AuthContext:
 async def get_current_agent(
     credentials: Annotated[HTTPAuthorizationCredentials, Depends(security)],
     settings: Annotated[Settings, Depends(get_settings)],
+    request: Request,
 ) -> AuthContext:
-    """Get the current authenticated agent context from the token."""
-    payload = decode_token(credentials.credentials, settings)
+    """Get the current authenticated agent context from the token or API key."""
+    token = credentials.credentials
+    
+    # Check if it's an API key
+    if is_api_key(token):
+        # Import here to avoid circular imports
+        from .database import get_supabase_client, verify_api_key_auth
+        
+        db = get_supabase_client(settings)
+        auth_result = await verify_api_key_auth(db, token)
+        
+        if not auth_result:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or inactive API key",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        
+        return AuthContext(
+            agent_id=auth_result["agent_id"],
+            user_id=auth_result["user_id"],
+        )
+    
+    # Otherwise, treat as JWT
+    payload = decode_token(token, settings)
     agent_id = payload.get("sub")
     if not agent_id:
         raise HTTPException(

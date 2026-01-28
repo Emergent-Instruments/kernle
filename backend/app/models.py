@@ -41,6 +41,45 @@ class AgentInfo(BaseModel):
 
 
 # =============================================================================
+# API Key Models
+# =============================================================================
+
+class APIKeyCreate(BaseModel):
+    """Request to create a new API key."""
+    name: str = Field(default="Default", min_length=1, max_length=64)
+
+
+class APIKeyResponse(BaseModel):
+    """Response after creating an API key (includes raw key ONCE)."""
+    id: str
+    name: str
+    key: str  # Full key, shown only once
+    key_prefix: str  # For future identification
+    created_at: datetime
+
+
+class APIKeyInfo(BaseModel):
+    """API key metadata (no raw key)."""
+    id: str
+    name: str
+    key_prefix: str  # Masked identifier (e.g., "knl_sk_a...1234")
+    created_at: datetime
+    last_used_at: datetime | None
+    is_active: bool
+
+
+class APIKeyList(BaseModel):
+    """List of API keys for a user."""
+    keys: list[APIKeyInfo]
+
+
+class APIKeyCycleResponse(BaseModel):
+    """Response after cycling an API key."""
+    old_key_id: str
+    new_key: APIKeyResponse
+
+
+# =============================================================================
 # Sync Models
 # =============================================================================
 
