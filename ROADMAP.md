@@ -186,11 +186,66 @@ From Claire's attempt to use Kernle (2026-01-27):
 | **Controlled Forgetting** | Q1 2026 | ✅ Complete |
 | **Belief Revision** | Q1 2026 | ✅ Complete |
 | **Meta-cognition** | Q1 2026 | ✅ Complete |
-| 2.1 Railway API | Q2 2026 | Not started |
+| 2.1 Railway API | Q1 2026 | ✅ Complete |
+| 2.2 User Auth & Namespacing | Q1 2026 | ✅ Complete |
+| 2.3 API Key Management | Q1 2026 | 🔄 In Progress |
+| 2.4 Web Dashboard (Next.js) | Q1 2026 | 🔄 In Progress |
 | 3.x Cross-agent | Q3 2026 | Not started |
 | 4.x Premium | Q4 2026 | Not started |
 
-**Test count: 497 passing** (as of January 27, 2026)
+**Test count: 559 passing** (as of January 27, 2026)
+
+---
+
+## Recent Completions (2026-01-27)
+
+### Phase 2.1: Railway API Backend ✅
+
+**Backend deployed** at Railway with:
+- `/auth/register` - Agent registration with user_id generation
+- `/auth/token` - JWT token issuance
+- `/sync/push` - Push local changes to cloud
+- `/sync/pull` - Pull remote changes
+- Rate limiting (5/min on auth endpoints)
+- CORS configuration
+- Supabase integration
+
+### Phase 2.2: User Namespacing ✅
+
+**Multi-tenant identity system:**
+- `user_id` format: `usr_` + 12 hex chars (stable, internal)
+- Local agent uses project name: `roundtable`
+- Remote namespaces as: `usr_abc123/roundtable`
+- Transparent to user — client sends local name, backend applies namespace
+
+**CLI Auth commands:**
+- `kernle auth register` - Get user_id + credentials
+- `kernle auth login` - Refresh token
+- `kernle auth status` - Show auth state
+- `kernle auth logout` - Clear credentials
+
+**Default Agent ID (Option C):**
+- No explicit `-a`? Generates `auto-{hash}` from machine + project path
+- Same directory = same agent (consistent)
+- Different path = different agent (isolated)
+
+### Phase 2.3: API Key Management 🔄
+
+**In progress:**
+- Key format: `knl_sk_` + 32 hex chars
+- Multiple keys per user
+- Key cycling (atomic new + revoke old)
+- Backend endpoints: `/auth/keys` CRUD
+- CLI: `kernle auth keys list/create/revoke/cycle`
+
+### Phase 2.4: Web Dashboard 🔄
+
+**Planned:**
+- Next.js app for user management
+- Sign up / login flows
+- API key management UI
+- Usage dashboard
+- Required for remote sync to be usable by end users
 
 ## Implementation Notes
 
