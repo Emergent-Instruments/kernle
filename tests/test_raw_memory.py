@@ -562,7 +562,10 @@ class TestCLIRaw:
             outcome=None,
         )
         output = fake_out.getvalue()
-        assert "Processed raw entry" in output
+        # New format: "✓ Processed raw123... → note:note456..."
+        assert "Processed" in output
+        assert "raw123" in output
+        assert "note" in output
 
     def test_cmd_dump(self, mock_kernle):
         """Test dump command."""

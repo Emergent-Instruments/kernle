@@ -3541,9 +3541,10 @@ class Kernle:
 
     # Dimension weights for composite score
     ANXIETY_WEIGHTS = {
-        "context_pressure": 0.35,
-        "unsaved_work": 0.25,
-        "consolidation_debt": 0.20,
+        "context_pressure": 0.30,
+        "unsaved_work": 0.20,
+        "consolidation_debt": 0.15,
+        "raw_aging": 0.15,  # New: unprocessed raw entries aging out
         "identity_coherence": 0.10,
         "memory_uncertainty": 0.10,
     }
@@ -3583,6 +3584,36 @@ class Kernle:
         """Get beliefs with confidence below threshold."""
         beliefs = self._storage.get_beliefs(limit=100)
         return [b for b in beliefs if b.confidence < threshold]
+
+    def _get_aging_raw_entries(self, age_hours: int = 24) -> tuple:
+        """Get raw entries that are older than age_hours and unprocessed.
+        
+        Returns:
+            Tuple of (total_unprocessed, aging_count, oldest_age_hours)
+        """
+        raw_entries = self.list_raw(processed=False, limit=100)
+        now = datetime.now(timezone.utc)
+        
+        aging_count = 0
+        oldest_age_hours = 0
+        
+        for entry in raw_entries:
+            try:
+                ts = entry.get("timestamp", "")
+                if ts:
+                    entry_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    age = now - entry_time
+                    entry_hours = age.total_seconds() / 3600
+                    
+                    if entry_hours > age_hours:
+                        aging_count += 1
+                    
+                    if entry_hours > oldest_age_hours:
+                        oldest_age_hours = entry_hours
+            except (ValueError, TypeError):
+                continue
+        
+        return len(raw_entries), aging_count, oldest_age_hours
 
     def get_anxiety_report(
         self,
@@ -3739,6 +3770,35 @@ class Kernle:
             "raw_value": len(low_conf_beliefs),
             "detail": uncertainty_detail,
             "emoji": self._get_anxiety_level(uncertainty_score)[0],
+        }
+
+        # 6. Raw Entry Aging (0-100%)
+        # Unprocessed raw entries that are getting stale
+        total_unprocessed, aging_count, oldest_hours = self._get_aging_raw_entries(24)
+        
+        if total_unprocessed == 0:
+            raw_aging_score = 0
+            raw_aging_detail = "No unprocessed raw entries"
+        elif aging_count == 0:
+            raw_aging_score = min(30, total_unprocessed * 3)
+            raw_aging_detail = f"{total_unprocessed} unprocessed (all fresh)"
+        elif aging_count <= 3:
+            raw_aging_score = int(30 + aging_count * 15)
+            raw_aging_detail = f"{aging_count}/{total_unprocessed} entries >24h old"
+        elif aging_count <= 7:
+            raw_aging_score = int(60 + (aging_count - 3) * 8)
+            oldest_days = int(oldest_hours / 24)
+            raw_aging_detail = f"{aging_count} entries aging (oldest: {oldest_days}d)"
+        else:
+            raw_aging_score = min(100, int(92 + (aging_count - 7) * 1))
+            oldest_days = int(oldest_hours / 24)
+            raw_aging_detail = f"{aging_count} entries STALE (oldest: {oldest_days}d) - review needed"
+
+        dimensions["raw_aging"] = {
+            "score": min(100, raw_aging_score),
+            "raw_value": aging_count,
+            "detail": raw_aging_detail,
+            "emoji": self._get_anxiety_level(raw_aging_score)[0],
         }
 
         # Calculate composite score (weighted average)

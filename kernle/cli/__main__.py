@@ -61,7 +61,19 @@ def cmd_checkpoint(args, k: Kernle):
     if args.checkpoint_action == "save":
         task = validate_input(args.task, "task", 500)
         pending = [validate_input(p, "pending item", 200) for p in (args.pending or [])]
-        context = validate_input(args.context, "context", 1000) if args.context else None
+        
+        # Build structured context from new fields + freeform context
+        context_parts = []
+        if args.context:
+            context_parts.append(validate_input(args.context, "context", 1000))
+        if getattr(args, 'progress', None):
+            context_parts.append(f"Progress: {validate_input(args.progress, 'progress', 300)}")
+        if getattr(args, 'next', None):
+            context_parts.append(f"Next: {validate_input(args.next, 'next', 300)}")
+        if getattr(args, 'blocker', None):
+            context_parts.append(f"Blocker: {validate_input(args.blocker, 'blocker', 300)}")
+        
+        context = " | ".join(context_parts) if context_parts else None
 
         # Warn about generic task names that won't help with recovery
         generic_patterns = [
@@ -75,7 +87,7 @@ def cmd_checkpoint(args, k: Kernle):
         )
         if is_generic and not context:
             print("⚠ Warning: Generic task name without context may not help recovery.")
-            print("  Tip: Add --context 'what you were doing' or use a specific task name.")
+            print("  Tip: Add --context, --progress, --next, or --blocker for better recovery.")
             print()
 
         # Determine sync setting from args
@@ -940,6 +952,7 @@ def cmd_anxiety(args, k: Kernle):
         "context_pressure": "Context Pressure",
         "unsaved_work": "Unsaved Work",
         "consolidation_debt": "Consolidation Debt",
+        "raw_aging": "Raw Entry Aging",
         "identity_coherence": "Identity Coherence",
         "memory_uncertainty": "Memory Uncertainty",
     }
@@ -1828,17 +1841,26 @@ def cmd_raw(args, k: Kernle):
                 print(f"\nProcessed into: {', '.join(entry['processed_into'])}")
 
     elif args.raw_action == "process":
-        try:
-            full_id = resolve_raw_id(k, args.id)
-            memory_id = k.process_raw(
-                raw_id=full_id,
-                as_type=args.type,
-                objective=args.objective,
-                outcome=args.outcome,
-            )
-            print(f"✓ Processed raw entry {full_id[:8]}... into {args.type}:{memory_id[:8]}...")
-        except ValueError as e:
-            print(f"✗ {e}")
+        # Support batch processing with comma-separated IDs
+        raw_ids = [id.strip() for id in args.id.split(",") if id.strip()]
+        
+        success_count = 0
+        for raw_id in raw_ids:
+            try:
+                full_id = resolve_raw_id(k, raw_id)
+                memory_id = k.process_raw(
+                    raw_id=full_id,
+                    as_type=args.type,
+                    objective=args.objective,
+                    outcome=args.outcome,
+                )
+                print(f"✓ Processed {full_id[:8]}... → {args.type}:{memory_id[:8]}...")
+                success_count += 1
+            except ValueError as e:
+                print(f"✗ {raw_id}: {e}")
+        
+        if len(raw_ids) > 1:
+            print(f"\nProcessed {success_count}/{len(raw_ids)} entries")
 
     elif args.raw_action == "review":
         # Guided review of unprocessed entries
@@ -3349,9 +3371,12 @@ def main():
     cp_sub = p_checkpoint.add_subparsers(dest="checkpoint_action", required=True)
 
     cp_save = cp_sub.add_parser("save", help="Save checkpoint")
-    cp_save.add_argument("task", help="Current task")
-    cp_save.add_argument("--pending", "-p", action="append", help="Pending item")
+    cp_save.add_argument("task", help="Current task description")
+    cp_save.add_argument("--pending", "-p", action="append", help="Pending item (repeatable)")
     cp_save.add_argument("--context", "-c", help="Additional context")
+    cp_save.add_argument("--progress", help="Current progress on the task")
+    cp_save.add_argument("--next", "-n", help="Immediate next step")
+    cp_save.add_argument("--blocker", "-b", help="Current blocker if any")
     cp_save.add_argument("--sync", "-s", action="store_true",
                          help="Force sync (push) after saving")
     cp_save.add_argument("--no-sync", dest="no_sync", action="store_true",
