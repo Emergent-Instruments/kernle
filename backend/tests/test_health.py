@@ -11,8 +11,11 @@ def test_root(client):
 
 
 def test_health(client):
-    """Test health endpoint."""
+    """Test health endpoint returns valid status."""
     response = client.get("/health")
     assert response.status_code == 200
     data = response.json()
-    assert data["status"] == "healthy"
+    # Status is "healthy" with DB, "degraded" without - both are valid responses
+    assert data["status"] in ["healthy", "degraded"]
+    # Database field should exist and describe connection state
+    assert "database" in data

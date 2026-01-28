@@ -64,11 +64,11 @@ async def root():
 @app.get("/health")
 async def health():
     """Detailed health check with actual database verification."""
-    from .database import get_supabase
+    from .database import get_supabase_client
     
     db_status = "disconnected"
     try:
-        db = get_supabase()
+        db = get_supabase_client()
         # Simple query to verify connection
         result = db.table("agents").select("id").limit(1).execute()
         db_status = "connected"

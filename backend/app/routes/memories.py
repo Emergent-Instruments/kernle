@@ -1,4 +1,4 @@
-"""Memory search routes."""
+"""Memory search routes with semantic search support."""
 
 import re
 
@@ -6,13 +6,14 @@ from fastapi import APIRouter
 
 from ..auth import CurrentAgent
 from ..database import MEMORY_TABLES, Database
+from ..embeddings import create_embedding
 from ..models import MemorySearchRequest, MemorySearchResponse, MemorySearchResult
 
 
 def escape_like(query: str) -> str:
     """Escape SQL LIKE special characters to prevent injection."""
-    # Escape backslash first, then %, then _
     return re.sub(r'([%_\\])', r'\\\1', query)
+
 
 router = APIRouter(prefix="/memories", tags=["memories"])
 
@@ -24,47 +25,110 @@ async def search_memories(
     db: Database,
 ):
     """
-    Search agent's memories using text matching.
-
-    Note: Full semantic search requires pgvector setup.
-    This endpoint provides basic text search as a starting point.
+    Search agent's memories using semantic similarity (pgvector) with text fallback.
+    
+    Semantic search creates an embedding of the query and finds memories with
+    similar embeddings using cosine similarity. Falls back to text matching
+    if embeddings are unavailable.
     """
-    results = []
-
-    # Determine which tables to search
-    tables_to_search = (
-        [t for t in request.memory_types if t in MEMORY_TABLES]
-        if request.memory_types
-        else list(MEMORY_TABLES.keys())
+    # Try semantic search first
+    query_embedding = await create_embedding(request.query)
+    
+    if query_embedding:
+        results = await _semantic_search(
+            db, auth.agent_id, query_embedding, request.limit, request.memory_types
+        )
+        if results:
+            return MemorySearchResponse(
+                results=results,
+                query=request.query,
+                total=len(results),
+            )
+    
+    # Fall back to text search
+    results = await _text_search(
+        db, auth.agent_id, request.query, request.limit, request.memory_types
+    )
+    
+    return MemorySearchResponse(
+        results=results,
+        query=request.query,
+        total=len(results),
     )
 
-    # Search each table with text matching
+
+async def _semantic_search(
+    db: Database,
+    agent_id: str,
+    query_embedding: list[float],
+    limit: int,
+    memory_types: list[str] | None,
+) -> list[MemorySearchResult]:
+    """Search using pgvector semantic similarity."""
+    try:
+        # Call the RPC function
+        result = db.rpc(
+            "search_memories_semantic",
+            {
+                "query_embedding": query_embedding,
+                "p_agent_id": agent_id,
+                "p_limit": limit,
+                "p_memory_types": memory_types,
+            }
+        ).execute()
+        
+        return [
+            MemorySearchResult(
+                id=row["id"],
+                memory_type=row["memory_type"],
+                content=row["content"],
+                score=row["score"],
+                created_at=row["created_at"],
+                metadata=row["metadata"],
+            )
+            for row in result.data
+        ]
+    except Exception:
+        # RPC not available or failed - fall back to text search
+        return []
+
+
+async def _text_search(
+    db: Database,
+    agent_id: str,
+    query: str,
+    limit: int,
+    memory_types: list[str] | None,
+) -> list[MemorySearchResult]:
+    """Fall back to text-based search (N+1 queries but works without embeddings)."""
+    results = []
+    
+    tables_to_search = (
+        [t for t in memory_types if t in MEMORY_TABLES]
+        if memory_types
+        else list(MEMORY_TABLES.keys())
+    )
+    
+    safe_query = escape_like(query)
+    
     for table_key in tables_to_search:
         table_name = MEMORY_TABLES[table_key]
-
-        # Use Supabase's textSearch or ilike for basic matching
-        # Note: For production, implement pgvector similarity search
+        
         try:
-            # Try to search common content fields
-            # Use auth.agent_id (string) not auth (AuthContext object)
-            query = (
+            db_query = (
                 db.table(table_name)
                 .select("*")
-                .eq("agent_id", auth.agent_id)
+                .eq("agent_id", agent_id)
                 .eq("deleted", False)
-                .limit(request.limit)
+                .limit(limit)
             )
-
-            # Add text filter based on table type
+            
             content_fields = _get_content_fields(table_key)
             if content_fields:
-                # Use ilike for case-insensitive search on first content field
-                # Escape LIKE special characters to prevent SQL injection
-                safe_query = escape_like(request.query)
-                query = query.ilike(content_fields[0], f"%{safe_query}%")
-
-            result = query.execute()
-
+                db_query = db_query.ilike(content_fields[0], f"%{safe_query}%")
+            
+            result = db_query.execute()
+            
             for record in result.data:
                 content = _extract_content(record, content_fields)
                 results.append(
@@ -72,7 +136,7 @@ async def search_memories(
                         id=record["id"],
                         memory_type=table_key,
                         content=content,
-                        score=1.0,  # Basic search doesn't have scores
+                        score=0.5,  # Text search has no similarity score
                         created_at=record.get("created_at"),
                         metadata={
                             k: v for k, v in record.items()
@@ -81,18 +145,10 @@ async def search_memories(
                     )
                 )
         except Exception:
-            # Skip tables that don't have expected columns
             continue
-
-    # Sort by created_at descending and limit
+    
     results.sort(key=lambda x: x.created_at or "", reverse=True)
-    results = results[:request.limit]
-
-    return MemorySearchResponse(
-        results=results,
-        query=request.query,
-        total=len(results),
-    )
+    return results[:limit]
 
 
 def _get_content_fields(table_key: str) -> list[str]:
@@ -100,23 +156,23 @@ def _get_content_fields(table_key: str) -> list[str]:
     field_map = {
         "episodes": ["objective", "outcome"],
         "beliefs": ["statement"],
-        "values": ["name", "description"],
-        "goals": ["description"],
+        "values": ["statement", "name"],
+        "goals": ["title", "description"],
         "notes": ["content"],
-        "drives": ["name", "description"],
-        "relationships": ["description"],
-        "checkpoints": ["current_task", "context"],
+        "drives": ["drive_type"],
+        "relationships": ["entity_name", "notes"],
+        "checkpoints": ["current_task"],
         "raw_captures": ["content"],
         "playbooks": ["name", "description"],
         "emotional_memories": ["trigger", "response"],
     }
-    return field_map.get(table_key, ["content"])
+    return field_map.get(table_key, [])
 
 
-def _extract_content(record: dict, fields: list[str]) -> str:
-    """Extract content from a record for display."""
+def _extract_content(record: dict, content_fields: list[str]) -> str:
+    """Extract content from record based on available fields."""
     parts = []
-    for field in fields:
+    for field in content_fields:
         if field in record and record[field]:
             parts.append(str(record[field]))
-    return " | ".join(parts) if parts else str(record)
+    return " | ".join(parts) if parts else str(record.get("id", ""))
