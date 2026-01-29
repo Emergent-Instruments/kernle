@@ -112,24 +112,24 @@ export interface CreateKeyResponse {
 }
 
 export async function listApiKeys(): Promise<ApiKey[]> {
-  return fetchApi<ApiKey[]>('/keys');
+  return fetchApi<ApiKey[]>('/auth/keys');
 }
 
 export async function createApiKey(name?: string): Promise<CreateKeyResponse> {
-  return fetchApi<CreateKeyResponse>('/keys', {
+  return fetchApi<CreateKeyResponse>('/auth/keys', {
     method: 'POST',
     body: JSON.stringify({ name: name || null }),
   });
 }
 
 export async function revokeApiKey(keyId: string): Promise<void> {
-  await fetchApi<void>(`/keys/${keyId}`, {
+  await fetchApi<void>(`/auth/keys/${keyId}`, {
     method: 'DELETE',
   });
 }
 
 export async function cycleApiKey(keyId: string): Promise<CreateKeyResponse> {
-  return fetchApi<CreateKeyResponse>(`/keys/${keyId}/cycle`, {
+  return fetchApi<CreateKeyResponse>(`/auth/keys/${keyId}/cycle`, {
     method: 'POST',
   });
 }

@@ -105,13 +105,23 @@ def create_access_token(
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
+# SECURITY: Only allow secure algorithms - prevents algorithm confusion attacks
+ALLOWED_JWT_ALGORITHMS = ["HS256", "HS384", "HS512"]
+
+
 def decode_token(token: str, settings: Settings) -> dict:
     """Decode and validate a JWT token."""
+    # Validate algorithm is in allowlist
+    if settings.jwt_algorithm not in ALLOWED_JWT_ALGORITHMS:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Invalid JWT configuration",
+        )
     try:
         payload = jwt.decode(
             token,
             settings.jwt_secret_key,
-            algorithms=[settings.jwt_algorithm],
+            algorithms=[settings.jwt_algorithm],  # Only accept configured algorithm
         )
         return payload
     except JWTError:
