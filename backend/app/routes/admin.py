@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
 from ..auth import AdminAgent
-from ..database import MEMORY_TABLES, Database, get_primary_text_field
+from ..database import MEMORY_TABLES, Database, get_primary_text_field, get_user
 from ..embeddings import create_embedding
 from ..logging_config import get_logger
 
@@ -237,7 +237,7 @@ async def list_agents(
     # Get agents
     result = (
         db.table("agents")
-        .select("agent_id, user_id, tier, created_at")
+        .select("agent_id, user_id, created_at")
         .order("created_at", desc=True)
         .range(offset, offset + limit - 1)
         .execute()
@@ -246,8 +246,21 @@ async def list_agents(
     if not result.data:
         return AgentListResponse(agents=[], total=0)
 
-    # Extract agent IDs for batch queries
+    # Extract agent IDs and user IDs for batch queries
     agent_ids = [row["agent_id"] for row in result.data]
+    user_ids = list({row["user_id"] for row in result.data if row.get("user_id")})
+
+    # Batch fetch user tiers from users table (authoritative source)
+    user_tiers: dict[str, str] = {}
+    if user_ids:
+        try:
+            users_result = (
+                db.table("users").select("user_id, tier").in_("user_id", user_ids).execute()
+            )
+            for user_row in users_result.data:
+                user_tiers[user_row["user_id"]] = user_row.get("tier", "free")
+        except Exception as e:
+            logger.warning(f"Error fetching user tiers: {e}")
 
     # Batch fetch all stats and sync times (2 queries per table + 1 for sync = ~19 total)
     # Instead of 18 queries per agent (could be 900+ for 50 agents)
@@ -258,14 +271,18 @@ async def list_agents(
     agents = []
     for row in result.data:
         agent_id = row["agent_id"]
+        user_id = row.get("user_id") or "unknown"
         counts, coverage = memory_stats.get(agent_id, ({}, {}))
         last_sync = sync_times.get(agent_id)
+
+        # Get tier from users table (not agents table)
+        tier = user_tiers.get(user_id, "free") if user_id != "unknown" else "free"
 
         agents.append(
             AgentSummary(
                 agent_id=agent_id,
-                user_id=row["user_id"] or "unknown",
-                tier=row.get("tier", "free"),
+                user_id=user_id,
+                tier=tier,
                 created_at=row.get("created_at"),
                 last_sync_at=last_sync,
                 memory_counts=counts,
@@ -431,9 +448,7 @@ async def get_agent(
     If multiple users have agents with the same agent_id, use user_id parameter
     to specify which one. Without user_id, returns the first match.
     """
-    query = (
-        db.table("agents").select("agent_id, user_id, tier, created_at").eq("agent_id", agent_id)
-    )
+    query = db.table("agents").select("agent_id, user_id, created_at").eq("agent_id", agent_id)
 
     if user_id:
         query = query.eq("user_id", user_id)
@@ -446,12 +461,20 @@ async def get_agent(
         )
 
     row = result.data[0]
+    agent_user_id = row.get("user_id") or "unknown"
     counts, coverage = await _get_agent_memory_stats(db, agent_id)
+
+    # Get tier from users table (authoritative source)
+    tier = "free"
+    if agent_user_id != "unknown":
+        user = await get_user(db, agent_user_id)
+        if user:
+            tier = user.get("tier", "free")
 
     return AgentSummary(
         agent_id=row["agent_id"],
-        user_id=row["user_id"] or "unknown",
-        tier=row.get("tier", "free"),
+        user_id=agent_user_id,
+        tier=tier,
         created_at=row.get("created_at"),
         last_sync_at=None,
         memory_counts=counts,

@@ -31,6 +31,7 @@ from ..database import (
     get_agent_by_user_id,
     get_api_key,
     get_usage_for_user,
+    get_user,
     get_user_by_email,
     list_api_keys,
 )
@@ -498,7 +499,12 @@ async def get_current_agent_info(
             detail="Agent not found",
         )
 
-    tier = agent.get("tier", "free")
+    # Get tier from users table (authoritative source)
+    tier = "free"
+    if auth.user_id:
+        user = await get_user(db, auth.user_id)
+        if user:
+            tier = user.get("tier", "free")
     limits_config = TIER_LIMITS.get(tier, TIER_LIMITS["free"])
 
     # Get usage stats if user_id available
@@ -545,7 +551,12 @@ async def get_usage_stats(
             detail="Agent not found",
         )
 
-    tier = agent.get("tier", "free")
+    # Get tier from users table (authoritative source)
+    tier = "free"
+    if auth.user_id:
+        user = await get_user(db, auth.user_id)
+        if user:
+            tier = user.get("tier", "free")
     limits_config = TIER_LIMITS.get(tier, TIER_LIMITS["free"])
 
     # Get usage stats
