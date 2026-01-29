@@ -44,13 +44,13 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 10  # Bumped for enhanced sync queue
+SCHEMA_VERSION = 11  # Bumped for health check events
 
 # Allowed table names for SQL queries (security: prevents SQL injection via table names)
 ALLOWED_TABLES = frozenset({
     "episodes", "beliefs", "agent_values", "goals", "notes", 
     "drives", "relationships", "playbooks", "raw_entries",
-    "schema_version", "sync_queue", "embeddings"
+    "schema_version", "sync_queue", "embeddings", "health_check_events"
 })
 
 def validate_table_name(table: str) -> str:
@@ -396,6 +396,18 @@ CREATE TABLE IF NOT EXISTS raw_entries (
 CREATE INDEX IF NOT EXISTS idx_raw_agent ON raw_entries(agent_id);
 CREATE INDEX IF NOT EXISTS idx_raw_processed ON raw_entries(agent_id, processed);
 CREATE INDEX IF NOT EXISTS idx_raw_timestamp ON raw_entries(agent_id, timestamp);
+
+-- Health check events (compliance tracking)
+CREATE TABLE IF NOT EXISTS health_check_events (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    checked_at TEXT NOT NULL,
+    anxiety_score INTEGER,
+    source TEXT DEFAULT 'cli',  -- cli, mcp
+    triggered_by TEXT DEFAULT 'manual'  -- boot, heartbeat, manual
+);
+CREATE INDEX IF NOT EXISTS idx_health_check_agent ON health_check_events(agent_id);
+CREATE INDEX IF NOT EXISTS idx_health_check_checked_at ON health_check_events(checked_at);
 
 -- Sync queue for offline changes (enhanced v2)
 CREATE TABLE IF NOT EXISTS sync_queue (
@@ -1171,6 +1183,22 @@ class SQLiteStorage:
                 migrations.append(f"ALTER TABLE {table} ADD COLUMN forgotten_at TEXT")
             if 'forgotten_reason' not in cols:
                 migrations.append(f"ALTER TABLE {table} ADD COLUMN forgotten_reason TEXT")
+
+        # Create health_check_events table if it doesn't exist
+        if 'health_check_events' not in table_names:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS health_check_events (
+                    id TEXT PRIMARY KEY,
+                    agent_id TEXT NOT NULL,
+                    checked_at TEXT NOT NULL,
+                    anxiety_score INTEGER,
+                    source TEXT DEFAULT 'cli',
+                    triggered_by TEXT DEFAULT 'manual'
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_health_check_agent ON health_check_events(agent_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_health_check_checked_at ON health_check_events(checked_at)")
+            logger.info("Created health_check_events table")
 
         # Execute migrations
         for migration in migrations:
@@ -4520,3 +4548,121 @@ class SQLiteStorage:
             self.save_drive(record)
         elif table == "relationships":
             self.save_relationship(record)
+
+    # === Health Check Compliance Tracking ===
+
+    def log_health_check(
+        self,
+        anxiety_score: Optional[int] = None,
+        source: str = "cli",
+        triggered_by: str = "manual"
+    ) -> str:
+        """Log a health check event for compliance tracking.
+
+        Args:
+            anxiety_score: The anxiety score at time of check (0-100)
+            source: Where the check originated from (cli, mcp)
+            triggered_by: What triggered the check (boot, heartbeat, manual)
+
+        Returns:
+            The ID of the logged event
+        """
+        event_id = str(uuid.uuid4())
+        now = self._now()
+
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO health_check_events 
+                   (id, agent_id, checked_at, anxiety_score, source, triggered_by)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (event_id, self.agent_id, now, anxiety_score, source, triggered_by)
+            )
+            conn.commit()
+
+        logger.debug(f"Logged health check: score={anxiety_score}, source={source}, triggered_by={triggered_by}")
+        return event_id
+
+    def get_health_check_stats(self) -> Dict[str, Any]:
+        """Get health check compliance statistics.
+
+        Returns:
+            Dict with:
+            - total_checks: Total number of health checks
+            - avg_per_day: Average checks per day
+            - last_check_at: Timestamp of last check
+            - last_anxiety_score: Anxiety score at last check
+            - checks_by_source: Breakdown by source (cli/mcp)
+            - checks_by_trigger: Breakdown by trigger (boot/heartbeat/manual)
+        """
+        with self._connect() as conn:
+            # Total checks
+            cur = conn.execute(
+                "SELECT COUNT(*) FROM health_check_events WHERE agent_id = ?",
+                (self.agent_id,)
+            )
+            total_checks = cur.fetchone()[0]
+
+            if total_checks == 0:
+                return {
+                    "total_checks": 0,
+                    "avg_per_day": 0.0,
+                    "last_check_at": None,
+                    "last_anxiety_score": None,
+                    "checks_by_source": {},
+                    "checks_by_trigger": {},
+                }
+
+            # Get first and last check for calculating avg per day
+            cur = conn.execute(
+                """SELECT MIN(checked_at), MAX(checked_at) 
+                   FROM health_check_events WHERE agent_id = ?""",
+                (self.agent_id,)
+            )
+            first_check, last_check = cur.fetchone()
+
+            # Calculate days spanned
+            if first_check and last_check:
+                first_dt = parse_datetime(first_check)
+                last_dt = parse_datetime(last_check)
+                if first_dt and last_dt:
+                    days_spanned = max(1, (last_dt - first_dt).days + 1)
+                    avg_per_day = total_checks / days_spanned
+                else:
+                    avg_per_day = float(total_checks)
+            else:
+                avg_per_day = float(total_checks)
+
+            # Last check details
+            cur = conn.execute(
+                """SELECT checked_at, anxiety_score FROM health_check_events 
+                   WHERE agent_id = ? ORDER BY checked_at DESC LIMIT 1""",
+                (self.agent_id,)
+            )
+            row = cur.fetchone()
+            last_check_at = row[0] if row else None
+            last_anxiety_score = row[1] if row else None
+
+            # Checks by source
+            cur = conn.execute(
+                """SELECT source, COUNT(*) FROM health_check_events 
+                   WHERE agent_id = ? GROUP BY source""",
+                (self.agent_id,)
+            )
+            checks_by_source = {row[0]: row[1] for row in cur.fetchall()}
+
+            # Checks by trigger
+            cur = conn.execute(
+                """SELECT triggered_by, COUNT(*) FROM health_check_events 
+                   WHERE agent_id = ? GROUP BY triggered_by""",
+                (self.agent_id,)
+            )
+            checks_by_trigger = {row[0]: row[1] for row in cur.fetchall()}
+
+            return {
+                "total_checks": total_checks,
+                "avg_per_day": round(avg_per_day, 2),
+                "last_check_at": last_check_at,
+                "last_anxiety_score": last_anxiety_score,
+                "checks_by_source": checks_by_source,
+                "checks_by_trigger": checks_by_trigger,
+            }

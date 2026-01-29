@@ -11,6 +11,8 @@ def cmd_anxiety(args, k: "Kernle"):
     """Handle anxiety tracking commands."""
     context_tokens = getattr(args, 'context', None)
     context_limit = getattr(args, 'limit', 200000) or 200000
+    source = getattr(args, 'source', 'cli') or 'cli'
+    triggered_by = getattr(args, 'triggered_by', 'manual') or 'manual'
 
     # Emergency mode - run immediately
     if getattr(args, 'emergency', False):
@@ -41,6 +43,16 @@ def cmd_anxiety(args, k: "Kernle"):
         context_limit=context_limit,
         detailed=getattr(args, 'detailed', False) or getattr(args, 'actions', False),
     )
+
+    # Log health check event for compliance tracking
+    try:
+        k._storage.log_health_check(
+            anxiety_score=report.get('overall_score'),
+            source=source,
+            triggered_by=triggered_by
+        )
+    except Exception:
+        pass  # Don't fail the command if logging fails
 
     if args.json:
         print(json.dumps(report, indent=2, default=str))
