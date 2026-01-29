@@ -91,10 +91,30 @@ async def exchange_supabase_token(
             header = jwt.get_unverified_header(token)
             claims = jwt.get_unverified_claims(token)
             kid = header.get("kid")
-            alg = header.get("alg", "RS256")
+            alg = header.get("alg")
             issuer = claims.get("iss")
             
             logger.info(f"OAuth: JWT kid={kid}, alg={alg}, iss={issuer}")
+            
+            # SECURITY: Validate algorithm to prevent algorithm confusion attacks
+            if alg != "RS256":
+                logger.error(f"OAuth: Unsupported algorithm: {alg}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Unsupported token algorithm",
+                )
+            
+            # SECURITY: Validate issuer against allowlist to prevent JWKS URL spoofing
+            # Only trust our Supabase instance's auth endpoint
+            expected_issuer = f"{settings.supabase_url}/auth/v1"
+            if issuer != expected_issuer:
+                logger.error(f"OAuth: Invalid issuer: {issuer}, expected: {expected_issuer}")
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid token issuer",
+                )
+        except HTTPException:
+            raise
         except Exception as e:
             logger.error(f"OAuth: Failed to decode JWT header: {e}")
             raise HTTPException(
@@ -102,9 +122,8 @@ async def exchange_supabase_token(
                 detail="Invalid token format",
             )
         
-        # Fetch JWKS from Supabase
-        # The issuer URL is like https://xxx.supabase.co/auth/v1
-        jwks_url = f"{issuer}/.well-known/jwks.json" if issuer else f"{settings.supabase_url}/auth/v1/.well-known/jwks.json"
+        # Fetch JWKS from our trusted Supabase instance only
+        jwks_url = f"{expected_issuer}/.well-known/jwks.json"
         
         logger.info(f"OAuth: Fetching JWKS from {jwks_url}")
         try:
