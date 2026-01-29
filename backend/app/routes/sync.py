@@ -247,13 +247,24 @@ async def full_sync(
             continue  # Skip deleted records in full sync
         # Strip embedding from response - client will re-embed locally
         data = {k: v for k, v in change["data"].items() if k != "embedding"}
+
+        # Parse local_updated_at with same logic as pull_changes
+        local_updated = (
+            data.get("local_updated_at") or data.get("created_at") or datetime.now(timezone.utc)
+        )
+        if isinstance(local_updated, str):
+            try:
+                local_updated = datetime.fromisoformat(local_updated.replace("Z", "+00:00"))
+            except (ValueError, TypeError):
+                local_updated = datetime.now(timezone.utc)
+
         operations.append(
             SyncOperation(
                 operation="update",  # Full sync is always "update" (upsert on client)
                 table=change["table"],
                 record_id=change["record_id"],
                 data=data,
-                local_updated_at=change["data"].get("local_updated_at", datetime.now(timezone.utc)),
+                local_updated_at=local_updated,
                 version=change["data"].get("version", 1),
             )
         )
