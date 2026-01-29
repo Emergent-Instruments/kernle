@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
 
 from ..auth import (
+    AUTH_COOKIE_NAME,
     CurrentAgent,
     create_access_token,
     generate_agent_secret,
@@ -446,6 +447,7 @@ async def get_token(
 async def get_current_user_info(
     auth: CurrentAgent,
     db: Database,
+    response: Response,
 ):
     """
     Get information about the currently authenticated user, including tier and usage.
@@ -456,9 +458,17 @@ async def get_current_user_info(
     # Get user info from users table (authoritative source)
     user = await get_user(db, auth.user_id)
     if not user:
+        # Clear the invalid auth cookie so the user can re-authenticate
+        response.delete_cookie(
+            AUTH_COOKIE_NAME,
+            path="/",
+            secure=True,
+            httponly=True,
+            samesite="none",
+        )
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User not found",
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found - please sign in again",
         )
 
     tier = user.get("tier", "free")
