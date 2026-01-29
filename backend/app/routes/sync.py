@@ -27,6 +27,18 @@ from ..models import (
 logger = get_logger("kernle.sync")
 router = APIRouter(prefix="/sync", tags=["sync"])
 
+# Fields that clients are NEVER allowed to set (server-controlled)
+# These are stripped from any incoming sync data to prevent mass assignment attacks
+SERVER_CONTROLLED_FIELDS = frozenset({
+    "agent_ref",      # Server sets based on authenticated user (FK integrity)
+    "deleted",        # Server controls soft-delete state
+    "version",        # Server manages versioning
+    "id",             # Server assigns/validates record IDs
+    "embedding",      # Server generates embeddings (already stripped separately)
+    "synced_at",      # Server timestamp
+    "server_updated_at",  # Server timestamp
+})
+
 
 @router.post("/push", response_model=SyncPushResponse)
 @limiter.limit("60/minute")
@@ -80,12 +92,26 @@ async def push_changes(
                     })
                     continue
                 
-                # Server-side re-embedding: ALWAYS ignore client's embedding
+                # SECURITY: Strip server-controlled fields to prevent mass assignment
+                # Client cannot set agent_ref, deleted, version, id, etc.
+                stripped_fields = [k for k in op.data.keys() if k in SERVER_CONTROLLED_FIELDS]
+                if stripped_fields:
+                    logger.warning(
+                        f"Stripped server-controlled fields from {op.table}/{op.record_id}: {stripped_fields}"
+                    )
+                
+                # Filter to only allowed fields (exclude server-controlled AND embedding)
+                sanitized_data = {
+                    k: v for k, v in op.data.items() 
+                    if k not in SERVER_CONTROLLED_FIELDS
+                }
+                
+                # Server-side re-embedding: generate OpenAI embedding
                 # Client uses 384-dim HashEmbedder locally; server uses 1536-dim OpenAI
                 # This makes semantic search a subscription feature (uses our OpenAI key)
-                data_with_embedding = {k: v for k, v in op.data.items() if k != "embedding"}
+                data_with_embedding = sanitized_data.copy()
                 
-                text_content = extract_text_for_embedding(op.table, op.data)
+                text_content = extract_text_for_embedding(op.table, sanitized_data)
                 if text_content:
                     embedding = await create_embedding(text_content)
                     if embedding:
