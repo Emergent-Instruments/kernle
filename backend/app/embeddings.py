@@ -108,18 +108,19 @@ def extract_text_for_embedding(table: str, data: dict) -> str | None:
     Returns None if no suitable text found.
     """
     # Map of table -> fields to extract (in priority order)
+    # Primary fields match actual schema columns
     text_fields = {
-        "episodes": ["description", "summary", "lesson"],
-        "beliefs": ["content", "belief"],
-        "values": ["content", "value", "description"],
-        "goals": ["content", "goal", "description"],
-        "notes": ["content", "note", "text"],
-        "raw_captures": ["content", "text", "raw"],
-        "relationships": ["description", "notes"],
-        "playbooks": ["content", "steps", "description"],
+        "episodes": ["objective", "lesson", "summary"],
+        "beliefs": ["statement", "content"],
+        "values": ["statement", "content"],
+        "goals": ["title", "description", "content"],
+        "notes": ["content", "text"],
+        "raw_captures": ["content", "text"],
+        "relationships": ["entity_name", "description", "notes"],
+        "playbooks": ["description", "content", "steps"],
         "emotional_memories": ["content", "description", "emotion"],
         "checkpoints": ["summary", "state", "description"],
-        "drives": ["content", "drive", "description"],
+        "drives": ["drive_type", "description", "content"],
     }
     
     fields = text_fields.get(table, ["content", "text", "description"])
