@@ -21,18 +21,19 @@ async function fetchApi<T>(
     'Content-Type': 'application/json',
     ...options.headers,
   };
-  
+
   const response = await fetch(`${API_URL}${endpoint}`, {
     ...options,
     headers,
     credentials: 'include',  // Send httpOnly cookies automatically
+    cache: 'no-store',  // Prevent browser caching - always fetch fresh data
   });
-  
+
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Request failed' }));
     throw new ApiError(response.status, error.detail || 'Request failed');
   }
-  
+
   return response.json();
 }
 
@@ -64,7 +65,7 @@ export async function login(email: string, password: string): Promise<TokenRespo
   const formData = new URLSearchParams();
   formData.append('username', email);
   formData.append('password', password);
-  
+
   const response = await fetch(`${API_URL}/auth/token`, {
     method: 'POST',
     headers: {
@@ -72,12 +73,12 @@ export async function login(email: string, password: string): Promise<TokenRespo
     },
     body: formData,
   });
-  
+
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: 'Login failed' }));
     throw new ApiError(response.status, error.detail || 'Login failed');
   }
-  
+
   return response.json();
 }
 
