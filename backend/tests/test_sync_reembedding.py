@@ -180,19 +180,23 @@ class TestPullStripsEmbeddings:
     def test_pull_strips_embeddings(self, mock_get_changes, client, auth_headers):
         """Pull response should not include embeddings (saves bandwidth)."""
         # Simulate DB returning records with 1536-dim embeddings
-        mock_get_changes.return_value = [
-            {
-                "operation": "update",
-                "table": "notes",
-                "record_id": "note-1",
-                "data": {
-                    "content": "Note content",
-                    "note_type": "note",
-                    "embedding": [0.1] * 1536,  # Server's 1536-dim embedding
-                    "created_at": datetime.now(timezone.utc).isoformat()
+        # get_changes_since returns (changes, has_more) tuple
+        mock_get_changes.return_value = (
+            [
+                {
+                    "operation": "update",
+                    "table": "notes",
+                    "record_id": "note-1",
+                    "data": {
+                        "content": "Note content",
+                        "note_type": "note",
+                        "embedding": [0.1] * 1536,  # Server's 1536-dim embedding
+                        "created_at": datetime.now(timezone.utc).isoformat()
+                    }
                 }
-            }
-        ]
+            ],
+            False,  # has_more
+        )
 
         response = client.post(
             "/sync/pull",

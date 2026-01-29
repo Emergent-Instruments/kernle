@@ -171,7 +171,7 @@ async def pull_changes(
     logger.info(f"PULL | {log_prefix} | since={pull_request.since}")
 
     since_str = pull_request.since.isoformat() if pull_request.since else None
-    changes = await get_changes_since(db, agent_id, since_str)
+    changes, has_more = await get_changes_since(db, agent_id, since_str)
 
     operations = []
     for change in changes:
@@ -197,12 +197,12 @@ async def pull_changes(
             version=data.get("version", 1),
         ))
 
-    logger.info(f"PULL COMPLETE | {log_prefix} | {len(operations)} operations")
+    logger.info(f"PULL COMPLETE | {log_prefix} | {len(operations)} operations, has_more={has_more}")
 
     return SyncPullResponse(
         operations=operations,
         server_time=datetime.now(timezone.utc),
-        has_more=len(operations) >= 1000,  # Simple pagination indicator
+        has_more=has_more,
     )
 
 
@@ -221,7 +221,8 @@ async def full_sync(
     - Recovery after data loss
     """
     agent_id = auth.agent_id
-    changes = await get_changes_since(db, agent_id, None)
+    # Full sync uses a very high limit to get everything
+    changes, _ = await get_changes_since(db, agent_id, None, limit=100000)
 
     operations = []
     for change in changes:

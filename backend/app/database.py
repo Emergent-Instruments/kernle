@@ -252,23 +252,38 @@ async def get_changes_since(
     agent_id: str,
     since: str | None,
     limit: int = 1000,
-) -> list[dict]:
+) -> tuple[list[dict], bool]:
     """Get all changes for an agent since a given timestamp.
     
     Fetches from all memory tables in parallel using asyncio.gather().
+    Excludes forgotten memories (is_forgotten=true).
+    
+    Returns:
+        Tuple of (changes, has_more) where has_more indicates if any table
+        hit its per-table limit and may have more records.
     """
     import asyncio
 
-    async def fetch_table(table_key: str, table_name: str) -> list[dict]:
-        """Fetch changes from a single table."""
+    # Tables that support the is_forgotten field
+    FORGETTABLE_TABLES = frozenset({
+        "episodes", "beliefs", "values", "goals", "notes", 
+        "drives", "relationships"
+    })
+
+    async def fetch_table(table_key: str, table_name: str) -> tuple[list[dict], bool]:
+        """Fetch changes from a single table. Returns (records, hit_limit)."""
         def _query():
             query = db.table(table_name).select("*").eq("agent_id", agent_id)
             if since:
                 query = query.gt("cloud_synced_at", since)
+            # Filter out forgotten memories for tables that support it
+            if table_key in FORGETTABLE_TABLES:
+                # Exclude is_forgotten=true (include null, false, or missing)
+                query = query.neq("is_forgotten", True)
             return query.limit(limit).execute()
         
         result = await asyncio.to_thread(_query)
-        return [
+        records = [
             {
                 "table": table_key,
                 "record_id": record["id"],
@@ -277,6 +292,9 @@ async def get_changes_since(
             }
             for record in result.data
         ]
+        # Check if this table hit its limit (may have more records)
+        hit_limit = len(result.data) >= limit
+        return records, hit_limit
 
     # Fetch all tables in parallel
     results = await asyncio.gather(*[
@@ -284,8 +302,15 @@ async def get_changes_since(
         for table_key, table_name in MEMORY_TABLES.items()
     ])
 
-    # Flatten results
-    return [change for table_changes in results for change in table_changes]
+    # Flatten results and check if any table hit its limit
+    changes = []
+    has_more = False
+    for table_changes, hit_limit in results:
+        changes.extend(table_changes)
+        if hit_limit:
+            has_more = True
+
+    return changes, has_more
 
 
 # =============================================================================
