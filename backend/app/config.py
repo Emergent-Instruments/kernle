@@ -31,13 +31,26 @@ class Settings(BaseSettings):
 
     # App
     debug: bool = False
-    # CORS: Allowed origins for cross-origin requests
+    # CORS: Production origins only - localhost added dynamically when debug=True
     cors_origins: list[str] = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
         "https://kernle.ai",
         "https://www.kernle.ai",
     ]
+
+    @property
+    def allowed_origins(self) -> list[str]:
+        """Get CORS origins based on environment.
+        
+        In debug mode, localhost origins are added for local development.
+        In production (debug=False), only the production domains are allowed.
+        """
+        if self.debug:
+            return [
+                "http://localhost:3000",
+                "http://127.0.0.1:3000",
+                *self.cors_origins,
+            ]
+        return self.cors_origins
 
     class Config:
         env_file = ".env"
