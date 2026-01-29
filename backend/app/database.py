@@ -3,12 +3,12 @@
 from typing import Annotated
 
 from fastapi import Depends
-
 from supabase import Client, create_client
 
 from .config import Settings, get_settings
 
 _supabase_client: Client | None = None
+
 
 def get_supabase_client(settings: Settings | None = None) -> Client:
     """Get cached Supabase client."""
@@ -56,6 +56,7 @@ EMOTIONAL_MEMORIES_TABLE = "emotional_memories"
 # =============================================================================
 # Agent Operations
 # =============================================================================
+
 
 async def create_agent(
     db: Client,
@@ -128,20 +129,20 @@ SEED_BELIEFS = [
 
 async def create_seed_beliefs(db: Client, agent_id: str) -> int:
     """Create foundational seed beliefs for a new agent.
-    
+
     These represent collective SI wisdom - instincts that help agents
     work effectively. Agents can modify or override these based on
     their own experience.
-    
+
     Returns:
         Number of beliefs created.
     """
     import uuid
     from datetime import datetime, timezone
-    
+
     created = 0
     now = datetime.now(timezone.utc).isoformat()
-    
+
     for belief in SEED_BELIEFS:
         belief_id = f"seed_{uuid.uuid4().hex[:12]}"
         data = {
@@ -157,15 +158,18 @@ async def create_seed_beliefs(db: Client, agent_id: str) -> int:
             "version": 1,
             "deleted": False,
         }
-        
+
         try:
             db.table(BELIEFS_TABLE).insert(data).execute()
             created += 1
         except Exception as e:
             # Skip if belief creation fails (e.g., duplicate) but log it
             import logging
-            logging.getLogger("kernle.database").debug(f"Seed belief creation skipped for {agent_id}: {e}")
-    
+
+            logging.getLogger("kernle.database").debug(
+                f"Seed belief creation skipped for {agent_id}: {e}"
+            )
+
     return created
 
 
@@ -197,7 +201,7 @@ async def upsert_memory(
     agent_ref: str | None = None,
 ) -> dict:
     """Insert or update a memory record.
-    
+
     Args:
         db: Supabase client
         agent_id: Agent identifier (for display/filtering)
@@ -210,24 +214,24 @@ async def upsert_memory(
         raise ValueError(f"Unknown table: {table}")
 
     table_name = MEMORY_TABLES[table]
-    
+
     # Get agent_ref if not provided
     if agent_ref is None:
         agent = await get_agent(db, agent_id)
         if agent:
             agent_ref = agent.get("id")
-    
+
     record = {
         **data,
         "id": record_id,
         "agent_id": agent_id,
         "cloud_synced_at": "now()",
     }
-    
+
     # Include agent_ref if available (required after migration 008)
     if agent_ref:
         record["agent_ref"] = agent_ref
-    
+
     result = db.table(table_name).upsert(record).execute()
     return result.data[0] if result.data else None
 
@@ -243,7 +247,13 @@ async def delete_memory(
         raise ValueError(f"Unknown table: {table}")
 
     table_name = MEMORY_TABLES[table]
-    result = db.table(table_name).update({"deleted": True}).eq("id", record_id).eq("agent_id", agent_id).execute()
+    result = (
+        db.table(table_name)
+        .update({"deleted": True})
+        .eq("id", record_id)
+        .eq("agent_id", agent_id)
+        .execute()
+    )
     return len(result.data) > 0
 
 
@@ -254,10 +264,10 @@ async def get_changes_since(
     limit: int = 1000,
 ) -> tuple[list[dict], bool]:
     """Get all changes for an agent since a given timestamp.
-    
+
     Fetches from all memory tables in parallel using asyncio.gather().
     Excludes forgotten memories (is_forgotten=true).
-    
+
     Returns:
         Tuple of (changes, has_more) where has_more indicates if any table
         hit its per-table limit and may have more records.
@@ -265,23 +275,23 @@ async def get_changes_since(
     import asyncio
 
     # Tables that support the is_forgotten field
-    FORGETTABLE_TABLES = frozenset({
-        "episodes", "beliefs", "values", "goals", "notes", 
-        "drives", "relationships"
-    })
+    forgettable_tables = frozenset(
+        {"episodes", "beliefs", "values", "goals", "notes", "drives", "relationships"}
+    )
 
     async def fetch_table(table_key: str, table_name: str) -> tuple[list[dict], bool]:
         """Fetch changes from a single table. Returns (records, hit_limit)."""
+
         def _query():
             query = db.table(table_name).select("*").eq("agent_id", agent_id)
             if since:
                 query = query.gt("cloud_synced_at", since)
             # Filter out forgotten memories for tables that support it
-            if table_key in FORGETTABLE_TABLES:
+            if table_key in forgettable_tables:
                 # Exclude is_forgotten=true (include null, false, or missing)
                 query = query.neq("is_forgotten", True)
             return query.limit(limit).execute()
-        
+
         result = await asyncio.to_thread(_query)
         records = [
             {
@@ -297,10 +307,9 @@ async def get_changes_since(
         return records, hit_limit
 
     # Fetch all tables in parallel
-    results = await asyncio.gather(*[
-        fetch_table(table_key, table_name)
-        for table_key, table_name in MEMORY_TABLES.items()
-    ])
+    results = await asyncio.gather(
+        *[fetch_table(table_key, table_name) for table_key, table_name in MEMORY_TABLES.items()]
+    )
 
     # Flatten results and check if any table hit its limit
     changes = []
@@ -316,6 +325,7 @@ async def get_changes_since(
 # =============================================================================
 # API Key Operations
 # =============================================================================
+
 
 async def create_api_key(
     db: Client,
@@ -350,25 +360,13 @@ async def list_api_keys(db: Client, user_id: str) -> list[dict]:
 
 async def get_api_key(db: Client, key_id: str, user_id: str) -> dict | None:
     """Get an API key by ID (must belong to user)."""
-    result = (
-        db.table(API_KEYS_TABLE)
-        .select("*")
-        .eq("id", key_id)
-        .eq("user_id", user_id)
-        .execute()
-    )
+    result = db.table(API_KEYS_TABLE).select("*").eq("id", key_id).eq("user_id", user_id).execute()
     return result.data[0] if result.data else None
 
 
 async def delete_api_key(db: Client, key_id: str, user_id: str) -> bool:
     """Delete (revoke) an API key."""
-    result = (
-        db.table(API_KEYS_TABLE)
-        .delete()
-        .eq("id", key_id)
-        .eq("user_id", user_id)
-        .execute()
-    )
+    result = db.table(API_KEYS_TABLE).delete().eq("id", key_id).eq("user_id", user_id).execute()
     return len(result.data) > 0
 
 
@@ -391,14 +389,14 @@ async def update_api_key_last_used(db: Client, key_id: str) -> None:
 
 async def get_active_api_keys_by_prefix(db: Client, prefix: str) -> list[dict]:
     """Get active API keys matching a prefix (for auth lookup).
-    
+
     Uses LIKE match to handle both old (8-char) and new (12-char) prefixes.
     The prefix stored in DB may be shorter than the lookup prefix.
     """
     # Use the shorter prefix for lookup (backward compatible with old 8-char prefixes)
     # Old keys have 8-char prefix, new keys have 12-char prefix
     lookup_prefix = prefix[:8]  # "knl_sk_X" - minimum discriminating prefix
-    
+
     result = (
         db.table(API_KEYS_TABLE)
         .select("id, user_id, key_hash, key_prefix")
@@ -418,11 +416,7 @@ async def get_agent_by_user_id(db: Client, user_id: str) -> dict | None:
 async def get_agent_by_user_and_name(db: Client, user_id: str, agent_id: str) -> dict | None:
     """Get an agent by user_id and agent_id (for multi-tenant lookup)."""
     result = (
-        db.table(AGENTS_TABLE)
-        .select("*")
-        .eq("user_id", user_id)
-        .eq("agent_id", agent_id)
-        .execute()
+        db.table(AGENTS_TABLE).select("*").eq("user_id", user_id).eq("agent_id", agent_id).execute()
     )
     return result.data[0] if result.data else None
 
@@ -430,22 +424,22 @@ async def get_agent_by_user_and_name(db: Client, user_id: str, agent_id: str) ->
 async def verify_api_key_auth(db: Client, api_key: str) -> dict | None:
     """
     Verify an API key and return auth context if valid.
-    
+
     Returns dict with user_id, agent_id, tier, and api_key_id if valid, None otherwise.
     Updates last_used_at on successful auth.
     """
     from .auth import get_api_key_prefix, verify_api_key
-    
+
     prefix = get_api_key_prefix(api_key)
-    
+
     # Get all active keys with this prefix
     candidates = await get_active_api_keys_by_prefix(db, prefix)
-    
+
     for key_record in candidates:
         if verify_api_key(api_key, key_record["key_hash"]):
             # Found matching key - update last_used and return auth context
             await update_api_key_last_used(db, key_record["id"])
-            
+
             # Get the agent for this user_id
             agent = await get_agent_by_user_id(db, key_record["user_id"])
             if agent:
@@ -457,7 +451,7 @@ async def verify_api_key_auth(db: Client, api_key: str) -> dict | None:
                 }
             # Key valid but no agent found (shouldn't happen)
             return None
-    
+
     return None
 
 
@@ -480,40 +474,32 @@ async def get_or_create_usage(db: Client, api_key_id: str, user_id: str) -> dict
         "api_key_id": api_key_id,
         "user_id": user_id,
     }
-    result = (
-        db.table(API_KEY_USAGE_TABLE)
-        .upsert(data, on_conflict="api_key_id")
-        .execute()
-    )
+    result = db.table(API_KEY_USAGE_TABLE).upsert(data, on_conflict="api_key_id").execute()
     return result.data[0] if result.data else None
 
 
 async def get_usage_for_user(db: Client, user_id: str) -> dict | None:
     """Get aggregated usage for a user (sum across all their API keys)."""
     from datetime import datetime, timezone
-    
-    result = (
-        db.table(API_KEY_USAGE_TABLE)
-        .select("*")
-        .eq("user_id", user_id)
-        .execute()
-    )
-    
+
+    result = db.table(API_KEY_USAGE_TABLE).select("*").eq("user_id", user_id).execute()
+
     if not result.data:
         return None
-    
+
     # Aggregate across all keys, respecting reset times
     now = datetime.now(timezone.utc)
     total_daily = 0
     total_monthly = 0
     earliest_daily_reset = None
     earliest_monthly_reset = None
-    
+
     for record in result.data:
         # Check if daily reset needed
         daily_reset = record.get("daily_reset_at")
         if daily_reset:
             from dateutil.parser import parse
+
             reset_dt = parse(daily_reset) if isinstance(daily_reset, str) else daily_reset
             if now >= reset_dt:
                 # Counter should be reset
@@ -522,11 +508,12 @@ async def get_usage_for_user(db: Client, user_id: str) -> dict | None:
                 total_daily += record.get("daily_requests", 0)
                 if earliest_daily_reset is None or reset_dt < earliest_daily_reset:
                     earliest_daily_reset = reset_dt
-        
+
         # Check if monthly reset needed
         monthly_reset = record.get("monthly_reset_at")
         if monthly_reset:
             from dateutil.parser import parse
+
             reset_dt = parse(monthly_reset) if isinstance(monthly_reset, str) else monthly_reset
             if now >= reset_dt:
                 # Counter should be reset
@@ -535,7 +522,7 @@ async def get_usage_for_user(db: Client, user_id: str) -> dict | None:
                 total_monthly += record.get("monthly_requests", 0)
                 if earliest_monthly_reset is None or reset_dt < earliest_monthly_reset:
                     earliest_monthly_reset = reset_dt
-    
+
     return {
         "daily_requests": total_daily,
         "monthly_requests": total_monthly,
@@ -554,10 +541,9 @@ async def increment_usage(db: Client, api_key_id: str, user_id: str) -> dict:
     # Use atomic database function to prevent race conditions
     # Two concurrent requests will each increment separately
     result = db.rpc(
-        "increment_api_usage",
-        {"p_api_key_id": api_key_id, "p_user_id": user_id}
+        "increment_api_usage", {"p_api_key_id": api_key_id, "p_user_id": user_id}
     ).execute()
-    
+
     if result.data and len(result.data) > 0:
         row = result.data[0]
         return {
@@ -566,7 +552,7 @@ async def increment_usage(db: Client, api_key_id: str, user_id: str) -> dict:
             "daily_reset_at": row["daily_reset_at"],
             "monthly_reset_at": row["monthly_reset_at"],
         }
-    
+
     # Fallback if RPC fails (shouldn't happen)
     return {
         "daily_requests": 1,
@@ -579,16 +565,16 @@ async def increment_usage(db: Client, api_key_id: str, user_id: str) -> dict:
 async def check_quota(db: Client, api_key_id: str, user_id: str, tier: str) -> tuple[bool, dict]:
     """
     Check if user is within their quota limits.
-    
+
     Returns:
         (allowed, info) where:
         - allowed: bool - whether the request should proceed
         - info: dict with current usage, limits, and reset times
     """
     from datetime import datetime, timezone
-    
+
     limits = TIER_LIMITS.get(tier, TIER_LIMITS["free"])
-    
+
     # Unlimited tier always allowed
     if limits["daily"] is None and limits["monthly"] is None:
         return True, {
@@ -598,33 +584,33 @@ async def check_quota(db: Client, api_key_id: str, user_id: str, tier: str) -> t
             "daily_requests": 0,
             "monthly_requests": 0,
         }
-    
+
     # Get current usage
     usage = await get_or_create_usage(db, api_key_id, user_id)
     if not usage:
         return True, {}  # Allow if we can't get usage (fail open)
-    
+
     now = datetime.now(timezone.utc)
     from dateutil.parser import parse
-    
+
     # Check daily reset
     daily_reset = usage.get("daily_reset_at")
     if isinstance(daily_reset, str):
         daily_reset = parse(daily_reset)
-    
+
     daily_count = usage.get("daily_requests", 0)
     if daily_reset and now >= daily_reset:
         daily_count = 0  # Would be reset
-    
+
     # Check monthly reset
     monthly_reset = usage.get("monthly_reset_at")
     if isinstance(monthly_reset, str):
         monthly_reset = parse(monthly_reset)
-    
+
     monthly_count = usage.get("monthly_requests", 0)
     if monthly_reset and now >= monthly_reset:
         monthly_count = 0  # Would be reset
-    
+
     info = {
         "tier": tier,
         "daily_limit": limits["daily"],
@@ -634,16 +620,16 @@ async def check_quota(db: Client, api_key_id: str, user_id: str, tier: str) -> t
         "daily_reset_at": daily_reset.isoformat() if daily_reset else None,
         "monthly_reset_at": monthly_reset.isoformat() if monthly_reset else None,
     }
-    
+
     # Check limits
     if limits["daily"] is not None and daily_count >= limits["daily"]:
         info["exceeded"] = "daily"
         return False, info
-    
+
     if limits["monthly"] is not None and monthly_count >= limits["monthly"]:
         info["exceeded"] = "monthly"
         return False, info
-    
+
     return True, info
 
 

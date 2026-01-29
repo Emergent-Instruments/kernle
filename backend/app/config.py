@@ -40,7 +40,7 @@ class Settings(BaseSettings):
     @property
     def allowed_origins(self) -> list[str]:
         """Get CORS origins based on environment.
-        
+
         In debug mode, localhost origins are added for local development.
         In production (debug=False), only the production domains are allowed.
         """
