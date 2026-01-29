@@ -269,3 +269,29 @@ async def get_current_agent(
 
 # Type alias for dependency injection
 CurrentAgent = Annotated[AuthContext, Depends(get_current_agent)]
+
+
+async def require_admin(agent: CurrentAgent) -> AuthContext:
+    """Require admin tier for access.
+    
+    Use as a dependency on admin-only routes:
+        admin: Annotated[AuthContext, Depends(require_admin)]
+    """
+    import logging
+    logger = logging.getLogger("kernle.auth")
+    
+    if agent.tier != "admin":
+        logger.warning(
+            f"Admin access denied: agent={agent.agent_id} user={agent.user_id} tier={agent.tier}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin access required",
+        )
+    
+    logger.info(f"Admin access granted: agent={agent.agent_id} user={agent.user_id}")
+    return agent
+
+
+# Type alias for admin dependency
+AdminAgent = Annotated[AuthContext, Depends(require_admin)]

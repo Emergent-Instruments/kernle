@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
-from ..auth import CurrentAgent
+from ..auth import AdminAgent
 from ..database import Database, get_supabase_client
 from ..embeddings import create_embedding, extract_text_for_embedding
 from ..logging_config import get_logger
@@ -141,7 +141,7 @@ async def _get_agent_memory_stats(db, agent_id: str) -> tuple[dict, dict]:
 
 @router.get("/agents", response_model=AgentListResponse)
 async def list_agents(
-    auth: CurrentAgent,
+    admin: AdminAgent,
     db: Database,
     limit: int = Query(default=50, le=200),
     offset: int = Query(default=0),
@@ -151,8 +151,6 @@ async def list_agents(
     
     Returns public info only - no private memory contents.
     """
-    # TODO: Add proper admin role check
-    # For now, any authenticated user can view (will restrict later)
     
     # Get agents
     result = (
@@ -202,7 +200,7 @@ async def list_agents(
 
 @router.get("/stats", response_model=SystemStats)
 async def system_stats(
-    auth: CurrentAgent,
+    admin: AdminAgent,
     db: Database,
 ):
     """Get system-wide statistics."""
@@ -256,7 +254,7 @@ async def system_stats(
 @router.post("/embeddings/backfill", response_model=EmbeddingBackfillResponse)
 async def backfill_embeddings(
     request: EmbeddingBackfillRequest,
-    auth: CurrentAgent,
+    admin: AdminAgent,
     db: Database,
 ):
     """
@@ -334,7 +332,7 @@ async def backfill_embeddings(
 @router.get("/agents/{agent_id}", response_model=AgentSummary)
 async def get_agent(
     agent_id: str,
-    auth: CurrentAgent,
+    admin: AdminAgent,
     db: Database,
     user_id: str | None = Query(default=None, description="Filter by user_id (for multi-tenant)"),
 ):

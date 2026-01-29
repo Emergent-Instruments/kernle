@@ -506,86 +506,33 @@ async def get_usage_for_user(db: Client, user_id: str) -> dict | None:
 
 async def increment_usage(db: Client, api_key_id: str, user_id: str) -> dict:
     """
-    Increment usage counters for an API key.
+    Atomically increment usage counters for an API key.
+    Uses database-level atomic operation to prevent race conditions.
     Handles automatic reset when period expires.
     Returns updated usage record.
     """
-    from datetime import datetime, timezone
+    # Use atomic database function to prevent race conditions
+    # Two concurrent requests will each increment separately
+    result = db.rpc(
+        "increment_api_usage",
+        {"p_api_key_id": api_key_id, "p_user_id": user_id}
+    ).execute()
     
-    now = datetime.now(timezone.utc)
-    
-    # Get or create usage record
-    usage = await get_or_create_usage(db, api_key_id, user_id)
-    if not usage:
-        # Fallback: create inline
-        usage = {
-            "api_key_id": api_key_id,
-            "user_id": user_id,
-            "daily_requests": 0,
-            "monthly_requests": 0,
+    if result.data and len(result.data) > 0:
+        row = result.data[0]
+        return {
+            "daily_requests": row["daily_requests"],
+            "monthly_requests": row["monthly_requests"],
+            "daily_reset_at": row["daily_reset_at"],
+            "monthly_reset_at": row["monthly_reset_at"],
         }
     
-    # Parse reset times
-    from dateutil.parser import parse
-    daily_reset = usage.get("daily_reset_at")
-    monthly_reset = usage.get("monthly_reset_at")
-    
-    if isinstance(daily_reset, str):
-        daily_reset = parse(daily_reset)
-    if isinstance(monthly_reset, str):
-        monthly_reset = parse(monthly_reset)
-    
-    # Calculate new values
-    daily_count = usage.get("daily_requests", 0)
-    monthly_count = usage.get("monthly_requests", 0)
-    
-    # Reset daily if needed
-    if daily_reset and now >= daily_reset:
-        daily_count = 0
-        # Set next reset to tomorrow midnight UTC
-        next_daily = (now.replace(hour=0, minute=0, second=0, microsecond=0) + 
-                     __import__('datetime').timedelta(days=1))
-        daily_reset = next_daily
-    
-    # Reset monthly if needed
-    if monthly_reset and now >= monthly_reset:
-        monthly_count = 0
-        # Set next reset to 1st of next month UTC
-        if now.month == 12:
-            next_monthly = now.replace(year=now.year + 1, month=1, day=1,
-                                       hour=0, minute=0, second=0, microsecond=0)
-        else:
-            next_monthly = now.replace(month=now.month + 1, day=1,
-                                       hour=0, minute=0, second=0, microsecond=0)
-        monthly_reset = next_monthly
-    
-    # Increment counters
-    daily_count += 1
-    monthly_count += 1
-    
-    # Update database
-    update_data = {
-        "daily_requests": daily_count,
-        "monthly_requests": monthly_count,
-        "updated_at": now.isoformat(),
-    }
-    
-    if daily_reset:
-        update_data["daily_reset_at"] = daily_reset.isoformat() if hasattr(daily_reset, 'isoformat') else daily_reset
-    if monthly_reset:
-        update_data["monthly_reset_at"] = monthly_reset.isoformat() if hasattr(monthly_reset, 'isoformat') else monthly_reset
-    
-    db.table(API_KEY_USAGE_TABLE).upsert({
-        "api_key_id": api_key_id,
-        "user_id": user_id,
-        **update_data,
-    }).execute()
-    
+    # Fallback if RPC fails (shouldn't happen)
     return {
-        "daily_requests": daily_count,
-        "monthly_requests": monthly_count,
-        "daily_reset_at": daily_reset,
-        "monthly_reset_at": monthly_reset,
+        "daily_requests": 1,
+        "monthly_requests": 1,
+        "daily_reset_at": None,
+        "monthly_reset_at": None,
     }
 
 
