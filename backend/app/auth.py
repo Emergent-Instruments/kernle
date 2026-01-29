@@ -329,18 +329,23 @@ async def get_current_agent(
         )
     user_id = payload.get("user_id")
 
-    # Get tier from database for JWT auth (fail gracefully to "free")
+    # Get tier and is_admin from database for JWT auth (fail gracefully)
     tier = "free"
+    is_admin = False
     try:
-        from .database import get_agent_tier, get_supabase_client
+        from .database import get_supabase_client, get_user
 
         db = get_supabase_client(settings)
-        tier = await get_agent_tier(db, agent_id)
+        if user_id:
+            user = await get_user(db, user_id)
+            if user:
+                tier = user.get("tier", "free")
+                is_admin = user.get("is_admin", False)
     except Exception as e:
-        # Log but continue with free tier - don't block auth
-        logger.warning(f"Tier lookup failed for {agent_id}, defaulting to free: {e}")
+        # Log but continue with defaults - don't block auth
+        logger.warning(f"User lookup failed for {user_id}, defaulting to free/non-admin: {e}")
 
-    return AuthContext(agent_id=agent_id, user_id=user_id, tier=tier)
+    return AuthContext(agent_id=agent_id, user_id=user_id, tier=tier, is_admin=is_admin)
 
 
 # Type alias for dependency injection
