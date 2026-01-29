@@ -1,5 +1,6 @@
 """Memory search routes with semantic search support."""
 
+import asyncio
 import re
 
 from fastapi import APIRouter
@@ -7,7 +8,10 @@ from fastapi import APIRouter
 from ..auth import CurrentAgent
 from ..database import MEMORY_TABLES, Database
 from ..embeddings import create_embedding
+from ..logging_config import get_logger
 from ..models import MemorySearchRequest, MemorySearchResponse, MemorySearchResult
+
+logger = get_logger("kernle.memories")
 
 
 def escape_like(query: str) -> str:
@@ -115,7 +119,6 @@ async def _text_search(
     
     Searches all tables in parallel using asyncio.gather().
     """
-    import asyncio
     
     tables_to_search = (
         [t for t in memory_types if t in MEMORY_TABLES]
@@ -158,7 +161,9 @@ async def _text_search(
                 )
                 for record in result.data
             ]
-        except Exception:
+        except Exception as e:
+            # Log but don't fail - partial results are better than none
+            logger.warning(f"Text search failed for table {table_key}: {e}")
             return []
 
     # Search all tables in parallel
