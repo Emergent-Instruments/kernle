@@ -14,6 +14,7 @@ from kernle.cli.commands.meta import cmd_meta
 from kernle.cli.commands.playbook import cmd_playbook
 from kernle.cli.commands.raw import cmd_raw, resolve_raw_id
 from kernle.cli.commands.stats import cmd_stats
+from kernle.cli.commands.suggestions import cmd_suggestions, resolve_suggestion_id
 
 __all__ = [
     "cmd_anxiety",
@@ -28,5 +29,7 @@ __all__ = [
     "cmd_playbook",
     "cmd_raw",
     "cmd_stats",
+    "cmd_suggestions",
     "resolve_raw_id",
+    "resolve_suggestion_id",
 ]

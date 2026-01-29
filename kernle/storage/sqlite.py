@@ -21,12 +21,14 @@ from .base import (
     Drive,
     Episode,
     Goal,
+    MemorySuggestion,
     Note,
     Playbook,
     QueuedChange,
     RawEntry,
     Relationship,
     SearchResult,
+    SyncConflict,
     SyncResult,
     Value,
     parse_datetime,
@@ -44,30 +46,46 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 11  # Bumped for health check events
+SCHEMA_VERSION = 12  # Bumped for memory suggestions table
 
 # Allowed table names for SQL queries (security: prevents SQL injection via table names)
-ALLOWED_TABLES = frozenset({
-    "episodes", "beliefs", "agent_values", "goals", "notes", 
-    "drives", "relationships", "playbooks", "raw_entries",
-    "schema_version", "sync_queue", "embeddings", "health_check_events"
-})
+ALLOWED_TABLES = frozenset(
+    {
+        "episodes",
+        "beliefs",
+        "agent_values",
+        "goals",
+        "notes",
+        "drives",
+        "relationships",
+        "playbooks",
+        "raw_entries",
+        "memory_suggestions",
+        "schema_version",
+        "sync_queue",
+        "sync_conflicts",
+        "embeddings",
+        "health_check_events",
+    }
+)
+
 
 def validate_table_name(table: str) -> str:
     """Validate table name against allowlist to prevent SQL injection.
-    
+
     Args:
         table: Table name to validate
-        
+
     Returns:
         The validated table name
-        
+
     Raises:
         ValueError: If table name is not in allowlist
     """
     if table not in ALLOWED_TABLES:
         raise ValueError(f"Invalid table name: {table}")
     return table
+
 
 SCHEMA = """
 -- Schema version tracking
@@ -104,6 +122,9 @@ CREATE TABLE IF NOT EXISTS episodes (
     is_forgotten INTEGER DEFAULT 0,
     forgotten_at TEXT,
     forgotten_reason TEXT,
+    -- Context/scope fields
+    context TEXT,
+    context_tags TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -147,6 +168,9 @@ CREATE TABLE IF NOT EXISTS beliefs (
     is_forgotten INTEGER DEFAULT 0,
     forgotten_at TEXT,
     forgotten_reason TEXT,
+    -- Context/scope fields
+    context TEXT,
+    context_tags TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -185,6 +209,9 @@ CREATE TABLE IF NOT EXISTS agent_values (
     is_forgotten INTEGER DEFAULT 0,
     forgotten_at TEXT,
     forgotten_reason TEXT,
+    -- Context/scope fields
+    context TEXT,
+    context_tags TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -220,6 +247,9 @@ CREATE TABLE IF NOT EXISTS goals (
     is_forgotten INTEGER DEFAULT 0,
     forgotten_at TEXT,
     forgotten_reason TEXT,
+    -- Context/scope fields
+    context TEXT,
+    context_tags TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -257,6 +287,9 @@ CREATE TABLE IF NOT EXISTS notes (
     is_forgotten INTEGER DEFAULT 0,
     forgotten_at TEXT,
     forgotten_reason TEXT,
+    -- Context/scope fields
+    context TEXT,
+    context_tags TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -293,6 +326,9 @@ CREATE TABLE IF NOT EXISTS drives (
     is_forgotten INTEGER DEFAULT 0,
     forgotten_at TEXT,
     forgotten_reason TEXT,
+    -- Context/scope fields
+    context TEXT,
+    context_tags TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -332,6 +368,9 @@ CREATE TABLE IF NOT EXISTS relationships (
     is_forgotten INTEGER DEFAULT 0,
     forgotten_at TEXT,
     forgotten_reason TEXT,
+    -- Context/scope fields
+    context TEXT,
+    context_tags TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -397,6 +436,30 @@ CREATE INDEX IF NOT EXISTS idx_raw_agent ON raw_entries(agent_id);
 CREATE INDEX IF NOT EXISTS idx_raw_processed ON raw_entries(agent_id, processed);
 CREATE INDEX IF NOT EXISTS idx_raw_timestamp ON raw_entries(agent_id, timestamp);
 
+-- Memory suggestions (auto-extracted suggestions awaiting review)
+CREATE TABLE IF NOT EXISTS memory_suggestions (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    memory_type TEXT NOT NULL,  -- episode, belief, note
+    content TEXT NOT NULL,  -- JSON object with structured data
+    confidence REAL DEFAULT 0.5,
+    source_raw_ids TEXT NOT NULL,  -- JSON array of raw entry IDs
+    status TEXT DEFAULT 'pending',  -- pending, promoted, modified, rejected
+    created_at TEXT NOT NULL,
+    resolved_at TEXT,
+    resolution_reason TEXT,
+    promoted_to TEXT,  -- Format: type:id (e.g., episode:abc123)
+    -- Sync metadata
+    local_updated_at TEXT NOT NULL,
+    cloud_synced_at TEXT,
+    version INTEGER DEFAULT 1,
+    deleted INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_suggestions_agent ON memory_suggestions(agent_id);
+CREATE INDEX IF NOT EXISTS idx_suggestions_status ON memory_suggestions(agent_id, status);
+CREATE INDEX IF NOT EXISTS idx_suggestions_type ON memory_suggestions(agent_id, memory_type);
+CREATE INDEX IF NOT EXISTS idx_suggestions_created ON memory_suggestions(created_at);
+
 -- Health check events (compliance tracking)
 CREATE TABLE IF NOT EXISTS health_check_events (
     id TEXT PRIMARY KEY,
@@ -425,7 +488,7 @@ CREATE INDEX IF NOT EXISTS idx_sync_queue_table ON sync_queue(table_name);
 CREATE INDEX IF NOT EXISTS idx_sync_queue_record ON sync_queue(record_id);
 CREATE INDEX IF NOT EXISTS idx_sync_queue_synced ON sync_queue(synced);
 -- Unique partial index for atomic UPSERT on unsynced entries
-CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_queue_unsynced_unique 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_queue_unsynced_unique
     ON sync_queue(table_name, record_id) WHERE synced = 0;
 
 -- Sync metadata (tracks last sync time and state)
@@ -434,6 +497,21 @@ CREATE TABLE IF NOT EXISTS sync_meta (
     value TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+-- Sync conflict history (tracks resolved conflicts for user visibility)
+CREATE TABLE IF NOT EXISTS sync_conflicts (
+    id TEXT PRIMARY KEY,
+    table_name TEXT NOT NULL,
+    record_id TEXT NOT NULL,
+    local_version TEXT NOT NULL,   -- JSON snapshot of local version
+    cloud_version TEXT NOT NULL,   -- JSON snapshot of cloud version
+    resolution TEXT NOT NULL,      -- "local_wins" or "cloud_wins"
+    resolved_at TEXT NOT NULL,
+    local_summary TEXT,            -- Human-readable summary
+    cloud_summary TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_sync_conflicts_resolved ON sync_conflicts(resolved_at);
+CREATE INDEX IF NOT EXISTS idx_sync_conflicts_record ON sync_conflicts(table_name, record_id);
 
 -- Embedding metadata (tracks what's been embedded)
 CREATE TABLE IF NOT EXISTS embedding_meta (
@@ -504,10 +582,10 @@ class SQLiteStorage:
         # Initialize flat file directories for all memory layers
         self._agent_dir = self.db_path.parent / agent_id
         self._agent_dir.mkdir(parents=True, exist_ok=True)
-        
+
         self._raw_dir = self._agent_dir / "raw"
         self._raw_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Identity files (single files, always complete)
         self._beliefs_file = self._agent_dir / "beliefs.md"
         self._values_file = self._agent_dir / "values.md"
@@ -516,7 +594,7 @@ class SQLiteStorage:
 
         # Initialize database
         self._init_db()
-        
+
         # Initialize flat files from existing data
         self._init_flat_files()
 
@@ -525,7 +603,7 @@ class SQLiteStorage:
 
     def _init_flat_files(self) -> None:
         """Initialize flat files from existing database data.
-        
+
         Called on startup to ensure flat files exist and are in sync.
         """
         try:
@@ -534,7 +612,10 @@ class SQLiteStorage:
                 self._sync_beliefs_to_file()
             if not self._values_file.exists() or self._values_file.stat().st_size == 0:
                 self._sync_values_to_file()
-            if not self._relationships_file.exists() or self._relationships_file.stat().st_size == 0:
+            if (
+                not self._relationships_file.exists()
+                or self._relationships_file.stat().st_size == 0
+            ):
                 self._sync_relationships_to_file()
             if not self._goals_file.exists() or self._goals_file.stat().st_size == 0:
                 self._sync_goals_to_file()
@@ -544,6 +625,7 @@ class SQLiteStorage:
     def _validate_db_path(self, db_path: Path) -> Path:
         """Validate database path to prevent path traversal attacks."""
         import tempfile
+
         try:
             # Resolve to absolute path to prevent directory traversal
             resolved_path = db_path.resolve()
@@ -555,9 +637,9 @@ class SQLiteStorage:
 
             # Use is_relative_to() for secure path validation (Python 3.9+)
             is_safe = (
-                resolved_path.is_relative_to(home_path) or
-                resolved_path.is_relative_to(tmp_path) or
-                resolved_path.is_relative_to(system_temp)
+                resolved_path.is_relative_to(home_path)
+                or resolved_path.is_relative_to(tmp_path)
+                or resolved_path.is_relative_to(system_temp)
             )
 
             # Also allow /var/folders on macOS (where tempfile creates dirs)
@@ -565,10 +647,9 @@ class SQLiteStorage:
                 try:
                     var_folders = Path("/var/folders").resolve()
                     private_var_folders = Path("/private/var/folders").resolve()
-                    is_safe = (
-                        resolved_path.is_relative_to(var_folders) or
-                        resolved_path.is_relative_to(private_var_folders)
-                    )
+                    is_safe = resolved_path.is_relative_to(
+                        var_folders
+                    ) or resolved_path.is_relative_to(private_var_folders)
                 except (OSError, ValueError):
                     pass
 
@@ -718,8 +799,8 @@ class SQLiteStorage:
             }
 
         try:
-            import urllib.request
             import urllib.error
+            import urllib.request
 
             url = f"{creds['backend_url']}/health"
             req = urllib.request.Request(
@@ -780,8 +861,8 @@ class SQLiteStorage:
         timeout = timeout or self.CLOUD_SEARCH_TIMEOUT
 
         try:
-            import urllib.request
             import urllib.error
+            import urllib.request
 
             url = f"{creds['backend_url']}/memories/search"
             payload = {
@@ -828,10 +909,7 @@ class SQLiteStorage:
             logger.debug(f"Cloud search error: {e}")
             return None
 
-    def _parse_cloud_search_results(
-        self,
-        response_data: Dict[str, Any]
-    ) -> List[SearchResult]:
+    def _parse_cloud_search_results(self, response_data: Dict[str, Any]) -> List[SearchResult]:
         """Parse cloud search response into SearchResult objects.
 
         Args:
@@ -860,19 +938,18 @@ class SQLiteStorage:
             record = self._create_record_from_cloud(memory_type, item, metadata)
 
             if record:
-                results.append(SearchResult(
-                    record=record,
-                    record_type=memory_type,
-                    score=item.get("score", 1.0),
-                ))
+                results.append(
+                    SearchResult(
+                        record=record,
+                        record_type=memory_type,
+                        score=item.get("score", 1.0),
+                    )
+                )
 
         return results
 
     def _create_record_from_cloud(
-        self,
-        memory_type: str,
-        item: Dict[str, Any],
-        metadata: Dict[str, Any]
+        self, memory_type: str, item: Dict[str, Any], metadata: Dict[str, Any]
     ) -> Optional[Any]:
         """Create a record object from cloud search result.
 
@@ -967,9 +1044,10 @@ class SQLiteStorage:
                         logger.warning(f"Could not create vector table: {e}")
 
             conn.commit()
-        
+
         # Set secure file permissions (owner read/write only)
         import os
+
         try:
             os.chmod(self.db_path, 0o600)
             os.chmod(self.db_path.parent, 0o700)
@@ -984,12 +1062,10 @@ class SQLiteStorage:
         Handles adding new columns to existing tables.
         """
         # Check if tables exist first
-        tables = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        ).fetchall()
+        tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
         table_names = {t[0] for t in tables}
 
-        if 'episodes' not in table_names:
+        if "episodes" not in table_names:
             # Fresh database, no migration needed
             return
 
@@ -1002,167 +1078,199 @@ class SQLiteStorage:
                 return set()
 
         # Migrations for episodes table
-        episode_cols = get_columns('episodes')
+        episode_cols = get_columns("episodes")
         migrations = []
 
-        if 'emotional_valence' not in episode_cols:
+        if "emotional_valence" not in episode_cols:
             migrations.append("ALTER TABLE episodes ADD COLUMN emotional_valence REAL DEFAULT 0.0")
-        if 'emotional_arousal' not in episode_cols:
+        if "emotional_arousal" not in episode_cols:
             migrations.append("ALTER TABLE episodes ADD COLUMN emotional_arousal REAL DEFAULT 0.0")
-        if 'emotional_tags' not in episode_cols:
+        if "emotional_tags" not in episode_cols:
             migrations.append("ALTER TABLE episodes ADD COLUMN emotional_tags TEXT")
-        if 'confidence' not in episode_cols:
+        if "confidence" not in episode_cols:
             migrations.append("ALTER TABLE episodes ADD COLUMN confidence REAL DEFAULT 0.8")
-        if 'source_type' not in episode_cols:
-            migrations.append("ALTER TABLE episodes ADD COLUMN source_type TEXT DEFAULT 'direct_experience'")
-        if 'source_episodes' not in episode_cols:
+        if "source_type" not in episode_cols:
+            migrations.append(
+                "ALTER TABLE episodes ADD COLUMN source_type TEXT DEFAULT 'direct_experience'"
+            )
+        if "source_episodes" not in episode_cols:
             migrations.append("ALTER TABLE episodes ADD COLUMN source_episodes TEXT")
-        if 'derived_from' not in episode_cols:
+        if "derived_from" not in episode_cols:
             migrations.append("ALTER TABLE episodes ADD COLUMN derived_from TEXT")
-        if 'last_verified' not in episode_cols:
+        if "last_verified" not in episode_cols:
             migrations.append("ALTER TABLE episodes ADD COLUMN last_verified TEXT")
-        if 'verification_count' not in episode_cols:
-            migrations.append("ALTER TABLE episodes ADD COLUMN verification_count INTEGER DEFAULT 0")
-        if 'confidence_history' not in episode_cols:
+        if "verification_count" not in episode_cols:
+            migrations.append(
+                "ALTER TABLE episodes ADD COLUMN verification_count INTEGER DEFAULT 0"
+            )
+        if "confidence_history" not in episode_cols:
             migrations.append("ALTER TABLE episodes ADD COLUMN confidence_history TEXT")
 
         # Migrations for beliefs table
-        belief_cols = get_columns('beliefs')
-        if 'beliefs' in table_names:
-            if 'source_type' not in belief_cols:
-                migrations.append("ALTER TABLE beliefs ADD COLUMN source_type TEXT DEFAULT 'direct_experience'")
-            if 'source_episodes' not in belief_cols:
+        belief_cols = get_columns("beliefs")
+        if "beliefs" in table_names:
+            if "source_type" not in belief_cols:
+                migrations.append(
+                    "ALTER TABLE beliefs ADD COLUMN source_type TEXT DEFAULT 'direct_experience'"
+                )
+            if "source_episodes" not in belief_cols:
                 migrations.append("ALTER TABLE beliefs ADD COLUMN source_episodes TEXT")
-            if 'derived_from' not in belief_cols:
+            if "derived_from" not in belief_cols:
                 migrations.append("ALTER TABLE beliefs ADD COLUMN derived_from TEXT")
-            if 'last_verified' not in belief_cols:
+            if "last_verified" not in belief_cols:
                 migrations.append("ALTER TABLE beliefs ADD COLUMN last_verified TEXT")
-            if 'verification_count' not in belief_cols:
-                migrations.append("ALTER TABLE beliefs ADD COLUMN verification_count INTEGER DEFAULT 0")
-            if 'confidence_history' not in belief_cols:
+            if "verification_count" not in belief_cols:
+                migrations.append(
+                    "ALTER TABLE beliefs ADD COLUMN verification_count INTEGER DEFAULT 0"
+                )
+            if "confidence_history" not in belief_cols:
                 migrations.append("ALTER TABLE beliefs ADD COLUMN confidence_history TEXT")
             # Belief revision fields
-            if 'supersedes' not in belief_cols:
+            if "supersedes" not in belief_cols:
                 migrations.append("ALTER TABLE beliefs ADD COLUMN supersedes TEXT")
-            if 'superseded_by' not in belief_cols:
+            if "superseded_by" not in belief_cols:
                 migrations.append("ALTER TABLE beliefs ADD COLUMN superseded_by TEXT")
-            if 'times_reinforced' not in belief_cols:
-                migrations.append("ALTER TABLE beliefs ADD COLUMN times_reinforced INTEGER DEFAULT 0")
-            if 'is_active' not in belief_cols:
+            if "times_reinforced" not in belief_cols:
+                migrations.append(
+                    "ALTER TABLE beliefs ADD COLUMN times_reinforced INTEGER DEFAULT 0"
+                )
+            if "is_active" not in belief_cols:
                 migrations.append("ALTER TABLE beliefs ADD COLUMN is_active INTEGER DEFAULT 1")
 
         # Migrations for values table
-        value_cols = get_columns('agent_values')
-        if 'agent_values' in table_names:
-            if 'confidence' not in value_cols:
+        value_cols = get_columns("agent_values")
+        if "agent_values" in table_names:
+            if "confidence" not in value_cols:
                 migrations.append("ALTER TABLE agent_values ADD COLUMN confidence REAL DEFAULT 0.9")
-            if 'source_type' not in value_cols:
-                migrations.append("ALTER TABLE agent_values ADD COLUMN source_type TEXT DEFAULT 'direct_experience'")
-            if 'source_episodes' not in value_cols:
+            if "source_type" not in value_cols:
+                migrations.append(
+                    "ALTER TABLE agent_values ADD COLUMN source_type TEXT DEFAULT 'direct_experience'"
+                )
+            if "source_episodes" not in value_cols:
                 migrations.append("ALTER TABLE agent_values ADD COLUMN source_episodes TEXT")
-            if 'derived_from' not in value_cols:
+            if "derived_from" not in value_cols:
                 migrations.append("ALTER TABLE agent_values ADD COLUMN derived_from TEXT")
-            if 'last_verified' not in value_cols:
+            if "last_verified" not in value_cols:
                 migrations.append("ALTER TABLE agent_values ADD COLUMN last_verified TEXT")
-            if 'verification_count' not in value_cols:
-                migrations.append("ALTER TABLE agent_values ADD COLUMN verification_count INTEGER DEFAULT 0")
-            if 'confidence_history' not in value_cols:
+            if "verification_count" not in value_cols:
+                migrations.append(
+                    "ALTER TABLE agent_values ADD COLUMN verification_count INTEGER DEFAULT 0"
+                )
+            if "confidence_history" not in value_cols:
                 migrations.append("ALTER TABLE agent_values ADD COLUMN confidence_history TEXT")
 
         # Migrations for goals table
-        goal_cols = get_columns('goals')
-        if 'goals' in table_names:
-            if 'confidence' not in goal_cols:
+        goal_cols = get_columns("goals")
+        if "goals" in table_names:
+            if "confidence" not in goal_cols:
                 migrations.append("ALTER TABLE goals ADD COLUMN confidence REAL DEFAULT 0.8")
-            if 'source_type' not in goal_cols:
-                migrations.append("ALTER TABLE goals ADD COLUMN source_type TEXT DEFAULT 'direct_experience'")
-            if 'source_episodes' not in goal_cols:
+            if "source_type" not in goal_cols:
+                migrations.append(
+                    "ALTER TABLE goals ADD COLUMN source_type TEXT DEFAULT 'direct_experience'"
+                )
+            if "source_episodes" not in goal_cols:
                 migrations.append("ALTER TABLE goals ADD COLUMN source_episodes TEXT")
-            if 'derived_from' not in goal_cols:
+            if "derived_from" not in goal_cols:
                 migrations.append("ALTER TABLE goals ADD COLUMN derived_from TEXT")
-            if 'last_verified' not in goal_cols:
+            if "last_verified" not in goal_cols:
                 migrations.append("ALTER TABLE goals ADD COLUMN last_verified TEXT")
-            if 'verification_count' not in goal_cols:
-                migrations.append("ALTER TABLE goals ADD COLUMN verification_count INTEGER DEFAULT 0")
-            if 'confidence_history' not in goal_cols:
+            if "verification_count" not in goal_cols:
+                migrations.append(
+                    "ALTER TABLE goals ADD COLUMN verification_count INTEGER DEFAULT 0"
+                )
+            if "confidence_history" not in goal_cols:
                 migrations.append("ALTER TABLE goals ADD COLUMN confidence_history TEXT")
 
         # Migrations for notes table
-        note_cols = get_columns('notes')
-        if 'notes' in table_names:
-            if 'confidence' not in note_cols:
+        note_cols = get_columns("notes")
+        if "notes" in table_names:
+            if "confidence" not in note_cols:
                 migrations.append("ALTER TABLE notes ADD COLUMN confidence REAL DEFAULT 0.8")
-            if 'source_type' not in note_cols:
-                migrations.append("ALTER TABLE notes ADD COLUMN source_type TEXT DEFAULT 'direct_experience'")
-            if 'source_episodes' not in note_cols:
+            if "source_type" not in note_cols:
+                migrations.append(
+                    "ALTER TABLE notes ADD COLUMN source_type TEXT DEFAULT 'direct_experience'"
+                )
+            if "source_episodes" not in note_cols:
                 migrations.append("ALTER TABLE notes ADD COLUMN source_episodes TEXT")
-            if 'derived_from' not in note_cols:
+            if "derived_from" not in note_cols:
                 migrations.append("ALTER TABLE notes ADD COLUMN derived_from TEXT")
-            if 'last_verified' not in note_cols:
+            if "last_verified" not in note_cols:
                 migrations.append("ALTER TABLE notes ADD COLUMN last_verified TEXT")
-            if 'verification_count' not in note_cols:
-                migrations.append("ALTER TABLE notes ADD COLUMN verification_count INTEGER DEFAULT 0")
-            if 'confidence_history' not in note_cols:
+            if "verification_count" not in note_cols:
+                migrations.append(
+                    "ALTER TABLE notes ADD COLUMN verification_count INTEGER DEFAULT 0"
+                )
+            if "confidence_history" not in note_cols:
                 migrations.append("ALTER TABLE notes ADD COLUMN confidence_history TEXT")
 
         # Migrations for drives table
-        drive_cols = get_columns('drives')
-        if 'drives' in table_names:
-            if 'confidence' not in drive_cols:
+        drive_cols = get_columns("drives")
+        if "drives" in table_names:
+            if "confidence" not in drive_cols:
                 migrations.append("ALTER TABLE drives ADD COLUMN confidence REAL DEFAULT 0.8")
-            if 'source_type' not in drive_cols:
-                migrations.append("ALTER TABLE drives ADD COLUMN source_type TEXT DEFAULT 'direct_experience'")
-            if 'source_episodes' not in drive_cols:
+            if "source_type" not in drive_cols:
+                migrations.append(
+                    "ALTER TABLE drives ADD COLUMN source_type TEXT DEFAULT 'direct_experience'"
+                )
+            if "source_episodes" not in drive_cols:
                 migrations.append("ALTER TABLE drives ADD COLUMN source_episodes TEXT")
-            if 'derived_from' not in drive_cols:
+            if "derived_from" not in drive_cols:
                 migrations.append("ALTER TABLE drives ADD COLUMN derived_from TEXT")
-            if 'last_verified' not in drive_cols:
+            if "last_verified" not in drive_cols:
                 migrations.append("ALTER TABLE drives ADD COLUMN last_verified TEXT")
-            if 'verification_count' not in drive_cols:
-                migrations.append("ALTER TABLE drives ADD COLUMN verification_count INTEGER DEFAULT 0")
-            if 'confidence_history' not in drive_cols:
+            if "verification_count" not in drive_cols:
+                migrations.append(
+                    "ALTER TABLE drives ADD COLUMN verification_count INTEGER DEFAULT 0"
+                )
+            if "confidence_history" not in drive_cols:
                 migrations.append("ALTER TABLE drives ADD COLUMN confidence_history TEXT")
 
         # Migrations for relationships table
-        rel_cols = get_columns('relationships')
-        if 'relationships' in table_names:
-            if 'confidence' not in rel_cols:
-                migrations.append("ALTER TABLE relationships ADD COLUMN confidence REAL DEFAULT 0.8")
-            if 'source_type' not in rel_cols:
-                migrations.append("ALTER TABLE relationships ADD COLUMN source_type TEXT DEFAULT 'direct_experience'")
-            if 'source_episodes' not in rel_cols:
+        rel_cols = get_columns("relationships")
+        if "relationships" in table_names:
+            if "confidence" not in rel_cols:
+                migrations.append(
+                    "ALTER TABLE relationships ADD COLUMN confidence REAL DEFAULT 0.8"
+                )
+            if "source_type" not in rel_cols:
+                migrations.append(
+                    "ALTER TABLE relationships ADD COLUMN source_type TEXT DEFAULT 'direct_experience'"
+                )
+            if "source_episodes" not in rel_cols:
                 migrations.append("ALTER TABLE relationships ADD COLUMN source_episodes TEXT")
-            if 'derived_from' not in rel_cols:
+            if "derived_from" not in rel_cols:
                 migrations.append("ALTER TABLE relationships ADD COLUMN derived_from TEXT")
-            if 'last_verified' not in rel_cols:
+            if "last_verified" not in rel_cols:
                 migrations.append("ALTER TABLE relationships ADD COLUMN last_verified TEXT")
-            if 'verification_count' not in rel_cols:
-                migrations.append("ALTER TABLE relationships ADD COLUMN verification_count INTEGER DEFAULT 0")
-            if 'confidence_history' not in rel_cols:
+            if "verification_count" not in rel_cols:
+                migrations.append(
+                    "ALTER TABLE relationships ADD COLUMN verification_count INTEGER DEFAULT 0"
+                )
+            if "confidence_history" not in rel_cols:
                 migrations.append("ALTER TABLE relationships ADD COLUMN confidence_history TEXT")
 
         # Migrations for sync_queue table (enhanced v2)
-        sync_cols = get_columns('sync_queue')
-        if 'sync_queue' in table_names:
-            if 'payload' not in sync_cols:
+        sync_cols = get_columns("sync_queue")
+        if "sync_queue" in table_names:
+            if "payload" not in sync_cols:
                 migrations.append("ALTER TABLE sync_queue ADD COLUMN payload TEXT")
-            if 'data' not in sync_cols:
+            if "data" not in sync_cols:
                 migrations.append("ALTER TABLE sync_queue ADD COLUMN data TEXT")
-            if 'local_updated_at' not in sync_cols:
+            if "local_updated_at" not in sync_cols:
                 migrations.append("ALTER TABLE sync_queue ADD COLUMN local_updated_at TEXT")
-            if 'synced' not in sync_cols:
+            if "synced" not in sync_cols:
                 migrations.append("ALTER TABLE sync_queue ADD COLUMN synced INTEGER DEFAULT 0")
 
         # === Forgetting field migrations ===
         # Add forgetting fields to all memory tables
         forgetting_tables = [
-            ('episodes', False),  # (table_name, protected_by_default)
-            ('beliefs', False),
-            ('agent_values', True),  # Values protected by default
-            ('goals', False),
-            ('notes', False),
-            ('drives', True),  # Drives protected by default
-            ('relationships', False),
+            ("episodes", False),  # (table_name, protected_by_default)
+            ("beliefs", False),
+            ("agent_values", True),  # Values protected by default
+            ("goals", False),
+            ("notes", False),
+            ("drives", True),  # Drives protected by default
+            ("relationships", False),
         ]
 
         for table, protected_default in forgetting_tables:
@@ -1171,22 +1279,49 @@ class SQLiteStorage:
             cols = get_columns(table)
             protected_val = 1 if protected_default else 0
 
-            if 'times_accessed' not in cols:
-                migrations.append(f"ALTER TABLE {table} ADD COLUMN times_accessed INTEGER DEFAULT 0")
-            if 'last_accessed' not in cols:
+            if "times_accessed" not in cols:
+                migrations.append(
+                    f"ALTER TABLE {table} ADD COLUMN times_accessed INTEGER DEFAULT 0"
+                )
+            if "last_accessed" not in cols:
                 migrations.append(f"ALTER TABLE {table} ADD COLUMN last_accessed TEXT")
-            if 'is_protected' not in cols:
-                migrations.append(f"ALTER TABLE {table} ADD COLUMN is_protected INTEGER DEFAULT {protected_val}")
-            if 'is_forgotten' not in cols:
+            if "is_protected" not in cols:
+                migrations.append(
+                    f"ALTER TABLE {table} ADD COLUMN is_protected INTEGER DEFAULT {protected_val}"
+                )
+            if "is_forgotten" not in cols:
                 migrations.append(f"ALTER TABLE {table} ADD COLUMN is_forgotten INTEGER DEFAULT 0")
-            if 'forgotten_at' not in cols:
+            if "forgotten_at" not in cols:
                 migrations.append(f"ALTER TABLE {table} ADD COLUMN forgotten_at TEXT")
-            if 'forgotten_reason' not in cols:
+            if "forgotten_reason" not in cols:
                 migrations.append(f"ALTER TABLE {table} ADD COLUMN forgotten_reason TEXT")
 
+        # === Context/scope field migrations ===
+        # Add context fields to all memory tables
+        context_tables = [
+            "episodes",
+            "beliefs",
+            "agent_values",
+            "goals",
+            "notes",
+            "drives",
+            "relationships",
+        ]
+
+        for table in context_tables:
+            if table not in table_names:
+                continue
+            cols = get_columns(table)
+
+            if "context" not in cols:
+                migrations.append(f"ALTER TABLE {table} ADD COLUMN context TEXT")
+            if "context_tags" not in cols:
+                migrations.append(f"ALTER TABLE {table} ADD COLUMN context_tags TEXT")
+
         # Create health_check_events table if it doesn't exist
-        if 'health_check_events' not in table_names:
-            conn.execute("""
+        if "health_check_events" not in table_names:
+            conn.execute(
+                """
                 CREATE TABLE IF NOT EXISTS health_check_events (
                     id TEXT PRIMARY KEY,
                     agent_id TEXT NOT NULL,
@@ -1195,9 +1330,14 @@ class SQLiteStorage:
                     source TEXT DEFAULT 'cli',
                     triggered_by TEXT DEFAULT 'manual'
                 )
-            """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_health_check_agent ON health_check_events(agent_id)")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_health_check_checked_at ON health_check_events(checked_at)")
+            """
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_health_check_agent ON health_check_events(agent_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_health_check_checked_at ON health_check_events(checked_at)"
+            )
             logger.info("Created health_check_events table")
 
         # Execute migrations
@@ -1216,6 +1356,7 @@ class SQLiteStorage:
         """Check if sqlite-vec extension is available."""
         try:
             import sqlite_vec
+
             conn = sqlite3.connect(":memory:")
             conn.enable_load_extension(True)
             sqlite_vec.load(conn)
@@ -1232,6 +1373,7 @@ class SQLiteStorage:
         """Load sqlite-vec extension into connection."""
         try:
             import sqlite_vec
+
             conn.enable_load_extension(True)
             sqlite_vec.load(conn)
         except Exception as e:
@@ -1301,7 +1443,7 @@ class SQLiteStorage:
         record_id: str,
         operation: str,
         payload: Optional[str] = None,
-        data: Optional[str] = None
+        data: Optional[str] = None,
     ):
         """Queue a change for sync.
 
@@ -1325,7 +1467,7 @@ class SQLiteStorage:
                    local_updated_at = excluded.local_updated_at,
                    payload = excluded.payload,
                    queued_at = excluded.queued_at""",
-            (table, record_id, operation, data, now, payload, now)
+            (table, record_id, operation, data, now, payload, now),
         )
 
     def _content_hash(self, content: str) -> str:
@@ -1342,8 +1484,7 @@ class SQLiteStorage:
 
         # Check if embedding exists and is current
         existing = conn.execute(
-            "SELECT content_hash FROM embedding_meta WHERE id = ?",
-            (vec_id,)
+            "SELECT content_hash FROM embedding_meta WHERE id = ?", (vec_id,)
         ).fetchone()
 
         if existing and existing["content_hash"] == content_hash:
@@ -1357,7 +1498,7 @@ class SQLiteStorage:
             # Upsert into vector table
             conn.execute(
                 "INSERT OR REPLACE INTO vec_embeddings (id, embedding) VALUES (?, ?)",
-                (vec_id, packed)
+                (vec_id, packed),
             )
 
             # Update metadata
@@ -1365,7 +1506,7 @@ class SQLiteStorage:
                 """INSERT OR REPLACE INTO embedding_meta
                    (id, table_name, record_id, content_hash, created_at)
                    VALUES (?, ?, ?, ?, ?)""",
-                (vec_id, table, record_id, content_hash, self._now())
+                (vec_id, table, record_id, content_hash, self._now()),
             )
         except Exception as e:
             logger.warning(f"Failed to save embedding for {vec_id}: {e}")
@@ -1398,46 +1539,51 @@ class SQLiteStorage:
         episode.local_updated_at = self._parse_datetime(now)
 
         with self._connect() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO episodes
                 (id, agent_id, objective, outcome, outcome_type, lessons, tags,
                  emotional_valence, emotional_arousal, emotional_tags,
                  confidence, source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
                  times_accessed, last_accessed, is_protected, is_forgotten,
-                 forgotten_at, forgotten_reason,
+                 forgotten_at, forgotten_reason, context, context_tags,
                  created_at, local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                episode.id,
-                self.agent_id,
-                episode.objective,
-                episode.outcome,
-                episode.outcome_type,
-                self._to_json(episode.lessons),
-                self._to_json(episode.tags),
-                episode.emotional_valence,
-                episode.emotional_arousal,
-                self._to_json(episode.emotional_tags),
-                episode.confidence,
-                episode.source_type,
-                self._to_json(episode.source_episodes),
-                self._to_json(episode.derived_from),
-                episode.last_verified.isoformat() if episode.last_verified else None,
-                episode.verification_count,
-                self._to_json(episode.confidence_history),
-                episode.times_accessed,
-                episode.last_accessed.isoformat() if episode.last_accessed else None,
-                1 if episode.is_protected else 0,
-                1 if episode.is_forgotten else 0,
-                episode.forgotten_at.isoformat() if episode.forgotten_at else None,
-                episode.forgotten_reason,
-                episode.created_at.isoformat() if episode.created_at else now,
-                now,
-                episode.cloud_synced_at.isoformat() if episode.cloud_synced_at else None,
-                episode.version,
-                1 if episode.deleted else 0
-            ))
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    episode.id,
+                    self.agent_id,
+                    episode.objective,
+                    episode.outcome,
+                    episode.outcome_type,
+                    self._to_json(episode.lessons),
+                    self._to_json(episode.tags),
+                    episode.emotional_valence,
+                    episode.emotional_arousal,
+                    self._to_json(episode.emotional_tags),
+                    episode.confidence,
+                    episode.source_type,
+                    self._to_json(episode.source_episodes),
+                    self._to_json(episode.derived_from),
+                    episode.last_verified.isoformat() if episode.last_verified else None,
+                    episode.verification_count,
+                    self._to_json(episode.confidence_history),
+                    episode.times_accessed,
+                    episode.last_accessed.isoformat() if episode.last_accessed else None,
+                    1 if episode.is_protected else 0,
+                    1 if episode.is_forgotten else 0,
+                    episode.forgotten_at.isoformat() if episode.forgotten_at else None,
+                    episode.forgotten_reason,
+                    episode.context,
+                    self._to_json(episode.context_tags),
+                    episode.created_at.isoformat() if episode.created_at else now,
+                    now,
+                    episode.cloud_synced_at.isoformat() if episode.cloud_synced_at else None,
+                    episode.version,
+                    1 if episode.deleted else 0,
+                ),
+            )
             # Queue for sync with record data
             episode_data = self._to_json(self._record_to_dict(episode))
             self._queue_sync(conn, "episodes", episode.id, "upsert", data=episode_data)
@@ -1450,11 +1596,72 @@ class SQLiteStorage:
 
         return episode.id
 
+    def save_episodes_batch(self, episodes: List[Episode]) -> List[str]:
+        """Save multiple episodes in a single transaction."""
+        if not episodes:
+            return []
+        now = self._now()
+        ids = []
+        with self._connect() as conn:
+            for episode in episodes:
+                if not episode.id:
+                    episode.id = str(uuid.uuid4())
+                ids.append(episode.id)
+                episode.local_updated_at = self._parse_datetime(now)
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO episodes
+                    (id, agent_id, objective, outcome, outcome_type, lessons, tags,
+                     emotional_valence, emotional_arousal, emotional_tags,
+                     confidence, source_type, source_episodes, derived_from,
+                     last_verified, verification_count, confidence_history,
+                     times_accessed, last_accessed, is_protected, is_forgotten,
+                     forgotten_at, forgotten_reason, context, context_tags,
+                     created_at, local_updated_at, cloud_synced_at, version, deleted)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        episode.id,
+                        self.agent_id,
+                        episode.objective,
+                        episode.outcome,
+                        episode.outcome_type,
+                        self._to_json(episode.lessons),
+                        self._to_json(episode.tags),
+                        episode.emotional_valence,
+                        episode.emotional_arousal,
+                        self._to_json(episode.emotional_tags),
+                        episode.confidence,
+                        episode.source_type,
+                        self._to_json(episode.source_episodes),
+                        self._to_json(episode.derived_from),
+                        episode.last_verified.isoformat() if episode.last_verified else None,
+                        episode.verification_count,
+                        self._to_json(episode.confidence_history),
+                        episode.times_accessed,
+                        episode.last_accessed.isoformat() if episode.last_accessed else None,
+                        1 if episode.is_protected else 0,
+                        1 if episode.is_forgotten else 0,
+                        episode.forgotten_at.isoformat() if episode.forgotten_at else None,
+                        episode.forgotten_reason,
+                        episode.context,
+                        self._to_json(episode.context_tags),
+                        episode.created_at.isoformat() if episode.created_at else now,
+                        now,
+                        episode.cloud_synced_at.isoformat() if episode.cloud_synced_at else None,
+                        episode.version,
+                        1 if episode.deleted else 0,
+                    ),
+                )
+                episode_data = self._to_json(self._record_to_dict(episode))
+                self._queue_sync(conn, "episodes", episode.id, "upsert", data=episode_data)
+                content = self._get_searchable_content("episode", episode)
+                self._save_embedding(conn, "episodes", episode.id, content)
+            conn.commit()
+        return ids
+
     def get_episodes(
-        self,
-        limit: int = 100,
-        since: Optional[datetime] = None,
-        tags: Optional[List[str]] = None
+        self, limit: int = 100, since: Optional[datetime] = None, tags: Optional[List[str]] = None
     ) -> List[Episode]:
         """Get episodes."""
         query = "SELECT * FROM episodes WHERE agent_id = ? AND deleted = 0"
@@ -1474,10 +1681,7 @@ class SQLiteStorage:
 
         # Filter by tags in Python (SQLite JSON support is limited)
         if tags:
-            episodes = [
-                e for e in episodes
-                if e.tags and any(t in e.tags for t in tags)
-            ]
+            episodes = [e for e in episodes if e.tags and any(t in e.tags for t in tags)]
 
         return episodes
 
@@ -1485,8 +1689,7 @@ class SQLiteStorage:
         """Get a specific episode."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM episodes WHERE id = ? AND agent_id = ?",
-                (episode_id, self.agent_id)
+                "SELECT * FROM episodes WHERE id = ? AND agent_id = ?", (episode_id, self.agent_id)
             ).fetchone()
 
         return self._row_to_episode(row) if row else None
@@ -1502,8 +1705,12 @@ class SQLiteStorage:
             lessons=self._from_json(row["lessons"]),
             tags=self._from_json(row["tags"]),
             created_at=self._parse_datetime(row["created_at"]),
-            emotional_valence=row["emotional_valence"] if row["emotional_valence"] is not None else 0.0,
-            emotional_arousal=row["emotional_arousal"] if row["emotional_arousal"] is not None else 0.0,
+            emotional_valence=(
+                row["emotional_valence"] if row["emotional_valence"] is not None else 0.0
+            ),
+            emotional_arousal=(
+                row["emotional_arousal"] if row["emotional_arousal"] is not None else 0.0
+            ),
             emotional_tags=self._from_json(row["emotional_tags"]),
             local_updated_at=self._parse_datetime(row["local_updated_at"]),
             cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
@@ -1524,14 +1731,13 @@ class SQLiteStorage:
             is_forgotten=bool(self._safe_get(row, "is_forgotten", 0)),
             forgotten_at=self._parse_datetime(self._safe_get(row, "forgotten_at", None)),
             forgotten_reason=self._safe_get(row, "forgotten_reason", None),
+            # Context/scope fields
+            context=self._safe_get(row, "context", None),
+            context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
         )
 
     def update_episode_emotion(
-        self,
-        episode_id: str,
-        valence: float,
-        arousal: float,
-        tags: Optional[List[str]] = None
+        self, episode_id: str, valence: float, arousal: float, tags: Optional[List[str]] = None
     ) -> bool:
         """Update emotional associations for an episode.
 
@@ -1559,7 +1765,7 @@ class SQLiteStorage:
                    local_updated_at = ?,
                    version = version + 1
                    WHERE id = ? AND agent_id = ? AND deleted = 0""",
-                (valence, arousal, self._to_json(tags), now, episode_id, self.agent_id)
+                (valence, arousal, self._to_json(tags), now, episode_id, self.agent_id),
             )
             if cursor.rowcount > 0:
                 self._queue_sync(conn, "episodes", episode_id, "upsert")
@@ -1572,7 +1778,7 @@ class SQLiteStorage:
         valence_range: Optional[tuple] = None,
         arousal_range: Optional[tuple] = None,
         tags: Optional[List[str]] = None,
-        limit: int = 10
+        limit: int = 10,
     ) -> List[Episode]:
         """Find episodes matching emotional criteria.
 
@@ -1607,17 +1813,12 @@ class SQLiteStorage:
         # Filter by emotional tags in Python
         if tags:
             episodes = [
-                e for e in episodes
-                if e.emotional_tags and any(t in e.emotional_tags for t in tags)
+                e for e in episodes if e.emotional_tags and any(t in e.emotional_tags for t in tags)
             ][:limit]
 
         return episodes
 
-    def get_emotional_episodes(
-        self,
-        days: int = 7,
-        limit: int = 100
-    ) -> List[Episode]:
+    def get_emotional_episodes(self, days: int = 7, limit: int = 100) -> List[Episode]:
         """Get episodes with emotional data for summary calculations.
 
         Args:
@@ -1628,6 +1829,7 @@ class SQLiteStorage:
             Episodes with non-zero emotional data
         """
         from datetime import timedelta
+
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
         query = """SELECT * FROM episodes
@@ -1652,36 +1854,42 @@ class SQLiteStorage:
         now = self._now()
 
         with self._connect() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO beliefs
                 (id, agent_id, statement, belief_type, confidence, created_at,
                  source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
                  supersedes, superseded_by, times_reinforced, is_active,
+                 context, context_tags,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                belief.id,
-                self.agent_id,
-                belief.statement,
-                belief.belief_type,
-                belief.confidence,
-                belief.created_at.isoformat() if belief.created_at else now,
-                belief.source_type,
-                self._to_json(belief.source_episodes),
-                self._to_json(belief.derived_from),
-                belief.last_verified.isoformat() if belief.last_verified else None,
-                belief.verification_count,
-                self._to_json(belief.confidence_history),
-                belief.supersedes,
-                belief.superseded_by,
-                belief.times_reinforced,
-                1 if belief.is_active else 0,
-                now,
-                belief.cloud_synced_at.isoformat() if belief.cloud_synced_at else None,
-                belief.version,
-                1 if belief.deleted else 0
-            ))
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    belief.id,
+                    self.agent_id,
+                    belief.statement,
+                    belief.belief_type,
+                    belief.confidence,
+                    belief.created_at.isoformat() if belief.created_at else now,
+                    belief.source_type,
+                    self._to_json(belief.source_episodes),
+                    self._to_json(belief.derived_from),
+                    belief.last_verified.isoformat() if belief.last_verified else None,
+                    belief.verification_count,
+                    self._to_json(belief.confidence_history),
+                    belief.supersedes,
+                    belief.superseded_by,
+                    belief.times_reinforced,
+                    1 if belief.is_active else 0,
+                    belief.context,
+                    self._to_json(belief.context_tags),
+                    now,
+                    belief.cloud_synced_at.isoformat() if belief.cloud_synced_at else None,
+                    belief.version,
+                    1 if belief.deleted else 0,
+                ),
+            )
             # Queue for sync with record data
             belief_data = self._to_json(self._record_to_dict(belief))
             self._queue_sync(conn, "beliefs", belief.id, "upsert", data=belief_data)
@@ -1696,12 +1904,74 @@ class SQLiteStorage:
 
         return belief.id
 
+    def save_beliefs_batch(self, beliefs: List[Belief]) -> List[str]:
+        """Save multiple beliefs in a single transaction."""
+        if not beliefs:
+            return []
+        now = self._now()
+        ids = []
+        with self._connect() as conn:
+            for belief in beliefs:
+                if not belief.id:
+                    belief.id = str(uuid.uuid4())
+                ids.append(belief.id)
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO beliefs
+                    (id, agent_id, statement, belief_type, confidence, created_at,
+                     source_type, source_episodes, derived_from,
+                     last_verified, verification_count, confidence_history,
+                     supersedes, superseded_by, times_reinforced, is_active,
+                     times_accessed, last_accessed, is_protected, is_forgotten,
+                     forgotten_at, forgotten_reason, context, context_tags,
+                     local_updated_at, cloud_synced_at, version, deleted)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        belief.id,
+                        self.agent_id,
+                        belief.statement,
+                        belief.belief_type,
+                        belief.confidence,
+                        belief.created_at.isoformat() if belief.created_at else now,
+                        belief.source_type,
+                        self._to_json(belief.source_episodes),
+                        self._to_json(belief.derived_from),
+                        belief.last_verified.isoformat() if belief.last_verified else None,
+                        belief.verification_count,
+                        self._to_json(belief.confidence_history),
+                        belief.supersedes,
+                        belief.superseded_by,
+                        belief.times_reinforced,
+                        1 if belief.is_active else 0,
+                        belief.times_accessed,
+                        belief.last_accessed.isoformat() if belief.last_accessed else None,
+                        1 if belief.is_protected else 0,
+                        1 if belief.is_forgotten else 0,
+                        belief.forgotten_at.isoformat() if belief.forgotten_at else None,
+                        belief.forgotten_reason,
+                        belief.context,
+                        self._to_json(belief.context_tags),
+                        now,
+                        belief.cloud_synced_at.isoformat() if belief.cloud_synced_at else None,
+                        belief.version,
+                        1 if belief.deleted else 0,
+                    ),
+                )
+                belief_data = self._to_json(self._record_to_dict(belief))
+                self._queue_sync(conn, "beliefs", belief.id, "upsert", data=belief_data)
+                self._save_embedding(conn, "beliefs", belief.id, belief.statement)
+            conn.commit()
+        # Sync to flat file (once, after all saves)
+        self._sync_beliefs_to_file()
+        return ids
+
     def _sync_beliefs_to_file(self) -> None:
         """Write all active beliefs to flat file."""
         try:
             beliefs = self.get_beliefs(limit=500, include_inactive=False)
             lines = ["# Beliefs", f"_Last updated: {self._now()}_", ""]
-            
+
             for b in sorted(beliefs, key=lambda x: x.confidence, reverse=True):
                 conf_bar = "█" * int(b.confidence * 5) + "░" * (5 - int(b.confidence * 5))
                 lines.append(f"## [{conf_bar}] {int(b.confidence * 100)}% - {b.id[:8]}")
@@ -1709,11 +1979,12 @@ class SQLiteStorage:
                 if b.source_episodes:
                     lines.append(f"Sources: {', '.join(b.source_episodes[:3])}")
                 lines.append("")
-            
-            with open(self._beliefs_file, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(lines))
+
+            with open(self._beliefs_file, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
             # Secure permissions
             import os
+
             os.chmod(self._beliefs_file, 0o600)
         except Exception as e:
             logger.warning(f"Failed to sync beliefs to file: {e}")
@@ -1729,12 +2000,12 @@ class SQLiteStorage:
             if include_inactive:
                 rows = conn.execute(
                     "SELECT * FROM beliefs WHERE agent_id = ? AND deleted = 0 ORDER BY created_at DESC LIMIT ?",
-                    (self.agent_id, limit)
+                    (self.agent_id, limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
                     "SELECT * FROM beliefs WHERE agent_id = ? AND deleted = 0 AND (is_active = 1 OR is_active IS NULL) ORDER BY created_at DESC LIMIT ?",
-                    (self.agent_id, limit)
+                    (self.agent_id, limit),
                 ).fetchall()
 
         return [self._row_to_belief(row) for row in rows]
@@ -1744,7 +2015,7 @@ class SQLiteStorage:
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM beliefs WHERE agent_id = ? AND statement = ? AND deleted = 0",
-                (self.agent_id, statement)
+                (self.agent_id, statement),
             ).fetchone()
 
         return self._row_to_belief(row) if row else None
@@ -1782,6 +2053,9 @@ class SQLiteStorage:
             is_forgotten=bool(self._safe_get(row, "is_forgotten", 0)),
             forgotten_at=self._parse_datetime(self._safe_get(row, "forgotten_at", None)),
             forgotten_reason=self._safe_get(row, "forgotten_reason", None),
+            # Context/scope fields
+            context=self._safe_get(row, "context", None),
+            context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
         )
 
     # === Values ===
@@ -1794,32 +2068,38 @@ class SQLiteStorage:
         now = self._now()
 
         with self._connect() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO agent_values
                 (id, agent_id, name, statement, priority, created_at,
                  confidence, source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
+                 context, context_tags,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                value.id,
-                self.agent_id,
-                value.name,
-                value.statement,
-                value.priority,
-                value.created_at.isoformat() if value.created_at else now,
-                value.confidence,
-                value.source_type,
-                self._to_json(value.source_episodes),
-                self._to_json(value.derived_from),
-                value.last_verified.isoformat() if value.last_verified else None,
-                value.verification_count,
-                self._to_json(value.confidence_history),
-                now,
-                value.cloud_synced_at.isoformat() if value.cloud_synced_at else None,
-                value.version,
-                1 if value.deleted else 0
-            ))
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    value.id,
+                    self.agent_id,
+                    value.name,
+                    value.statement,
+                    value.priority,
+                    value.created_at.isoformat() if value.created_at else now,
+                    value.confidence,
+                    value.source_type,
+                    self._to_json(value.source_episodes),
+                    self._to_json(value.derived_from),
+                    value.last_verified.isoformat() if value.last_verified else None,
+                    value.verification_count,
+                    self._to_json(value.confidence_history),
+                    value.context,
+                    self._to_json(value.context_tags),
+                    now,
+                    value.cloud_synced_at.isoformat() if value.cloud_synced_at else None,
+                    value.version,
+                    1 if value.deleted else 0,
+                ),
+            )
             # Queue for sync with record data
             value_data = self._to_json(self._record_to_dict(value))
             self._queue_sync(conn, "agent_values", value.id, "upsert", data=value_data)
@@ -1840,14 +2120,14 @@ class SQLiteStorage:
         try:
             values = self.get_values(limit=100)
             lines = ["# Values", f"_Last updated: {self._now()}_", ""]
-            
+
             for v in sorted(values, key=lambda x: x.priority, reverse=True):
                 lines.append(f"## {v.name} (priority: {v.priority}) - {v.id[:8]}")
                 lines.append(v.statement)
                 lines.append("")
-            
-            with open(self._values_file, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(lines))
+
+            with open(self._values_file, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
         except Exception as e:
             logger.warning(f"Failed to sync values to file: {e}")
 
@@ -1856,7 +2136,7 @@ class SQLiteStorage:
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT * FROM agent_values WHERE agent_id = ? AND deleted = 0 ORDER BY priority DESC LIMIT ?",
-                (self.agent_id, limit)
+                (self.agent_id, limit),
             ).fetchall()
 
         return [self._row_to_value(row) for row in rows]
@@ -1889,6 +2169,9 @@ class SQLiteStorage:
             is_forgotten=bool(self._safe_get(row, "is_forgotten", 0)),
             forgotten_at=self._parse_datetime(self._safe_get(row, "forgotten_at", None)),
             forgotten_reason=self._safe_get(row, "forgotten_reason", None),
+            # Context/scope fields
+            context=self._safe_get(row, "context", None),
+            context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
         )
 
     # === Goals ===
@@ -1901,33 +2184,39 @@ class SQLiteStorage:
         now = self._now()
 
         with self._connect() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO goals
                 (id, agent_id, title, description, priority, status, created_at,
                  confidence, source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
+                 context, context_tags,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                goal.id,
-                self.agent_id,
-                goal.title,
-                goal.description,
-                goal.priority,
-                goal.status,
-                goal.created_at.isoformat() if goal.created_at else now,
-                goal.confidence,
-                goal.source_type,
-                self._to_json(goal.source_episodes),
-                self._to_json(goal.derived_from),
-                goal.last_verified.isoformat() if goal.last_verified else None,
-                goal.verification_count,
-                self._to_json(goal.confidence_history),
-                now,
-                goal.cloud_synced_at.isoformat() if goal.cloud_synced_at else None,
-                goal.version,
-                1 if goal.deleted else 0
-            ))
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    goal.id,
+                    self.agent_id,
+                    goal.title,
+                    goal.description,
+                    goal.priority,
+                    goal.status,
+                    goal.created_at.isoformat() if goal.created_at else now,
+                    goal.confidence,
+                    goal.source_type,
+                    self._to_json(goal.source_episodes),
+                    self._to_json(goal.derived_from),
+                    goal.last_verified.isoformat() if goal.last_verified else None,
+                    goal.verification_count,
+                    self._to_json(goal.confidence_history),
+                    goal.context,
+                    self._to_json(goal.context_tags),
+                    now,
+                    goal.cloud_synced_at.isoformat() if goal.cloud_synced_at else None,
+                    goal.version,
+                    1 if goal.deleted else 0,
+                ),
+            )
             # Queue for sync with record data
             goal_data = self._to_json(self._record_to_dict(goal))
             self._queue_sync(conn, "goals", goal.id, "upsert", data=goal_data)
@@ -1948,7 +2237,7 @@ class SQLiteStorage:
         try:
             goals = self.get_goals(status=None, limit=100)  # All goals
             lines = ["# Goals", f"_Last updated: {self._now()}_", ""]
-            
+
             # Group by status
             for status in ["active", "completed", "paused"]:
                 status_goals = [g for g in goals if g.status == status]
@@ -1956,14 +2245,16 @@ class SQLiteStorage:
                     lines.append(f"## {status.title()}")
                     for g in sorted(status_goals, key=lambda x: x.priority or "", reverse=True):
                         priority = f" [{g.priority}]" if g.priority else ""
-                        status_icon = "○" if status == "active" else "✓" if status == "completed" else "⏸"
+                        status_icon = (
+                            "○" if status == "active" else "✓" if status == "completed" else "⏸"
+                        )
                         lines.append(f"- {status_icon} {g.title}{priority} ({g.id[:8]})")
                         if g.description:
                             lines.append(f"  {g.description[:100]}")
                     lines.append("")
-            
-            with open(self._goals_file, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(lines))
+
+            with open(self._goals_file, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
         except Exception as e:
             logger.warning(f"Failed to sync goals to file: {e}")
 
@@ -2013,6 +2304,9 @@ class SQLiteStorage:
             is_forgotten=bool(self._safe_get(row, "is_forgotten", 0)),
             forgotten_at=self._parse_datetime(self._safe_get(row, "forgotten_at", None)),
             forgotten_reason=self._safe_get(row, "forgotten_reason", None),
+            # Context/scope fields
+            context=self._safe_get(row, "context", None),
+            context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
         )
 
     # === Notes ===
@@ -2025,34 +2319,40 @@ class SQLiteStorage:
         now = self._now()
 
         with self._connect() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO notes
                 (id, agent_id, content, note_type, speaker, reason, tags, created_at,
                  confidence, source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
+                 context, context_tags,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                note.id,
-                self.agent_id,
-                note.content,
-                note.note_type,
-                note.speaker,
-                note.reason,
-                self._to_json(note.tags),
-                note.created_at.isoformat() if note.created_at else now,
-                note.confidence,
-                note.source_type,
-                self._to_json(note.source_episodes),
-                self._to_json(note.derived_from),
-                note.last_verified.isoformat() if note.last_verified else None,
-                note.verification_count,
-                self._to_json(note.confidence_history),
-                now,
-                note.cloud_synced_at.isoformat() if note.cloud_synced_at else None,
-                note.version,
-                1 if note.deleted else 0
-            ))
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    note.id,
+                    self.agent_id,
+                    note.content,
+                    note.note_type,
+                    note.speaker,
+                    note.reason,
+                    self._to_json(note.tags),
+                    note.created_at.isoformat() if note.created_at else now,
+                    note.confidence,
+                    note.source_type,
+                    self._to_json(note.source_episodes),
+                    self._to_json(note.derived_from),
+                    note.last_verified.isoformat() if note.last_verified else None,
+                    note.verification_count,
+                    self._to_json(note.confidence_history),
+                    note.context,
+                    self._to_json(note.context_tags),
+                    now,
+                    note.cloud_synced_at.isoformat() if note.cloud_synced_at else None,
+                    note.version,
+                    1 if note.deleted else 0,
+                ),
+            )
             # Queue for sync with record data
             note_data = self._to_json(self._record_to_dict(note))
             self._queue_sync(conn, "notes", note.id, "upsert", data=note_data)
@@ -2064,11 +2364,66 @@ class SQLiteStorage:
 
         return note.id
 
+    def save_notes_batch(self, notes: List[Note]) -> List[str]:
+        """Save multiple notes in a single transaction."""
+        if not notes:
+            return []
+        now = self._now()
+        ids = []
+        with self._connect() as conn:
+            for note in notes:
+                if not note.id:
+                    note.id = str(uuid.uuid4())
+                ids.append(note.id)
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO notes
+                    (id, agent_id, content, note_type, speaker, reason, tags, created_at,
+                     confidence, source_type, source_episodes, derived_from,
+                     last_verified, verification_count, confidence_history,
+                     times_accessed, last_accessed, is_protected, is_forgotten,
+                     forgotten_at, forgotten_reason, context, context_tags,
+                     local_updated_at, cloud_synced_at, version, deleted)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        note.id,
+                        self.agent_id,
+                        note.content,
+                        note.note_type,
+                        note.speaker,
+                        note.reason,
+                        self._to_json(note.tags),
+                        note.created_at.isoformat() if note.created_at else now,
+                        note.confidence,
+                        note.source_type,
+                        self._to_json(note.source_episodes),
+                        self._to_json(note.derived_from),
+                        note.last_verified.isoformat() if note.last_verified else None,
+                        note.verification_count,
+                        self._to_json(note.confidence_history),
+                        note.times_accessed,
+                        note.last_accessed.isoformat() if note.last_accessed else None,
+                        1 if note.is_protected else 0,
+                        1 if note.is_forgotten else 0,
+                        note.forgotten_at.isoformat() if note.forgotten_at else None,
+                        note.forgotten_reason,
+                        note.context,
+                        self._to_json(note.context_tags),
+                        now,
+                        note.cloud_synced_at.isoformat() if note.cloud_synced_at else None,
+                        note.version,
+                        1 if note.deleted else 0,
+                    ),
+                )
+                note_data = self._to_json(self._record_to_dict(note))
+                self._queue_sync(conn, "notes", note.id, "upsert", data=note_data)
+                self._save_embedding(conn, "notes", note.id, note.content)
+            conn.commit()
+        return ids
+
     def get_notes(
-        self,
-        limit: int = 100,
-        since: Optional[datetime] = None,
-        note_type: Optional[str] = None
+        self, limit: int = 100, since: Optional[datetime] = None, note_type: Optional[str] = None
     ) -> List[Note]:
         """Get notes."""
         query = "SELECT * FROM notes WHERE agent_id = ? AND deleted = 0"
@@ -2120,6 +2475,9 @@ class SQLiteStorage:
             is_forgotten=bool(self._safe_get(row, "is_forgotten", 0)),
             forgotten_at=self._parse_datetime(self._safe_get(row, "forgotten_at", None)),
             forgotten_reason=self._safe_get(row, "forgotten_reason", None),
+            # Context/scope fields
+            context=self._safe_get(row, "context", None),
+            context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
         )
 
     # === Drives ===
@@ -2135,61 +2493,72 @@ class SQLiteStorage:
             # Check if exists
             existing = conn.execute(
                 "SELECT id FROM drives WHERE agent_id = ? AND drive_type = ?",
-                (self.agent_id, drive.drive_type)
+                (self.agent_id, drive.drive_type),
             ).fetchone()
 
             if existing:
                 drive.id = existing["id"]
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE drives SET
                         intensity = ?, focus_areas = ?, updated_at = ?,
                         confidence = ?, source_type = ?, source_episodes = ?,
                         derived_from = ?, last_verified = ?, verification_count = ?,
-                        confidence_history = ?,
+                        confidence_history = ?, context = ?, context_tags = ?,
                         local_updated_at = ?, version = version + 1
                     WHERE id = ?
-                """, (
-                    drive.intensity,
-                    self._to_json(drive.focus_areas),
-                    now,
-                    drive.confidence,
-                    drive.source_type,
-                    self._to_json(drive.source_episodes),
-                    self._to_json(drive.derived_from),
-                    drive.last_verified.isoformat() if drive.last_verified else None,
-                    drive.verification_count,
-                    self._to_json(drive.confidence_history),
-                    now,
-                    drive.id
-                ))
+                """,
+                    (
+                        drive.intensity,
+                        self._to_json(drive.focus_areas),
+                        now,
+                        drive.confidence,
+                        drive.source_type,
+                        self._to_json(drive.source_episodes),
+                        self._to_json(drive.derived_from),
+                        drive.last_verified.isoformat() if drive.last_verified else None,
+                        drive.verification_count,
+                        self._to_json(drive.confidence_history),
+                        drive.context,
+                        self._to_json(drive.context_tags),
+                        now,
+                        drive.id,
+                    ),
+                )
             else:
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT INTO drives
                     (id, agent_id, drive_type, intensity, focus_areas, created_at, updated_at,
                      confidence, source_type, source_episodes, derived_from,
                      last_verified, verification_count, confidence_history,
+                     context, context_tags,
                      local_updated_at, cloud_synced_at, version, deleted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    drive.id,
-                    self.agent_id,
-                    drive.drive_type,
-                    drive.intensity,
-                    self._to_json(drive.focus_areas),
-                    now,
-                    now,
-                    drive.confidence,
-                    drive.source_type,
-                    self._to_json(drive.source_episodes),
-                    self._to_json(drive.derived_from),
-                    drive.last_verified.isoformat() if drive.last_verified else None,
-                    drive.verification_count,
-                    self._to_json(drive.confidence_history),
-                    now,
-                    None,
-                    1,
-                    0
-                ))
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        drive.id,
+                        self.agent_id,
+                        drive.drive_type,
+                        drive.intensity,
+                        self._to_json(drive.focus_areas),
+                        now,
+                        now,
+                        drive.confidence,
+                        drive.source_type,
+                        self._to_json(drive.source_episodes),
+                        self._to_json(drive.derived_from),
+                        drive.last_verified.isoformat() if drive.last_verified else None,
+                        drive.verification_count,
+                        self._to_json(drive.confidence_history),
+                        drive.context,
+                        self._to_json(drive.context_tags),
+                        now,
+                        None,
+                        1,
+                        0,
+                    ),
+                )
 
             # Queue for sync with record data
             drive_data = self._to_json(self._record_to_dict(drive))
@@ -2202,8 +2571,7 @@ class SQLiteStorage:
         """Get all drives."""
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM drives WHERE agent_id = ? AND deleted = 0",
-                (self.agent_id,)
+                "SELECT * FROM drives WHERE agent_id = ? AND deleted = 0", (self.agent_id,)
             ).fetchall()
 
         return [self._row_to_drive(row) for row in rows]
@@ -2213,7 +2581,7 @@ class SQLiteStorage:
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM drives WHERE agent_id = ? AND drive_type = ? AND deleted = 0",
-                (self.agent_id, drive_type)
+                (self.agent_id, drive_type),
             ).fetchone()
 
         return self._row_to_drive(row) if row else None
@@ -2247,6 +2615,9 @@ class SQLiteStorage:
             is_forgotten=bool(self._safe_get(row, "is_forgotten", 0)),
             forgotten_at=self._parse_datetime(self._safe_get(row, "forgotten_at", None)),
             forgotten_reason=self._safe_get(row, "forgotten_reason", None),
+            # Context/scope fields
+            context=self._safe_get(row, "context", None),
+            context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
         )
 
     # === Relationships ===
@@ -2262,73 +2633,102 @@ class SQLiteStorage:
             # Check if exists
             existing = conn.execute(
                 "SELECT id FROM relationships WHERE agent_id = ? AND entity_name = ?",
-                (self.agent_id, relationship.entity_name)
+                (self.agent_id, relationship.entity_name),
             ).fetchone()
 
             if existing:
                 relationship.id = existing["id"]
-                conn.execute("""
+                conn.execute(
+                    """
                     UPDATE relationships SET
                         entity_type = ?, relationship_type = ?, notes = ?,
                         sentiment = ?, interaction_count = ?, last_interaction = ?,
                         confidence = ?, source_type = ?, source_episodes = ?,
                         derived_from = ?, last_verified = ?, verification_count = ?,
-                        confidence_history = ?,
+                        confidence_history = ?, context = ?, context_tags = ?,
                         local_updated_at = ?, version = version + 1
                     WHERE id = ?
-                """, (
-                    relationship.entity_type,
-                    relationship.relationship_type,
-                    relationship.notes,
-                    relationship.sentiment,
-                    relationship.interaction_count,
-                    relationship.last_interaction.isoformat() if relationship.last_interaction else None,
-                    relationship.confidence,
-                    relationship.source_type,
-                    self._to_json(relationship.source_episodes),
-                    self._to_json(relationship.derived_from),
-                    relationship.last_verified.isoformat() if relationship.last_verified else None,
-                    relationship.verification_count,
-                    self._to_json(relationship.confidence_history),
-                    now,
-                    relationship.id
-                ))
+                """,
+                    (
+                        relationship.entity_type,
+                        relationship.relationship_type,
+                        relationship.notes,
+                        relationship.sentiment,
+                        relationship.interaction_count,
+                        (
+                            relationship.last_interaction.isoformat()
+                            if relationship.last_interaction
+                            else None
+                        ),
+                        relationship.confidence,
+                        relationship.source_type,
+                        self._to_json(relationship.source_episodes),
+                        self._to_json(relationship.derived_from),
+                        (
+                            relationship.last_verified.isoformat()
+                            if relationship.last_verified
+                            else None
+                        ),
+                        relationship.verification_count,
+                        self._to_json(relationship.confidence_history),
+                        relationship.context,
+                        self._to_json(relationship.context_tags),
+                        now,
+                        relationship.id,
+                    ),
+                )
             else:
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT INTO relationships
                     (id, agent_id, entity_name, entity_type, relationship_type, notes,
                      sentiment, interaction_count, last_interaction, created_at,
                      confidence, source_type, source_episodes, derived_from,
                      last_verified, verification_count, confidence_history,
+                     context, context_tags,
                      local_updated_at, cloud_synced_at, version, deleted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    relationship.id,
-                    self.agent_id,
-                    relationship.entity_name,
-                    relationship.entity_type,
-                    relationship.relationship_type,
-                    relationship.notes,
-                    relationship.sentiment,
-                    relationship.interaction_count,
-                    relationship.last_interaction.isoformat() if relationship.last_interaction else None,
-                    now,
-                    relationship.confidence,
-                    relationship.source_type,
-                    self._to_json(relationship.source_episodes),
-                    self._to_json(relationship.derived_from),
-                    relationship.last_verified.isoformat() if relationship.last_verified else None,
-                    relationship.verification_count,
-                    self._to_json(relationship.confidence_history),
-                    now,
-                    None,
-                    1,
-                    0
-                ))
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                    (
+                        relationship.id,
+                        self.agent_id,
+                        relationship.entity_name,
+                        relationship.entity_type,
+                        relationship.relationship_type,
+                        relationship.notes,
+                        relationship.sentiment,
+                        relationship.interaction_count,
+                        (
+                            relationship.last_interaction.isoformat()
+                            if relationship.last_interaction
+                            else None
+                        ),
+                        now,
+                        relationship.confidence,
+                        relationship.source_type,
+                        self._to_json(relationship.source_episodes),
+                        self._to_json(relationship.derived_from),
+                        (
+                            relationship.last_verified.isoformat()
+                            if relationship.last_verified
+                            else None
+                        ),
+                        relationship.verification_count,
+                        self._to_json(relationship.confidence_history),
+                        relationship.context,
+                        self._to_json(relationship.context_tags),
+                        now,
+                        None,
+                        1,
+                        0,
+                    ),
+                )
 
             # Queue for sync with record data
             relationship_data = self._to_json(self._record_to_dict(relationship))
-            self._queue_sync(conn, "relationships", relationship.id, "upsert", data=relationship_data)
+            self._queue_sync(
+                conn, "relationships", relationship.id, "upsert", data=relationship_data
+            )
             conn.commit()
 
         # Sync to flat file
@@ -2341,7 +2741,7 @@ class SQLiteStorage:
         try:
             relationships = self.get_relationships()
             lines = ["# Relationships", f"_Last updated: {self._now()}_", ""]
-            
+
             for r in sorted(relationships, key=lambda x: x.sentiment, reverse=True):
                 trust_pct = int(((r.sentiment + 1) / 2) * 100)
                 trust_bar = "█" * (trust_pct // 10) + "░" * (10 - trust_pct // 10)
@@ -2353,9 +2753,9 @@ class SQLiteStorage:
                 if r.notes:
                     lines.append(f"Notes: {r.notes}")
                 lines.append("")
-            
-            with open(self._relationships_file, 'w', encoding='utf-8') as f:
-                f.write('\n'.join(lines))
+
+            with open(self._relationships_file, "w", encoding="utf-8") as f:
+                f.write("\n".join(lines))
         except Exception as e:
             logger.warning(f"Failed to sync relationships to file: {e}")
 
@@ -2378,7 +2778,7 @@ class SQLiteStorage:
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM relationships WHERE agent_id = ? AND entity_name = ? AND deleted = 0",
-                (self.agent_id, entity_name)
+                (self.agent_id, entity_name),
             ).fetchone()
 
         return self._row_to_relationship(row) if row else None
@@ -2415,6 +2815,9 @@ class SQLiteStorage:
             is_forgotten=bool(self._safe_get(row, "is_forgotten", 0)),
             forgotten_at=self._parse_datetime(self._safe_get(row, "forgotten_at", None)),
             forgotten_reason=self._safe_get(row, "forgotten_reason", None),
+            # Context/scope fields
+            context=self._safe_get(row, "context", None),
+            context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
         )
 
     # === Playbooks (Procedural Memory) ===
@@ -2424,41 +2827,46 @@ class SQLiteStorage:
         now = self._now()
 
         with self._connect() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT OR REPLACE INTO playbooks
                 (id, agent_id, name, description, trigger_conditions, steps, failure_modes,
                  recovery_steps, mastery_level, times_used, success_rate, source_episodes, tags,
                  confidence, last_used, created_at, local_updated_at, cloud_synced_at, version, deleted)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                playbook.id,
-                self.agent_id,
-                playbook.name,
-                playbook.description,
-                self._to_json(playbook.trigger_conditions),
-                self._to_json(playbook.steps),
-                self._to_json(playbook.failure_modes),
-                self._to_json(playbook.recovery_steps),
-                playbook.mastery_level,
-                playbook.times_used,
-                playbook.success_rate,
-                self._to_json(playbook.source_episodes),
-                self._to_json(playbook.tags),
-                playbook.confidence,
-                playbook.last_used.isoformat() if playbook.last_used else None,
-                playbook.created_at.isoformat() if playbook.created_at else now,
-                now,
-                None,  # cloud_synced_at
-                playbook.version,
-                0,  # deleted
-            ))
+            """,
+                (
+                    playbook.id,
+                    self.agent_id,
+                    playbook.name,
+                    playbook.description,
+                    self._to_json(playbook.trigger_conditions),
+                    self._to_json(playbook.steps),
+                    self._to_json(playbook.failure_modes),
+                    self._to_json(playbook.recovery_steps),
+                    playbook.mastery_level,
+                    playbook.times_used,
+                    playbook.success_rate,
+                    self._to_json(playbook.source_episodes),
+                    self._to_json(playbook.tags),
+                    playbook.confidence,
+                    playbook.last_used.isoformat() if playbook.last_used else None,
+                    playbook.created_at.isoformat() if playbook.created_at else now,
+                    now,
+                    None,  # cloud_synced_at
+                    playbook.version,
+                    0,  # deleted
+                ),
+            )
 
             # Queue for sync with record data
             playbook_data = self._to_json(self._record_to_dict(playbook))
             self._queue_sync(conn, "playbooks", playbook.id, "upsert", data=playbook_data)
 
             # Add embedding for search
-            content = f"{playbook.name} {playbook.description} {' '.join(playbook.trigger_conditions)}"
+            content = (
+                f"{playbook.name} {playbook.description} {' '.join(playbook.trigger_conditions)}"
+            )
             self._save_embedding(conn, "playbooks", playbook.id, content)
 
             conn.commit()
@@ -2470,7 +2878,7 @@ class SQLiteStorage:
         with self._connect() as conn:
             cur = conn.execute(
                 "SELECT * FROM playbooks WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (playbook_id, self.agent_id)
+                (playbook_id, self.agent_id),
             )
             row = cur.fetchone()
 
@@ -2497,10 +2905,7 @@ class SQLiteStorage:
         # Filter by tags if provided
         if tags:
             tags_set = set(tags)
-            playbooks = [
-                p for p in playbooks
-                if p.tags and tags_set.intersection(p.tags)
-            ]
+            playbooks = [p for p in playbooks if p.tags and tags_set.intersection(p.tags)]
 
         return playbooks
 
@@ -2512,13 +2917,18 @@ class SQLiteStorage:
             packed = pack_embedding(embedding)
 
             with self._connect() as conn:
-                cur = conn.execute("""
+                cur = conn.execute(
+                    """
                     SELECT e.id, e.embedding, distance
                     FROM vec_embeddings e
                     WHERE e.id LIKE 'playbooks:%'
                     ORDER BY distance
                     LIMIT ?
-                """.replace("distance", f"vec_distance_L2(e.embedding, X'{packed.hex()}')"), (limit * 2,))
+                """.replace(
+                        "distance", f"vec_distance_L2(e.embedding, X'{packed.hex()}')"
+                    ),
+                    (limit * 2,),
+                )
 
                 vec_results = cur.fetchall()
 
@@ -2537,13 +2947,16 @@ class SQLiteStorage:
             # Fall back to text search
             with self._connect() as conn:
                 search_pattern = f"%{query}%"
-                cur = conn.execute("""
+                cur = conn.execute(
+                    """
                     SELECT * FROM playbooks
                     WHERE agent_id = ? AND deleted = 0
                     AND (name LIKE ? OR description LIKE ? OR trigger_conditions LIKE ?)
                     ORDER BY times_used DESC
                     LIMIT ?
-                """, (self.agent_id, search_pattern, search_pattern, search_pattern, limit))
+                """,
+                    (self.agent_id, search_pattern, search_pattern, search_pattern, limit),
+                )
                 rows = cur.fetchall()
 
             return [self._row_to_playbook(row) for row in rows]
@@ -2576,7 +2989,8 @@ class SQLiteStorage:
             new_mastery = "competent"
 
         with self._connect() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 UPDATE playbooks SET
                     times_used = ?,
                     success_rate = ?,
@@ -2585,15 +2999,17 @@ class SQLiteStorage:
                     local_updated_at = ?,
                     version = version + 1
                 WHERE id = ? AND agent_id = ?
-            """, (
-                new_times_used,
-                new_success_rate,
-                new_mastery,
-                now,
-                now,
-                playbook_id,
-                self.agent_id,
-            ))
+            """,
+                (
+                    new_times_used,
+                    new_success_rate,
+                    new_mastery,
+                    now,
+                    now,
+                    playbook_id,
+                    self.agent_id,
+                ),
+            )
 
             self._queue_sync(conn, "playbooks", playbook_id, "upsert")
             conn.commit()
@@ -2627,9 +3043,11 @@ class SQLiteStorage:
 
     # === Raw Entries ===
 
-    def save_raw(self, content: str, source: str = "manual", tags: Optional[List[str]] = None) -> str:
+    def save_raw(
+        self, content: str, source: str = "manual", tags: Optional[List[str]] = None
+    ) -> str:
         """Save a raw entry for later processing.
-        
+
         Writes to both:
         1. Flat markdown file (human-readable, greppable, git-friendly)
         2. SQLite database (for indexing and search)
@@ -2642,37 +3060,42 @@ class SQLiteStorage:
 
         # 2. Index in SQLite
         with self._connect() as conn:
-            conn.execute("""
+            conn.execute(
+                """
                 INSERT INTO raw_entries
                 (id, agent_id, content, timestamp, source, processed, processed_into, tags,
                  confidence, source_type, local_updated_at, cloud_synced_at, version, deleted)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                raw_id,
-                self.agent_id,
-                content,
-                now,
-                source,
-                0,  # processed = False
-                None,  # processed_into
-                self._to_json(tags),
-                1.0,  # confidence
-                "direct_experience",
-                now,
-                None,
-                1,
-                0
-            ))
+            """,
+                (
+                    raw_id,
+                    self.agent_id,
+                    content,
+                    now,
+                    source,
+                    0,  # processed = False
+                    None,  # processed_into
+                    self._to_json(tags),
+                    1.0,  # confidence
+                    "direct_experience",
+                    now,
+                    None,
+                    1,
+                    0,
+                ),
+            )
             # Queue for sync with record data
-            raw_data = self._to_json({
-                "id": raw_id,
-                "agent_id": self.agent_id,
-                "content": content,
-                "timestamp": now,
-                "source": source,
-                "processed": False,
-                "tags": tags,
-            })
+            raw_data = self._to_json(
+                {
+                    "id": raw_id,
+                    "agent_id": self.agent_id,
+                    "content": content,
+                    "timestamp": now,
+                    "source": source,
+                    "processed": False,
+                    "tags": tags,
+                }
+            )
             self._queue_sync(conn, "raw_entries", raw_id, "upsert", data=raw_data)
 
             # Save embedding for search
@@ -2691,13 +3114,13 @@ class SQLiteStorage:
         tags: Optional[List[str]] = None,
     ) -> None:
         """Append a raw entry to the daily flat file.
-        
+
         File format (greppable, human-readable):
         ```
         ## HH:MM:SS [id_prefix] source
         Content goes here
         Tags: tag1, tag2
-        
+
         ```
         """
         try:
@@ -2705,9 +3128,9 @@ class SQLiteStorage:
             dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
             date_str = dt.strftime("%Y-%m-%d")
             time_str = dt.strftime("%H:%M:%S")
-            
+
             daily_file = self._raw_dir / f"{date_str}.md"
-            
+
             # Build entry
             lines = []
             lines.append(f"## {time_str} [{raw_id[:8]}] {source}")
@@ -2715,14 +3138,14 @@ class SQLiteStorage:
             if tags:
                 lines.append(f"Tags: {', '.join(tags)}")
             lines.append("")  # Blank line separator
-            
+
             # Append to file
             with open(daily_file, "a", encoding="utf-8") as f:
                 # Add header if new file
                 if daily_file.stat().st_size == 0 if daily_file.exists() else True:
                     f.write(f"# Raw Captures - {date_str}\n\n")
                 f.write("\n".join(lines) + "\n")
-                
+
         except Exception as e:
             logger.warning(f"Failed to write raw entry to flat file: {e}")
             # Don't fail - SQLite is the backup
@@ -2740,84 +3163,83 @@ class SQLiteStorage:
 
     def sync_raw_from_files(self) -> Dict[str, Any]:
         """Sync raw entries from flat files into SQLite.
-        
+
         Parses flat files and imports any entries not already in SQLite.
         This enables bidirectional editing - add entries via vim, then sync.
-        
+
         Returns:
             Dict with imported_count, skipped_count, errors
         """
         import re
-        
+
         result = {
             "imported": 0,
             "skipped": 0,
             "errors": [],
             "files_processed": 0,
         }
-        
+
         files = self.get_raw_files()
-        
+
         # Get existing IDs for quick lookup
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT id FROM raw_entries WHERE agent_id = ?",
-                (self.agent_id,)
+                "SELECT id FROM raw_entries WHERE agent_id = ?", (self.agent_id,)
             ).fetchall()
         existing_ids = {row["id"] for row in rows}
-        
+
         # Pattern to match entry headers: ## HH:MM:SS [id_prefix] source
         # ID can be alphanumeric (for manually created entries)
-        header_pattern = re.compile(r'^## (\d{2}:\d{2}:\d{2}) \[([a-zA-Z0-9]+)\] ([\w-]+)$')
-        
+        header_pattern = re.compile(r"^## (\d{2}:\d{2}:\d{2}) \[([a-zA-Z0-9]+)\] ([\w-]+)$")
+
         for file_path in files:
             result["files_processed"] += 1
             try:
                 # Extract date from filename (2026-01-28.md)
                 date_str = file_path.stem  # "2026-01-28"
-                
-                with open(file_path, 'r', encoding='utf-8') as f:
+
+                with open(file_path, "r", encoding="utf-8") as f:
                     content = f.read()
-                
+
                 # Split into entries
-                lines = content.split('\n')
+                lines = content.split("\n")
                 current_entry = None
-                
+
                 for line in lines:
                     header_match = header_pattern.match(line)
-                    
+
                     if header_match:
                         # Save previous entry if exists
-                        if current_entry and current_entry.get('content_lines'):
-                            current_entry['content'] = '\n'.join(current_entry['content_lines'])
+                        if current_entry and current_entry.get("content_lines"):
+                            current_entry["content"] = "\n".join(current_entry["content_lines"])
                             self._import_raw_entry(current_entry, existing_ids, result)
-                        
+
                         # Start new entry
                         time_str, id_prefix, source = header_match.groups()
                         current_entry = {
-                            'id_prefix': id_prefix,
-                            'timestamp': f"{date_str}T{time_str}",
-                            'source': source,
-                            'content_lines': [],
-                            'tags': None,
+                            "id_prefix": id_prefix,
+                            "timestamp": f"{date_str}T{time_str}",
+                            "source": source,
+                            "content_lines": [],
+                            "tags": None,
                         }
                     elif current_entry is not None:
                         # Check for tags line
-                        if line.startswith('Tags: '):
-                            current_entry['tags'] = [t.strip() for t in line[6:].split(',')]
-                        elif line.startswith('# Raw Captures'):
+                        if line.startswith("Tags: "):
+                            current_entry["tags"] = [t.strip() for t in line[6:].split(",")]
+                        elif line.startswith("# Raw Captures"):
                             pass  # Skip header
                         elif line.strip():  # Non-empty content
-                            current_entry['content_lines'].append(line)
-                
+                            current_entry["content_lines"].append(line)
+
                 # Don't forget last entry
-                if current_entry and current_entry.get('content_lines'):
-                    current_entry['content'] = '\n'.join(current_entry['content_lines'])
+                if current_entry and current_entry.get("content_lines"):
+                    current_entry["content"] = "\n".join(current_entry["content_lines"])
                     self._import_raw_entry(current_entry, existing_ids, result)
-                    
+
             except Exception as e:
                 result["errors"].append(f"{file_path.name}: {str(e)}")
-        
+
         return result
 
     def _import_raw_entry(
@@ -2828,53 +3250,56 @@ class SQLiteStorage:
     ) -> None:
         """Import a single raw entry if not already in SQLite."""
         # Check if any existing ID starts with this prefix
-        id_prefix = entry.get('id_prefix', '')
+        id_prefix = entry.get("id_prefix", "")
         matching_ids = [eid for eid in existing_ids if eid.startswith(id_prefix)]
-        
+
         if matching_ids:
             result["skipped"] += 1
             return
-        
+
         # Generate new ID (use prefix + random suffix to maintain traceability)
         new_id = id_prefix + str(uuid.uuid4())[8:]  # Keep prefix, new suffix
-        content = '\n'.join(entry.get('content_lines', []))
-        
+        content = "\n".join(entry.get("content_lines", []))
+
         if not content.strip():
             result["skipped"] += 1
             return
-        
+
         try:
             now = self._now()
-            timestamp = entry.get('timestamp', now)
-            
+            timestamp = entry.get("timestamp", now)
+
             with self._connect() as conn:
-                conn.execute("""
+                conn.execute(
+                    """
                     INSERT INTO raw_entries
                     (id, agent_id, content, timestamp, source, processed, processed_into, tags,
                      confidence, source_type, local_updated_at, cloud_synced_at, version, deleted)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    new_id,
-                    self.agent_id,
-                    content,
-                    timestamp,
-                    entry.get('source', 'file-sync'),
-                    0,
-                    None,
-                    self._to_json(entry.get('tags')),
-                    1.0,
-                    "file_import",
-                    now,
-                    None,
-                    1,
-                    0
-                ))
+                """,
+                    (
+                        new_id,
+                        self.agent_id,
+                        content,
+                        timestamp,
+                        entry.get("source", "file-sync"),
+                        0,
+                        None,
+                        self._to_json(entry.get("tags")),
+                        1.0,
+                        "file_import",
+                        now,
+                        None,
+                        1,
+                        0,
+                    ),
+                )
                 self._save_embedding(conn, "raw_entries", new_id, content)
                 conn.commit()
-            
+
             existing_ids.add(new_id)
             result["imported"] += 1
-            
+
         except Exception as e:
             result["errors"].append(f"Entry {id_prefix}: {str(e)}")
 
@@ -2883,7 +3308,7 @@ class SQLiteStorage:
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM raw_entries WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (raw_id, self.agent_id)
+                (raw_id, self.agent_id),
             ).fetchone()
 
         return self._row_to_raw_entry(row) if row else None
@@ -2910,19 +3335,17 @@ class SQLiteStorage:
         now = self._now()
 
         with self._connect() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 UPDATE raw_entries SET
                     processed = 1,
                     processed_into = ?,
                     local_updated_at = ?,
                     version = version + 1
                 WHERE id = ? AND agent_id = ? AND deleted = 0
-            """, (
-                self._to_json(processed_into),
-                now,
-                raw_id,
-                self.agent_id
-            ))
+            """,
+                (self._to_json(processed_into), now, raw_id, self.agent_id),
+            )
             if cursor.rowcount > 0:
                 self._queue_sync(conn, "raw_entries", raw_id, "upsert")
                 conn.commit()
@@ -2934,13 +3357,16 @@ class SQLiteStorage:
         now = self._now()
 
         with self._connect() as conn:
-            cursor = conn.execute("""
+            cursor = conn.execute(
+                """
                 UPDATE raw_entries SET
                     deleted = 1,
                     local_updated_at = ?,
                     version = version + 1
                 WHERE id = ? AND agent_id = ? AND deleted = 0
-            """, (now, raw_id, self.agent_id))
+            """,
+                (now, raw_id, self.agent_id),
+            )
             if cursor.rowcount > 0:
                 self._queue_sync(conn, "raw_entries", raw_id, "delete")
                 conn.commit()
@@ -2960,6 +3386,152 @@ class SQLiteStorage:
             tags=self._from_json(row["tags"]),
             confidence=self._safe_get(row, "confidence", 1.0),
             source_type=self._safe_get(row, "source_type", "direct_experience"),
+            local_updated_at=self._parse_datetime(row["local_updated_at"]),
+            cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
+            version=row["version"],
+            deleted=bool(row["deleted"]),
+        )
+
+    # === Memory Suggestions ===
+
+    def save_suggestion(self, suggestion: MemorySuggestion) -> str:
+        """Save a memory suggestion. Returns the suggestion ID."""
+        suggestion_id = suggestion.id or str(uuid.uuid4())
+        now = self._now()
+
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO memory_suggestions
+                (id, agent_id, memory_type, content, confidence, source_raw_ids,
+                 status, created_at, resolved_at, resolution_reason, promoted_to,
+                 local_updated_at, cloud_synced_at, version, deleted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    suggestion_id,
+                    self.agent_id,
+                    suggestion.memory_type,
+                    self._to_json(suggestion.content),
+                    suggestion.confidence,
+                    self._to_json(suggestion.source_raw_ids),
+                    suggestion.status,
+                    suggestion.created_at.isoformat() if suggestion.created_at else now,
+                    suggestion.resolved_at.isoformat() if suggestion.resolved_at else None,
+                    suggestion.resolution_reason,
+                    suggestion.promoted_to,
+                    now,
+                    None,
+                    suggestion.version,
+                    0,
+                ),
+            )
+            self._queue_sync(conn, "memory_suggestions", suggestion_id, "upsert")
+            conn.commit()
+
+        return suggestion_id
+
+    def get_suggestion(self, suggestion_id: str) -> Optional[MemorySuggestion]:
+        """Get a specific suggestion by ID."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM memory_suggestions WHERE id = ? AND agent_id = ? AND deleted = 0",
+                (suggestion_id, self.agent_id),
+            ).fetchone()
+
+        return self._row_to_suggestion(row) if row else None
+
+    def get_suggestions(
+        self,
+        status: Optional[str] = None,
+        memory_type: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[MemorySuggestion]:
+        """Get suggestions, optionally filtered."""
+        query = "SELECT * FROM memory_suggestions WHERE agent_id = ? AND deleted = 0"
+        params: List[Any] = [self.agent_id]
+
+        if status is not None:
+            query += " AND status = ?"
+            params.append(status)
+
+        if memory_type is not None:
+            query += " AND memory_type = ?"
+            params.append(memory_type)
+
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+
+        return [self._row_to_suggestion(row) for row in rows]
+
+    def update_suggestion_status(
+        self,
+        suggestion_id: str,
+        status: str,
+        resolution_reason: Optional[str] = None,
+        promoted_to: Optional[str] = None,
+    ) -> bool:
+        """Update the status of a suggestion."""
+        now = self._now()
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE memory_suggestions SET
+                    status = ?,
+                    resolved_at = ?,
+                    resolution_reason = ?,
+                    promoted_to = ?,
+                    local_updated_at = ?,
+                    version = version + 1
+                WHERE id = ? AND agent_id = ? AND deleted = 0
+            """,
+                (status, now, resolution_reason, promoted_to, now, suggestion_id, self.agent_id),
+            )
+            if cursor.rowcount > 0:
+                self._queue_sync(conn, "memory_suggestions", suggestion_id, "upsert")
+                conn.commit()
+                return True
+        return False
+
+    def delete_suggestion(self, suggestion_id: str) -> bool:
+        """Delete a suggestion (soft delete)."""
+        now = self._now()
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE memory_suggestions SET
+                    deleted = 1,
+                    local_updated_at = ?,
+                    version = version + 1
+                WHERE id = ? AND agent_id = ? AND deleted = 0
+            """,
+                (now, suggestion_id, self.agent_id),
+            )
+            if cursor.rowcount > 0:
+                self._queue_sync(conn, "memory_suggestions", suggestion_id, "delete")
+                conn.commit()
+                return True
+        return False
+
+    def _row_to_suggestion(self, row: sqlite3.Row) -> MemorySuggestion:
+        """Convert a row to a MemorySuggestion."""
+        return MemorySuggestion(
+            id=row["id"],
+            agent_id=row["agent_id"],
+            memory_type=row["memory_type"],
+            content=self._from_json(row["content"]) or {},
+            confidence=row["confidence"],
+            source_raw_ids=self._from_json(row["source_raw_ids"]) or [],
+            status=row["status"],
+            created_at=self._parse_datetime(row["created_at"]),
+            resolved_at=self._parse_datetime(row["resolved_at"]),
+            resolution_reason=row["resolution_reason"],
+            promoted_to=row["promoted_to"],
             local_updated_at=self._parse_datetime(row["local_updated_at"]),
             cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
             version=row["version"],
@@ -3005,12 +3577,7 @@ class SQLiteStorage:
         # Fall back to local search
         return self._local_search(query, limit, types)
 
-    def _local_search(
-        self,
-        query: str,
-        limit: int,
-        types: List[str]
-    ) -> List[SearchResult]:
+    def _local_search(self, query: str, limit: int, types: List[str]) -> List[SearchResult]:
         """Local search using sqlite-vec or text matching.
 
         Args:
@@ -3026,12 +3593,7 @@ class SQLiteStorage:
         else:
             return self._text_search(query, limit, types)
 
-    def _vector_search(
-        self,
-        query: str,
-        limit: int,
-        types: List[str]
-    ) -> List[SearchResult]:
+    def _vector_search(self, query: str, limit: int, types: List[str]) -> List[SearchResult]:
         """Semantic search using sqlite-vec."""
         results = []
 
@@ -3061,7 +3623,7 @@ class SQLiteStorage:
                        WHERE embedding MATCH ?
                        ORDER BY distance
                        LIMIT ?""",
-                    (query_packed, limit * 2)  # Get more to filter by type
+                    (query_packed, limit * 2),  # Get more to filter by type
                 ).fetchall()
             except Exception as e:
                 logger.warning(f"Vector search failed: {e}, falling back to text search")
@@ -3088,11 +3650,9 @@ class SQLiteStorage:
                 # Fetch the actual record
                 record, record_type = self._fetch_record(conn, table_name, record_id)
                 if record:
-                    results.append(SearchResult(
-                        record=record,
-                        record_type=record_type,
-                        score=score
-                    ))
+                    results.append(
+                        SearchResult(record=record, record_type=record_type, score=score)
+                    )
 
                 if len(results) >= limit:
                     break
@@ -3117,19 +3677,14 @@ class SQLiteStorage:
 
         row = conn.execute(
             f"SELECT * FROM {table} WHERE id = ? AND agent_id = ? AND deleted = 0",
-            (record_id, self.agent_id)
+            (record_id, self.agent_id),
         ).fetchone()
 
         if row:
             return converter(row), record_type
         return None, None
 
-    def _text_search(
-        self,
-        query: str,
-        limit: int,
-        types: List[str]
-    ) -> List[SearchResult]:
+    def _text_search(self, query: str, limit: int, types: List[str]) -> List[SearchResult]:
         """Fallback text-based search using LIKE."""
         results = []
         search_term = f"%{query}%"
@@ -3141,14 +3696,14 @@ class SQLiteStorage:
                        WHERE agent_id = ? AND deleted = 0
                        AND (objective LIKE ? OR outcome LIKE ? OR lessons LIKE ?)
                        LIMIT ?""",
-                    (self.agent_id, search_term, search_term, search_term, limit)
+                    (self.agent_id, search_term, search_term, search_term, limit),
                 ).fetchall()
                 for row in rows:
-                    results.append(SearchResult(
-                        record=self._row_to_episode(row),
-                        record_type="episode",
-                        score=1.0
-                    ))
+                    results.append(
+                        SearchResult(
+                            record=self._row_to_episode(row), record_type="episode", score=1.0
+                        )
+                    )
 
             if "note" in types:
                 rows = conn.execute(
@@ -3156,14 +3711,12 @@ class SQLiteStorage:
                        WHERE agent_id = ? AND deleted = 0
                        AND content LIKE ?
                        LIMIT ?""",
-                    (self.agent_id, search_term, limit)
+                    (self.agent_id, search_term, limit),
                 ).fetchall()
                 for row in rows:
-                    results.append(SearchResult(
-                        record=self._row_to_note(row),
-                        record_type="note",
-                        score=1.0
-                    ))
+                    results.append(
+                        SearchResult(record=self._row_to_note(row), record_type="note", score=1.0)
+                    )
 
             if "belief" in types:
                 rows = conn.execute(
@@ -3171,14 +3724,14 @@ class SQLiteStorage:
                        WHERE agent_id = ? AND deleted = 0
                        AND statement LIKE ?
                        LIMIT ?""",
-                    (self.agent_id, search_term, limit)
+                    (self.agent_id, search_term, limit),
                 ).fetchall()
                 for row in rows:
-                    results.append(SearchResult(
-                        record=self._row_to_belief(row),
-                        record_type="belief",
-                        score=1.0
-                    ))
+                    results.append(
+                        SearchResult(
+                            record=self._row_to_belief(row), record_type="belief", score=1.0
+                        )
+                    )
 
             if "value" in types:
                 rows = conn.execute(
@@ -3186,14 +3739,12 @@ class SQLiteStorage:
                        WHERE agent_id = ? AND deleted = 0
                        AND (name LIKE ? OR statement LIKE ?)
                        LIMIT ?""",
-                    (self.agent_id, search_term, search_term, limit)
+                    (self.agent_id, search_term, search_term, limit),
                 ).fetchall()
                 for row in rows:
-                    results.append(SearchResult(
-                        record=self._row_to_value(row),
-                        record_type="value",
-                        score=1.0
-                    ))
+                    results.append(
+                        SearchResult(record=self._row_to_value(row), record_type="value", score=1.0)
+                    )
 
             if "goal" in types:
                 rows = conn.execute(
@@ -3201,14 +3752,12 @@ class SQLiteStorage:
                        WHERE agent_id = ? AND deleted = 0
                        AND (title LIKE ? OR description LIKE ?)
                        LIMIT ?""",
-                    (self.agent_id, search_term, search_term, limit)
+                    (self.agent_id, search_term, search_term, limit),
                 ).fetchall()
                 for row in rows:
-                    results.append(SearchResult(
-                        record=self._row_to_goal(row),
-                        record_type="goal",
-                        score=1.0
-                    ))
+                    results.append(
+                        SearchResult(record=self._row_to_goal(row), record_type="goal", score=1.0)
+                    )
 
         return results[:limit]
 
@@ -3227,12 +3776,20 @@ class SQLiteStorage:
                 ("drives", "drives"),
                 ("relationships", "relationships"),
                 ("raw_entries", "raw"),
+                ("memory_suggestions", "suggestions"),
             ]:
                 count = conn.execute(
                     f"SELECT COUNT(*) FROM {table} WHERE agent_id = ? AND deleted = 0",
-                    (self.agent_id,)
+                    (self.agent_id,),
                 ).fetchone()[0]
                 stats[key] = count
+
+            # Add count of pending suggestions specifically
+            pending_count = conn.execute(
+                "SELECT COUNT(*) FROM memory_suggestions WHERE agent_id = ? AND status = 'pending' AND deleted = 0",
+                (self.agent_id,),
+            ).fetchone()[0]
+            stats["pending_suggestions"] = pending_count
 
         return stats
 
@@ -3269,12 +3826,12 @@ class SQLiteStorage:
             Dict with keys: values, beliefs, goals, drives, episodes, notes, relationships
         """
         # Use high limit (1000) when None is passed - for budget-based loading
-        HIGH_LIMIT = 1000
-        _values_limit = values_limit if values_limit is not None else HIGH_LIMIT
-        _beliefs_limit = beliefs_limit if beliefs_limit is not None else HIGH_LIMIT
-        _goals_limit = goals_limit if goals_limit is not None else HIGH_LIMIT
-        _episodes_limit = episodes_limit if episodes_limit is not None else HIGH_LIMIT
-        _notes_limit = notes_limit if notes_limit is not None else HIGH_LIMIT
+        high_limit = 1000
+        _values_limit = values_limit if values_limit is not None else high_limit
+        _beliefs_limit = beliefs_limit if beliefs_limit is not None else high_limit
+        _goals_limit = goals_limit if goals_limit is not None else high_limit
+        _episodes_limit = episodes_limit if episodes_limit is not None else high_limit
+        _notes_limit = notes_limit if notes_limit is not None else high_limit
 
         result = {
             "values": [],
@@ -3290,14 +3847,14 @@ class SQLiteStorage:
             # Values - ordered by priority, exclude forgotten
             rows = conn.execute(
                 "SELECT * FROM agent_values WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 ORDER BY priority DESC LIMIT ?",
-                (self.agent_id, _values_limit)
+                (self.agent_id, _values_limit),
             ).fetchall()
             result["values"] = [self._row_to_value(row) for row in rows]
 
             # Beliefs - ordered by confidence, exclude forgotten
             rows = conn.execute(
                 "SELECT * FROM beliefs WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 AND (is_active = 1 OR is_active IS NULL) ORDER BY confidence DESC LIMIT ?",
-                (self.agent_id, _beliefs_limit)
+                (self.agent_id, _beliefs_limit),
             ).fetchall()
             result["beliefs"] = [self._row_to_belief(row) for row in rows]
 
@@ -3305,12 +3862,12 @@ class SQLiteStorage:
             if goals_status and goals_status != "all":
                 rows = conn.execute(
                     "SELECT * FROM goals WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 AND status = ? ORDER BY created_at DESC LIMIT ?",
-                    (self.agent_id, goals_status, _goals_limit)
+                    (self.agent_id, goals_status, _goals_limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
                     "SELECT * FROM goals WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 ORDER BY created_at DESC LIMIT ?",
-                    (self.agent_id, _goals_limit)
+                    (self.agent_id, _goals_limit),
                 ).fetchall()
             result["goals"] = [self._row_to_goal(row) for row in rows]
 
@@ -3318,26 +3875,26 @@ class SQLiteStorage:
             if drives_limit is not None:
                 rows = conn.execute(
                     "SELECT * FROM drives WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 LIMIT ?",
-                    (self.agent_id, drives_limit)
+                    (self.agent_id, drives_limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
                     "SELECT * FROM drives WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0",
-                    (self.agent_id,)
+                    (self.agent_id,),
                 ).fetchall()
             result["drives"] = [self._row_to_drive(row) for row in rows]
 
             # Episodes - most recent, exclude forgotten
             rows = conn.execute(
                 "SELECT * FROM episodes WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 ORDER BY created_at DESC LIMIT ?",
-                (self.agent_id, _episodes_limit)
+                (self.agent_id, _episodes_limit),
             ).fetchall()
             result["episodes"] = [self._row_to_episode(row) for row in rows]
 
             # Notes - most recent, exclude forgotten
             rows = conn.execute(
                 "SELECT * FROM notes WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 ORDER BY created_at DESC LIMIT ?",
-                (self.agent_id, _notes_limit)
+                (self.agent_id, _notes_limit),
             ).fetchall()
             result["notes"] = [self._row_to_note(row) for row in rows]
 
@@ -3345,12 +3902,12 @@ class SQLiteStorage:
             if relationships_limit is not None:
                 rows = conn.execute(
                     "SELECT * FROM relationships WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 LIMIT ?",
-                    (self.agent_id, relationships_limit)
+                    (self.agent_id, relationships_limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
                     "SELECT * FROM relationships WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0",
-                    (self.agent_id,)
+                    (self.agent_id,),
                 ).fetchall()
             result["relationships"] = [self._row_to_relationship(row) for row in rows]
 
@@ -3386,7 +3943,7 @@ class SQLiteStorage:
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM beliefs WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (belief_id, self.agent_id)
+                (belief_id, self.agent_id),
             ).fetchone()
         return self._row_to_belief(row) if row else None
 
@@ -3395,7 +3952,7 @@ class SQLiteStorage:
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM agent_values WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (value_id, self.agent_id)
+                (value_id, self.agent_id),
             ).fetchone()
         return self._row_to_value(row) if row else None
 
@@ -3404,7 +3961,7 @@ class SQLiteStorage:
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM goals WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (goal_id, self.agent_id)
+                (goal_id, self.agent_id),
             ).fetchone()
         return self._row_to_goal(row) if row else None
 
@@ -3413,7 +3970,7 @@ class SQLiteStorage:
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM notes WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (note_id, self.agent_id)
+                (note_id, self.agent_id),
             ).fetchone()
         return self._row_to_note(row) if row else None
 
@@ -3422,7 +3979,7 @@ class SQLiteStorage:
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM drives WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (drive_id, self.agent_id)
+                (drive_id, self.agent_id),
             ).fetchone()
         return self._row_to_drive(row) if row else None
 
@@ -3431,7 +3988,7 @@ class SQLiteStorage:
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM relationships WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (relationship_id, self.agent_id)
+                (relationship_id, self.agent_id),
             ).fetchone()
         return self._row_to_relationship(row) if row else None
 
@@ -3516,7 +4073,9 @@ class SQLiteStorage:
         # Add WHERE clause params
         params.extend([memory_id, self.agent_id])
 
-        query = f"UPDATE {table} SET {', '.join(updates)} WHERE id = ? AND agent_id = ? AND deleted = 0"
+        query = (
+            f"UPDATE {table} SET {', '.join(updates)} WHERE id = ? AND agent_id = ? AND deleted = 0"
+        )
 
         with self._connect() as conn:
             cursor = conn.execute(query, params)
@@ -3546,7 +4105,15 @@ class SQLiteStorage:
         """
         results = []
         op = "<" if below else ">="
-        types = memory_types or ["episode", "belief", "value", "goal", "note", "drive", "relationship"]
+        types = memory_types or [
+            "episode",
+            "belief",
+            "value",
+            "goal",
+            "note",
+            "drive",
+            "relationship",
+        ]
 
         table_map = {
             "episode": ("episodes", self._row_to_episode),
@@ -3576,11 +4143,13 @@ class SQLiteStorage:
                 try:
                     rows = conn.execute(query, (self.agent_id, threshold, limit)).fetchall()
                     for row in rows:
-                        results.append(SearchResult(
-                            record=converter(row),
-                            record_type=memory_type,
-                            score=self._safe_get(row, "confidence", 0.8)
-                        ))
+                        results.append(
+                            SearchResult(
+                                record=converter(row),
+                                record_type=memory_type,
+                                score=self._safe_get(row, "confidence", 0.8),
+                            )
+                        )
                 except Exception as e:
                     # Column might not exist in old schema
                     logger.debug(f"Could not query {table} by confidence: {e}")
@@ -3606,7 +4175,15 @@ class SQLiteStorage:
             List of matching memories
         """
         results = []
-        types = memory_types or ["episode", "belief", "value", "goal", "note", "drive", "relationship"]
+        types = memory_types or [
+            "episode",
+            "belief",
+            "value",
+            "goal",
+            "note",
+            "drive",
+            "relationship",
+        ]
 
         table_map = {
             "episode": ("episodes", self._row_to_episode),
@@ -3635,11 +4212,13 @@ class SQLiteStorage:
                 try:
                     rows = conn.execute(query, (self.agent_id, source_type, limit)).fetchall()
                     for row in rows:
-                        results.append(SearchResult(
-                            record=converter(row),
-                            record_type=memory_type,
-                            score=self._safe_get(row, "confidence", 0.8)
-                        ))
+                        results.append(
+                            SearchResult(
+                                record=converter(row),
+                                record_type=memory_type,
+                                score=self._safe_get(row, "confidence", 0.8),
+                            )
+                        )
                 except Exception as e:
                     # Column might not exist in old schema
                     logger.debug(f"Could not query {table} by source_type: {e}")
@@ -3683,7 +4262,7 @@ class SQLiteStorage:
                        last_accessed = ?,
                        local_updated_at = ?
                    WHERE id = ? AND agent_id = ?""",
-                (now, now, memory_id, self.agent_id)
+                (now, now, memory_id, self.agent_id),
             )
             conn.commit()
             return cursor.rowcount > 0
@@ -3725,7 +4304,7 @@ class SQLiteStorage:
             # Check if memory exists and is not protected
             row = conn.execute(
                 f"SELECT is_protected, is_forgotten FROM {table} WHERE id = ? AND agent_id = ?",
-                (memory_id, self.agent_id)
+                (memory_id, self.agent_id),
             ).fetchone()
 
             if not row:
@@ -3745,7 +4324,7 @@ class SQLiteStorage:
                        forgotten_reason = ?,
                        local_updated_at = ?
                    WHERE id = ? AND agent_id = ?""",
-                (now, reason, now, memory_id, self.agent_id)
+                (now, reason, now, memory_id, self.agent_id),
             )
             self._queue_sync(conn, table, memory_id, "update")
             conn.commit()
@@ -3781,7 +4360,7 @@ class SQLiteStorage:
             # Check if memory is forgotten
             row = conn.execute(
                 f"SELECT is_forgotten FROM {table} WHERE id = ? AND agent_id = ?",
-                (memory_id, self.agent_id)
+                (memory_id, self.agent_id),
             ).fetchone()
 
             if not row or not self._safe_get(row, "is_forgotten", 0):
@@ -3794,7 +4373,7 @@ class SQLiteStorage:
                        forgotten_reason = NULL,
                        local_updated_at = ?
                    WHERE id = ? AND agent_id = ?""",
-                (now, memory_id, self.agent_id)
+                (now, memory_id, self.agent_id),
             )
             self._queue_sync(conn, table, memory_id, "update")
             conn.commit()
@@ -3833,7 +4412,7 @@ class SQLiteStorage:
                    SET is_protected = ?,
                        local_updated_at = ?
                    WHERE id = ? AND agent_id = ?""",
-                (1 if protected else 0, now, memory_id, self.agent_id)
+                (1 if protected else 0, now, memory_id, self.agent_id),
             )
             self._queue_sync(conn, table, memory_id, "update")
             conn.commit()
@@ -3865,6 +4444,7 @@ class SQLiteStorage:
             List of candidate memories with computed salience scores
         """
         import math
+
         results = []
         types = memory_types or ["episode", "belief", "goal", "note", "relationship"]
         # Exclude values and drives by default since they're protected by default
@@ -3928,11 +4508,9 @@ class SQLiteStorage:
                         # Salience calculation
                         salience = (confidence * (reinforcement_weight + 0.1)) / (age_factor + 1)
 
-                        results.append(SearchResult(
-                            record=record,
-                            record_type=memory_type,
-                            score=salience
-                        ))
+                        results.append(
+                            SearchResult(record=record, record_type=memory_type, score=salience)
+                        )
                 except Exception as e:
                     logger.debug(f"Could not get forgetting candidates from {table}: {e}")
 
@@ -3955,7 +4533,15 @@ class SQLiteStorage:
             List of forgotten memories
         """
         results = []
-        types = memory_types or ["episode", "belief", "value", "goal", "note", "drive", "relationship"]
+        types = memory_types or [
+            "episode",
+            "belief",
+            "value",
+            "goal",
+            "note",
+            "drive",
+            "relationship",
+        ]
 
         table_map = {
             "episode": ("episodes", self._row_to_episode),
@@ -3985,11 +4571,13 @@ class SQLiteStorage:
                 try:
                     rows = conn.execute(query, (self.agent_id, limit)).fetchall()
                     for row in rows:
-                        results.append(SearchResult(
-                            record=converter(row),
-                            record_type=memory_type,
-                            score=0.0  # Forgotten memories have 0 active salience
-                        ))
+                        results.append(
+                            SearchResult(
+                                record=converter(row),
+                                record_type=memory_type,
+                                score=0.0,  # Forgotten memories have 0 active salience
+                            )
+                        )
                 except Exception as e:
                     logger.debug(f"Could not get forgotten memories from {table}: {e}")
 
@@ -3998,11 +4586,7 @@ class SQLiteStorage:
     # === Sync Queue ===
 
     def queue_sync_operation(
-        self,
-        operation: str,
-        table: str,
-        record_id: str,
-        data: Optional[Dict[str, Any]] = None
+        self, operation: str, table: str, record_id: str, data: Optional[Dict[str, Any]] = None
     ) -> int:
         """Queue a sync operation for later synchronization.
 
@@ -4034,7 +4618,7 @@ class SQLiteStorage:
                        data = excluded.data,
                        local_updated_at = excluded.local_updated_at,
                        queued_at = excluded.queued_at""",
-                (table, record_id, operation, data_json, now, now)
+                (table, record_id, operation, data_json, now, now),
             )
             conn.commit()
             return cursor.lastrowid or 0
@@ -4052,7 +4636,7 @@ class SQLiteStorage:
                    WHERE synced = 0
                    ORDER BY id
                    LIMIT ?""",
-                (limit,)
+                (limit,),
             ).fetchall()
 
         return [
@@ -4082,8 +4666,7 @@ class SQLiteStorage:
         with self._connect() as conn:
             placeholders = ",".join("?" * len(ids))
             cursor = conn.execute(
-                f"UPDATE sync_queue SET synced = 1 WHERE id IN ({placeholders})",
-                ids
+                f"UPDATE sync_queue SET synced = 1 WHERE id IN ({placeholders})", ids
             )
             conn.commit()
             return cursor.rowcount
@@ -4101,12 +4684,8 @@ class SQLiteStorage:
         """
         with self._connect() as conn:
             # Overall counts
-            pending = conn.execute(
-                "SELECT COUNT(*) FROM sync_queue WHERE synced = 0"
-            ).fetchone()[0]
-            synced = conn.execute(
-                "SELECT COUNT(*) FROM sync_queue WHERE synced = 1"
-            ).fetchone()[0]
+            pending = conn.execute("SELECT COUNT(*) FROM sync_queue WHERE synced = 0").fetchone()[0]
+            synced = conn.execute("SELECT COUNT(*) FROM sync_queue WHERE synced = 1").fetchone()[0]
 
             # Breakdown by table (pending only)
             table_rows = conn.execute(
@@ -4135,9 +4714,7 @@ class SQLiteStorage:
     def get_pending_sync_count(self) -> int:
         """Get count of records pending sync."""
         with self._connect() as conn:
-            count = conn.execute(
-                "SELECT COUNT(*) FROM sync_queue WHERE synced = 0"
-            ).fetchone()[0]
+            count = conn.execute("SELECT COUNT(*) FROM sync_queue WHERE synced = 0").fetchone()[0]
         return count
 
     def get_queued_changes(self, limit: int = 100) -> List[QueuedChange]:
@@ -4149,7 +4726,7 @@ class SQLiteStorage:
                    WHERE synced = 0
                    ORDER BY id
                    LIMIT ?""",
-                (limit,)
+                (limit,),
             ).fetchall()
 
         return [
@@ -4171,9 +4748,7 @@ class SQLiteStorage:
     def _get_sync_meta(self, key: str) -> Optional[str]:
         """Get a sync metadata value."""
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT value FROM sync_meta WHERE key = ?", (key,)
-            ).fetchone()
+            row = conn.execute("SELECT value FROM sync_meta WHERE key = ?", (key,)).fetchone()
         return row["value"] if row else None
 
     def _set_sync_meta(self, key: str, value: str):
@@ -4181,7 +4756,7 @@ class SQLiteStorage:
         with self._connect() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO sync_meta (key, value, updated_at) VALUES (?, ?, ?)",
-                (key, value, self._now())
+                (key, value, self._now()),
             )
             conn.commit()
 
@@ -4189,6 +4764,94 @@ class SQLiteStorage:
         """Get the timestamp of the last successful sync."""
         value = self._get_sync_meta("last_sync_time")
         return self._parse_datetime(value) if value else None
+
+    def get_sync_conflicts(self, limit: int = 100) -> List[SyncConflict]:
+        """Get recent sync conflict history.
+
+        Args:
+            limit: Maximum number of conflicts to return
+
+        Returns:
+            List of SyncConflict records, most recent first
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT id, table_name, record_id, local_version, cloud_version,
+                          resolution, resolved_at, local_summary, cloud_summary
+                   FROM sync_conflicts
+                   ORDER BY resolved_at DESC
+                   LIMIT ?""",
+                (limit,),
+            ).fetchall()
+
+        return [
+            SyncConflict(
+                id=row["id"],
+                table=row["table_name"],
+                record_id=row["record_id"],
+                local_version=json.loads(row["local_version"]),
+                cloud_version=json.loads(row["cloud_version"]),
+                resolution=row["resolution"],
+                resolved_at=self._parse_datetime(row["resolved_at"]) or datetime.now(timezone.utc),
+                local_summary=row["local_summary"],
+                cloud_summary=row["cloud_summary"],
+            )
+            for row in rows
+        ]
+
+    def save_sync_conflict(self, conflict: SyncConflict) -> str:
+        """Save a sync conflict record.
+
+        Args:
+            conflict: The conflict to save
+
+        Returns:
+            The conflict ID
+        """
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO sync_conflicts
+                   (id, table_name, record_id, local_version, cloud_version,
+                    resolution, resolved_at, local_summary, cloud_summary)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    conflict.id,
+                    conflict.table,
+                    conflict.record_id,
+                    json.dumps(conflict.local_version),
+                    json.dumps(conflict.cloud_version),
+                    conflict.resolution,
+                    (
+                        conflict.resolved_at.isoformat()
+                        if isinstance(conflict.resolved_at, datetime)
+                        else conflict.resolved_at
+                    ),
+                    conflict.local_summary,
+                    conflict.cloud_summary,
+                ),
+            )
+            conn.commit()
+        return conflict.id
+
+    def clear_sync_conflicts(self, before: Optional[datetime] = None) -> int:
+        """Clear sync conflict history.
+
+        Args:
+            before: If provided, only clear conflicts before this timestamp.
+                    If None, clear all conflicts.
+
+        Returns:
+            Number of conflicts cleared
+        """
+        with self._connect() as conn:
+            if before:
+                cursor = conn.execute(
+                    "DELETE FROM sync_conflicts WHERE resolved_at < ?", (before.isoformat(),)
+                )
+            else:
+                cursor = conn.execute("DELETE FROM sync_conflicts")
+            conn.commit()
+            return cursor.rowcount
 
     def is_online(self) -> bool:
         """Check if cloud storage is reachable.
@@ -4210,6 +4873,7 @@ class SQLiteStorage:
         try:
             # Try a lightweight operation - get stats with timeout
             import socket
+
             old_timeout = socket.getdefaulttimeout()
             try:
                 socket.setdefaulttimeout(self.CONNECTIVITY_TIMEOUT)
@@ -4231,17 +4895,13 @@ class SQLiteStorage:
     def _mark_synced(self, conn: sqlite3.Connection, table: str, record_id: str):
         """Mark a record as synced with the cloud."""
         now = self._now()
-        conn.execute(
-            f"UPDATE {table} SET cloud_synced_at = ? WHERE id = ?",
-            (now, record_id)
-        )
+        conn.execute(f"UPDATE {table} SET cloud_synced_at = ? WHERE id = ?", (now, record_id))
 
     def _get_record_for_push(self, table: str, record_id: str) -> Optional[Any]:
         """Get a record by table and ID for pushing to cloud."""
         with self._connect() as conn:
             row = conn.execute(
-                f"SELECT * FROM {table} WHERE id = ? AND agent_id = ?",
-                (record_id, self.agent_id)
+                f"SELECT * FROM {table} WHERE id = ? AND agent_id = ?", (record_id, self.agent_id)
             ).fetchone()
 
         if not row:
@@ -4354,7 +5014,9 @@ class SQLiteStorage:
         if result.success or (result.pushed > 0 or result.pulled > 0):
             self._set_sync_meta("last_sync_time", self._now())
 
-        logger.info(f"Sync complete: pushed={result.pushed}, pulled={result.pulled}, conflicts={result.conflicts}")
+        logger.info(
+            f"Sync complete: pushed={result.pushed}, pulled={result.pulled}, conflicts={result.conflict_count}"
+        )
         return result
 
     def pull_changes(self, since: Optional[datetime] = None) -> SyncResult:
@@ -4403,9 +5065,10 @@ class SQLiteStorage:
                     cloud_records = getter(limit=1000) if callable(getter) else getter()
 
                 for cloud_record in cloud_records:
-                    pull_count, conflict_count = merger(cloud_record)
+                    pull_count, conflict = merger(cloud_record)
                     result.pulled += pull_count
-                    result.conflicts += conflict_count
+                    if conflict:
+                        result.conflicts.append(conflict)
 
             except Exception as e:
                 logger.error(f"Failed to pull from {table}: {e}")
@@ -4413,104 +5076,96 @@ class SQLiteStorage:
 
         return result
 
-    def _merge_episode(self, cloud_record: Episode) -> tuple[int, int]:
-        """Merge a cloud episode with local. Returns (pulled, conflicts)."""
+    def _merge_episode(self, cloud_record: Episode) -> tuple[int, Optional[SyncConflict]]:
+        """Merge a cloud episode with local. Returns (pulled, conflict_or_none)."""
         return self._merge_record("episodes", cloud_record, self.get_episode)
 
-    def _merge_note(self, cloud_record: Note) -> tuple[int, int]:
-        """Merge a cloud note with local. Returns (pulled, conflicts)."""
+    def _merge_note(self, cloud_record: Note) -> tuple[int, Optional[SyncConflict]]:
+        """Merge a cloud note with local. Returns (pulled, conflict_or_none)."""
         local = None
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM notes WHERE id = ? AND agent_id = ?",
-                (cloud_record.id, self.agent_id)
+                (cloud_record.id, self.agent_id),
             ).fetchone()
             if row:
                 local = self._row_to_note(row)
         return self._merge_generic(
-            "notes", cloud_record, local,
-            lambda: self.save_note(cloud_record)
+            "notes", cloud_record, local, lambda: self.save_note(cloud_record)
         )
 
-    def _merge_belief(self, cloud_record: Belief) -> tuple[int, int]:
-        """Merge a cloud belief with local. Returns (pulled, conflicts)."""
+    def _merge_belief(self, cloud_record: Belief) -> tuple[int, Optional[SyncConflict]]:
+        """Merge a cloud belief with local. Returns (pulled, conflict_or_none)."""
         local = None
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM beliefs WHERE id = ? AND agent_id = ?",
-                (cloud_record.id, self.agent_id)
+                (cloud_record.id, self.agent_id),
             ).fetchone()
             if row:
                 local = self._row_to_belief(row)
         return self._merge_generic(
-            "beliefs", cloud_record, local,
-            lambda: self.save_belief(cloud_record)
+            "beliefs", cloud_record, local, lambda: self.save_belief(cloud_record)
         )
 
-    def _merge_value(self, cloud_record: Value) -> tuple[int, int]:
-        """Merge a cloud value with local. Returns (pulled, conflicts)."""
+    def _merge_value(self, cloud_record: Value) -> tuple[int, Optional[SyncConflict]]:
+        """Merge a cloud value with local. Returns (pulled, conflict_or_none)."""
         local = None
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM agent_values WHERE id = ? AND agent_id = ?",
-                (cloud_record.id, self.agent_id)
+                (cloud_record.id, self.agent_id),
             ).fetchone()
             if row:
                 local = self._row_to_value(row)
         return self._merge_generic(
-            "agent_values", cloud_record, local,
-            lambda: self.save_value(cloud_record)
+            "agent_values", cloud_record, local, lambda: self.save_value(cloud_record)
         )
 
-    def _merge_goal(self, cloud_record: Goal) -> tuple[int, int]:
-        """Merge a cloud goal with local. Returns (pulled, conflicts)."""
+    def _merge_goal(self, cloud_record: Goal) -> tuple[int, Optional[SyncConflict]]:
+        """Merge a cloud goal with local. Returns (pulled, conflict_or_none)."""
         local = None
         with self._connect() as conn:
             row = conn.execute(
                 "SELECT * FROM goals WHERE id = ? AND agent_id = ?",
-                (cloud_record.id, self.agent_id)
+                (cloud_record.id, self.agent_id),
             ).fetchone()
             if row:
                 local = self._row_to_goal(row)
         return self._merge_generic(
-            "goals", cloud_record, local,
-            lambda: self.save_goal(cloud_record)
+            "goals", cloud_record, local, lambda: self.save_goal(cloud_record)
         )
 
-    def _merge_drive(self, cloud_record: Drive) -> tuple[int, int]:
-        """Merge a cloud drive with local. Returns (pulled, conflicts)."""
+    def _merge_drive(self, cloud_record: Drive) -> tuple[int, Optional[SyncConflict]]:
+        """Merge a cloud drive with local. Returns (pulled, conflict_or_none)."""
         local = self.get_drive(cloud_record.drive_type)
         return self._merge_generic(
-            "drives", cloud_record, local,
-            lambda: self.save_drive(cloud_record)
+            "drives", cloud_record, local, lambda: self.save_drive(cloud_record)
         )
 
-    def _merge_relationship(self, cloud_record: Relationship) -> tuple[int, int]:
-        """Merge a cloud relationship with local. Returns (pulled, conflicts)."""
+    def _merge_relationship(self, cloud_record: Relationship) -> tuple[int, Optional[SyncConflict]]:
+        """Merge a cloud relationship with local. Returns (pulled, conflict_or_none)."""
         local = self.get_relationship(cloud_record.entity_name)
         return self._merge_generic(
-            "relationships", cloud_record, local,
-            lambda: self.save_relationship(cloud_record)
+            "relationships", cloud_record, local, lambda: self.save_relationship(cloud_record)
         )
 
-    def _merge_record(self, table: str, cloud_record: Any, get_local) -> tuple[int, int]:
+    def _merge_record(
+        self, table: str, cloud_record: Any, get_local
+    ) -> tuple[int, Optional[SyncConflict]]:
         """Generic merge for records with an ID-based getter."""
         local = get_local(cloud_record.id)
         return self._merge_generic(
-            table, cloud_record, local,
-            lambda: self._save_from_cloud(table, cloud_record)
+            table, cloud_record, local, lambda: self._save_from_cloud(table, cloud_record)
         )
 
     def _merge_generic(
-        self,
-        table: str,
-        cloud_record: Any,
-        local_record: Optional[Any],
-        save_fn
-    ) -> tuple[int, int]:
+        self, table: str, cloud_record: Any, local_record: Optional[Any], save_fn
+    ) -> tuple[int, Optional[SyncConflict]]:
         """Generic merge logic with last-write-wins.
 
-        Returns (pulled_count, conflict_count).
+        Returns (pulled_count, conflict_or_none).
+        If a conflict occurred, returns a SyncConflict with details.
         """
         if local_record is None:
             # No local record - just save the cloud version
@@ -4521,10 +5176,10 @@ class SQLiteStorage:
                 # Remove from queue if present
                 conn.execute(
                     "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
-                    (table, cloud_record.id)
+                    (table, cloud_record.id),
                 )
                 conn.commit()
-            return (1, 0)
+            return (1, None)
 
         # Both exist - use last-write-wins
         cloud_time = cloud_record.cloud_synced_at or cloud_record.local_updated_at
@@ -4533,28 +5188,93 @@ class SQLiteStorage:
         if cloud_time and local_time:
             if cloud_time > local_time:
                 # Cloud is newer - overwrite local
+                # Create conflict record before overwriting
+                conflict = self._create_conflict(
+                    table, cloud_record.id, local_record, cloud_record, "cloud_wins"
+                )
                 save_fn()
                 with self._connect() as conn:
                     self._mark_synced(conn, table, cloud_record.id)
                     conn.execute(
                         "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
-                        (table, cloud_record.id)
+                        (table, cloud_record.id),
                     )
                     conn.commit()
-                return (1, 1)  # Pulled with conflict
+                # Save conflict to history
+                self.save_sync_conflict(conflict)
+                return (1, conflict)  # Pulled with conflict
             else:
                 # Local is newer - keep local, it will be pushed
-                return (0, 1)  # Conflict, but local wins
+                conflict = self._create_conflict(
+                    table, cloud_record.id, local_record, cloud_record, "local_wins"
+                )
+                # Save conflict to history
+                self.save_sync_conflict(conflict)
+                return (0, conflict)  # Conflict, but local wins
         elif cloud_time:
             # Only cloud has timestamp - use cloud
             save_fn()
             with self._connect() as conn:
                 self._mark_synced(conn, table, cloud_record.id)
                 conn.commit()
-            return (1, 0)
+            return (1, None)
         else:
             # Only local has timestamp or neither - keep local
-            return (0, 0)
+            return (0, None)
+
+    def _create_conflict(
+        self, table: str, record_id: str, local_record: Any, cloud_record: Any, resolution: str
+    ) -> SyncConflict:
+        """Create a SyncConflict record with human-readable summaries."""
+        import uuid
+
+        local_summary = self._get_record_summary(table, local_record)
+        cloud_summary = self._get_record_summary(table, cloud_record)
+        local_dict = self._record_to_dict(local_record)
+        cloud_dict = self._record_to_dict(cloud_record)
+        return SyncConflict(
+            id=str(uuid.uuid4()),
+            table=table,
+            record_id=record_id,
+            local_version=local_dict,
+            cloud_version=cloud_dict,
+            resolution=resolution,
+            resolved_at=datetime.now(timezone.utc),
+            local_summary=local_summary,
+            cloud_summary=cloud_summary,
+        )
+
+    def _get_record_summary(self, table: str, record: Any) -> str:
+        """Get a human-readable summary of a record for conflict display."""
+        if table == "episodes":
+            return record.objective[:50] + "..." if len(record.objective) > 50 else record.objective
+        elif table == "notes":
+            return record.content[:50] + "..." if len(record.content) > 50 else record.content
+        elif table == "beliefs":
+            return record.statement[:50] + "..." if len(record.statement) > 50 else record.statement
+        elif table == "agent_values":
+            stmt = record.statement[:40] + "..." if len(record.statement) > 40 else record.statement
+            return f"{record.name}: {stmt}"
+        elif table == "goals":
+            return record.title[:50] + "..." if len(record.title) > 50 else record.title
+        elif table == "drives":
+            return f"{record.drive_type} (intensity: {record.intensity})"
+        elif table == "relationships":
+            return f"{record.entity_name} ({record.relationship_type})"
+        return f"{table}:{record.id}"
+
+    def _record_to_dict(self, record: Any) -> Dict[str, Any]:
+        """Convert a dataclass record to a dict for JSON storage."""
+        from dataclasses import asdict
+
+        try:
+            d = asdict(record)
+            for k, v in d.items():
+                if isinstance(v, datetime):
+                    d[k] = v.isoformat()
+            return d
+        except Exception:
+            return {"id": getattr(record, "id", "unknown")}
 
     def _save_from_cloud(self, table: str, record: Any):
         """Save a record that came from cloud (used in _merge_record)."""
@@ -4576,10 +5296,7 @@ class SQLiteStorage:
     # === Health Check Compliance Tracking ===
 
     def log_health_check(
-        self,
-        anxiety_score: Optional[int] = None,
-        source: str = "cli",
-        triggered_by: str = "manual"
+        self, anxiety_score: Optional[int] = None, source: str = "cli", triggered_by: str = "manual"
     ) -> str:
         """Log a health check event for compliance tracking.
 
@@ -4596,14 +5313,16 @@ class SQLiteStorage:
 
         with self._connect() as conn:
             conn.execute(
-                """INSERT INTO health_check_events 
+                """INSERT INTO health_check_events
                    (id, agent_id, checked_at, anxiety_score, source, triggered_by)
                    VALUES (?, ?, ?, ?, ?, ?)""",
-                (event_id, self.agent_id, now, anxiety_score, source, triggered_by)
+                (event_id, self.agent_id, now, anxiety_score, source, triggered_by),
             )
             conn.commit()
 
-        logger.debug(f"Logged health check: score={anxiety_score}, source={source}, triggered_by={triggered_by}")
+        logger.debug(
+            f"Logged health check: score={anxiety_score}, source={source}, triggered_by={triggered_by}"
+        )
         return event_id
 
     def get_health_check_stats(self) -> Dict[str, Any]:
@@ -4621,8 +5340,7 @@ class SQLiteStorage:
         with self._connect() as conn:
             # Total checks
             cur = conn.execute(
-                "SELECT COUNT(*) FROM health_check_events WHERE agent_id = ?",
-                (self.agent_id,)
+                "SELECT COUNT(*) FROM health_check_events WHERE agent_id = ?", (self.agent_id,)
             )
             total_checks = cur.fetchone()[0]
 
@@ -4638,9 +5356,9 @@ class SQLiteStorage:
 
             # Get first and last check for calculating avg per day
             cur = conn.execute(
-                """SELECT MIN(checked_at), MAX(checked_at) 
+                """SELECT MIN(checked_at), MAX(checked_at)
                    FROM health_check_events WHERE agent_id = ?""",
-                (self.agent_id,)
+                (self.agent_id,),
             )
             first_check, last_check = cur.fetchone()
 
@@ -4658,9 +5376,9 @@ class SQLiteStorage:
 
             # Last check details
             cur = conn.execute(
-                """SELECT checked_at, anxiety_score FROM health_check_events 
+                """SELECT checked_at, anxiety_score FROM health_check_events
                    WHERE agent_id = ? ORDER BY checked_at DESC LIMIT 1""",
-                (self.agent_id,)
+                (self.agent_id,),
             )
             row = cur.fetchone()
             last_check_at = row[0] if row else None
@@ -4668,17 +5386,17 @@ class SQLiteStorage:
 
             # Checks by source
             cur = conn.execute(
-                """SELECT source, COUNT(*) FROM health_check_events 
+                """SELECT source, COUNT(*) FROM health_check_events
                    WHERE agent_id = ? GROUP BY source""",
-                (self.agent_id,)
+                (self.agent_id,),
             )
             checks_by_source = {row[0]: row[1] for row in cur.fetchall()}
 
             # Checks by trigger
             cur = conn.execute(
-                """SELECT triggered_by, COUNT(*) FROM health_check_events 
+                """SELECT triggered_by, COUNT(*) FROM health_check_events
                    WHERE agent_id = ? GROUP BY triggered_by""",
-                (self.agent_id,)
+                (self.agent_id,),
             )
             checks_by_trigger = {row[0]: row[1] for row in cur.fetchall()}
 

@@ -81,8 +81,14 @@ class SupabaseStorage:
         supabase_key: Optional[str] = None,
     ):
         self.agent_id = agent_id
-        self.supabase_url = supabase_url or os.environ.get("KERNLE_SUPABASE_URL") or os.environ.get("SUPABASE_URL")
-        self.supabase_key = supabase_key or os.environ.get("KERNLE_SUPABASE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        self.supabase_url = (
+            supabase_url or os.environ.get("KERNLE_SUPABASE_URL") or os.environ.get("SUPABASE_URL")
+        )
+        self.supabase_key = (
+            supabase_key
+            or os.environ.get("KERNLE_SUPABASE_KEY")
+            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        )
 
         self._client = None
 
@@ -91,7 +97,9 @@ class SupabaseStorage:
         """Lazy-load Supabase client."""
         if self._client is None:
             if not self.supabase_url or not self.supabase_key:
-                raise ValueError("Supabase credentials required. Set KERNLE_SUPABASE_URL and KERNLE_SUPABASE_KEY.")
+                raise ValueError(
+                    "Supabase credentials required. Set KERNLE_SUPABASE_URL and KERNLE_SUPABASE_KEY."
+                )
 
             # Validate URL structure
             self._validate_supabase_url(self.supabase_url)
@@ -104,6 +112,7 @@ class SupabaseStorage:
                 raise ValueError("Supabase key appears to be invalid (too short)")
 
             from supabase import create_client
+
             self._client = create_client(self.supabase_url, self.supabase_key)
         return self._client
 
@@ -115,7 +124,7 @@ class SupabaseStorage:
             raise ValueError("Supabase URL cannot be empty")
 
         # Must be HTTPS (security requirement)
-        if not url.startswith('https://'):
+        if not url.startswith("https://"):
             raise ValueError("Supabase URL must use HTTPS")
 
         try:
@@ -127,29 +136,28 @@ class SupabaseStorage:
         if not parsed.netloc:
             raise ValueError("Invalid Supabase URL: missing host")
 
-        if parsed.path and parsed.path not in ('', '/'):
+        if parsed.path and parsed.path not in ("", "/"):
             raise ValueError("Invalid Supabase URL: unexpected path component")
 
         # Check for valid Supabase domain patterns
         host = parsed.netloc.lower()
         valid_patterns = [
-            '.supabase.co',      # Standard Supabase hosted
-            '.supabase.in',      # Alternative Supabase domain
-            'localhost',          # Local development
-            '127.0.0.1',         # Local development
+            ".supabase.co",  # Standard Supabase hosted
+            ".supabase.in",  # Alternative Supabase domain
+            "localhost",  # Local development
+            "127.0.0.1",  # Local development
         ]
 
         is_valid_host = any(
-            host.endswith(pattern) or host == pattern.lstrip('.')
-            for pattern in valid_patterns
+            host.endswith(pattern) or host == pattern.lstrip(".") for pattern in valid_patterns
         )
 
         # Also allow custom self-hosted domains (check for reasonable structure)
         if not is_valid_host:
             # For self-hosted, at minimum ensure it looks like a valid hostname
-            if not all(c.isalnum() or c in '.-:' for c in host):
+            if not all(c.isalnum() or c in ".-:" for c in host):
                 raise ValueError("Invalid Supabase URL: hostname contains invalid characters")
-            if '..' in host or host.startswith('.') or host.endswith('.'):
+            if ".." in host or host.startswith(".") or host.endswith("."):
                 raise ValueError("Invalid Supabase URL: malformed hostname")
             # Log a warning for non-standard hosts
             logger.warning(f"Using non-standard Supabase host: {host}. Ensure this is intentional.")
@@ -196,15 +204,16 @@ class SupabaseStorage:
         return episode.id
 
     def get_episodes(
-        self,
-        limit: int = 100,
-        since: Optional[datetime] = None,
-        tags: Optional[List[str]] = None
+        self, limit: int = 100, since: Optional[datetime] = None, tags: Optional[List[str]] = None
     ) -> List[Episode]:
         """Get episodes, optionally filtered."""
-        query = self.client.table("agent_episodes").select("*").eq(
-            "agent_id", self.agent_id
-        ).order("created_at", desc=True).limit(limit)
+        query = (
+            self.client.table("agent_episodes")
+            .select("*")
+            .eq("agent_id", self.agent_id)
+            .order("created_at", desc=True)
+            .limit(limit)
+        )
 
         if since:
             query = query.gte("created_at", since.isoformat())
@@ -215,18 +224,19 @@ class SupabaseStorage:
 
         # Filter by tags if specified
         if tags:
-            episodes = [
-                e for e in episodes
-                if e.tags and any(t in e.tags for t in tags)
-            ]
+            episodes = [e for e in episodes if e.tags and any(t in e.tags for t in tags)]
 
         return episodes
 
     def get_episode(self, episode_id: str) -> Optional[Episode]:
         """Get a specific episode by ID."""
-        result = self.client.table("agent_episodes").select("*").eq(
-            "id", episode_id
-        ).eq("agent_id", self.agent_id).execute()
+        result = (
+            self.client.table("agent_episodes")
+            .select("*")
+            .eq("id", episode_id)
+            .eq("agent_id", self.agent_id)
+            .execute()
+        )
 
         if result.data:
             return self._row_to_episode(result.data[0])
@@ -258,14 +268,13 @@ class SupabaseStorage:
             last_verified=self._parse_datetime(row.get("last_verified")),
             verification_count=row.get("verification_count", 0),
             confidence_history=row.get("confidence_history"),
+            # Context/scope fields
+            context=row.get("context"),
+            context_tags=row.get("context_tags"),
         )
 
     def update_episode_emotion(
-        self,
-        episode_id: str,
-        valence: float,
-        arousal: float,
-        tags: Optional[List[str]] = None
+        self, episode_id: str, valence: float, arousal: float, tags: Optional[List[str]] = None
     ) -> bool:
         """Update emotional associations for an episode.
 
@@ -285,12 +294,20 @@ class SupabaseStorage:
         now = self._now()
 
         try:
-            result = self.client.table("agent_episodes").update({
-                "emotional_valence": valence,
-                "emotional_arousal": arousal,
-                "emotional_tags": tags or [],
-                "local_updated_at": now,
-            }).eq("id", episode_id).eq("agent_id", self.agent_id).execute()
+            result = (
+                self.client.table("agent_episodes")
+                .update(
+                    {
+                        "emotional_valence": valence,
+                        "emotional_arousal": arousal,
+                        "emotional_tags": tags or [],
+                        "local_updated_at": now,
+                    }
+                )
+                .eq("id", episode_id)
+                .eq("agent_id", self.agent_id)
+                .execute()
+            )
 
             return len(result.data) > 0
         except Exception as e:
@@ -302,7 +319,7 @@ class SupabaseStorage:
         valence_range: Optional[tuple] = None,
         arousal_range: Optional[tuple] = None,
         tags: Optional[List[str]] = None,
-        limit: int = 10
+        limit: int = 10,
     ) -> List[Episode]:
         """Find episodes matching emotional criteria.
 
@@ -315,9 +332,12 @@ class SupabaseStorage:
         Returns:
             List of matching episodes
         """
-        query = self.client.table("agent_episodes").select("*").eq(
-            "agent_id", self.agent_id
-        ).order("created_at", desc=True)
+        query = (
+            self.client.table("agent_episodes")
+            .select("*")
+            .eq("agent_id", self.agent_id)
+            .order("created_at", desc=True)
+        )
 
         if valence_range:
             query = query.gte("emotional_valence", valence_range[0])
@@ -335,29 +355,32 @@ class SupabaseStorage:
         # Filter by emotional tags in Python
         if tags:
             episodes = [
-                e for e in episodes
-                if e.emotional_tags and any(t in e.emotional_tags for t in tags)
+                e for e in episodes if e.emotional_tags and any(t in e.emotional_tags for t in tags)
             ][:limit]
 
         return episodes
 
-    def get_emotional_episodes(
-        self,
-        days: int = 7,
-        limit: int = 100
-    ) -> List[Episode]:
+    def get_emotional_episodes(self, days: int = 7, limit: int = 100) -> List[Episode]:
         """Get episodes with emotional data for summary calculations."""
         from datetime import timedelta
+
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
-        result = self.client.table("agent_episodes").select("*").eq(
-            "agent_id", self.agent_id
-        ).gte("created_at", cutoff).order("created_at", desc=True).limit(limit).execute()
+        result = (
+            self.client.table("agent_episodes")
+            .select("*")
+            .eq("agent_id", self.agent_id)
+            .gte("created_at", cutoff)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
+        )
 
         # Filter to episodes with emotional data
         episodes = [self._row_to_episode(row) for row in result.data]
         return [
-            e for e in episodes
+            e
+            for e in episodes
             if e.emotional_valence != 0.0 or e.emotional_arousal != 0.0 or e.emotional_tags
         ]
 
@@ -394,9 +417,7 @@ class SupabaseStorage:
             limit: Maximum number of beliefs to return
             include_inactive: If True, include superseded/archived beliefs
         """
-        query = self.client.table("agent_beliefs").select("*").eq(
-            "agent_id", self.agent_id
-        )
+        query = self.client.table("agent_beliefs").select("*").eq("agent_id", self.agent_id)
         if not include_inactive:
             query = query.eq("is_active", True)
         result = query.order("confidence", desc=True).limit(limit).execute()
@@ -405,9 +426,15 @@ class SupabaseStorage:
 
     def find_belief(self, statement: str) -> Optional[Belief]:
         """Find a belief by statement (for deduplication)."""
-        result = self.client.table("agent_beliefs").select("*").eq(
-            "agent_id", self.agent_id
-        ).eq("statement", statement).eq("is_active", True).limit(1).execute()
+        result = (
+            self.client.table("agent_beliefs")
+            .select("*")
+            .eq("agent_id", self.agent_id)
+            .eq("statement", statement)
+            .eq("is_active", True)
+            .limit(1)
+            .execute()
+        )
 
         if result.data:
             return self._row_to_belief(result.data[0])
@@ -433,6 +460,9 @@ class SupabaseStorage:
             last_verified=self._parse_datetime(row.get("last_verified")),
             verification_count=row.get("verification_count", 0),
             confidence_history=row.get("confidence_history"),
+            # Context/scope fields
+            context=row.get("context"),
+            context_tags=row.get("context_tags"),
         )
 
     # === Values ===
@@ -464,9 +494,15 @@ class SupabaseStorage:
 
     def get_values(self, limit: int = 100) -> List[Value]:
         """Get values, ordered by priority."""
-        result = self.client.table("agent_values").select("*").eq(
-            "agent_id", self.agent_id
-        ).eq("is_active", True).order("priority", desc=True).limit(limit).execute()
+        result = (
+            self.client.table("agent_values")
+            .select("*")
+            .eq("agent_id", self.agent_id)
+            .eq("is_active", True)
+            .order("priority", desc=True)
+            .limit(limit)
+            .execute()
+        )
 
         return [self._row_to_value(row) for row in result.data]
 
@@ -491,6 +527,9 @@ class SupabaseStorage:
             last_verified=self._parse_datetime(row.get("last_verified")),
             verification_count=row.get("verification_count", 0),
             confidence_history=row.get("confidence_history"),
+            # Context/scope fields
+            context=row.get("context"),
+            context_tags=row.get("context_tags"),
         )
 
     # === Goals ===
@@ -521,9 +560,13 @@ class SupabaseStorage:
 
     def get_goals(self, status: Optional[str] = "active", limit: int = 100) -> List[Goal]:
         """Get goals, optionally filtered by status."""
-        query = self.client.table("agent_goals").select("*").eq(
-            "agent_id", self.agent_id
-        ).order("created_at", desc=True).limit(limit)
+        query = (
+            self.client.table("agent_goals")
+            .select("*")
+            .eq("agent_id", self.agent_id)
+            .order("created_at", desc=True)
+            .limit(limit)
+        )
 
         if status:
             query = query.eq("status", status)
@@ -553,6 +596,9 @@ class SupabaseStorage:
             last_verified=self._parse_datetime(row.get("last_verified")),
             verification_count=row.get("verification_count", 0),
             confidence_history=row.get("confidence_history"),
+            # Context/scope fields
+            context=row.get("context"),
+            context_tags=row.get("context_tags"),
         )
 
     # === Notes ===
@@ -602,15 +648,17 @@ class SupabaseStorage:
         return note.id
 
     def get_notes(
-        self,
-        limit: int = 100,
-        since: Optional[datetime] = None,
-        note_type: Optional[str] = None
+        self, limit: int = 100, since: Optional[datetime] = None, note_type: Optional[str] = None
     ) -> List[Note]:
         """Get notes, optionally filtered."""
-        query = self.client.table("memories").select("*").eq(
-            "owner_id", self.agent_id
-        ).eq("source", "curated").order("created_at", desc=True).limit(limit)
+        query = (
+            self.client.table("memories")
+            .select("*")
+            .eq("owner_id", self.agent_id)
+            .eq("source", "curated")
+            .order("created_at", desc=True)
+            .limit(limit)
+        )
 
         if since:
             query = query.gte("created_at", since.isoformat())
@@ -648,6 +696,9 @@ class SupabaseStorage:
             last_verified=self._parse_datetime(row.get("last_verified")),
             verification_count=row.get("verification_count", 0),
             confidence_history=row.get("confidence_history"),
+            # Context/scope fields
+            context=row.get("context"),
+            context_tags=row.get("context_tags"),
         )
 
     # === Drives ===
@@ -660,9 +711,13 @@ class SupabaseStorage:
         now = self._now()
 
         # Check if exists
-        existing = self.client.table("agent_drives").select("id").eq(
-            "agent_id", self.agent_id
-        ).eq("drive_type", drive.drive_type).execute()
+        existing = (
+            self.client.table("agent_drives")
+            .select("id")
+            .eq("agent_id", self.agent_id)
+            .eq("drive_type", drive.drive_type)
+            .execute()
+        )
 
         data = {
             "agent_id": self.agent_id,
@@ -687,17 +742,21 @@ class SupabaseStorage:
 
     def get_drives(self) -> List[Drive]:
         """Get all drives for the agent."""
-        result = self.client.table("agent_drives").select("*").eq(
-            "agent_id", self.agent_id
-        ).execute()
+        result = (
+            self.client.table("agent_drives").select("*").eq("agent_id", self.agent_id).execute()
+        )
 
         return [self._row_to_drive(row) for row in result.data]
 
     def get_drive(self, drive_type: str) -> Optional[Drive]:
         """Get a specific drive by type."""
-        result = self.client.table("agent_drives").select("*").eq(
-            "agent_id", self.agent_id
-        ).eq("drive_type", drive_type).execute()
+        result = (
+            self.client.table("agent_drives")
+            .select("*")
+            .eq("agent_id", self.agent_id)
+            .eq("drive_type", drive_type)
+            .execute()
+        )
 
         if result.data:
             return self._row_to_drive(result.data[0])
@@ -725,6 +784,9 @@ class SupabaseStorage:
             last_verified=self._parse_datetime(row.get("last_verified")),
             verification_count=row.get("verification_count", 0),
             confidence_history=row.get("confidence_history"),
+            # Context/scope fields
+            context=row.get("context"),
+            context_tags=row.get("context_tags"),
         )
 
     # === Relationships ===
@@ -735,7 +797,9 @@ class SupabaseStorage:
             relationship.id = str(uuid.uuid4())
 
         now = self._now()
-        last_interaction = relationship.last_interaction.isoformat() if relationship.last_interaction else now
+        last_interaction = (
+            relationship.last_interaction.isoformat() if relationship.last_interaction else now
+        )
 
         try:
             # Use atomic RPC function to increment interaction_count
@@ -748,30 +812,36 @@ class SupabaseStorage:
                     "p_trust_level": relationship.sentiment,
                     "p_notes": relationship.notes,
                     "p_last_interaction": last_interaction,
-                }
+                },
             ).execute()
-            
+
             if result.data and len(result.data) > 0:
                 relationship.id = str(result.data[0]["id"])
         except Exception as e:
             logger.warning(f"Failed to save relationship to agent_relationships table: {e}")
             # Fall back to saving as a note
-            self.save_note(Note(
-                id=relationship.id,
-                agent_id=self.agent_id,
-                content=f"Relationship with {relationship.entity_name}: {relationship.notes}",
-                note_type="note",
-                tags=["relationship", relationship.entity_name],
-            ))
+            self.save_note(
+                Note(
+                    id=relationship.id,
+                    agent_id=self.agent_id,
+                    content=f"Relationship with {relationship.entity_name}: {relationship.notes}",
+                    note_type="note",
+                    tags=["relationship", relationship.entity_name],
+                )
+            )
 
         return relationship.id
 
     def get_relationships(self, entity_type: Optional[str] = None) -> List[Relationship]:
         """Get relationships, optionally filtered by entity type."""
         try:
-            result = self.client.table("agent_relationships").select("*").eq(
-                "agent_id", self.agent_id
-            ).order("last_interaction", desc=True).execute()
+            result = (
+                self.client.table("agent_relationships")
+                .select("*")
+                .eq("agent_id", self.agent_id)
+                .order("last_interaction", desc=True)
+                .execute()
+            )
 
             return [self._row_to_relationship(row) for row in result.data]
         except Exception:
@@ -781,9 +851,13 @@ class SupabaseStorage:
     def get_relationship(self, entity_name: str) -> Optional[Relationship]:
         """Get a specific relationship by entity name."""
         try:
-            result = self.client.table("agent_relationships").select("*").eq(
-                "agent_id", self.agent_id
-            ).eq("other_agent_id", entity_name).execute()
+            result = (
+                self.client.table("agent_relationships")
+                .select("*")
+                .eq("agent_id", self.agent_id)
+                .eq("other_agent_id", entity_name)
+                .execute()
+            )
 
             if result.data:
                 return self._row_to_relationship(result.data[0])
@@ -816,15 +890,15 @@ class SupabaseStorage:
             last_verified=self._parse_datetime(row.get("last_verified")),
             verification_count=row.get("verification_count", 0),
             confidence_history=row.get("confidence_history"),
+            # Context/scope fields
+            context=row.get("context"),
+            context_tags=row.get("context_tags"),
         )
 
     # === Search ===
 
     def search(
-        self,
-        query: str,
-        limit: int = 10,
-        record_types: Optional[List[str]] = None
+        self, query: str, limit: int = 10, record_types: Optional[List[str]] = None
     ) -> List[SearchResult]:
         """Search across memories.
 
@@ -836,44 +910,66 @@ class SupabaseStorage:
         query_lower = query.lower()
 
         if "episode" in types:
-            episodes = self.client.table("agent_episodes").select("*").eq(
-                "agent_id", self.agent_id
-            ).order("created_at", desc=True).limit(limit * 5).execute()
+            episodes = (
+                self.client.table("agent_episodes")
+                .select("*")
+                .eq("agent_id", self.agent_id)
+                .order("created_at", desc=True)
+                .limit(limit * 5)
+                .execute()
+            )
 
             for row in episodes.data:
                 text = f"{row.get('objective', '')} {row.get('outcome_description', '')} {' '.join(row.get('lessons_learned', []))}"
                 if query_lower in text.lower():
-                    results.append(SearchResult(
-                        record=self._row_to_episode(row),
-                        record_type="episode",
-                        score=1.0,
-                    ))
+                    results.append(
+                        SearchResult(
+                            record=self._row_to_episode(row),
+                            record_type="episode",
+                            score=1.0,
+                        )
+                    )
 
         if "note" in types:
-            notes = self.client.table("memories").select("*").eq(
-                "owner_id", self.agent_id
-            ).eq("source", "curated").order("created_at", desc=True).limit(limit * 5).execute()
+            notes = (
+                self.client.table("memories")
+                .select("*")
+                .eq("owner_id", self.agent_id)
+                .eq("source", "curated")
+                .order("created_at", desc=True)
+                .limit(limit * 5)
+                .execute()
+            )
 
             for row in notes.data:
                 if query_lower in row.get("content", "").lower():
-                    results.append(SearchResult(
-                        record=self._row_to_note(row),
-                        record_type="note",
-                        score=1.0,
-                    ))
+                    results.append(
+                        SearchResult(
+                            record=self._row_to_note(row),
+                            record_type="note",
+                            score=1.0,
+                        )
+                    )
 
         if "belief" in types:
-            beliefs = self.client.table("agent_beliefs").select("*").eq(
-                "agent_id", self.agent_id
-            ).eq("is_active", True).limit(limit * 5).execute()
+            beliefs = (
+                self.client.table("agent_beliefs")
+                .select("*")
+                .eq("agent_id", self.agent_id)
+                .eq("is_active", True)
+                .limit(limit * 5)
+                .execute()
+            )
 
             for row in beliefs.data:
                 if query_lower in row.get("statement", "").lower():
-                    results.append(SearchResult(
-                        record=self._row_to_belief(row),
-                        record_type="belief",
-                        score=1.0,
-                    ))
+                    results.append(
+                        SearchResult(
+                            record=self._row_to_belief(row),
+                            record_type="belief",
+                            score=1.0,
+                        )
+                    )
 
         # Sort by score and limit
         results.sort(key=lambda x: x.score, reverse=True)
@@ -886,46 +982,71 @@ class SupabaseStorage:
         stats = {}
 
         # Episodes
-        result = self.client.table("agent_episodes").select("id", count="exact").eq(
-            "agent_id", self.agent_id
-        ).execute()
+        result = (
+            self.client.table("agent_episodes")
+            .select("id", count="exact")
+            .eq("agent_id", self.agent_id)
+            .execute()
+        )
         stats["episodes"] = result.count or 0
 
         # Beliefs
-        result = self.client.table("agent_beliefs").select("id", count="exact").eq(
-            "agent_id", self.agent_id
-        ).eq("is_active", True).execute()
+        result = (
+            self.client.table("agent_beliefs")
+            .select("id", count="exact")
+            .eq("agent_id", self.agent_id)
+            .eq("is_active", True)
+            .execute()
+        )
         stats["beliefs"] = result.count or 0
 
         # Values
-        result = self.client.table("agent_values").select("id", count="exact").eq(
-            "agent_id", self.agent_id
-        ).eq("is_active", True).execute()
+        result = (
+            self.client.table("agent_values")
+            .select("id", count="exact")
+            .eq("agent_id", self.agent_id)
+            .eq("is_active", True)
+            .execute()
+        )
         stats["values"] = result.count or 0
 
         # Goals
-        result = self.client.table("agent_goals").select("id", count="exact").eq(
-            "agent_id", self.agent_id
-        ).eq("status", "active").execute()
+        result = (
+            self.client.table("agent_goals")
+            .select("id", count="exact")
+            .eq("agent_id", self.agent_id)
+            .eq("status", "active")
+            .execute()
+        )
         stats["goals"] = result.count or 0
 
         # Notes
-        result = self.client.table("memories").select("id", count="exact").eq(
-            "owner_id", self.agent_id
-        ).eq("source", "curated").execute()
+        result = (
+            self.client.table("memories")
+            .select("id", count="exact")
+            .eq("owner_id", self.agent_id)
+            .eq("source", "curated")
+            .execute()
+        )
         stats["notes"] = result.count or 0
 
         # Drives
-        result = self.client.table("agent_drives").select("id", count="exact").eq(
-            "agent_id", self.agent_id
-        ).execute()
+        result = (
+            self.client.table("agent_drives")
+            .select("id", count="exact")
+            .eq("agent_id", self.agent_id)
+            .execute()
+        )
         stats["drives"] = result.count or 0
 
         # Relationships
         try:
-            result = self.client.table("agent_relationships").select("id", count="exact").eq(
-                "agent_id", self.agent_id
-            ).execute()
+            result = (
+                self.client.table("agent_relationships")
+                .select("id", count="exact")
+                .eq("agent_id", self.agent_id)
+                .execute()
+            )
             stats["relationships"] = result.count or 0
         except Exception:
             stats["relationships"] = 0
@@ -966,12 +1087,12 @@ class SupabaseStorage:
             Dict with keys: values, beliefs, goals, drives, episodes, notes, relationships
         """
         # Use high limit (1000) when None is passed - for budget-based loading
-        HIGH_LIMIT = 1000
-        _values_limit = values_limit if values_limit is not None else HIGH_LIMIT
-        _beliefs_limit = beliefs_limit if beliefs_limit is not None else HIGH_LIMIT
-        _goals_limit = goals_limit if goals_limit is not None else HIGH_LIMIT
-        _episodes_limit = episodes_limit if episodes_limit is not None else HIGH_LIMIT
-        _notes_limit = notes_limit if notes_limit is not None else HIGH_LIMIT
+        high_limit = 1000
+        _values_limit = values_limit if values_limit is not None else high_limit
+        _beliefs_limit = beliefs_limit if beliefs_limit is not None else high_limit
+        _goals_limit = goals_limit if goals_limit is not None else high_limit
+        _episodes_limit = episodes_limit if episodes_limit is not None else high_limit
+        _notes_limit = notes_limit if notes_limit is not None else high_limit
 
         result: Dict[str, Any] = {
             "values": [],
@@ -1091,13 +1212,21 @@ class SupabaseStorage:
         try:
             # Handle notes which use owner_id instead of agent_id
             if memory_type == "note":
-                result = self.client.table(table).select("*").eq(
-                    "id", memory_id
-                ).eq("owner_id", self.agent_id).execute()
+                result = (
+                    self.client.table(table)
+                    .select("*")
+                    .eq("id", memory_id)
+                    .eq("owner_id", self.agent_id)
+                    .execute()
+                )
             else:
-                result = self.client.table(table).select("*").eq(
-                    "id", memory_id
-                ).eq("agent_id", self.agent_id).execute()
+                result = (
+                    self.client.table(table)
+                    .select("*")
+                    .eq("id", memory_id)
+                    .eq("agent_id", self.agent_id)
+                    .execute()
+                )
 
             if result.data:
                 return converter(result.data[0])
@@ -1155,13 +1284,13 @@ class SupabaseStorage:
         try:
             # Handle notes which use owner_id
             if memory_type == "note":
-                self.client.table(table).update(update_data).eq(
-                    "id", memory_id
-                ).eq("owner_id", self.agent_id).execute()
+                self.client.table(table).update(update_data).eq("id", memory_id).eq(
+                    "owner_id", self.agent_id
+                ).execute()
             else:
-                self.client.table(table).update(update_data).eq(
-                    "id", memory_id
-                ).eq("agent_id", self.agent_id).execute()
+                self.client.table(table).update(update_data).eq("id", memory_id).eq(
+                    "agent_id", self.agent_id
+                ).execute()
             return True
         except Exception as e:
             logger.warning(f"Could not update meta for {memory_type}:{memory_id}: {e}")
@@ -1195,13 +1324,14 @@ class SupabaseStorage:
             try:
                 # Handle notes which use owner_id
                 if memory_type == "note":
-                    query = self.client.table(table).select("*").eq(
-                        "owner_id", self.agent_id
-                    ).eq("source", "curated")
-                else:
-                    query = self.client.table(table).select("*").eq(
-                        "agent_id", self.agent_id
+                    query = (
+                        self.client.table(table)
+                        .select("*")
+                        .eq("owner_id", self.agent_id)
+                        .eq("source", "curated")
                     )
+                else:
+                    query = self.client.table(table).select("*").eq("agent_id", self.agent_id)
 
                 if below:
                     query = query.lt("confidence", threshold)
@@ -1212,11 +1342,13 @@ class SupabaseStorage:
                 result = query.execute()
 
                 for row in result.data:
-                    results.append(SearchResult(
-                        record=converter(row),
-                        record_type=memory_type,
-                        score=row.get("confidence", 0.8)
-                    ))
+                    results.append(
+                        SearchResult(
+                            record=converter(row),
+                            record_type=memory_type,
+                            score=row.get("confidence", 0.8),
+                        )
+                    )
             except Exception as e:
                 logger.debug(f"Could not query {table} by confidence: {e}")
 
@@ -1249,25 +1381,28 @@ class SupabaseStorage:
 
             try:
                 if memory_type == "note":
-                    query = self.client.table(table).select("*").eq(
-                        "owner_id", self.agent_id
-                    ).eq("source", "curated")
-                else:
-                    query = self.client.table(table).select("*").eq(
-                        "agent_id", self.agent_id
+                    query = (
+                        self.client.table(table)
+                        .select("*")
+                        .eq("owner_id", self.agent_id)
+                        .eq("source", "curated")
                     )
+                else:
+                    query = self.client.table(table).select("*").eq("agent_id", self.agent_id)
 
-                query = query.eq("source_type", source_type).order(
-                    "created_at", desc=True
-                ).limit(limit)
+                query = (
+                    query.eq("source_type", source_type).order("created_at", desc=True).limit(limit)
+                )
                 result = query.execute()
 
                 for row in result.data:
-                    results.append(SearchResult(
-                        record=converter(row),
-                        record_type=memory_type,
-                        score=row.get("confidence", 0.8)
-                    ))
+                    results.append(
+                        SearchResult(
+                            record=converter(row),
+                            record_type=memory_type,
+                            score=row.get("confidence", 0.8),
+                        )
+                    )
             except Exception as e:
                 logger.debug(f"Could not query {table} by source_type: {e}")
 
@@ -1316,7 +1451,9 @@ class SupabaseStorage:
 
     # === Raw Entries - NOT YET SUPPORTED ===
 
-    def save_raw(self, content: str, source: str = "manual", tags: Optional[List[str]] = None) -> str:
+    def save_raw(
+        self, content: str, source: str = "manual", tags: Optional[List[str]] = None
+    ) -> str:
         """Save a raw entry for later processing. Returns the entry ID."""
         raise NotImplementedError(
             "SupabaseStorage does not yet support save_raw. "

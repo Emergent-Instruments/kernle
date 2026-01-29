@@ -14,6 +14,7 @@ from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
 # === Shared Utility Functions ===
 
+
 def utc_now() -> str:
     """Get current timestamp as ISO string in UTC."""
     return datetime.now(timezone.utc).isoformat()
@@ -24,45 +25,74 @@ def parse_datetime(s: Optional[str]) -> Optional[datetime]:
     if not s:
         return None
     try:
-        return datetime.fromisoformat(s.replace('Z', '+00:00'))
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
     except ValueError:
         return None
 
 
 class SourceType(Enum):
     """How a memory was created/acquired."""
+
     DIRECT_EXPERIENCE = "direct_experience"  # Directly observed/experienced
-    INFERENCE = "inference"                   # Inferred from other memories
-    TOLD_BY_AGENT = "told_by_agent"          # Told by another agent/user
-    CONSOLIDATION = "consolidation"           # Created during consolidation
-    UNKNOWN = "unknown"                       # Legacy or untracked
+    INFERENCE = "inference"  # Inferred from other memories
+    TOLD_BY_AGENT = "told_by_agent"  # Told by another agent/user
+    CONSOLIDATION = "consolidation"  # Created during consolidation
+    UNKNOWN = "unknown"  # Legacy or untracked
 
 
 class SyncStatus(Enum):
     """Sync status for a record."""
-    LOCAL_ONLY = "local_only"      # Not yet synced to cloud
-    SYNCED = "synced"              # In sync with cloud
+
+    LOCAL_ONLY = "local_only"  # Not yet synced to cloud
+    SYNCED = "synced"  # In sync with cloud
     PENDING_PUSH = "pending_push"  # Local changes need to be pushed
     PENDING_PULL = "pending_pull"  # Cloud has newer version
-    CONFLICT = "conflict"          # Conflicting changes
+    CONFLICT = "conflict"  # Conflicting changes
+
+
+@dataclass
+class SyncConflict:
+    """Details of a sync conflict that was resolved.
+
+    When local and cloud versions of a record differ, the sync engine
+    resolves the conflict using last-write-wins and records the details
+    here for user visibility.
+    """
+
+    id: str  # Unique ID for this conflict record
+    table: str  # Table name (episodes, notes, beliefs, etc.)
+    record_id: str  # ID of the record that had a conflict
+    local_version: Dict[str, Any]  # Snapshot of local version before resolution
+    cloud_version: Dict[str, Any]  # Snapshot of cloud version
+    resolution: str  # "local_wins" or "cloud_wins"
+    resolved_at: datetime  # When the conflict was resolved
+    local_summary: Optional[str] = None  # Human-readable summary of local content
+    cloud_summary: Optional[str] = None  # Human-readable summary of cloud content
 
 
 @dataclass
 class SyncResult:
     """Result of a sync operation."""
-    pushed: int = 0           # Records pushed to cloud
-    pulled: int = 0           # Records pulled from cloud
-    conflicts: int = 0        # Conflicts encountered (resolved with last-write-wins)
+
+    pushed: int = 0  # Records pushed to cloud
+    pulled: int = 0  # Records pulled from cloud
+    conflicts: List[SyncConflict] = field(default_factory=list)  # Detailed conflict records
     errors: List[str] = field(default_factory=list)
 
     @property
     def success(self) -> bool:
         return len(self.errors) == 0
 
+    @property
+    def conflict_count(self) -> int:
+        """Number of conflicts encountered."""
+        return len(self.conflicts)
+
 
 @dataclass
 class QueuedChange:
     """A change queued for sync."""
+
     id: int
     table_name: str
     record_id: str
@@ -74,6 +104,7 @@ class QueuedChange:
 @dataclass
 class ConfidenceChange:
     """A record of confidence change for tracking history."""
+
     timestamp: datetime
     old_confidence: float
     new_confidence: float
@@ -83,6 +114,7 @@ class ConfidenceChange:
 @dataclass
 class RawEntry:
     """A raw memory entry - unstructured capture for later processing."""
+
     id: str
     agent_id: str
     content: str
@@ -104,15 +136,17 @@ class RawEntry:
 @dataclass
 class MemoryLineage:
     """Provenance chain for a memory."""
+
     source_type: SourceType
     source_episodes: List[str]  # Episode IDs that support this memory
-    derived_from: List[str]      # Memory IDs this was derived from (format: type:id)
+    derived_from: List[str]  # Memory IDs this was derived from (format: type:id)
     confidence_history: List[ConfidenceChange]
 
 
 @dataclass
 class Episode:
     """An episode/experience record."""
+
     id: str
     agent_id: str
     objective: str
@@ -145,11 +179,15 @@ class Episode:
     is_forgotten: bool = False  # Tombstoned, not deleted
     forgotten_at: Optional[datetime] = None  # When it was forgotten
     forgotten_reason: Optional[str] = None  # Why it was forgotten
+    # Context/scope fields for project-specific memories
+    context: Optional[str] = None  # e.g., "project:api-service", "repo:myorg/myrepo"
+    context_tags: Optional[List[str]] = None  # Additional context tags for filtering
 
 
 @dataclass
 class Belief:
     """A belief record."""
+
     id: str
     agent_id: str
     statement: str
@@ -180,11 +218,15 @@ class Belief:
     is_forgotten: bool = False
     forgotten_at: Optional[datetime] = None
     forgotten_reason: Optional[str] = None
+    # Context/scope fields for project-specific memories
+    context: Optional[str] = None  # e.g., "project:api-service", "repo:myorg/myrepo"
+    context_tags: Optional[List[str]] = None  # Additional context tags for filtering
 
 
 @dataclass
 class Value:
     """A value record."""
+
     id: str
     agent_id: str
     name: str
@@ -211,11 +253,15 @@ class Value:
     is_forgotten: bool = False
     forgotten_at: Optional[datetime] = None
     forgotten_reason: Optional[str] = None
+    # Context/scope fields for project-specific memories
+    context: Optional[str] = None
+    context_tags: Optional[List[str]] = None
 
 
 @dataclass
 class Goal:
     """A goal record."""
+
     id: str
     agent_id: str
     title: str
@@ -243,11 +289,15 @@ class Goal:
     is_forgotten: bool = False
     forgotten_at: Optional[datetime] = None
     forgotten_reason: Optional[str] = None
+    # Context/scope fields for project-specific memories
+    context: Optional[str] = None
+    context_tags: Optional[List[str]] = None
 
 
 @dataclass
 class Note:
     """A note/memory record."""
+
     id: str
     agent_id: str
     content: str
@@ -276,11 +326,15 @@ class Note:
     is_forgotten: bool = False
     forgotten_at: Optional[datetime] = None
     forgotten_reason: Optional[str] = None
+    # Context/scope fields for project-specific memories
+    context: Optional[str] = None  # e.g., "project:api-service", "repo:myorg/myrepo"
+    context_tags: Optional[List[str]] = None  # Additional context tags for filtering
 
 
 @dataclass
 class Drive:
     """A drive/motivation record."""
+
     id: str
     agent_id: str
     drive_type: str
@@ -308,11 +362,15 @@ class Drive:
     is_forgotten: bool = False
     forgotten_at: Optional[datetime] = None
     forgotten_reason: Optional[str] = None
+    # Context/scope fields for project-specific memories
+    context: Optional[str] = None
+    context_tags: Optional[List[str]] = None
 
 
 @dataclass
 class Relationship:
     """A relationship record."""
+
     id: str
     agent_id: str
     entity_name: str
@@ -343,6 +401,9 @@ class Relationship:
     is_forgotten: bool = False
     forgotten_at: Optional[datetime] = None
     forgotten_reason: Optional[str] = None
+    # Context/scope fields for project-specific memories
+    context: Optional[str] = None
+    context_tags: Optional[List[str]] = None
 
 
 @dataclass
@@ -353,15 +414,16 @@ class Playbook:
     learned from experience. They encode successful workflows as
     reusable step sequences with applicability conditions and failure modes.
     """
+
     id: str
     agent_id: str
-    name: str                              # "Deploy to production"
-    description: str                       # What this playbook does
-    trigger_conditions: List[str]          # When to use this
-    steps: List[Dict[str, Any]]            # [{action, details, adaptations}]
-    failure_modes: List[str]               # What can go wrong
-    recovery_steps: Optional[List[str]] = None    # How to recover
-    mastery_level: str = "novice"          # novice/competent/proficient/expert
+    name: str  # "Deploy to production"
+    description: str  # What this playbook does
+    trigger_conditions: List[str]  # When to use this
+    steps: List[Dict[str, Any]]  # [{action, details, adaptations}]
+    failure_modes: List[str]  # What can go wrong
+    recovery_steps: Optional[List[str]] = None  # How to recover
+    mastery_level: str = "novice"  # novice/competent/proficient/expert
     times_used: int = 0
     success_rate: float = 0.0
     source_episodes: Optional[List[str]] = None  # Where this was learned
@@ -378,8 +440,49 @@ class Playbook:
 
 
 @dataclass
+class MemorySuggestion:
+    """A suggested memory extracted from raw entries.
+
+    MemorySuggestions are auto-extracted patterns from raw entries that
+    require agent review before being promoted to structured memories.
+    This enables auto-extraction while keeping the agent in control.
+
+    Workflow:
+    1. Raw entry captured (manual or auto-capture)
+    2. System extracts suggestions based on patterns
+    3. Agent reviews: approve (promote to memory), modify, or reject
+    4. Approved suggestions become Episode, Belief, or Note records
+
+    Status values:
+    - pending: Awaiting review
+    - promoted: Accepted and converted to structured memory
+    - modified: Accepted with modifications
+    - rejected: Declined (with optional reason)
+    """
+
+    id: str
+    agent_id: str
+    memory_type: str  # "episode", "belief", "note"
+    content: Dict[str, Any]  # Structured data for the suggested memory
+    confidence: float  # System confidence in this suggestion (0.0-1.0)
+    source_raw_ids: List[str]  # Which raw entries this came from
+    status: str = "pending"  # pending, promoted, modified, rejected
+    created_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
+    resolution_reason: Optional[str] = None
+    # Link to promoted memory (if status is promoted/modified)
+    promoted_to: Optional[str] = None  # Format: "type:id", e.g., "episode:abc123"
+    # Sync metadata
+    local_updated_at: Optional[datetime] = None
+    cloud_synced_at: Optional[datetime] = None
+    version: int = 1
+    deleted: bool = False
+
+
+@dataclass
 class SearchResult:
     """A search result with relevance score."""
+
     record: Any  # Episode, Note, Belief, Playbook, etc.
     record_type: str
     score: float
@@ -403,10 +506,7 @@ class Storage(Protocol):
 
     @abstractmethod
     def get_episodes(
-        self,
-        limit: int = 100,
-        since: Optional[datetime] = None,
-        tags: Optional[List[str]] = None
+        self, limit: int = 100, since: Optional[datetime] = None, tags: Optional[List[str]] = None
     ) -> List[Episode]:
         """Get episodes, optionally filtered."""
         ...
@@ -420,11 +520,7 @@ class Storage(Protocol):
 
     @abstractmethod
     def update_episode_emotion(
-        self,
-        episode_id: str,
-        valence: float,
-        arousal: float,
-        tags: Optional[List[str]] = None
+        self, episode_id: str, valence: float, arousal: float, tags: Optional[List[str]] = None
     ) -> bool:
         """Update emotional associations for an episode.
 
@@ -440,11 +536,7 @@ class Storage(Protocol):
         ...
 
     @abstractmethod
-    def get_emotional_episodes(
-        self,
-        days: int = 7,
-        limit: int = 100
-    ) -> List[Episode]:
+    def get_emotional_episodes(self, days: int = 7, limit: int = 100) -> List[Episode]:
         """Get episodes with emotional data for summary calculations.
 
         Args:
@@ -462,7 +554,7 @@ class Storage(Protocol):
         valence_range: Optional[tuple] = None,
         arousal_range: Optional[tuple] = None,
         tags: Optional[List[str]] = None,
-        limit: int = 10
+        limit: int = 10,
     ) -> List[Episode]:
         """Find episodes matching emotional criteria.
 
@@ -532,10 +624,7 @@ class Storage(Protocol):
 
     @abstractmethod
     def get_notes(
-        self,
-        limit: int = 100,
-        since: Optional[datetime] = None,
-        note_type: Optional[str] = None
+        self, limit: int = 100, since: Optional[datetime] = None, note_type: Optional[str] = None
     ) -> List[Note]:
         """Get notes, optionally filtered."""
         ...
@@ -616,7 +705,9 @@ class Storage(Protocol):
     # === Raw Entries ===
 
     @abstractmethod
-    def save_raw(self, content: str, source: str = "manual", tags: Optional[List[str]] = None) -> str:
+    def save_raw(
+        self, content: str, source: str = "manual", tags: Optional[List[str]] = None
+    ) -> str:
         """Save a raw entry for later processing. Returns the entry ID."""
         ...
 
@@ -642,6 +733,79 @@ class Storage(Protocol):
             True if updated, False if not found
         """
         ...
+
+    # === Memory Suggestions ===
+
+    def save_suggestion(self, suggestion: MemorySuggestion) -> str:
+        """Save a memory suggestion. Returns the suggestion ID.
+
+        Args:
+            suggestion: The suggestion to save
+
+        Returns:
+            The suggestion ID
+        """
+        return suggestion.id  # Default: just return ID (no-op)
+
+    def get_suggestion(self, suggestion_id: str) -> Optional[MemorySuggestion]:
+        """Get a specific suggestion by ID.
+
+        Args:
+            suggestion_id: ID of the suggestion
+
+        Returns:
+            The suggestion or None if not found
+        """
+        return None
+
+    def get_suggestions(
+        self,
+        status: Optional[str] = None,
+        memory_type: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[MemorySuggestion]:
+        """Get suggestions, optionally filtered.
+
+        Args:
+            status: Filter by status (pending, promoted, modified, rejected)
+            memory_type: Filter by suggested memory type (episode, belief, note)
+            limit: Maximum suggestions to return
+
+        Returns:
+            List of suggestions matching the filters
+        """
+        return []
+
+    def update_suggestion_status(
+        self,
+        suggestion_id: str,
+        status: str,
+        resolution_reason: Optional[str] = None,
+        promoted_to: Optional[str] = None,
+    ) -> bool:
+        """Update the status of a suggestion.
+
+        Args:
+            suggestion_id: ID of the suggestion to update
+            status: New status (pending, promoted, modified, rejected)
+            resolution_reason: Optional reason for the resolution
+            promoted_to: Reference to promoted memory (format: type:id)
+
+        Returns:
+            True if updated, False if suggestion not found
+        """
+        return False
+
+    def delete_suggestion(self, suggestion_id: str) -> bool:
+        """Delete a suggestion (soft delete by marking deleted=1).
+
+        Args:
+            suggestion_id: ID of the suggestion to delete
+
+        Returns:
+            True if deleted, False if not found
+        """
+        return False
 
     # === Search ===
 
@@ -705,6 +869,59 @@ class Storage(Protocol):
     def get_stats(self) -> Dict[str, int]:
         """Get counts of each record type."""
         ...
+
+    # === Batch Insertion ===
+
+    def save_episodes_batch(self, episodes: List[Episode]) -> List[str]:
+        """Save multiple episodes in a single transaction.
+
+        This is an optional optimization that storage backends can implement
+        to batch multiple database writes into a single transaction, improving
+        performance when processing large codebases or bulk imports.
+
+        Default implementation falls back to individual saves.
+
+        Args:
+            episodes: List of Episode objects to save
+
+        Returns:
+            List of episode IDs (in the same order as input)
+        """
+        return [self.save_episode(ep) for ep in episodes]
+
+    def save_beliefs_batch(self, beliefs: List[Belief]) -> List[str]:
+        """Save multiple beliefs in a single transaction.
+
+        This is an optional optimization that storage backends can implement
+        to batch multiple database writes into a single transaction, improving
+        performance when processing large codebases or bulk imports.
+
+        Default implementation falls back to individual saves.
+
+        Args:
+            beliefs: List of Belief objects to save
+
+        Returns:
+            List of belief IDs (in the same order as input)
+        """
+        return [self.save_belief(b) for b in beliefs]
+
+    def save_notes_batch(self, notes: List[Note]) -> List[str]:
+        """Save multiple notes in a single transaction.
+
+        This is an optional optimization that storage backends can implement
+        to batch multiple database writes into a single transaction, improving
+        performance when processing large codebases or bulk imports.
+
+        Default implementation falls back to individual saves.
+
+        Args:
+            notes: List of Note objects to save
+
+        Returns:
+            List of note IDs (in the same order as input)
+        """
+        return [self.save_note(n) for n in notes]
 
     # === Batch Loading ===
 
@@ -990,13 +1207,43 @@ class Storage(Protocol):
         """Get pending sync queue changes."""
         return []
 
-    def get_pending_sync_count(self) -> int:
-        """Get count of pending sync operations."""
-        return 0
-
     def get_last_sync_time(self) -> Optional[datetime]:
         """Get timestamp of last successful sync."""
         return None
+
+    def get_sync_conflicts(self, limit: int = 100) -> List[SyncConflict]:
+        """Get recent sync conflict history.
+
+        Args:
+            limit: Maximum number of conflicts to return
+
+        Returns:
+            List of SyncConflict records, most recent first
+        """
+        return []
+
+    def save_sync_conflict(self, conflict: SyncConflict) -> str:
+        """Save a sync conflict record.
+
+        Args:
+            conflict: The conflict to save
+
+        Returns:
+            The conflict ID
+        """
+        return conflict.id
+
+    def clear_sync_conflicts(self, before: Optional[datetime] = None) -> int:
+        """Clear sync conflict history.
+
+        Args:
+            before: If provided, only clear conflicts before this timestamp.
+                    If None, clear all conflicts.
+
+        Returns:
+            Number of conflicts cleared
+        """
+        return 0
 
     def _connect(self) -> Any:
         """Get database connection (for sync operations)."""

@@ -32,7 +32,16 @@ class EmotionsMixin:
     EMOTION_PATTERNS = {
         # Positive emotions (high valence)
         "joy": {
-            "keywords": ["happy", "joy", "delighted", "wonderful", "amazing", "fantastic", "love it", "excited"],
+            "keywords": [
+                "happy",
+                "joy",
+                "delighted",
+                "wonderful",
+                "amazing",
+                "fantastic",
+                "love it",
+                "excited",
+            ],
             "valence": 0.8,
             "arousal": 0.6,
         },
@@ -47,7 +56,14 @@ class EmotionsMixin:
             "arousal": 0.9,
         },
         "curiosity": {
-            "keywords": ["curious", "interesting", "fascinating", "wonder", "intriguing", "want to know"],
+            "keywords": [
+                "curious",
+                "interesting",
+                "fascinating",
+                "wonder",
+                "intriguing",
+                "want to know",
+            ],
             "valence": 0.3,
             "arousal": 0.5,
         },
@@ -63,7 +79,15 @@ class EmotionsMixin:
         },
         # Negative emotions (low valence)
         "frustration": {
-            "keywords": ["frustrated", "annoying", "irritated", "ugh", "argh", "why won't", "doesn't work"],
+            "keywords": [
+                "frustrated",
+                "annoying",
+                "irritated",
+                "ugh",
+                "argh",
+                "why won't",
+                "doesn't work",
+            ],
             "valence": -0.6,
             "arousal": 0.7,
         },
@@ -229,11 +253,13 @@ class EmotionsMixin:
         trajectory = []
         for date_str in sorted(daily_data.keys()):
             data = daily_data[date_str]
-            trajectory.append({
-                "date": date_str,
-                "valence": sum(data["valences"]) / len(data["valences"]),
-                "arousal": sum(data["arousals"]) / len(data["arousals"]),
-            })
+            trajectory.append(
+                {
+                    "date": date_str,
+                    "valence": sum(data["valences"]) / len(data["valences"]),
+                    "arousal": sum(data["arousals"]) / len(data["arousals"]),
+                }
+            )
 
         return {
             "average_valence": round(avg_valence, 3),
@@ -294,6 +320,8 @@ class EmotionsMixin:
         auto_detect: bool = True,
         relates_to: Optional[List[str]] = None,
         source: Optional[str] = None,
+        context: Optional[str] = None,
+        context_tags: Optional[List[str]] = None,
     ) -> str:
         """Record an episode with emotional tagging.
 
@@ -308,6 +336,8 @@ class EmotionsMixin:
             auto_detect: If True and no emotion args given, detect from text
             relates_to: List of memory IDs this episode relates to
             source: Source context (e.g., 'session with Sean', 'heartbeat check')
+            context: Project/scope context (e.g., 'project:api-service', 'repo:myorg/myrepo')
+            context_tags: Additional context tags for filtering
 
         Returns:
             Episode ID
@@ -321,7 +351,9 @@ class EmotionsMixin:
         if tags:
             tags = [self._validate_string_input(t, "tag", 100) for t in tags]
         if emotional_tags:
-            emotional_tags = [self._validate_string_input(e, "emotion_tag", 50) for e in emotional_tags]
+            emotional_tags = [
+                self._validate_string_input(e, "emotion_tag", 50) for e in emotional_tags
+            ]
 
         # Auto-detect emotions if not provided
         if auto_detect and valence is None and arousal is None and not emotional_tags:
@@ -335,9 +367,14 @@ class EmotionsMixin:
 
         # Determine outcome type using substring matching for flexibility
         outcome_lower = outcome.lower().strip()
-        if any(word in outcome_lower for word in ("success", "done", "completed", "finished", "accomplished")):
+        if any(
+            word in outcome_lower
+            for word in ("success", "done", "completed", "finished", "accomplished")
+        ):
             outcome_type = "success"
-        elif any(word in outcome_lower for word in ("fail", "error", "broke", "unable", "couldn't")):
+        elif any(
+            word in outcome_lower for word in ("fail", "error", "broke", "unable", "couldn't")
+        ):
             outcome_type = "failure"
         else:
             outcome_type = "partial"
@@ -367,6 +404,9 @@ class EmotionsMixin:
             source_type=source_type,
             source_episodes=relates_to,  # Link to related memories
             derived_from=[f"context:{source}"] if source else None,
+            # Context/scope fields
+            context=context,
+            context_tags=context_tags,
         )
 
         self._storage.save_episode(episode)
@@ -392,14 +432,8 @@ class EmotionsMixin:
             List of mood-relevant episodes
         """
         # Get episodes with matching emotional range
-        valence_range = (
-            max(-1.0, current_valence - 0.3),
-            min(1.0, current_valence + 0.3)
-        )
-        arousal_range = (
-            max(0.0, current_arousal - 0.3),
-            min(1.0, current_arousal + 0.3)
-        )
+        valence_range = (max(-1.0, current_valence - 0.3), min(1.0, current_valence + 0.3))
+        arousal_range = (max(0.0, current_arousal - 0.3), min(1.0, current_arousal + 0.3))
 
         return self.search_by_emotion(
             valence_range=valence_range,

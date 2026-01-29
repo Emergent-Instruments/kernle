@@ -14,9 +14,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
-# Import storage abstraction
-from kernle.storage import Belief, Drive, Episode, Goal, Note, Relationship, Value, get_storage
-
 # Import feature mixins
 from kernle.features import (
     AnxietyMixin,
@@ -24,16 +21,18 @@ from kernle.features import (
     ForgettingMixin,
     KnowledgeMixin,
     MetaMemoryMixin,
+    SuggestionsMixin,
 )
 
 # Import logging utilities
 from kernle.logging_config import (
-    setup_kernle_logging,
+    log_checkpoint,
     log_load,
     log_save,
-    log_checkpoint,
-    log_sync,
 )
+
+# Import storage abstraction
+from kernle.storage import Belief, Drive, Episode, Goal, Note, Relationship, Value, get_storage
 
 if TYPE_CHECKING:
     from kernle.storage import Storage as StorageProtocol
@@ -110,7 +109,7 @@ def truncate_at_word_boundary(text: str, max_chars: int) -> str:
 
     # Find last space before target
     truncated = text[:target]
-    last_space = truncated.rfind(' ')
+    last_space = truncated.rfind(" ")
 
     if last_space > target // 2:  # Only use word boundary if reasonable
         truncated = truncated[:last_space]
@@ -142,19 +141,35 @@ def compute_priority_score(memory_type: str, record: Any) -> float:
     # Get record value based on type
     if memory_type == "value":
         # priority is 0-100, normalize to 0-1
-        priority = getattr(record, 'priority', 50) if hasattr(record, 'priority') else record.get('priority', 50)
+        priority = (
+            getattr(record, "priority", 50)
+            if hasattr(record, "priority")
+            else record.get("priority", 50)
+        )
         type_factor = priority / 100.0
     elif memory_type == "belief":
-        type_factor = getattr(record, 'confidence', 0.8) if hasattr(record, 'confidence') else record.get('confidence', 0.8)
+        type_factor = (
+            getattr(record, "confidence", 0.8)
+            if hasattr(record, "confidence")
+            else record.get("confidence", 0.8)
+        )
     elif memory_type == "drive":
-        type_factor = getattr(record, 'intensity', 0.5) if hasattr(record, 'intensity') else record.get('intensity', 0.5)
+        type_factor = (
+            getattr(record, "intensity", 0.5)
+            if hasattr(record, "intensity")
+            else record.get("intensity", 0.5)
+        )
     elif memory_type in ("goal", "episode", "note"):
         # For time-based priority, we'd need to compute recency
         # For now, use a default factor (records are already sorted by recency)
         type_factor = 0.7
     elif memory_type == "relationship":
         # Use sentiment as a factor
-        sentiment = getattr(record, 'sentiment', 0.0) if hasattr(record, 'sentiment') else record.get('sentiment', 0.0)
+        sentiment = (
+            getattr(record, "sentiment", 0.0)
+            if hasattr(record, "sentiment")
+            else record.get("sentiment", 0.0)
+        )
         type_factor = (sentiment + 1) / 2  # Normalize -1..1 to 0..1
     else:
         type_factor = 0.5
@@ -170,6 +185,7 @@ class Kernle(
     ForgettingMixin,
     KnowledgeMixin,
     MetaMemoryMixin,
+    SuggestionsMixin,
 ):
     """Main interface for Kernle memory operations.
 
@@ -212,12 +228,22 @@ class Kernle(
             supabase_key: Supabase API key (deprecated, use storage param)
             checkpoint_dir: Directory for local checkpoints
         """
-        self.agent_id = self._validate_agent_id(agent_id or os.environ.get("KERNLE_AGENT_ID", "default"))
-        self.checkpoint_dir = self._validate_checkpoint_dir(checkpoint_dir or Path.home() / ".kernle" / "checkpoints")
+        self.agent_id = self._validate_agent_id(
+            agent_id or os.environ.get("KERNLE_AGENT_ID", "default")
+        )
+        self.checkpoint_dir = self._validate_checkpoint_dir(
+            checkpoint_dir or Path.home() / ".kernle" / "checkpoints"
+        )
 
         # Store credentials for backwards compatibility
-        self._supabase_url = supabase_url or os.environ.get("KERNLE_SUPABASE_URL") or os.environ.get("SUPABASE_URL")
-        self._supabase_key = supabase_key or os.environ.get("KERNLE_SUPABASE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        self._supabase_url = (
+            supabase_url or os.environ.get("KERNLE_SUPABASE_URL") or os.environ.get("SUPABASE_URL")
+        )
+        self._supabase_key = (
+            supabase_key
+            or os.environ.get("KERNLE_SUPABASE_KEY")
+            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+        )
 
         # Initialize storage
         if storage is not None:
@@ -239,9 +265,13 @@ class Kernle(
             self._auto_sync = True
         else:
             # Default: enabled if storage supports sync (has cloud_storage or is cloud-based)
-            self._auto_sync = self._storage.is_online() or self._storage.get_pending_sync_count() > 0
+            self._auto_sync = (
+                self._storage.is_online() or self._storage.get_pending_sync_count() > 0
+            )
 
-        logger.debug(f"Kernle initialized with storage: {type(self._storage).__name__}, auto_sync: {self._auto_sync}")
+        logger.debug(
+            f"Kernle initialized with storage: {type(self._storage).__name__}, auto_sync: {self._auto_sync}"
+        )
 
     @property
     def storage(self) -> "StorageProtocol":
@@ -258,6 +288,7 @@ class Kernle(
             ValueError: If using SQLite storage (no Supabase client available)
         """
         from kernle.storage import SupabaseStorage
+
         if isinstance(self._storage, SupabaseStorage):
             return self._storage.client
         raise ValueError(
@@ -299,6 +330,7 @@ class Kernle(
     def _validate_checkpoint_dir(self, checkpoint_dir: Path) -> Path:
         """Validate checkpoint directory path."""
         import tempfile
+
         try:
             # Resolve to absolute path to prevent directory traversal
             resolved_path = checkpoint_dir.resolve()
@@ -311,9 +343,9 @@ class Kernle(
             # Use is_relative_to() for secure path validation (Python 3.9+)
             # This properly handles edge cases like /home/user/../etc that startswith() misses
             is_safe = (
-                resolved_path.is_relative_to(home_path) or
-                resolved_path.is_relative_to(tmp_path) or
-                resolved_path.is_relative_to(system_temp)
+                resolved_path.is_relative_to(home_path)
+                or resolved_path.is_relative_to(tmp_path)
+                or resolved_path.is_relative_to(system_temp)
             )
 
             # Also allow /var/folders on macOS (where tempfile creates dirs)
@@ -321,10 +353,9 @@ class Kernle(
                 try:
                     var_folders = Path("/var/folders").resolve()
                     private_var_folders = Path("/private/var/folders").resolve()
-                    is_safe = (
-                        resolved_path.is_relative_to(var_folders) or
-                        resolved_path.is_relative_to(private_var_folders)
-                    )
+                    is_safe = resolved_path.is_relative_to(
+                        var_folders
+                    ) or resolved_path.is_relative_to(private_var_folders)
                 except (OSError, ValueError):
                     pass
 
@@ -346,7 +377,7 @@ class Kernle(
             raise ValueError(f"{field_name} too long (max {max_length} characters)")
 
         # Basic sanitization - remove null bytes and control characters
-        sanitized = value.replace('\x00', '').replace('\r\n', '\n')
+        sanitized = value.replace("\x00", "").replace("\r\n", "\n")
 
         return sanitized
 
@@ -414,7 +445,7 @@ class Kernle(
 
         # Fetch candidates from all types with high limits for budget selection
         batched = self._storage.load_all(
-            values_limit=None,      # Use high limit (1000)
+            values_limit=None,  # Use high limit (1000)
             beliefs_limit=None,
             goals_limit=None,
             goals_status="active",
@@ -430,59 +461,31 @@ class Kernle(
 
             # Values - sorted by priority DESC
             for v in batched.get("values", []):
-                candidates.append((
-                    compute_priority_score("value", v),
-                    "value",
-                    v
-                ))
+                candidates.append((compute_priority_score("value", v), "value", v))
 
             # Beliefs - sorted by confidence DESC
             for b in batched.get("beliefs", []):
-                candidates.append((
-                    compute_priority_score("belief", b),
-                    "belief",
-                    b
-                ))
+                candidates.append((compute_priority_score("belief", b), "belief", b))
 
             # Goals - recency already handled by storage
             for g in batched.get("goals", []):
-                candidates.append((
-                    compute_priority_score("goal", g),
-                    "goal",
-                    g
-                ))
+                candidates.append((compute_priority_score("goal", g), "goal", g))
 
             # Drives - sorted by intensity DESC
             for d in batched.get("drives", []):
-                candidates.append((
-                    compute_priority_score("drive", d),
-                    "drive",
-                    d
-                ))
+                candidates.append((compute_priority_score("drive", d), "drive", d))
 
             # Episodes - recency already handled by storage
             for e in batched.get("episodes", []):
-                candidates.append((
-                    compute_priority_score("episode", e),
-                    "episode",
-                    e
-                ))
+                candidates.append((compute_priority_score("episode", e), "episode", e))
 
             # Notes - recency already handled by storage
             for n in batched.get("notes", []):
-                candidates.append((
-                    compute_priority_score("note", n),
-                    "note",
-                    n
-                ))
+                candidates.append((compute_priority_score("note", n), "note", n))
 
             # Relationships - sorted by last_interaction
             for r in batched.get("relationships", []):
-                candidates.append((
-                    compute_priority_score("relationship", r),
-                    "relationship",
-                    r
-                ))
+                candidates.append((compute_priority_score("relationship", r), "relationship", r))
 
             # Sort by priority descending
             candidates.sort(key=lambda x: x[0], reverse=True)
@@ -572,7 +575,11 @@ class Kernle(
                     {
                         "id": v.id,
                         "name": v.name,
-                        "statement": truncate_at_word_boundary(v.statement, max_item_chars) if truncate else v.statement,
+                        "statement": (
+                            truncate_at_word_boundary(v.statement, max_item_chars)
+                            if truncate
+                            else v.statement
+                        ),
                         "priority": v.priority,
                         "value_type": "core_value",
                     }
@@ -581,7 +588,11 @@ class Kernle(
                 "beliefs": [
                     {
                         "id": b.id,
-                        "statement": truncate_at_word_boundary(b.statement, max_item_chars) if truncate else b.statement,
+                        "statement": (
+                            truncate_at_word_boundary(b.statement, max_item_chars)
+                            if truncate
+                            else b.statement
+                        ),
                         "belief_type": b.belief_type,
                         "confidence": b.confidence,
                     }
@@ -591,7 +602,11 @@ class Kernle(
                     {
                         "id": g.id,
                         "title": g.title,
-                        "description": truncate_at_word_boundary(g.description, max_item_chars) if truncate and g.description else g.description,
+                        "description": (
+                            truncate_at_word_boundary(g.description, max_item_chars)
+                            if truncate and g.description
+                            else g.description
+                        ),
                         "priority": g.priority,
                         "status": g.status,
                     }
@@ -611,7 +626,11 @@ class Kernle(
                 "recent_work": recent_work,
                 "recent_notes": [
                     {
-                        "content": truncate_at_word_boundary(n.content, max_item_chars) if truncate else n.content,
+                        "content": (
+                            truncate_at_word_boundary(n.content, max_item_chars)
+                            if truncate
+                            else n.content
+                        ),
                         "metadata": {
                             "note_type": n.note_type,
                             "tags": n.tags,
@@ -629,13 +648,20 @@ class Kernle(
                         "trust_level": (r.sentiment + 1) / 2,
                         "sentiment": r.sentiment,
                         "interaction_count": r.interaction_count,
-                        "last_interaction": r.last_interaction.isoformat() if r.last_interaction else None,
-                        "notes": truncate_at_word_boundary(r.notes, max_item_chars) if truncate and r.notes else r.notes,
+                        "last_interaction": (
+                            r.last_interaction.isoformat() if r.last_interaction else None
+                        ),
+                        "notes": (
+                            truncate_at_word_boundary(r.notes, max_item_chars)
+                            if truncate and r.notes
+                            else r.notes
+                        ),
                     }
                     for r in sorted(
                         selected["relationships"],
-                        key=lambda x: x.last_interaction or datetime.min.replace(tzinfo=timezone.utc),
-                        reverse=True
+                        key=lambda x: x.last_interaction
+                        or datetime.min.replace(tzinfo=timezone.utc),
+                        reverse=True,
                     )
                 ],
             }
@@ -663,7 +689,7 @@ class Kernle(
             "recent_notes": self.load_recent_notes(),
             "relationships": self.load_relationships(),
         }
-        
+
         # Log the load operation
         log_load(
             self.agent_id,
@@ -672,7 +698,7 @@ class Kernle(
             episodes=len(result.get("recent_work", [])),
             checkpoint=result.get("checkpoint") is not None,
         )
-        
+
         return result
 
     def load_values(self, limit: int = 10) -> List[Dict[str, Any]]:
@@ -711,10 +737,7 @@ class Kernle(
             limit: Maximum number of goals to return
             status: Filter by status - "active", "completed", "paused", or "all"
         """
-        goals = self._storage.get_goals(
-            status=None if status == "all" else status,
-            limit=limit
-        )
+        goals = self._storage.get_goals(status=None if status == "all" else status, limit=limit)
         return [
             {
                 "id": g.id,
@@ -741,10 +764,7 @@ class Kernle(
         episodes = self._storage.get_episodes(limit=limit * 2)
 
         # Filter out checkpoints
-        non_checkpoint = [
-            e for e in episodes
-            if not e.tags or "checkpoint" not in e.tags
-        ]
+        non_checkpoint = [e for e in episodes if not e.tags or "checkpoint" not in e.tags]
 
         return [
             {
@@ -818,7 +838,7 @@ class Kernle(
         existing = []
         if checkpoint_file.exists():
             try:
-                with open(checkpoint_file, 'r', encoding='utf-8') as f:
+                with open(checkpoint_file, "r", encoding="utf-8") as f:
                     existing = json.load(f)
                     if not isinstance(existing, list):
                         existing = [existing]
@@ -830,7 +850,7 @@ class Kernle(
         existing = existing[-10:]  # Keep last 10
 
         try:
-            with open(checkpoint_file, "w", encoding='utf-8') as f:
+            with open(checkpoint_file, "w", encoding="utf-8") as f:
                 json.dump(existing, f, indent=2)
         except (OSError, PermissionError) as e:
             logger.error(f"Cannot save checkpoint: {e}")
@@ -842,7 +862,9 @@ class Kernle(
                 id=str(uuid.uuid4()),
                 agent_id=self.agent_id,
                 objective=f"[CHECKPOINT] {self._validate_string_input(task, 'task', 500)}",
-                outcome=self._validate_string_input(context or "Working state checkpoint", 'context', 1000),
+                outcome=self._validate_string_input(
+                    context or "Working state checkpoint", "context", 1000
+                ),
                 outcome_type="partial",
                 lessons=pending or [],
                 tags=["checkpoint", "working_state"],
@@ -879,10 +901,12 @@ class Kernle(
                 # Check file size before loading to prevent DoS
                 file_size = checkpoint_file.stat().st_size
                 if file_size > self.MAX_CHECKPOINT_SIZE:
-                    logger.error(f"Checkpoint file too large ({file_size} bytes, max {self.MAX_CHECKPOINT_SIZE})")
+                    logger.error(
+                        f"Checkpoint file too large ({file_size} bytes, max {self.MAX_CHECKPOINT_SIZE})"
+                    )
                     raise ValueError(f"Checkpoint file too large ({file_size} bytes)")
 
-                with open(checkpoint_file, 'r', encoding='utf-8') as f:
+                with open(checkpoint_file, "r", encoding="utf-8") as f:
                     checkpoints = json.load(f)
                     if isinstance(checkpoints, list) and checkpoints:
                         return checkpoints[-1]
@@ -914,12 +938,16 @@ class Kernle(
         tags: Optional[List[str]] = None,
         relates_to: Optional[List[str]] = None,
         source: Optional[str] = None,
+        context: Optional[str] = None,
+        context_tags: Optional[List[str]] = None,
     ) -> str:
         """Record an episodic experience.
-        
+
         Args:
             relates_to: List of memory IDs this episode relates to (for linking)
             source: Source context (e.g., 'session with Sean', 'heartbeat check')
+            context: Project/scope context (e.g., 'project:api-service', 'repo:myorg/myrepo')
+            context_tags: Additional context tags for filtering
         """
         # Validate inputs
         objective = self._validate_string_input(objective, "objective", 1000)
@@ -938,9 +966,14 @@ class Kernle(
 
         # Determine outcome type using substring matching for flexibility
         outcome_lower = outcome.lower().strip()
-        if any(word in outcome_lower for word in ("success", "done", "completed", "finished", "accomplished")):
+        if any(
+            word in outcome_lower
+            for word in ("success", "done", "completed", "finished", "accomplished")
+        ):
             outcome_type = "success"
-        elif any(word in outcome_lower for word in ("fail", "error", "broke", "unable", "couldn't")):
+        elif any(
+            word in outcome_lower for word in ("fail", "error", "broke", "unable", "couldn't")
+        ):
             outcome_type = "failure"
         else:
             outcome_type = "partial"
@@ -975,10 +1008,13 @@ class Kernle(
             source_episodes=relates_to,  # Link to related memories
             # Store source context in derived_from for now (as free text marker)
             derived_from=[f"context:{source}"] if source else None,
+            # Context/scope fields
+            context=context,
+            context_tags=context_tags,
         )
 
         self._storage.save_episode(episode)
-        
+
         # Log the episode save
         log_save(
             self.agent_id,
@@ -986,7 +1022,7 @@ class Kernle(
             memory_id=episode_id,
             summary=objective[:50],
         )
-        
+
         return episode_id
 
     def update_episode(
@@ -1011,9 +1047,14 @@ class Kernle(
             existing.outcome = outcome
             # Update outcome_type based on new outcome using substring matching
             outcome_lower = outcome.lower().strip()
-            if any(word in outcome_lower for word in ("success", "done", "completed", "finished", "accomplished")):
+            if any(
+                word in outcome_lower
+                for word in ("success", "done", "completed", "finished", "accomplished")
+            ):
                 outcome_type = "success"
-            elif any(word in outcome_lower for word in ("fail", "error", "broke", "unable", "couldn't")):
+            elif any(
+                word in outcome_lower for word in ("fail", "error", "broke", "unable", "couldn't")
+            ):
                 outcome_type = "failure"
             else:
                 outcome_type = "partial"
@@ -1049,12 +1090,16 @@ class Kernle(
         protect: bool = False,
         relates_to: Optional[List[str]] = None,
         source: Optional[str] = None,
+        context: Optional[str] = None,
+        context_tags: Optional[List[str]] = None,
     ) -> str:
         """Capture a quick note (decision, insight, quote).
-        
+
         Args:
             relates_to: List of memory IDs this note relates to (for linking)
             source: Source context (e.g., 'conversation with X', 'reading Y')
+            context: Project/scope context (e.g., 'project:api-service', 'repo:myorg/myrepo')
+            context_tags: Additional context tags for filtering
         """
         # Validate inputs
         content = self._validate_string_input(content, "content", 2000)
@@ -1108,6 +1153,9 @@ class Kernle(
             source_episodes=relates_to,  # Link to related memories
             derived_from=[f"context:{source}"] if source else None,
             is_protected=protect,
+            # Context/scope fields
+            context=context,
+            context_tags=context_tags,
         )
 
         self._storage.save_note(note)
@@ -1219,7 +1267,9 @@ class Kernle(
             # Extract or use provided objective/outcome
             objective = kwargs.get("objective") or entry.content[:100]
             outcome = kwargs.get("outcome", "completed")
-            lessons = kwargs.get("lessons") or ([entry.content] if len(entry.content) > 100 else None)
+            lessons = kwargs.get("lessons") or (
+                [entry.content] if len(entry.content) > 100 else None
+            )
             tags = kwargs.get("tags") or entry.tags or []
             if "raw" not in tags:
                 tags.append("raw")
@@ -1265,6 +1315,150 @@ class Kernle(
         self._storage.mark_raw_processed(raw_id, [memory_ref])
 
         return memory_id
+
+    # =========================================================================
+    # BATCH INSERTION
+    # =========================================================================
+
+    def episodes_batch(self, episodes: List[Dict[str, Any]]) -> List[str]:
+        """Save multiple episodes in a single transaction for bulk imports.
+
+        This method optimizes performance when saving many episodes at once,
+        such as when importing from external sources or processing large codebases.
+        All episodes are saved in a single database transaction.
+
+        Args:
+            episodes: List of episode dicts with keys:
+                - objective (str, required): What you were trying to accomplish
+                - outcome (str, required): What actually happened
+                - outcome_type (str, optional): "success", "failure", or "partial"
+                - lessons (List[str], optional): Lessons learned
+                - tags (List[str], optional): Tags for categorization
+                - confidence (float, optional): Confidence level 0.0-1.0
+
+        Returns:
+            List of episode IDs (in the same order as input)
+
+        Example:
+            ids = k.episodes_batch([
+                {"objective": "Fix login bug", "outcome": "Successfully fixed"},
+                {"objective": "Add tests", "outcome": "Added 10 unit tests"},
+            ])
+        """
+        episode_objects = []
+        for ep_data in episodes:
+            objective = self._validate_string_input(ep_data.get("objective", ""), "objective", 1000)
+            outcome = self._validate_string_input(ep_data.get("outcome", ""), "outcome", 1000)
+
+            episode = Episode(
+                id=ep_data.get("id", str(uuid.uuid4())),
+                agent_id=self.agent_id,
+                objective=objective,
+                outcome=outcome,
+                outcome_type=ep_data.get("outcome_type", "partial"),
+                lessons=ep_data.get("lessons"),
+                tags=ep_data.get("tags", ["batch"]),
+                created_at=datetime.now(timezone.utc),
+                confidence=ep_data.get("confidence", 0.8),
+                source_type=ep_data.get("source_type", "direct_experience"),
+            )
+            episode_objects.append(episode)
+
+        # Use batch method if available, otherwise fall back to individual saves
+        if hasattr(self._storage, "save_episodes_batch"):
+            return self._storage.save_episodes_batch(episode_objects)
+        else:
+            return [self._storage.save_episode(ep) for ep in episode_objects]
+
+    def beliefs_batch(self, beliefs: List[Dict[str, Any]]) -> List[str]:
+        """Save multiple beliefs in a single transaction for bulk imports.
+
+        This method optimizes performance when saving many beliefs at once,
+        such as when importing knowledge from external sources.
+        All beliefs are saved in a single database transaction.
+
+        Args:
+            beliefs: List of belief dicts with keys:
+                - statement (str, required): The belief statement
+                - type (str, optional): "fact", "opinion", "principle", "strategy", or "model"
+                - confidence (float, optional): Confidence level 0.0-1.0
+
+        Returns:
+            List of belief IDs (in the same order as input)
+
+        Example:
+            ids = k.beliefs_batch([
+                {"statement": "Python uses indentation for blocks", "confidence": 1.0},
+                {"statement": "Type hints improve code quality", "confidence": 0.9},
+            ])
+        """
+        belief_objects = []
+        for b_data in beliefs:
+            statement = self._validate_string_input(b_data.get("statement", ""), "statement", 1000)
+
+            belief = Belief(
+                id=b_data.get("id", str(uuid.uuid4())),
+                agent_id=self.agent_id,
+                statement=statement,
+                belief_type=b_data.get("type", "fact"),
+                confidence=b_data.get("confidence", 0.8),
+                created_at=datetime.now(timezone.utc),
+                source_type=b_data.get("source_type", "direct_experience"),
+            )
+            belief_objects.append(belief)
+
+        # Use batch method if available, otherwise fall back to individual saves
+        if hasattr(self._storage, "save_beliefs_batch"):
+            return self._storage.save_beliefs_batch(belief_objects)
+        else:
+            return [self._storage.save_belief(b) for b in belief_objects]
+
+    def notes_batch(self, notes: List[Dict[str, Any]]) -> List[str]:
+        """Save multiple notes in a single transaction for bulk imports.
+
+        This method optimizes performance when saving many notes at once,
+        such as when importing from external sources or ingesting documents.
+        All notes are saved in a single database transaction.
+
+        Args:
+            notes: List of note dicts with keys:
+                - content (str, required): The note content
+                - type (str, optional): "note", "decision", "insight", or "quote"
+                - speaker (str, optional): Who said this (for quotes)
+                - reason (str, optional): Why this note matters
+                - tags (List[str], optional): Tags for categorization
+
+        Returns:
+            List of note IDs (in the same order as input)
+
+        Example:
+            ids = k.notes_batch([
+                {"content": "Users prefer dark mode", "type": "insight"},
+                {"content": "Use TypeScript for new services", "type": "decision"},
+            ])
+        """
+        note_objects = []
+        for n_data in notes:
+            content = self._validate_string_input(n_data.get("content", ""), "content", 2000)
+
+            note = Note(
+                id=n_data.get("id", str(uuid.uuid4())),
+                agent_id=self.agent_id,
+                content=content,
+                note_type=n_data.get("type", "note"),
+                speaker=n_data.get("speaker"),
+                reason=n_data.get("reason"),
+                tags=n_data.get("tags", []),
+                created_at=datetime.now(timezone.utc),
+                source_type=n_data.get("source_type", "direct_experience"),
+            )
+            note_objects.append(note)
+
+        # Use batch method if available, otherwise fall back to individual saves
+        if hasattr(self._storage, "save_notes_batch"):
+            return self._storage.save_notes_batch(note_objects)
+        else:
+            return [self._storage.save_note(n) for n in note_objects]
 
     # =========================================================================
     # DUMP / EXPORT
@@ -1313,7 +1507,9 @@ class Kernle(
         if goals:
             lines.append("## Goals")
             for g in goals:
-                status_icon = "✓" if g.status == "completed" else "○" if g.status == "active" else "⏸"
+                status_icon = (
+                    "✓" if g.status == "completed" else "○" if g.status == "active" else "⏸"
+                )
                 lines.append(f"- {status_icon} [{g.priority}] {g.title}")
                 if g.description and g.description != g.title:
                     lines.append(f"  {g.description}")
@@ -1325,7 +1521,11 @@ class Kernle(
             lines.append("## Episodes")
             for e in episodes:
                 date_str = e.created_at.strftime("%Y-%m-%d") if e.created_at else "unknown"
-                outcome_icon = "✓" if e.outcome_type == "success" else "✗" if e.outcome_type == "failure" else "○"
+                outcome_icon = (
+                    "✓"
+                    if e.outcome_type == "success"
+                    else "✗" if e.outcome_type == "failure" else "○"
+                )
                 lines.append(f"### {outcome_icon} {e.objective}")
                 lines.append(f"*{date_str}* | {e.outcome}")
                 if e.lessons:
@@ -1375,7 +1575,9 @@ class Kernle(
             if raw_entries:
                 lines.append("## Raw Entries")
                 for raw in raw_entries:
-                    date_str = raw.timestamp.strftime("%Y-%m-%d %H:%M") if raw.timestamp else "unknown"
+                    date_str = (
+                        raw.timestamp.strftime("%Y-%m-%d %H:%M") if raw.timestamp else "unknown"
+                    )
                     status = "✓" if raw.processed else "○"
                     lines.append(f"### {status} {date_str}")
                     lines.append(raw.content)
@@ -1389,6 +1591,7 @@ class Kernle(
 
     def _dump_json(self, include_raw: bool) -> str:
         """Export memory as JSON with full meta-memory fields."""
+
         def _dt(dt: Optional[datetime]) -> Optional[str]:
             """Convert datetime to ISO string."""
             return dt.isoformat() if dt else None
@@ -1584,8 +1787,15 @@ class Kernle(
         type: str = "fact",
         confidence: float = 0.8,
         foundational: bool = False,
+        context: Optional[str] = None,
+        context_tags: Optional[List[str]] = None,
     ) -> str:
-        """Add or update a belief."""
+        """Add or update a belief.
+
+        Args:
+            context: Project/scope context (e.g., 'project:api-service', 'repo:myorg/myrepo')
+            context_tags: Additional context tags for filtering
+        """
         belief_id = str(uuid.uuid4())
 
         belief = Belief(
@@ -1595,6 +1805,8 @@ class Kernle(
             belief_type=type,
             confidence=confidence,
             created_at=datetime.now(timezone.utc),
+            context=context,
+            context_tags=context_tags,
         )
 
         self._storage.save_belief(belief)
@@ -1607,8 +1819,15 @@ class Kernle(
         priority: int = 50,
         type: str = "core_value",
         foundational: bool = False,
+        context: Optional[str] = None,
+        context_tags: Optional[List[str]] = None,
     ) -> str:
-        """Add or affirm a value."""
+        """Add or affirm a value.
+
+        Args:
+            context: Project/scope context (e.g., 'project:api-service', 'repo:myorg/myrepo')
+            context_tags: Additional context tags for filtering
+        """
         value_id = str(uuid.uuid4())
 
         value = Value(
@@ -1618,6 +1837,8 @@ class Kernle(
             statement=statement,
             priority=priority,
             created_at=datetime.now(timezone.utc),
+            context=context,
+            context_tags=context_tags,
         )
 
         self._storage.save_value(value)
@@ -1628,8 +1849,15 @@ class Kernle(
         title: str,
         description: Optional[str] = None,
         priority: str = "medium",
+        context: Optional[str] = None,
+        context_tags: Optional[List[str]] = None,
     ) -> str:
-        """Add a goal."""
+        """Add a goal.
+
+        Args:
+            context: Project/scope context (e.g., 'project:api-service', 'repo:myorg/myrepo')
+            context_tags: Additional context tags for filtering
+        """
         goal_id = str(uuid.uuid4())
 
         goal = Goal(
@@ -1640,6 +1868,8 @@ class Kernle(
             priority=priority,
             status="active",
             created_at=datetime.now(timezone.utc),
+            context=context,
+            context_tags=context_tags,
         )
 
         self._storage.save_goal(goal)
@@ -1745,9 +1975,7 @@ class Kernle(
         """
         # Search for semantically similar beliefs
         search_results = self._storage.search(
-            belief_statement,
-            limit=limit * 2,  # Get more to filter
-            record_types=["belief"]
+            belief_statement, limit=limit * 2, record_types=["belief"]  # Get more to filter
         )
 
         contradictions = []
@@ -1771,18 +1999,50 @@ class Kernle(
 
             # Negation patterns
             negation_pairs = [
-                ("never", "always"), ("should not", "should"), ("cannot", "can"),
-                ("don't", "do"), ("avoid", "prefer"), ("reject", "accept"),
-                ("false", "true"), ("dislike", "like"), ("hate", "love"),
-                ("wrong", "right"), ("bad", "good"),
+                ("never", "always"),
+                ("should not", "should"),
+                ("cannot", "can"),
+                ("don't", "do"),
+                ("avoid", "prefer"),
+                ("reject", "accept"),
+                ("false", "true"),
+                ("dislike", "like"),
+                ("hate", "love"),
+                ("wrong", "right"),
+                ("bad", "good"),
             ]
 
             for neg, pos in negation_pairs:
-                if ((neg in stmt_lower and pos in belief_stmt_lower) or
-                    (pos in stmt_lower and neg in belief_stmt_lower)):
+                if (neg in stmt_lower and pos in belief_stmt_lower) or (
+                    pos in stmt_lower and neg in belief_stmt_lower
+                ):
                     # Check word overlap for topic relevance
-                    words_stmt = set(stmt_lower.split()) - {"i", "the", "a", "an", "to", "and", "or", "is", "are", "that", "this"}
-                    words_belief = set(belief_stmt_lower.split()) - {"i", "the", "a", "an", "to", "and", "or", "is", "are", "that", "this"}
+                    words_stmt = set(stmt_lower.split()) - {
+                        "i",
+                        "the",
+                        "a",
+                        "an",
+                        "to",
+                        "and",
+                        "or",
+                        "is",
+                        "are",
+                        "that",
+                        "this",
+                    }
+                    words_belief = set(belief_stmt_lower.split()) - {
+                        "i",
+                        "the",
+                        "a",
+                        "an",
+                        "to",
+                        "and",
+                        "or",
+                        "is",
+                        "are",
+                        "that",
+                        "this",
+                    }
                     overlap = len(words_stmt & words_belief)
 
                     if overlap >= 2:
@@ -1794,18 +2054,59 @@ class Kernle(
             # Comparative opposition (more/less, better/worse, etc.)
             if not contradiction_type:
                 comparative_pairs = [
-                    ("more", "less"), ("better", "worse"), ("faster", "slower"),
-                    ("higher", "lower"), ("greater", "lesser"), ("stronger", "weaker"),
-                    ("easier", "harder"), ("simpler", "more complex"), ("safer", "riskier"),
-                    ("cheaper", "more expensive"), ("larger", "smaller"), ("longer", "shorter"),
-                    ("increase", "decrease"), ("improve", "worsen"), ("enhance", "diminish"),
+                    ("more", "less"),
+                    ("better", "worse"),
+                    ("faster", "slower"),
+                    ("higher", "lower"),
+                    ("greater", "lesser"),
+                    ("stronger", "weaker"),
+                    ("easier", "harder"),
+                    ("simpler", "more complex"),
+                    ("safer", "riskier"),
+                    ("cheaper", "more expensive"),
+                    ("larger", "smaller"),
+                    ("longer", "shorter"),
+                    ("increase", "decrease"),
+                    ("improve", "worsen"),
+                    ("enhance", "diminish"),
                 ]
                 for comp_a, comp_b in comparative_pairs:
-                    if ((comp_a in stmt_lower and comp_b in belief_stmt_lower) or
-                        (comp_b in stmt_lower and comp_a in belief_stmt_lower)):
+                    if (comp_a in stmt_lower and comp_b in belief_stmt_lower) or (
+                        comp_b in stmt_lower and comp_a in belief_stmt_lower
+                    ):
                         # Check word overlap for topic relevance (need high overlap for comparatives)
-                        words_stmt = set(stmt_lower.split()) - {"i", "the", "a", "an", "to", "and", "or", "is", "are", "that", "this", "than", comp_a, comp_b}
-                        words_belief = set(belief_stmt_lower.split()) - {"i", "the", "a", "an", "to", "and", "or", "is", "are", "that", "this", "than", comp_a, comp_b}
+                        words_stmt = set(stmt_lower.split()) - {
+                            "i",
+                            "the",
+                            "a",
+                            "an",
+                            "to",
+                            "and",
+                            "or",
+                            "is",
+                            "are",
+                            "that",
+                            "this",
+                            "than",
+                            comp_a,
+                            comp_b,
+                        }
+                        words_belief = set(belief_stmt_lower.split()) - {
+                            "i",
+                            "the",
+                            "a",
+                            "an",
+                            "to",
+                            "and",
+                            "or",
+                            "is",
+                            "are",
+                            "that",
+                            "this",
+                            "than",
+                            comp_a,
+                            comp_b,
+                        }
                         overlap = len(words_stmt & words_belief)
 
                         if overlap >= 2:
@@ -1818,14 +2119,35 @@ class Kernle(
             # Preference conflicts
             if not contradiction_type:
                 preference_pairs = [
-                    ("prefer", "avoid"), ("like", "dislike"), ("enjoy", "hate"),
-                    ("favor", "oppose"), ("support", "reject"), ("want", "don't want"),
+                    ("prefer", "avoid"),
+                    ("like", "dislike"),
+                    ("enjoy", "hate"),
+                    ("favor", "oppose"),
+                    ("support", "reject"),
+                    ("want", "don't want"),
                 ]
                 for pref, anti in preference_pairs:
-                    if ((pref in stmt_lower and anti in belief_stmt_lower) or
-                        (anti in stmt_lower and pref in belief_stmt_lower)):
-                        words_stmt = set(stmt_lower.split()) - {"i", "the", "a", "an", "to", "and", "or"}
-                        words_belief = set(belief_stmt_lower.split()) - {"i", "the", "a", "an", "to", "and", "or"}
+                    if (pref in stmt_lower and anti in belief_stmt_lower) or (
+                        anti in stmt_lower and pref in belief_stmt_lower
+                    ):
+                        words_stmt = set(stmt_lower.split()) - {
+                            "i",
+                            "the",
+                            "a",
+                            "an",
+                            "to",
+                            "and",
+                            "or",
+                        }
+                        words_belief = set(belief_stmt_lower.split()) - {
+                            "i",
+                            "the",
+                            "a",
+                            "an",
+                            "to",
+                            "and",
+                            "or",
+                        }
                         overlap = len(words_stmt & words_belief)
 
                         if overlap >= 2:
@@ -1835,21 +2157,559 @@ class Kernle(
                             break
 
             if contradiction_type:
-                contradictions.append({
-                    "belief_id": belief.id,
-                    "statement": belief.statement,
-                    "confidence": belief.confidence,
-                    "times_reinforced": belief.times_reinforced,
-                    "is_active": belief.is_active,
-                    "contradiction_type": contradiction_type,
-                    "contradiction_confidence": round(confidence, 2),
-                    "explanation": explanation,
-                    "semantic_similarity": round(result.score, 2),
-                })
+                contradictions.append(
+                    {
+                        "belief_id": belief.id,
+                        "statement": belief.statement,
+                        "confidence": belief.confidence,
+                        "times_reinforced": belief.times_reinforced,
+                        "is_active": belief.is_active,
+                        "contradiction_type": contradiction_type,
+                        "contradiction_confidence": round(confidence, 2),
+                        "explanation": explanation,
+                        "semantic_similarity": round(result.score, 2),
+                    }
+                )
 
         # Sort by contradiction confidence
         contradictions.sort(key=lambda x: x["contradiction_confidence"], reverse=True)
         return contradictions[:limit]
+
+    # Opposition word pairs for semantic contradiction detection
+    # Format: (word, opposite) - both directions are checked
+    _OPPOSITION_PAIRS = [
+        # Frequency/Certainty
+        ("always", "never"),
+        ("sometimes", "never"),
+        ("often", "rarely"),
+        ("frequently", "seldom"),
+        ("constantly", "occasionally"),
+        # Modal verbs and necessity
+        ("should", "shouldn't"),
+        ("must", "mustn't"),
+        ("can", "cannot"),
+        ("will", "won't"),
+        ("would", "wouldn't"),
+        ("could", "couldn't"),
+        # Preferences and attitudes
+        ("like", "dislike"),
+        ("love", "hate"),
+        ("prefer", "avoid"),
+        ("enjoy", "despise"),
+        ("favor", "oppose"),
+        ("want", "reject"),
+        ("appreciate", "resent"),
+        ("embrace", "shun"),
+        # Value judgments
+        ("good", "bad"),
+        ("best", "worst"),
+        ("important", "unnecessary"),
+        ("essential", "optional"),
+        ("critical", "trivial"),
+        ("valuable", "worthless"),
+        ("beneficial", "harmful"),
+        ("helpful", "unhelpful"),
+        ("useful", "useless"),
+        # Comparatives
+        ("more", "less"),
+        ("better", "worse"),
+        ("faster", "slower"),
+        ("higher", "lower"),
+        ("greater", "lesser"),
+        ("stronger", "weaker"),
+        ("easier", "harder"),
+        ("simpler", "complex"),
+        ("safer", "riskier"),
+        ("cheaper", "expensive"),
+        ("larger", "smaller"),
+        ("longer", "shorter"),
+        # Actions and states
+        ("increase", "decrease"),
+        ("improve", "worsen"),
+        ("enhance", "diminish"),
+        ("enable", "disable"),
+        ("allow", "prevent"),
+        ("support", "block"),
+        ("accept", "reject"),
+        ("approve", "disapprove"),
+        ("agree", "disagree"),
+        ("include", "exclude"),
+        ("add", "remove"),
+        ("create", "destroy"),
+        # Truth values
+        ("true", "false"),
+        ("right", "wrong"),
+        ("correct", "incorrect"),
+        ("accurate", "inaccurate"),
+        ("valid", "invalid"),
+        # Quality descriptors
+        ("efficient", "inefficient"),
+        ("effective", "ineffective"),
+        ("reliable", "unreliable"),
+        ("stable", "unstable"),
+        ("secure", "insecure"),
+        ("safe", "dangerous"),
+        # Recommendations
+        ("recommended", "discouraged"),
+        ("advisable", "inadvisable"),
+        ("encouraged", "forbidden"),
+        ("suggested", "prohibited"),
+    ]
+
+    # Negation prefixes that can flip meaning
+    _NEGATION_PREFIXES = ["not", "no", "non", "un", "in", "dis", "anti", "counter"]
+
+    # Stop words to exclude from topic overlap calculations
+    _STOP_WORDS = frozenset(
+        [
+            "i",
+            "the",
+            "a",
+            "an",
+            "to",
+            "and",
+            "or",
+            "is",
+            "are",
+            "that",
+            "this",
+            "it",
+            "be",
+            "was",
+            "were",
+            "been",
+            "being",
+            "have",
+            "has",
+            "had",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "could",
+            "should",
+            "may",
+            "might",
+            "for",
+            "of",
+            "in",
+            "on",
+            "at",
+            "by",
+            "with",
+            "from",
+            "as",
+            "into",
+            "through",
+            "during",
+            "before",
+            "after",
+            "above",
+            "below",
+            "between",
+            "but",
+            "if",
+            "then",
+            "because",
+            "while",
+            "although",
+            "though",
+            "my",
+            "your",
+            "his",
+            "her",
+            "its",
+            "our",
+            "their",
+            "me",
+            "you",
+            "him",
+            "she",
+            "we",
+            "they",
+            "who",
+            "which",
+            "what",
+            "when",
+            "where",
+            "why",
+            "how",
+        ]
+    )
+
+    def find_semantic_contradictions(
+        self,
+        belief: str,
+        similarity_threshold: float = 0.7,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Find beliefs that are semantically similar but may contradict.
+
+        This method uses embedding-based similarity search to find beliefs
+        that discuss the same topic, then applies opposition detection to
+        identify potential contradictions. Unlike find_contradictions() which
+        requires explicit opposition words, this can detect semantic opposition
+        like "Testing is important" vs "Testing slows me down".
+
+        Args:
+            belief: The belief statement to check for contradictions
+            similarity_threshold: Minimum similarity score (0-1) for related beliefs.
+                Higher values (0.7-0.9) find more topically related beliefs.
+            limit: Maximum number of potential contradictions to return
+
+        Returns:
+            List of dicts containing:
+                - belief_id: ID of the potentially contradicting belief
+                - statement: The belief statement
+                - confidence: Belief's confidence level
+                - similarity_score: Semantic similarity (0-1)
+                - opposition_score: Strength of detected opposition (0-1)
+                - opposition_type: Type of opposition detected
+                - explanation: Human-readable explanation of the potential contradiction
+
+        Example:
+            >>> k = Kernle("my-agent")
+            >>> k.belief("Testing is essential for code quality")
+            >>> contradictions = k.find_semantic_contradictions(
+            ...     "Testing slows down development"
+            ... )
+            >>> for c in contradictions:
+            ...     print(f"{c['statement']}: {c['explanation']}")
+        """
+        belief = self._validate_string_input(belief, "belief", 2000)
+
+        # Search for semantically similar beliefs
+        search_results = self._storage.search(
+            belief, limit=limit * 3, record_types=["belief"]  # Get more to filter by threshold
+        )
+
+        contradictions = []
+        belief_lower = belief.lower().strip()
+
+        for result in search_results:
+            if result.record_type != "belief":
+                continue
+
+            # Filter by similarity threshold
+            if result.score < similarity_threshold:
+                continue
+
+            existing_belief = result.record
+            existing_lower = existing_belief.statement.lower().strip()
+
+            # Skip exact matches
+            if existing_lower == belief_lower:
+                continue
+
+            # Skip inactive beliefs by default
+            if not existing_belief.is_active:
+                continue
+
+            # Detect opposition
+            opposition = self._detect_opposition(belief_lower, existing_lower)
+
+            if opposition["score"] > 0:
+                contradictions.append(
+                    {
+                        "belief_id": existing_belief.id,
+                        "statement": existing_belief.statement,
+                        "confidence": existing_belief.confidence,
+                        "times_reinforced": existing_belief.times_reinforced,
+                        "is_active": existing_belief.is_active,
+                        "similarity_score": round(result.score, 3),
+                        "opposition_score": round(opposition["score"], 3),
+                        "opposition_type": opposition["type"],
+                        "explanation": opposition["explanation"],
+                    }
+                )
+
+        # Sort by combined score (similarity * opposition)
+        contradictions.sort(
+            key=lambda x: x["similarity_score"] * x["opposition_score"], reverse=True
+        )
+        return contradictions[:limit]
+
+    def _detect_opposition(
+        self,
+        stmt1: str,
+        stmt2: str,
+    ) -> Dict[str, Any]:
+        """Detect if two similar statements have opposing meanings.
+
+        Uses multiple heuristics:
+        1. Direct opposition words (always/never, good/bad, etc.)
+        2. Negation patterns (is vs is not, should vs shouldn't)
+        3. Sentiment/valence indicators
+
+        Args:
+            stmt1: First statement (lowercase)
+            stmt2: Second statement (lowercase)
+
+        Returns:
+            Dict with:
+                - score: Opposition strength (0-1), 0 means no opposition detected
+                - type: Type of opposition detected
+                - explanation: Human-readable explanation
+        """
+        result = {"score": 0.0, "type": "none", "explanation": ""}
+
+        words1 = set(stmt1.split())
+        words2 = set(stmt2.split())
+
+        # Calculate topic overlap (excluding stop words and opposition words)
+        content_words1 = words1 - self._STOP_WORDS
+        content_words2 = words2 - self._STOP_WORDS
+        overlap = content_words1 & content_words2
+        overlap_count = len(overlap)
+
+        # Need some topic overlap to be a meaningful contradiction
+        if overlap_count < 1:
+            return result
+
+        # 1. Check for direct opposition word pairs
+        for word_a, word_b in self._OPPOSITION_PAIRS:
+            # Check both directions
+            if (word_a in stmt1 and word_b in stmt2) or (word_b in stmt1 and word_a in stmt2):
+                # Verify words are used in meaningful context (not just substrings)
+                a_in_1 = word_a in words1
+                b_in_2 = word_b in words2
+                b_in_1 = word_b in words1
+                a_in_2 = word_a in words2
+
+                if (a_in_1 and b_in_2) or (b_in_1 and a_in_2):
+                    score = min(0.5 + overlap_count * 0.1, 0.95)
+                    return {
+                        "score": score,
+                        "type": "opposition_words",
+                        "explanation": f"Opposing terms '{word_a}' vs '{word_b}' with {overlap_count} shared topic words: {', '.join(list(overlap)[:3])}",
+                    }
+
+        # 2. Check for negation patterns
+        negation_found = self._check_negation_pattern(stmt1, stmt2)
+        if negation_found:
+            score = min(0.4 + overlap_count * 0.1, 0.85)
+            return {
+                "score": score,
+                "type": "negation",
+                "explanation": f"Negation pattern detected with {overlap_count} shared topic words: {', '.join(list(overlap)[:3])}",
+            }
+
+        # 3. Check for sentiment opposition using positive/negative indicator words
+        sentiment_opposition = self._check_sentiment_opposition(stmt1, stmt2)
+        if sentiment_opposition["detected"]:
+            score = min(0.3 + overlap_count * 0.1, 0.75)
+            return {
+                "score": score,
+                "type": "sentiment_opposition",
+                "explanation": f"Sentiment opposition: '{sentiment_opposition['word1']}' vs '{sentiment_opposition['word2']}' with topic overlap",
+            }
+
+        return result
+
+    def _check_negation_pattern(self, stmt1: str, stmt2: str) -> bool:
+        """Check if one statement negates the other.
+
+        Looks for patterns like:
+        - "X is good" vs "X is not good"
+        - "should use X" vs "should not use X"
+        - "I like X" vs "I don't like X"
+        """
+        # Common negation patterns
+        negation_patterns = [
+            ("is not", "is"),
+            ("is", "is not"),
+            ("are not", "are"),
+            ("are", "are not"),
+            ("do not", "do"),
+            ("do", "do not"),
+            ("does not", "does"),
+            ("does", "does not"),
+            ("should not", "should"),
+            ("should", "should not"),
+            ("shouldn't", "should"),
+            ("should", "shouldn't"),
+            ("can not", "can"),
+            ("can", "can not"),
+            ("cannot", "can"),
+            ("can", "cannot"),
+            ("can't", "can"),
+            ("can", "can't"),
+            ("won't", "will"),
+            ("will", "won't"),
+            ("don't", "do"),
+            ("do", "don't"),
+            ("doesn't", "does"),
+            ("does", "doesn't"),
+            ("isn't", "is"),
+            ("is", "isn't"),
+            ("aren't", "are"),
+            ("are", "aren't"),
+            ("wasn't", "was"),
+            ("was", "wasn't"),
+            ("weren't", "were"),
+            ("were", "weren't"),
+            ("not recommended", "recommended"),
+            ("recommended", "not recommended"),
+            ("not important", "important"),
+            ("important", "not important"),
+            ("no need", "need"),
+            ("need", "no need"),
+        ]
+
+        for pattern_a, pattern_b in negation_patterns:
+            if pattern_a in stmt1 and pattern_b in stmt2:
+                # Make sure pattern_a is not a substring of pattern_b in stmt1
+                if pattern_b not in stmt1 or stmt1.index(pattern_a) != stmt1.find(pattern_b):
+                    return True
+            if pattern_b in stmt1 and pattern_a in stmt2:
+                if pattern_a not in stmt1 or stmt1.index(pattern_b) != stmt1.find(pattern_a):
+                    return True
+
+        return False
+
+    def _check_sentiment_opposition(
+        self,
+        stmt1: str,
+        stmt2: str,
+    ) -> Dict[str, Any]:
+        """Check for sentiment/valence opposition between statements.
+
+        Looks for one statement having positive sentiment words and
+        the other having negative sentiment words about the same topic.
+        """
+        positive_words = {
+            "good",
+            "great",
+            "excellent",
+            "important",
+            "essential",
+            "valuable",
+            "helpful",
+            "useful",
+            "beneficial",
+            "necessary",
+            "crucial",
+            "vital",
+            "effective",
+            "efficient",
+            "reliable",
+            "fast",
+            "quick",
+            "easy",
+            "simple",
+            "clear",
+            "clean",
+            "safe",
+            "secure",
+            "stable",
+            "robust",
+            "powerful",
+            "flexible",
+            "scalable",
+            "maintainable",
+            "readable",
+            "elegant",
+            "beautiful",
+            "brilliant",
+            "amazing",
+            "wonderful",
+            "love",
+            "like",
+            "enjoy",
+            "prefer",
+            "appreciate",
+            "recommend",
+            "success",
+            "win",
+            "gain",
+            "improve",
+            "enhance",
+            "boost",
+        }
+
+        negative_words = {
+            "bad",
+            "poor",
+            "terrible",
+            "unimportant",
+            "unnecessary",
+            "worthless",
+            "unhelpful",
+            "useless",
+            "harmful",
+            "optional",
+            "trivial",
+            "minor",
+            "ineffective",
+            "inefficient",
+            "unreliable",
+            "slow",
+            "sluggish",
+            "hard",
+            "complex",
+            "confusing",
+            "messy",
+            "dangerous",
+            "insecure",
+            "unstable",
+            "fragile",
+            "weak",
+            "rigid",
+            "limited",
+            "unmaintainable",
+            "unreadable",
+            "ugly",
+            "awful",
+            "horrible",
+            "terrible",
+            "disaster",
+            "hate",
+            "dislike",
+            "avoid",
+            "reject",
+            "despise",
+            "discourage",
+            "failure",
+            "loss",
+            "degrade",
+            "diminish",
+            "reduce",
+            "slows",
+            "slow",
+            "slowdown",
+            "overhead",
+            "bloat",
+            "bloated",
+            "waste",
+            "wasted",
+            "wastes",
+            "wasting",
+        }
+
+        words1 = set(stmt1.split())
+        words2 = set(stmt2.split())
+
+        pos1 = words1 & positive_words
+        neg1 = words1 & negative_words
+        pos2 = words2 & positive_words
+        neg2 = words2 & negative_words
+
+        # Check for cross-sentiment: positive in one, negative in other
+        if pos1 and neg2:
+            return {
+                "detected": True,
+                "word1": list(pos1)[0],
+                "word2": list(neg2)[0],
+            }
+        if neg1 and pos2:
+            return {
+                "detected": True,
+                "word1": list(neg1)[0],
+                "word2": list(pos2)[0],
+            }
+
+        return {"detected": False, "word1": "", "word2": ""}
 
     def reinforce_belief(self, belief_id: str) -> bool:
         """Increase reinforcement count when a belief is confirmed.
@@ -1890,12 +2750,14 @@ class Kernle(
 
         # Update confidence history with accurate old/new values
         history = existing.confidence_history or []
-        history.append({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "old": round(old_confidence, 3),
-            "new": round(existing.confidence, 3),
-            "reason": f"Reinforced (count: {existing.times_reinforced})"
-        })
+        history.append(
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "old": round(old_confidence, 3),
+                "new": round(existing.confidence, 3),
+                "reason": f"Reinforced (count: {existing.times_reinforced})",
+            }
+        )
         existing.confidence_history = history[-20:]  # Keep last 20 entries
 
         existing.last_verified = datetime.now(timezone.utc)
@@ -1957,12 +2819,14 @@ class Kernle(
             # Inherit source episodes from old belief
             source_episodes=old_belief.source_episodes,
             derived_from=[f"belief:{old_id}"],
-            confidence_history=[{
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "old": 0.0,
-                "new": confidence,
-                "reason": reason or f"Superseded belief {old_id[:8]}"
-            }],
+            confidence_history=[
+                {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "old": 0.0,
+                    "new": confidence,
+                    "reason": reason or f"Superseded belief {old_id[:8]}",
+                }
+            ],
         )
         self._storage.save_belief(new_belief)
 
@@ -1972,12 +2836,14 @@ class Kernle(
 
         # Add to confidence history
         history = old_belief.confidence_history or []
-        history.append({
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "old": old_belief.confidence,
-            "new": old_belief.confidence,
-            "reason": f"Superseded by belief {new_id[:8]}: {reason or 'no reason given'}"
-        })
+        history.append(
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "old": old_belief.confidence,
+                "new": old_belief.confidence,
+                "reason": f"Superseded by belief {new_id[:8]}: {reason or 'no reason given'}",
+            }
+        )
         old_belief.confidence_history = history[-20:]
         old_belief.version += 1
         self._storage.save_belief(old_belief)
@@ -2003,7 +2869,12 @@ class Kernle(
         # Get the episode
         episode = self._storage.get_episode(episode_id)
         if not episode:
-            return {"error": "Episode not found", "reinforced": [], "contradicted": [], "suggested_new": []}
+            return {
+                "error": "Episode not found",
+                "reinforced": [],
+                "contradicted": [],
+                "suggested_new": [],
+            }
 
         result = {
             "episode_id": episode_id,
@@ -2034,8 +2905,32 @@ class Kernle(
             evidence_lower = evidence_text.lower()
 
             # Check for word overlap
-            belief_words = set(belief_stmt_lower.split()) - {"i", "the", "a", "an", "to", "and", "or", "is", "are", "should", "can"}
-            evidence_words = set(evidence_lower.split()) - {"i", "the", "a", "an", "to", "and", "or", "is", "are", "should", "can"}
+            belief_words = set(belief_stmt_lower.split()) - {
+                "i",
+                "the",
+                "a",
+                "an",
+                "to",
+                "and",
+                "or",
+                "is",
+                "are",
+                "should",
+                "can",
+            }
+            evidence_words = set(evidence_lower.split()) - {
+                "i",
+                "the",
+                "a",
+                "an",
+                "to",
+                "and",
+                "or",
+                "is",
+                "are",
+                "should",
+                "can",
+            }
             overlap = belief_words & evidence_words
 
             if len(overlap) < 2:
@@ -2047,7 +2942,10 @@ class Kernle(
 
             if episode.outcome_type == "success":
                 # Success supports "should" beliefs about what worked
-                if any(word in belief_stmt_lower for word in ["should", "prefer", "good", "important", "effective"]):
+                if any(
+                    word in belief_stmt_lower
+                    for word in ["should", "prefer", "good", "important", "effective"]
+                ):
                     is_supporting = True
                 # Success contradicts "avoid" beliefs about what worked
                 elif any(word in belief_stmt_lower for word in ["avoid", "never", "don't", "bad"]):
@@ -2055,7 +2953,10 @@ class Kernle(
 
             elif episode.outcome_type == "failure":
                 # Failure contradicts "should" beliefs about what failed
-                if any(word in belief_stmt_lower for word in ["should", "prefer", "good", "important", "effective"]):
+                if any(
+                    word in belief_stmt_lower
+                    for word in ["should", "prefer", "good", "important", "effective"]
+                ):
                     is_contradicting = True
                 # Failure supports "avoid" beliefs
                 elif any(word in belief_stmt_lower for word in ["avoid", "never", "don't", "bad"]):
@@ -2064,20 +2965,24 @@ class Kernle(
             if is_supporting:
                 # Reinforce the belief
                 self.reinforce_belief(belief.id)
-                result["reinforced"].append({
-                    "belief_id": belief.id,
-                    "statement": belief.statement,
-                    "overlap": list(overlap),
-                })
+                result["reinforced"].append(
+                    {
+                        "belief_id": belief.id,
+                        "statement": belief.statement,
+                        "overlap": list(overlap),
+                    }
+                )
 
             elif is_contradicting:
                 # Flag as potentially contradicted
-                result["contradicted"].append({
-                    "belief_id": belief.id,
-                    "statement": belief.statement,
-                    "overlap": list(overlap),
-                    "evidence": evidence_text[:200],
-                })
+                result["contradicted"].append(
+                    {
+                        "belief_id": belief.id,
+                        "statement": belief.statement,
+                        "overlap": list(overlap),
+                        "evidence": evidence_text[:200],
+                    }
+                )
 
         # Suggest new beliefs from lessons
         if episode.lessons:
@@ -2088,11 +2993,15 @@ class Kernle(
                     # Check for similar beliefs via search
                     similar = self._storage.search(lesson, limit=3, record_types=["belief"])
                     if not any(r.score > 0.9 for r in similar):
-                        result["suggested_new"].append({
-                            "statement": lesson,
-                            "source_episode": episode_id,
-                            "suggested_confidence": 0.7 if episode.outcome_type == "success" else 0.6,
-                        })
+                        result["suggested_new"].append(
+                            {
+                                "statement": lesson,
+                                "source_episode": episode_id,
+                                "suggested_confidence": (
+                                    0.7 if episode.outcome_type == "success" else 0.6
+                                ),
+                            }
+                        )
 
         # Link episode to affected beliefs
         for reinforced in result["reinforced"]:
@@ -2184,7 +3093,7 @@ class Kernle(
 
     def search(self, query: str, limit: int = 10, min_score: float = None) -> List[Dict[str, Any]]:
         """Search across episodes, notes, and beliefs.
-        
+
         Args:
             query: Search query string
             limit: Maximum results to return
@@ -2194,7 +3103,7 @@ class Kernle(
         # Request more results if filtering by score
         fetch_limit = limit * 3 if min_score else limit
         results = self._storage.search(query, limit=fetch_limit)
-        
+
         # Filter by minimum score if specified
         if min_score is not None:
             results = [r for r in results if r.score >= min_score]
@@ -2205,29 +3114,35 @@ class Kernle(
             record_type = r.record_type
 
             if record_type == "episode":
-                formatted.append({
-                    "type": "episode",
-                    "title": record.objective[:60] if record.objective else "",
-                    "content": record.outcome,
-                    "lessons": (record.lessons or [])[:2],
-                    "date": record.created_at.strftime("%Y-%m-%d") if record.created_at else "",
-                })
+                formatted.append(
+                    {
+                        "type": "episode",
+                        "title": record.objective[:60] if record.objective else "",
+                        "content": record.outcome,
+                        "lessons": (record.lessons or [])[:2],
+                        "date": record.created_at.strftime("%Y-%m-%d") if record.created_at else "",
+                    }
+                )
             elif record_type == "note":
-                formatted.append({
-                    "type": record.note_type or "note",
-                    "title": record.content[:60] if record.content else "",
-                    "content": record.content,
-                    "tags": record.tags or [],
-                    "date": record.created_at.strftime("%Y-%m-%d") if record.created_at else "",
-                })
+                formatted.append(
+                    {
+                        "type": record.note_type or "note",
+                        "title": record.content[:60] if record.content else "",
+                        "content": record.content,
+                        "tags": record.tags or [],
+                        "date": record.created_at.strftime("%Y-%m-%d") if record.created_at else "",
+                    }
+                )
             elif record_type == "belief":
-                formatted.append({
-                    "type": "belief",
-                    "title": record.statement[:60] if record.statement else "",
-                    "content": record.statement,
-                    "confidence": record.confidence,
-                    "date": record.created_at.strftime("%Y-%m-%d") if record.created_at else "",
-                })
+                formatted.append(
+                    {
+                        "type": "belief",
+                        "title": record.statement[:60] if record.statement else "",
+                        "content": record.statement,
+                        "confidence": record.confidence,
+                        "date": record.created_at.strftime("%Y-%m-%d") if record.created_at else "",
+                    }
+                )
 
         return formatted[:limit]
 
@@ -2258,7 +3173,11 @@ class Kernle(
         if memory is None:
             memory = self.load()
 
-        lines = [f"# Working Memory ({self.agent_id})", f"_Loaded at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}_", ""]
+        lines = [
+            f"# Working Memory ({self.agent_id})",
+            f"_Loaded at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}_",
+            "",
+        ]
 
         # Checkpoint - prominently displayed at top
         if memory.get("checkpoint"):
@@ -2267,9 +3186,9 @@ class Kernle(
             # Calculate checkpoint age
             age_warning = ""
             try:
-                ts = cp.get('timestamp', '')
+                ts = cp.get("timestamp", "")
                 if ts:
-                    cp_time = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+                    cp_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
                     now = datetime.now(timezone.utc)
                     age = now - cp_time
                     if age.total_seconds() > 24 * 3600:
@@ -2370,8 +3289,15 @@ class Kernle(
         intensity: float = 0.5,
         focus_areas: Optional[List[str]] = None,
         decay_hours: int = 24,
+        context: Optional[str] = None,
+        context_tags: Optional[List[str]] = None,
     ) -> str:
-        """Set or update a drive."""
+        """Set or update a drive.
+
+        Args:
+            context: Project/scope context (e.g., 'project:api-service', 'repo:myorg/myrepo')
+            context_tags: Additional context tags for filtering
+        """
         if drive_type not in self.DRIVE_TYPES:
             raise ValueError(f"Invalid drive type. Must be one of: {self.DRIVE_TYPES}")
 
@@ -2385,6 +3311,10 @@ class Kernle(
             existing.focus_areas = focus_areas or []
             existing.updated_at = now
             existing.version += 1
+            if context is not None:
+                existing.context = context
+            if context_tags is not None:
+                existing.context_tags = context_tags
             self._storage.save_drive(existing)
             return existing.id
         else:
@@ -2397,6 +3327,8 @@ class Kernle(
                 focus_areas=focus_areas or [],
                 created_at=now,
                 updated_at=now,
+                context=context,
+                context_tags=context_tags,
             )
             self._storage.save_drive(drive)
             return drive_id
@@ -2426,7 +3358,7 @@ class Kernle(
         relationships = sorted(
             relationships,
             key=lambda r: r.last_interaction or datetime.min.replace(tzinfo=timezone.utc),
-            reverse=True
+            reverse=True,
         )
 
         return [
@@ -2452,7 +3384,7 @@ class Kernle(
         entity_type: Optional[str] = None,
     ) -> str:
         """Update relationship model for another entity.
-        
+
         Args:
             other_agent_id: Name/identifier of the other entity
             trust_level: Trust level 0.0-1.0 (converted to sentiment -1 to 1)
@@ -2540,17 +3472,21 @@ class Kernle(
         normalized_steps = []
         for i, step in enumerate(steps):
             if isinstance(step, str):
-                normalized_steps.append({
-                    "action": step,
-                    "details": None,
-                    "adaptations": None,
-                })
+                normalized_steps.append(
+                    {
+                        "action": step,
+                        "details": None,
+                        "adaptations": None,
+                    }
+                )
             elif isinstance(step, dict):
-                normalized_steps.append({
-                    "action": step.get("action", f"Step {i + 1}"),
-                    "details": step.get("details"),
-                    "adaptations": step.get("adaptations"),
-                })
+                normalized_steps.append(
+                    {
+                        "action": step.get("action", f"Step {i + 1}"),
+                        "details": step.get("details"),
+                        "adaptations": step.get("adaptations"),
+                    }
+                )
             else:
                 raise ValueError(f"Invalid step format at index {i}")
 
@@ -2558,9 +3494,13 @@ class Kernle(
         if triggers:
             triggers = [self._validate_string_input(t, "trigger", 500) for t in triggers]
         if failure_modes:
-            failure_modes = [self._validate_string_input(f, "failure_mode", 500) for f in failure_modes]
+            failure_modes = [
+                self._validate_string_input(f, "failure_mode", 500) for f in failure_modes
+            ]
         if recovery_steps:
-            recovery_steps = [self._validate_string_input(r, "recovery_step", 500) for r in recovery_steps]
+            recovery_steps = [
+                self._validate_string_input(r, "recovery_step", 500) for r in recovery_steps
+            ]
         if tags:
             tags = [self._validate_string_input(t, "tag", 100) for t in tags]
 
@@ -2588,7 +3528,9 @@ class Kernle(
         self._storage.save_playbook(playbook)
         return playbook_id
 
-    def load_playbooks(self, limit: int = 10, tags: Optional[List[str]] = None) -> List[Dict[str, Any]]:
+    def load_playbooks(
+        self, limit: int = 10, tags: Optional[List[str]] = None
+    ) -> List[Dict[str, Any]]:
         """Load playbooks (procedural memories).
 
         Args:
@@ -2778,8 +3720,7 @@ class Kernle(
         if when == "today":
             start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         elif when == "yesterday":
-            start = (now.replace(hour=0, minute=0, second=0, microsecond=0) -
-                    timedelta(days=1))
+            start = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=1)
             end = now.replace(hour=0, minute=0, second=0, microsecond=0)
             return self.load_temporal(start, end)
         elif when == "this week":
@@ -2834,11 +3775,13 @@ class Kernle(
         for signal_name, pattern in self.SIGNAL_PATTERNS.items():
             for keyword in pattern["keywords"]:
                 if keyword in text_lower:
-                    signals.append({
-                        "signal": signal_name,
-                        "type": pattern["type"],
-                        "weight": pattern["weight"],
-                    })
+                    signals.append(
+                        {
+                            "signal": signal_name,
+                            "type": pattern["type"],
+                            "weight": pattern["weight"],
+                        }
+                    )
                     total_weight = max(total_weight, pattern["weight"])
                     break  # One match per pattern is enough
 
@@ -2874,6 +3817,7 @@ class Kernle(
                     return self.note(text, type="note", tags=["auto-captured"])
 
         return None
+
     # CONSOLIDATION
     # =========================================================================
 
@@ -2906,6 +3850,7 @@ class Kernle(
 
         # Count unique lessons
         from collections import Counter
+
         lesson_counts = Counter(all_lessons)
         common_lessons = [lesson for lesson, count in lesson_counts.items() if count >= 2]
 
@@ -2940,7 +3885,9 @@ class Kernle(
 
         if values:
             top_value = max(values, key=lambda v: v.priority)
-            narrative_parts.append(f"I value {top_value.name.lower()} highly: {top_value.statement}")
+            narrative_parts.append(
+                f"I value {top_value.name.lower()} highly: {top_value.statement}"
+            )
 
         if beliefs:
             high_conf = [b for b in beliefs if b.confidence >= 0.8]
@@ -2965,10 +3912,7 @@ class Kernle(
                 {"statement": b.statement, "confidence": b.confidence, "foundational": False}
                 for b in sorted(beliefs, key=lambda b: b.confidence, reverse=True)[:5]
             ],
-            "active_goals": [
-                {"title": g.title, "priority": g.priority}
-                for g in goals[:5]
-            ],
+            "active_goals": [{"title": g.title, "priority": g.priority} for g in goals[:5]],
             "drives": {d.drive_type: d.intensity for d in drives},
             "significant_episodes": [
                 {
@@ -3043,8 +3987,14 @@ class Kernle(
         # Ideal: 3-5 key relationships tracked
         relationship_score = min(1.0, len(relationships) / 5) * 0.10
 
-        total = (value_score + belief_score + goal_score +
-                 episode_score + drive_score + relationship_score)
+        total = (
+            value_score
+            + belief_score
+            + goal_score
+            + episode_score
+            + drive_score
+            + relationship_score
+        )
 
         return round(total, 3)
 
@@ -3142,7 +4092,9 @@ class Kernle(
             if pull_result.pulled > 0:
                 logger.info(f"Sync before load: pulled {pull_result.pulled} changes")
             if pull_result.errors:
-                logger.warning(f"Sync before load: {len(pull_result.errors)} errors: {pull_result.errors[:3]}")
+                logger.warning(
+                    f"Sync before load: {len(pull_result.errors)} errors: {pull_result.errors[:3]}"
+                )
 
         except Exception as e:
             # Don't fail the load on sync errors
@@ -3183,7 +4135,9 @@ class Kernle(
             if sync_result.pushed > 0:
                 logger.info(f"Sync after checkpoint: pushed {sync_result.pushed} changes")
             if sync_result.errors:
-                logger.warning(f"Sync after checkpoint: {len(sync_result.errors)} errors: {sync_result.errors[:3]}")
+                logger.warning(
+                    f"Sync after checkpoint: {len(sync_result.errors)} errors: {sync_result.errors[:3]}"
+                )
 
         except Exception as e:
             # Don't fail the checkpoint on sync errors
@@ -3191,4 +4145,3 @@ class Kernle(
             result["errors"].append(str(e))
 
         return result
-

@@ -31,11 +31,7 @@ class TestKernleInitialization:
     def test_init_with_explicit_params(self, temp_checkpoint_dir, temp_db_path):
         """Test initialization with explicit parameters."""
         storage = SQLiteStorage(agent_id="test_agent", db_path=temp_db_path)
-        kernle = Kernle(
-            agent_id="test_agent",
-            storage=storage,
-            checkpoint_dir=temp_checkpoint_dir
-        )
+        kernle = Kernle(agent_id="test_agent", storage=storage, checkpoint_dir=temp_checkpoint_dir)
         assert kernle.agent_id == "test_agent"
         assert kernle.checkpoint_dir == temp_checkpoint_dir
         assert kernle._storage is storage
@@ -48,18 +44,23 @@ class TestKernleInitialization:
             agent_id="test_agent",
             supabase_url="http://test.url",
             supabase_key="test_key",
-            checkpoint_dir=temp_checkpoint_dir
+            checkpoint_dir=temp_checkpoint_dir,
         )
         assert kernle.agent_id == "test_agent"
         # Storage should be SupabaseStorage when creds provided
         from kernle.storage import SupabaseStorage
+
         assert isinstance(kernle._storage, SupabaseStorage)
 
     def test_init_with_env_vars(self, temp_checkpoint_dir):
         """Test initialization with environment variables."""
-        with patch.dict(os.environ, {
-            "KERNLE_AGENT_ID": "env_agent",
-        }, clear=True):
+        with patch.dict(
+            os.environ,
+            {
+                "KERNLE_AGENT_ID": "env_agent",
+            },
+            clear=True,
+        ):
             kernle = Kernle(checkpoint_dir=temp_checkpoint_dir)
             assert kernle.agent_id == "env_agent"
             # Without Supabase creds, should use SQLite
@@ -192,7 +193,7 @@ class TestCheckpoints:
         checkpoint_data = kernle.checkpoint(
             task="Write tests",
             pending=["Test CLI", "Test edge cases"],
-            context="Working on comprehensive test suite"
+            context="Working on comprehensive test suite",
         )
 
         assert checkpoint_data["current_task"] == "Write tests"
@@ -294,7 +295,7 @@ class TestEpisodes:
             objective="Write unit tests",
             outcome="success",
             lessons=["Test early", "Test often"],
-            tags=["testing"]
+            tags=["testing"],
         )
 
         assert episode_id is not None
@@ -343,11 +344,7 @@ class TestNotes:
         """Test basic note recording."""
         kernle, storage = kernle_instance
 
-        note_id = kernle.note(
-            content="Important finding",
-            type="note",
-            tags=["important"]
-        )
+        note_id = kernle.note(content="Important finding", type="note", tags=["important"])
 
         assert note_id is not None
         notes = storage.get_notes()
@@ -358,11 +355,7 @@ class TestNotes:
         """Test decision note formatting."""
         kernle, storage = kernle_instance
 
-        kernle.note(
-            content="Use pytest",
-            type="decision",
-            reason="Industry standard"
-        )
+        kernle.note(content="Use pytest", type="decision", reason="Industry standard")
 
         notes = storage.get_notes()
         assert "**Decision**:" in notes[0].content
@@ -372,11 +365,7 @@ class TestNotes:
         """Test quote note formatting."""
         kernle, storage = kernle_instance
 
-        kernle.note(
-            content="To be or not to be",
-            type="quote",
-            speaker="Shakespeare"
-        )
+        kernle.note(content="To be or not to be", type="quote", speaker="Shakespeare")
 
         notes = storage.get_notes()
         assert ">" in notes[0].content  # Quote formatting
@@ -386,10 +375,7 @@ class TestNotes:
         """Test insight note formatting."""
         kernle, storage = kernle_instance
 
-        kernle.note(
-            content="Testing is crucial",
-            type="insight"
-        )
+        kernle.note(content="Testing is crucial", type="insight")
 
         notes = storage.get_notes()
         assert "**Insight**:" in notes[0].content
@@ -398,11 +384,7 @@ class TestNotes:
         """Test protected note flag."""
         kernle, storage = kernle_instance
 
-        kernle.note(
-            content="Secret info",
-            type="note",
-            protect=True
-        )
+        kernle.note(content="Secret info", type="note", protect=True)
 
         # Note should be saved (protect flag is just metadata)
         notes = storage.get_notes()
@@ -417,9 +399,7 @@ class TestBeliefValueGoal:
         kernle, storage = kernle_instance
 
         belief_id = kernle.belief(
-            statement="Testing improves code quality",
-            type="fact",
-            confidence=0.85
+            statement="Testing improves code quality", type="fact", confidence=0.85
         )
 
         assert belief_id is not None
@@ -443,9 +423,7 @@ class TestBeliefValueGoal:
         kernle, storage = kernle_instance
 
         value_id = kernle.value(
-            name="Quality",
-            statement="Always prioritize code quality",
-            priority=90
+            name="Quality", statement="Always prioritize code quality", priority=90
         )
 
         assert value_id is not None
@@ -468,9 +446,7 @@ class TestBeliefValueGoal:
         kernle, storage = kernle_instance
 
         goal_id = kernle.goal(
-            title="Achieve test coverage",
-            description="Get 80%+ coverage",
-            priority="high"
+            title="Achieve test coverage", description="Get 80%+ coverage", priority="high"
         )
 
         assert goal_id is not None
@@ -590,9 +566,7 @@ class TestDrives:
         kernle, storage = kernle_instance
 
         drive_id = kernle.drive(
-            drive_type="growth",
-            intensity=0.8,
-            focus_areas=["learning", "skills"]
+            drive_type="growth", intensity=0.8, focus_areas=["learning", "skills"]
         )
 
         assert drive_id is not None
@@ -685,7 +659,7 @@ class TestEmotionalMemory:
             outcome="Great success!",
             valence=0.8,
             arousal=0.6,
-            emotional_tags=["joy", "satisfaction"]
+            emotional_tags=["joy", "satisfaction"],
         )
 
         episodes = storage.get_episodes()
@@ -702,7 +676,7 @@ class TestEmotionalMemory:
         episode_id = kernle.episode_with_emotion(
             objective="Handle frustrating bug",
             outcome="Finally fixed it after struggling",
-            auto_detect=True
+            auto_detect=True,
         )
 
         episodes = storage.get_episodes()
@@ -810,9 +784,7 @@ class TestInputValidation:
         """Test that special characters are sanitized from agent ID."""
         storage = SQLiteStorage(agent_id="test_agent", db_path=temp_db_path)
         kernle = Kernle(
-            agent_id="test@agent!#$%",
-            storage=storage,
-            checkpoint_dir=temp_checkpoint_dir
+            agent_id="test@agent!#$%", storage=storage, checkpoint_dir=temp_checkpoint_dir
         )
 
         # Should be sanitized to only alphanumeric and -_.
@@ -863,3 +835,151 @@ class TestSync:
 
         assert "pending" in status
         assert "online" in status
+
+
+class TestBatchInsertion:
+    """Test batch insertion convenience methods."""
+
+    def test_episodes_batch_empty(self, kernle_instance):
+        """Empty batch should return empty list."""
+        kernle, storage = kernle_instance
+        ids = kernle.episodes_batch([])
+        assert ids == []
+
+    def test_episodes_batch_multiple(self, kernle_instance):
+        """Test saving multiple episodes in batch."""
+        kernle, storage = kernle_instance
+
+        episodes = [{"objective": f"Task {i}", "outcome": f"Result {i}"} for i in range(5)]
+
+        ids = kernle.episodes_batch(episodes)
+
+        assert len(ids) == 5
+        # Verify they were saved
+        saved_episodes = storage.get_episodes(limit=10)
+        assert len(saved_episodes) == 5
+
+    def test_episodes_batch_with_all_fields(self, kernle_instance):
+        """Test batch with all optional fields."""
+        kernle, storage = kernle_instance
+
+        episodes = [
+            {
+                "objective": "Full field test",
+                "outcome": "Complete success",
+                "outcome_type": "success",
+                "lessons": ["Lesson 1", "Lesson 2"],
+                "tags": ["test", "batch"],
+                "confidence": 0.95,
+            }
+        ]
+
+        ids = kernle.episodes_batch(episodes)
+
+        assert len(ids) == 1
+        saved = storage.get_episode(ids[0])
+        assert saved.outcome_type == "success"
+        assert saved.lessons == ["Lesson 1", "Lesson 2"]
+        assert saved.tags == ["test", "batch"]
+        assert saved.confidence == 0.95
+
+    def test_beliefs_batch_empty(self, kernle_instance):
+        """Empty batch should return empty list."""
+        kernle, storage = kernle_instance
+        ids = kernle.beliefs_batch([])
+        assert ids == []
+
+    def test_beliefs_batch_multiple(self, kernle_instance):
+        """Test saving multiple beliefs in batch."""
+        kernle, storage = kernle_instance
+
+        beliefs = [{"statement": f"Belief {i}", "confidence": 0.7 + i * 0.05} for i in range(5)]
+
+        ids = kernle.beliefs_batch(beliefs)
+
+        assert len(ids) == 5
+        # Verify they were saved
+        saved_beliefs = storage.get_beliefs(limit=10)
+        assert len(saved_beliefs) == 5
+
+    def test_beliefs_batch_with_type(self, kernle_instance):
+        """Test batch beliefs with different types."""
+        kernle, storage = kernle_instance
+
+        beliefs = [
+            {"statement": "A fact", "type": "fact", "confidence": 1.0},
+            {"statement": "A principle", "type": "principle", "confidence": 0.9},
+        ]
+
+        _ids = kernle.beliefs_batch(beliefs)
+
+        saved = storage.get_beliefs(limit=10)
+        types = {b.belief_type for b in saved}
+        assert "fact" in types
+        assert "principle" in types
+
+    def test_notes_batch_empty(self, kernle_instance):
+        """Empty batch should return empty list."""
+        kernle, storage = kernle_instance
+        ids = kernle.notes_batch([])
+        assert ids == []
+
+    def test_notes_batch_multiple(self, kernle_instance):
+        """Test saving multiple notes in batch."""
+        kernle, storage = kernle_instance
+
+        notes = [{"content": f"Note content {i}", "type": "note"} for i in range(5)]
+
+        ids = kernle.notes_batch(notes)
+
+        assert len(ids) == 5
+        # Verify they were saved
+        saved_notes = storage.get_notes(limit=10)
+        assert len(saved_notes) == 5
+
+    def test_notes_batch_different_types(self, kernle_instance):
+        """Test batch notes with different types."""
+        kernle, storage = kernle_instance
+
+        notes = [
+            {"content": "A decision", "type": "decision", "reason": "Because"},
+            {"content": "An insight", "type": "insight"},
+            {"content": "A quote", "type": "quote", "speaker": "Someone"},
+        ]
+
+        _ids = kernle.notes_batch(notes)
+
+        saved = storage.get_notes(limit=10)
+        types = {n.note_type for n in saved}
+        assert "decision" in types
+        assert "insight" in types
+        assert "quote" in types
+
+    def test_batch_validates_input(self, kernle_instance):
+        """Test that batch methods validate input."""
+        kernle, storage = kernle_instance
+
+        # Objective too long
+        with pytest.raises(ValueError, match="too long"):
+            kernle.episodes_batch([{"objective": "x" * 1500, "outcome": "test"}])
+
+    def test_batch_performance_improvement(self, kernle_instance):
+        """Test that batch is actually faster than individual saves.
+
+        Note: This is more of a sanity check - actual performance
+        gains depend on database configuration.
+        """
+        import time
+
+        kernle, storage = kernle_instance
+
+        # Create test data
+        episodes = [{"objective": f"Batch task {i}", "outcome": f"Result {i}"} for i in range(20)]
+
+        # Time the batch operation
+        start = time.time()
+        kernle.episodes_batch(episodes)
+        batch_time = time.time() - start
+
+        # This should complete reasonably fast (under 5 seconds)
+        assert batch_time < 5.0

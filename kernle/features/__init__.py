@@ -8,12 +8,26 @@ from kernle.features.anxiety import AnxietyMixin
 from kernle.features.emotions import EmotionsMixin
 from kernle.features.forgetting import ForgettingMixin
 from kernle.features.knowledge import KnowledgeMixin
-from kernle.features.metamemory import MetaMemoryMixin
+from kernle.features.metamemory import (
+    DEFAULT_DECAY_CONFIGS,
+    DEFAULT_DECAY_FLOOR,
+    DEFAULT_DECAY_PERIOD_DAYS,
+    DEFAULT_DECAY_RATE,
+    DecayConfig,
+    MetaMemoryMixin,
+)
+from kernle.features.suggestions import SuggestionsMixin
 
 __all__ = [
     "AnxietyMixin",
+    "DecayConfig",
+    "DEFAULT_DECAY_CONFIGS",
+    "DEFAULT_DECAY_FLOOR",
+    "DEFAULT_DECAY_PERIOD_DAYS",
+    "DEFAULT_DECAY_RATE",
     "EmotionsMixin",
     "ForgettingMixin",
     "KnowledgeMixin",
     "MetaMemoryMixin",
+    "SuggestionsMixin",
 ]

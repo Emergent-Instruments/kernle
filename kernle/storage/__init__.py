@@ -19,6 +19,7 @@ from .base import (
     Episode,
     Goal,
     MemoryLineage,
+    MemorySuggestion,
     Note,
     Playbook,
     QueuedChange,
@@ -27,6 +28,7 @@ from .base import (
     SearchResult,
     SourceType,
     Storage,
+    SyncConflict,
     SyncResult,
     SyncStatus,
     Value,
@@ -90,8 +92,14 @@ def get_storage(
         local = get_storage("my_agent", "sqlite", cloud_storage=cloud)
     """
     # Resolve environment variables for Supabase
-    supabase_url = supabase_url or os.environ.get("KERNLE_SUPABASE_URL") or os.environ.get("SUPABASE_URL")
-    supabase_key = supabase_key or os.environ.get("KERNLE_SUPABASE_KEY") or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    supabase_url = (
+        supabase_url or os.environ.get("KERNLE_SUPABASE_URL") or os.environ.get("SUPABASE_URL")
+    )
+    supabase_key = (
+        supabase_key
+        or os.environ.get("KERNLE_SUPABASE_KEY")
+        or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
+    )
 
     # Auto-detect storage type
     if storage_type == "auto":
@@ -121,6 +129,7 @@ def get_storage(
 __all__ = [
     # Protocol and types
     "Storage",
+    "SyncConflict",
     "SyncResult",
     "SyncStatus",
     "QueuedChange",
@@ -135,6 +144,7 @@ __all__ = [
     "Playbook",
     "SearchResult",
     "RawEntry",
+    "MemorySuggestion",
     # Meta-memory types
     "SourceType",
     "ConfidenceChange",

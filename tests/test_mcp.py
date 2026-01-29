@@ -135,20 +135,17 @@ def mock_kernle():
         "lessons": ["Always test edge cases"],
         "recent_work": [{"objective": "Recent work", "outcome": "success"}],
         "recent_notes": [{"content": "Test note"}],
-        "relationships": []
+        "relationships": [],
     }
 
     kernle_mock.format_memory.return_value = "Formatted memory output"
 
     kernle_mock.checkpoint.return_value = {
         "current_task": "test task",
-        "pending": ["item1", "item2"]
+        "pending": ["item1", "item2"],
     }
 
-    kernle_mock.load_checkpoint.return_value = {
-        "task": "loaded task",
-        "context": "test context"
-    }
+    kernle_mock.load_checkpoint.return_value = {"task": "loaded task", "context": "test context"}
 
     kernle_mock.episode.return_value = "episode_123456"
     kernle_mock.note.return_value = "note_123456"
@@ -158,22 +155,15 @@ def mock_kernle():
     kernle_mock.drive.return_value = "drive_123456"
 
     kernle_mock.search.return_value = [
-        {
-            "type": "episode",
-            "title": "Test Episode",
-            "lessons": ["Lesson 1", "Lesson 2"]
-        }
+        {"type": "episode", "title": "Test Episode", "lessons": ["Lesson 1", "Lesson 2"]}
     ]
 
     kernle_mock.what_happened.return_value = {
         "episodes": [{"objective": "Test objective", "outcome_type": "success"}],
-        "notes": [{"content": "Test note content"}]
+        "notes": [{"content": "Test note content"}],
     }
 
-    kernle_mock.consolidate.return_value = {
-        "consolidated": 5,
-        "new_beliefs": 2
-    }
+    kernle_mock.consolidate.return_value = {"consolidated": 5, "new_beliefs": 2}
 
     # Mock load_beliefs for memory_consolidate reflection scaffold
     kernle_mock.load_beliefs.return_value = [
@@ -210,10 +200,13 @@ def mock_kernle():
         "beliefs": 10,
         "goals": 2,
         "episodes": 25,
-        "checkpoint": True
+        "checkpoint": True,
     }
 
     kernle_mock.auto_capture.return_value = "capture_123456"
+
+    # Mock raw() for memory_auto_capture
+    kernle_mock.raw.return_value = "raw_12345678"
 
     return kernle_mock
 
@@ -221,12 +214,13 @@ def mock_kernle():
 @pytest.fixture
 def patched_get_kernle(mock_kernle):
     """Patch the get_kernle function to return our mock."""
-    with patch('kernle.mcp.server.get_kernle', return_value=mock_kernle):
+    with patch("kernle.mcp.server.get_kernle", return_value=mock_kernle):
         yield mock_kernle
 
 
 class TestKernleMocking:
     """Test proper mocking of the Kernle core class."""
+
     # NOTE: Removed test_mock_setup - it only tested mock configuration, not production code.
     # Mocks are implementation details of tests, not things to test themselves.
 
@@ -287,7 +281,7 @@ class TestMCPToolCalls:
         args = {
             "task": "Write comprehensive tests",
             "pending": ["Test edge cases", "Add documentation"],
-            "context": "Working on MCP tests"
+            "context": "Working on MCP tests",
         }
 
         result = await call_tool("memory_checkpoint_save", args)
@@ -299,7 +293,7 @@ class TestMCPToolCalls:
         patched_get_kernle.checkpoint.assert_called_once_with(
             task="Write comprehensive tests",
             pending=["Test edge cases", "Add documentation"],
-            context="Working on MCP tests"
+            context="Working on MCP tests",
         )
 
     @pytest.mark.asyncio
@@ -311,9 +305,7 @@ class TestMCPToolCalls:
         assert "Checkpoint saved: test task" in result[0].text
 
         patched_get_kernle.checkpoint.assert_called_once_with(
-            task="Minimal test",
-            pending=[],
-            context=""
+            task="Minimal test", pending=[], context=""
         )
 
     @pytest.mark.asyncio
@@ -344,7 +336,7 @@ class TestMCPToolCalls:
             "objective": "Write comprehensive tests",
             "outcome": "success",
             "lessons": ["Mock dependencies", "Test error cases"],
-            "tags": ["testing", "development"]
+            "tags": ["testing", "development"],
         }
 
         result = await call_tool("memory_episode", args)
@@ -357,7 +349,7 @@ class TestMCPToolCalls:
             objective="Write comprehensive tests",
             outcome="success",
             lessons=["Mock dependencies", "Test error cases"],
-            tags=["testing", "development"]
+            tags=["testing", "development"],
         )
 
     @pytest.mark.asyncio
@@ -368,28 +360,32 @@ class TestMCPToolCalls:
                 "content": "This is a regular note",
                 "type": "note",
                 "tags": ["general"],
-                "expected_call": {"type": "note", "speaker": "", "reason": ""}
+                "expected_call": {"type": "note", "speaker": "", "reason": ""},
             },
             {
                 "content": "Use pytest for testing",
                 "type": "decision",
                 "reason": "Industry standard with good ecosystem",
                 "tags": ["testing"],
-                "expected_call": {"type": "decision", "speaker": "", "reason": "Industry standard with good ecosystem"}
+                "expected_call": {
+                    "type": "decision",
+                    "speaker": "",
+                    "reason": "Industry standard with good ecosystem",
+                },
             },
             {
                 "content": "Mocking enables isolated testing",
                 "type": "insight",
                 "tags": ["testing", "insights"],
-                "expected_call": {"type": "insight", "speaker": "", "reason": ""}
+                "expected_call": {"type": "insight", "speaker": "", "reason": ""},
             },
             {
                 "content": "Code is poetry",
                 "type": "quote",
                 "speaker": "Someone Wise",
                 "tags": ["inspiration"],
-                "expected_call": {"type": "quote", "speaker": "Someone Wise", "reason": ""}
-            }
+                "expected_call": {"type": "quote", "speaker": "Someone Wise", "reason": ""},
+            },
         ]
 
         for note_args in note_types:
@@ -409,7 +405,7 @@ class TestMCPToolCalls:
                 type=expected["type"],
                 speaker=expected["speaker"],
                 reason=expected["reason"],
-                tags=note_args["tags"]
+                tags=note_args["tags"],
             )
 
     @pytest.mark.asyncio
@@ -421,11 +417,7 @@ class TestMCPToolCalls:
         assert "Note saved: Simple note..." in result[0].text
 
         patched_get_kernle.note.assert_called_once_with(
-            content="Simple note",
-            type="note",
-            speaker="",
-            reason="",
-            tags=[]
+            content="Simple note", type="note", speaker="", reason="", tags=[]
         )
 
     @pytest.mark.asyncio
@@ -463,7 +455,7 @@ class TestMCPToolCalls:
         args = {
             "statement": "Testing is essential for quality software",
             "type": "fact",
-            "confidence": 0.95
+            "confidence": 0.95,
         }
 
         result = await call_tool("memory_belief", args)
@@ -472,9 +464,7 @@ class TestMCPToolCalls:
         assert "Belief saved: belief_1" in result[0].text
 
         patched_get_kernle.belief.assert_called_once_with(
-            statement="Testing is essential for quality software",
-            type="fact",
-            confidence=0.95
+            statement="Testing is essential for quality software", type="fact", confidence=0.95
         )
 
     @pytest.mark.asyncio
@@ -483,9 +473,7 @@ class TestMCPToolCalls:
         await call_tool("memory_belief", {"statement": "Simple belief"})
 
         patched_get_kernle.belief.assert_called_once_with(
-            statement="Simple belief",
-            type="fact",
-            confidence=0.8
+            statement="Simple belief", type="fact", confidence=0.8
         )
 
     @pytest.mark.asyncio
@@ -494,7 +482,7 @@ class TestMCPToolCalls:
         args = {
             "name": "quality",
             "statement": "Software must be thoroughly tested and reliable",
-            "priority": 90
+            "priority": 90,
         }
 
         result = await call_tool("memory_value", args)
@@ -503,9 +491,7 @@ class TestMCPToolCalls:
         assert "Value saved: quality" in result[0].text
 
         patched_get_kernle.value.assert_called_once_with(
-            name="quality",
-            statement="Software must be thoroughly tested and reliable",
-            priority=90
+            name="quality", statement="Software must be thoroughly tested and reliable", priority=90
         )
 
     @pytest.mark.asyncio
@@ -514,7 +500,7 @@ class TestMCPToolCalls:
         args = {
             "title": "Achieve comprehensive test coverage",
             "description": "Write tests for all MCP tools with edge cases",
-            "priority": "high"
+            "priority": "high",
         }
 
         result = await call_tool("memory_goal", args)
@@ -525,7 +511,7 @@ class TestMCPToolCalls:
         patched_get_kernle.goal.assert_called_once_with(
             title="Achieve comprehensive test coverage",
             description="Write tests for all MCP tools with edge cases",
-            priority="high"
+            priority="high",
         )
 
     @pytest.mark.asyncio
@@ -534,9 +520,7 @@ class TestMCPToolCalls:
         await call_tool("memory_goal", {"title": "Simple goal"})
 
         patched_get_kernle.goal.assert_called_once_with(
-            title="Simple goal",
-            description="",
-            priority="medium"
+            title="Simple goal", description="", priority="medium"
         )
 
     @pytest.mark.asyncio
@@ -545,7 +529,7 @@ class TestMCPToolCalls:
         args = {
             "drive_type": "growth",
             "intensity": 0.8,
-            "focus_areas": ["learning", "improvement", "mastery"]
+            "focus_areas": ["learning", "improvement", "mastery"],
         }
 
         result = await call_tool("memory_drive", args)
@@ -556,9 +540,7 @@ class TestMCPToolCalls:
         assert "80%" in result[0].text
 
         patched_get_kernle.drive.assert_called_once_with(
-            drive_type="growth",
-            intensity=0.8,
-            focus_areas=["learning", "improvement", "mastery"]
+            drive_type="growth", intensity=0.8, focus_areas=["learning", "improvement", "mastery"]
         )
 
     @pytest.mark.asyncio
@@ -572,9 +554,7 @@ class TestMCPToolCalls:
         assert "50%" in result[0].text
 
         patched_get_kernle.drive.assert_called_once_with(
-            drive_type="curiosity",
-            intensity=0.5,
-            focus_areas=[]
+            drive_type="curiosity", intensity=0.5, focus_areas=[]
         )
 
     # NOTE: The no-op test_memory_drive_validation_bug_documentation was removed.
@@ -639,7 +619,7 @@ class TestMCPToolCalls:
         patched_get_kernle._storage.get_episodes.return_value = [
             patched_get_kernle._storage.get_episodes.return_value[0]
         ]
-        
+
         result = await call_tool("memory_consolidate", {"min_episodes": 5})
 
         text = result[0].text
@@ -665,39 +645,62 @@ class TestMCPToolCalls:
         """Test memory_auto_capture with successful capture."""
         args = {
             "text": "I learned that mocking is crucial for isolated testing",
-            "context": "While writing tests"
+            "context": "While writing tests",
         }
 
         result = await call_tool("memory_auto_capture", args)
 
         assert len(result) == 1
         assert "Auto-captured:" in result[0].text
-        assert "capture_" in result[0].text
+        assert "source: auto" in result[0].text
 
-        patched_get_kernle.auto_capture.assert_called_once_with(
-            text="I learned that mocking is crucial for isolated testing",
-            context="While writing tests"
-        )
+        patched_get_kernle.raw.assert_called_once()
+        call_args = patched_get_kernle.raw.call_args
+        assert call_args[1]["content"] == "I learned that mocking is crucial for isolated testing"
+        assert call_args[1]["source"] == "auto"
 
     @pytest.mark.asyncio
-    async def test_memory_auto_capture_not_significant(self, patched_get_kernle):
-        """Test memory_auto_capture when text is not significant."""
-        patched_get_kernle.auto_capture.return_value = None
+    async def test_memory_auto_capture_with_source(self, patched_get_kernle):
+        """Test memory_auto_capture with custom source."""
+        args = {"text": "Session completed: built user auth", "source": "hook-session-end"}
 
-        result = await call_tool("memory_auto_capture", {"text": "Just casual conversation"})
+        result = await call_tool("memory_auto_capture", args)
 
         assert len(result) == 1
-        assert "Not significant enough to capture." in result[0].text
+        assert "Auto-captured:" in result[0].text
+        assert "source: hook-session-end" in result[0].text
+
+        call_args = patched_get_kernle.raw.call_args
+        assert call_args[1]["source"] == "hook-session-end"
+        assert "auto-capture:hook-session-end" in call_args[1]["tags"]
+
+    @pytest.mark.asyncio
+    async def test_memory_auto_capture_with_suggestions(self, patched_get_kernle):
+        """Test memory_auto_capture with extract_suggestions=true."""
+        args = {
+            "text": "Session completed: implemented user authentication and shipped to production",
+            "source": "hook-session-end",
+            "extract_suggestions": True,
+        }
+
+        result = await call_tool("memory_auto_capture", args)
+
+        assert len(result) == 1
+        result_data = json.loads(result[0].text)
+        assert result_data["captured"] is True
+        assert result_data["source"] == "hook-session-end"
+        assert "episode" in result_data["suggestions"]
+        assert "promote_command" in result_data
 
     @pytest.mark.asyncio
     async def test_memory_auto_capture_minimal(self, patched_get_kernle):
         """Test memory_auto_capture with minimal args."""
         await call_tool("memory_auto_capture", {"text": "Test text"})
 
-        patched_get_kernle.auto_capture.assert_called_once_with(
-            text="Test text",
-            context=""
-        )
+        patched_get_kernle.raw.assert_called_once()
+        call_args = patched_get_kernle.raw.call_args
+        assert call_args[1]["content"] == "Test text"
+        assert call_args[1]["source"] == "auto"
 
 
 class TestErrorHandling:
@@ -723,7 +726,7 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_kernle_exception_handling(self, failing_kernle):
         """Test that Kernle exceptions are caught and returned as error text."""
-        with patch('kernle.mcp.server.get_kernle', return_value=failing_kernle):
+        with patch("kernle.mcp.server.get_kernle", return_value=failing_kernle):
             result = await call_tool("memory_load", {})
 
             assert len(result) == 1
@@ -732,11 +735,10 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_episode_error_handling(self, failing_kernle):
         """Test error handling for memory_episode."""
-        with patch('kernle.mcp.server.get_kernle', return_value=failing_kernle):
-            result = await call_tool("memory_episode", {
-                "objective": "Test",
-                "outcome": "invalid_type"
-            })
+        with patch("kernle.mcp.server.get_kernle", return_value=failing_kernle):
+            result = await call_tool(
+                "memory_episode", {"objective": "Test", "outcome": "invalid_type"}
+            )
 
             assert len(result) == 1
             assert "Invalid input: Invalid outcome type" in result[0].text
@@ -744,7 +746,7 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_search_error_handling(self, failing_kernle):
         """Test error handling for memory_search."""
-        with patch('kernle.mcp.server.get_kernle', return_value=failing_kernle):
+        with patch("kernle.mcp.server.get_kernle", return_value=failing_kernle):
             result = await call_tool("memory_search", {"query": "test"})
 
             assert len(result) == 1
@@ -774,10 +776,7 @@ class TestEdgeCases:
     async def test_invalid_argument_types(self, patched_get_kernle):
         """Test behavior with invalid argument types returns validation error."""
         # Pass invalid type for limit (should be integer)
-        result = await call_tool("memory_search", {
-            "query": "test",
-            "limit": "invalid"
-        })
+        result = await call_tool("memory_search", {"query": "test", "limit": "invalid"})
 
         assert len(result) == 1
         # Server should validate argument types and return a clear error
@@ -809,15 +808,14 @@ class TestEdgeCases:
     async def test_null_values_handling(self, patched_get_kernle):
         """Test handling of null/None values from Kernle."""
         patched_get_kernle.load_checkpoint.return_value = None
-        patched_get_kernle.auto_capture.return_value = None
 
         # Test null checkpoint
         result = await call_tool("memory_checkpoint_load", {})
         assert "No checkpoint found." in result[0].text
 
-        # Test null auto_capture
-        result = await call_tool("memory_auto_capture", {"text": "not significant"})
-        assert "Not significant enough to capture." in result[0].text
+        # memory_auto_capture now always captures to raw layer (no filtering)
+        result = await call_tool("memory_auto_capture", {"text": "casual text"})
+        assert "Auto-captured:" in result[0].text
 
     @pytest.mark.asyncio
     async def test_large_content_handling(self, patched_get_kernle):
@@ -831,14 +829,23 @@ class TestEdgeCases:
         error_text = result[0].text.lower()
 
         # Verify this is a validation error, not a success
-        assert "invalid" in error_text or "error" in error_text, \
-            f"Large content should be rejected, got: {result[0].text}"
+        assert (
+            "invalid" in error_text or "error" in error_text
+        ), f"Large content should be rejected, got: {result[0].text}"
 
         # Error should mention the issue is with content length/size
-        length_related_terms = ["long", "length", "size", "character", "2000", "limit", "exceed", "max"]
+        length_related_terms = [
+            "long",
+            "length",
+            "size",
+            "character",
+            "2000",
+            "limit",
+            "exceed",
+            "max",
+        ]
         has_length_info = any(term in error_text for term in length_related_terms)
-        assert has_length_info, \
-            f"Error should mention length/size issue, got: {result[0].text}"
+        assert has_length_info, f"Error should mention length/size issue, got: {result[0].text}"
 
         # Verify Kernle.note was NOT called (validation should prevent it)
         patched_get_kernle.note.assert_not_called()
@@ -862,7 +869,7 @@ class TestEdgeCases:
         complex_memory = {
             "checkpoint": {"created_at": test_datetime},
             "values": [{"created": test_datetime}],
-            "complex_data": {"nested": {"deep": "value"}}
+            "complex_data": {"nested": {"deep": "value"}},
         }
         patched_get_kernle.load.return_value = complex_memory
 
@@ -907,10 +914,7 @@ class TestEdgeCases:
 
         await call_tool("memory_search", {"query": special_query})
 
-        patched_get_kernle.search.assert_called_once_with(
-            query=special_query,
-            limit=10
-        )
+        patched_get_kernle.search.assert_called_once_with(query=special_query, limit=10)
 
 
 class TestGetKernleFunction:
@@ -919,8 +923,8 @@ class TestGetKernleFunction:
     def test_get_kernle_singleton_behavior(self):
         """Test that get_kernle returns the same instance."""
         # Clear any existing instance
-        if hasattr(get_kernle, '_instance'):
-            delattr(get_kernle, '_instance')
+        if hasattr(get_kernle, "_instance"):
+            delattr(get_kernle, "_instance")
 
         # First call should create instance
         kernle1 = get_kernle()
@@ -933,16 +937,16 @@ class TestGetKernleFunction:
     def test_get_kernle_creates_kernle_instance(self):
         """Test that get_kernle creates a proper Kernle instance."""
         # Clear any existing instance
-        if hasattr(get_kernle, '_instance'):
-            delattr(get_kernle, '_instance')
+        if hasattr(get_kernle, "_instance"):
+            delattr(get_kernle, "_instance")
 
-        with patch('kernle.mcp.server.Kernle') as MockKernle:
+        with patch("kernle.mcp.server.Kernle") as mock_kernle_cls:
             mock_instance = Mock()
-            MockKernle.return_value = mock_instance
+            mock_kernle_cls.return_value = mock_instance
 
             result = get_kernle()
 
-            MockKernle.assert_called_once()
+            mock_kernle_cls.assert_called_once()
             assert result is mock_instance
 
 
@@ -965,18 +969,20 @@ class TestMultiToolWorkflows:
         assert len(result1) == 1
 
         # Record an episode
-        result2 = await call_tool("memory_episode", {
-            "objective": "Write MCP tests",
-            "outcome": "success",
-            "lessons": ["Comprehensive mocking is essential"]
-        })
+        result2 = await call_tool(
+            "memory_episode",
+            {
+                "objective": "Write MCP tests",
+                "outcome": "success",
+                "lessons": ["Comprehensive mocking is essential"],
+            },
+        )
         assert "Episode saved:" in result2[0].text
 
         # Save checkpoint
-        result3 = await call_tool("memory_checkpoint_save", {
-            "task": "Testing complete",
-            "pending": []
-        })
+        result3 = await call_tool(
+            "memory_checkpoint_save", {"task": "Testing complete", "pending": []}
+        )
         assert "Checkpoint saved:" in result3[0].text
 
         # Verify correct methods called with correct arguments
@@ -985,52 +991,39 @@ class TestMultiToolWorkflows:
             objective="Write MCP tests",
             outcome="success",
             lessons=["Comprehensive mocking is essential"],
-            tags=[]
+            tags=[],
         )
         patched_get_kernle.checkpoint.assert_called_once_with(
-            task="Testing complete",
-            pending=[],
-            context=""
+            task="Testing complete", pending=[], context=""
         )
 
     @pytest.mark.asyncio
     async def test_memory_building_workflow_dispatch(self, patched_get_kernle):
         """Test that memory building workflow dispatches correctly."""
         # Add belief
-        await call_tool("memory_belief", {
-            "statement": "Testing prevents bugs",
-            "type": "fact",
-            "confidence": 0.9
-        })
+        await call_tool(
+            "memory_belief",
+            {"statement": "Testing prevents bugs", "type": "fact", "confidence": 0.9},
+        )
 
         # Add value
-        await call_tool("memory_value", {
-            "name": "reliability",
-            "statement": "Software should be dependable",
-            "priority": 85
-        })
+        await call_tool(
+            "memory_value",
+            {"name": "reliability", "statement": "Software should be dependable", "priority": 85},
+        )
 
         # Add goal
-        await call_tool("memory_goal", {
-            "title": "Achieve zero critical bugs",
-            "priority": "high"
-        })
+        await call_tool("memory_goal", {"title": "Achieve zero critical bugs", "priority": "high"})
 
         # Verify correct methods called with correct arguments
         patched_get_kernle.belief.assert_called_once_with(
-            statement="Testing prevents bugs",
-            type="fact",
-            confidence=0.9
+            statement="Testing prevents bugs", type="fact", confidence=0.9
         )
         patched_get_kernle.value.assert_called_once_with(
-            name="reliability",
-            statement="Software should be dependable",
-            priority=85
+            name="reliability", statement="Software should be dependable", priority=85
         )
         patched_get_kernle.goal.assert_called_once_with(
-            title="Achieve zero critical bugs",
-            description="",
-            priority="high"
+            title="Achieve zero critical bugs", description="", priority="high"
         )
 
     @pytest.mark.asyncio
@@ -1074,8 +1067,18 @@ class TestNewListTools:
         ]
 
         kernle_mock.load_goals.return_value = [
-            {"title": "Complete MCP", "description": "Finish MCP server", "priority": "high", "status": "active"},
-            {"title": "Write docs", "description": "Documentation", "priority": "medium", "status": "active"},
+            {
+                "title": "Complete MCP",
+                "description": "Finish MCP server",
+                "priority": "high",
+                "status": "active",
+            },
+            {
+                "title": "Write docs",
+                "description": "Documentation",
+                "priority": "medium",
+                "status": "active",
+            },
         ]
 
         kernle_mock.load_drives.return_value = [
@@ -1088,7 +1091,7 @@ class TestNewListTools:
     @pytest.fixture
     def patched_list_kernle(self, list_mock_kernle):
         """Patch get_kernle to return the list mock."""
-        with patch('kernle.mcp.server.get_kernle', return_value=list_mock_kernle):
+        with patch("kernle.mcp.server.get_kernle", return_value=list_mock_kernle):
             yield list_mock_kernle
 
     @pytest.mark.asyncio
@@ -1204,7 +1207,7 @@ class TestNewUpdateTools:
     @pytest.fixture
     def patched_update_kernle(self, update_mock_kernle):
         """Patch get_kernle to return the update mock."""
-        with patch('kernle.mcp.server.get_kernle', return_value=update_mock_kernle):
+        with patch("kernle.mcp.server.get_kernle", return_value=update_mock_kernle):
             yield update_mock_kernle
 
     @pytest.mark.asyncio
@@ -1214,7 +1217,7 @@ class TestNewUpdateTools:
             "episode_id": "ep-12345678",
             "outcome": "success with modifications",
             "lessons": ["Lesson 1", "Lesson 2"],
-            "tags": ["important", "milestone"]
+            "tags": ["important", "milestone"],
         }
 
         result = await call_tool("memory_episode_update", args)
@@ -1226,7 +1229,7 @@ class TestNewUpdateTools:
             episode_id="ep-12345678",
             outcome="success with modifications",
             lessons=["Lesson 1", "Lesson 2"],
-            tags=["important", "milestone"]
+            tags=["important", "milestone"],
         )
 
     @pytest.mark.asyncio
@@ -1246,7 +1249,7 @@ class TestNewUpdateTools:
             "goal_id": "goal-12345678",
             "status": "completed",
             "priority": "high",
-            "description": "Updated description"
+            "description": "Updated description",
         }
 
         result = await call_tool("memory_goal_update", args)
@@ -1258,7 +1261,7 @@ class TestNewUpdateTools:
             goal_id="goal-12345678",
             status="completed",
             priority="high",
-            description="Updated description"
+            description="Updated description",
         )
 
     @pytest.mark.asyncio
@@ -1274,11 +1277,7 @@ class TestNewUpdateTools:
     @pytest.mark.asyncio
     async def test_memory_belief_update(self, patched_update_kernle):
         """Test memory_belief_update with confidence change."""
-        args = {
-            "belief_id": "bel-12345678",
-            "confidence": 0.95,
-            "is_active": True
-        }
+        args = {"belief_id": "bel-12345678", "confidence": 0.95, "is_active": True}
 
         result = await call_tool("memory_belief_update", args)
 
@@ -1286,18 +1285,13 @@ class TestNewUpdateTools:
         assert "Belief bel-1234... updated successfully." in result[0].text
 
         patched_update_kernle.update_belief.assert_called_once_with(
-            belief_id="bel-12345678",
-            confidence=0.95,
-            is_active=True
+            belief_id="bel-12345678", confidence=0.95, is_active=True
         )
 
     @pytest.mark.asyncio
     async def test_memory_belief_update_deactivate(self, patched_update_kernle):
         """Test memory_belief_update to deactivate a belief."""
-        args = {
-            "belief_id": "bel-12345678",
-            "is_active": False
-        }
+        args = {"belief_id": "bel-12345678", "is_active": False}
 
         result = await call_tool("memory_belief_update", args)
 
@@ -1305,9 +1299,7 @@ class TestNewUpdateTools:
         assert "updated successfully" in result[0].text
 
         patched_update_kernle.update_belief.assert_called_once_with(
-            belief_id="bel-12345678",
-            confidence=None,
-            is_active=False
+            belief_id="bel-12345678", confidence=None, is_active=False
         )
 
     @pytest.mark.asyncio
@@ -1334,7 +1326,7 @@ class TestSyncTool:
             "pulled": 3,
             "conflicts": 0,
             "errors": [],
-            "success": True
+            "success": True,
         }
 
         return kernle_mock
@@ -1342,7 +1334,7 @@ class TestSyncTool:
     @pytest.fixture
     def patched_sync_kernle(self, sync_mock_kernle):
         """Patch get_kernle to return the sync mock."""
-        with patch('kernle.mcp.server.get_kernle', return_value=sync_mock_kernle):
+        with patch("kernle.mcp.server.get_kernle", return_value=sync_mock_kernle):
             yield sync_mock_kernle
 
     @pytest.mark.asyncio
@@ -1366,7 +1358,7 @@ class TestSyncTool:
             "pulled": 4,
             "conflicts": 3,
             "errors": [],
-            "success": True
+            "success": True,
         }
 
         result = await call_tool("memory_sync", {})
@@ -1383,7 +1375,7 @@ class TestSyncTool:
             "pulled": 0,
             "conflicts": 0,
             "errors": ["Connection timeout", "Auth failed"],
-            "success": False
+            "success": False,
         }
 
         result = await call_tool("memory_sync", {})
@@ -1415,17 +1407,15 @@ class TestNoteSearchTool:
     @pytest.fixture
     def patched_note_search_kernle(self, note_search_mock_kernle):
         """Patch get_kernle to return the note search mock."""
-        with patch('kernle.mcp.server.get_kernle', return_value=note_search_mock_kernle):
+        with patch("kernle.mcp.server.get_kernle", return_value=note_search_mock_kernle):
             yield note_search_mock_kernle
 
     @pytest.mark.asyncio
     async def test_memory_note_search_all_types(self, patched_note_search_kernle):
         """Test memory_note_search with all note types."""
-        result = await call_tool("memory_note_search", {
-            "query": "testing",
-            "note_type": "all",
-            "limit": 10
-        })
+        result = await call_tool(
+            "memory_note_search", {"query": "testing", "note_type": "all", "limit": 10}
+        )
 
         assert len(result) == 1
         text = result[0].text
@@ -1439,10 +1429,9 @@ class TestNoteSearchTool:
     @pytest.mark.asyncio
     async def test_memory_note_search_specific_type(self, patched_note_search_kernle):
         """Test memory_note_search filtering by specific type."""
-        result = await call_tool("memory_note_search", {
-            "query": "testing",
-            "note_type": "decision"
-        })
+        result = await call_tool(
+            "memory_note_search", {"query": "testing", "note_type": "decision"}
+        )
 
         assert len(result) == 1
         text = result[0].text
@@ -1506,5 +1495,7 @@ class TestToolDefinitionsComplete:
             if tool.name in new_tool_names:
                 assert tool.description, f"{tool.name} missing description"
                 assert tool.inputSchema, f"{tool.name} missing inputSchema"
-                assert tool.inputSchema.get("type") == "object", f"{tool.name} should have object schema"
+                assert (
+                    tool.inputSchema.get("type") == "object"
+                ), f"{tool.name} should have object schema"
                 assert "properties" in tool.inputSchema, f"{tool.name} missing properties"

@@ -1,9 +1,10 @@
 """Tests for CLI raw command module."""
 
-import pytest
-from unittest.mock import MagicMock, patch
 from argparse import Namespace
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock
+
+import pytest
 
 from kernle.cli.commands.raw import cmd_raw, resolve_raw_id
 
@@ -15,7 +16,7 @@ class TestResolveRawId:
         """Exact ID should resolve directly."""
         k = MagicMock()
         k.get_raw.return_value = {"id": "abc123", "content": "test"}
-        
+
         result = resolve_raw_id(k, "abc123")
         assert result == "abc123"
         k.get_raw.assert_called_once_with("abc123")
@@ -28,7 +29,7 @@ class TestResolveRawId:
             {"id": "abc123456789", "content": "test"},
             {"id": "xyz987654321", "content": "other"},
         ]
-        
+
         result = resolve_raw_id(k, "abc")
         assert result == "abc123456789"
 
@@ -40,7 +41,7 @@ class TestResolveRawId:
             {"id": "abc123456789", "content": "test1"},
             {"id": "abc987654321", "content": "test2"},
         ]
-        
+
         with pytest.raises(ValueError, match="Ambiguous ID"):
             resolve_raw_id(k, "abc")
 
@@ -49,7 +50,7 @@ class TestResolveRawId:
         k = MagicMock()
         k.get_raw.return_value = None
         k.list_raw.return_value = []
-        
+
         with pytest.raises(ValueError, match="not found"):
             resolve_raw_id(k, "nonexistent")
 
@@ -57,11 +58,8 @@ class TestResolveRawId:
         """Many prefix matches should show truncated list."""
         k = MagicMock()
         k.get_raw.return_value = None
-        k.list_raw.return_value = [
-            {"id": f"abc{i:010d}", "content": f"test{i}"}
-            for i in range(10)
-        ]
-        
+        k.list_raw.return_value = [{"id": f"abc{i:010d}", "content": f"test{i}"} for i in range(10)]
+
         with pytest.raises(ValueError, match=r"Ambiguous ID.*\.\.\."):
             resolve_raw_id(k, "abc")
 
@@ -73,16 +71,18 @@ class TestCmdRawCapture:
         """Basic capture should work."""
         k = MagicMock()
         k.raw.return_value = "raw-id-12345678"
-        
+
         args = Namespace(
             raw_action="capture",
             content="test content",
             tags=None,
             source=None,
+            quiet=False,
+            stdin=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         k.raw.assert_called_once()
         captured = capsys.readouterr()
         assert "✓ Raw entry captured" in captured.out
@@ -91,16 +91,18 @@ class TestCmdRawCapture:
         """Capture with tags should pass them through."""
         k = MagicMock()
         k.raw.return_value = "raw-id-12345678"
-        
+
         args = Namespace(
             raw_action="capture",
             content="test content",
             tags="tag1,tag2",
             source=None,
+            quiet=False,
+            stdin=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         call_kwargs = k.raw.call_args
         assert "tag1" in call_kwargs[1]["tags"]
         assert "tag2" in call_kwargs[1]["tags"]
@@ -109,16 +111,18 @@ class TestCmdRawCapture:
         """Capture with custom source."""
         k = MagicMock()
         k.raw.return_value = "raw-id-12345678"
-        
+
         args = Namespace(
             raw_action="capture",
             content="test content",
             tags=None,
             source="voice",
+            quiet=False,
+            stdin=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         call_kwargs = k.raw.call_args
         assert call_kwargs[1]["source"] == "voice"
         captured = capsys.readouterr()
@@ -128,19 +132,139 @@ class TestCmdRawCapture:
         """Default action (None) should capture."""
         k = MagicMock()
         k.raw.return_value = "raw-id-12345678"
-        
+
         args = Namespace(
             raw_action=None,
             content="test content",
             tags=None,
             source=None,
+            quiet=False,
+            stdin=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         k.raw.assert_called_once()
         captured = capsys.readouterr()
         assert "✓ Raw entry captured" in captured.out
+
+    def test_capture_quiet_mode(self, capsys):
+        """Quiet mode should only print ID."""
+        k = MagicMock()
+        k.raw.return_value = "raw-id-12345678"
+
+        args = Namespace(
+            raw_action="capture",
+            content="test content",
+            tags=None,
+            source="hook-session-end",
+            quiet=True,
+            stdin=False,
+        )
+
+        cmd_raw(args, k)
+
+        k.raw.assert_called_once()
+        captured = capsys.readouterr()
+        # Quiet mode should only print the short ID
+        assert captured.out.strip() == "raw-id-1"
+        assert "✓" not in captured.out
+
+    def test_capture_stdin_mode(self, capsys, monkeypatch):
+        """Stdin mode should read from stdin."""
+        import io
+
+        k = MagicMock()
+        k.raw.return_value = "raw-id-12345678"
+
+        # Mock stdin
+        monkeypatch.setattr("sys.stdin", io.StringIO("content from stdin"))
+
+        args = Namespace(
+            raw_action="capture",
+            content=None,  # No content argument
+            tags=None,
+            source="hook-session-end",
+            quiet=False,
+            stdin=True,
+        )
+
+        cmd_raw(args, k)
+
+        # Verify content came from stdin
+        call_args = k.raw.call_args
+        assert "content from stdin" in call_args[0][0]
+        captured = capsys.readouterr()
+        assert "✓ Raw entry captured" in captured.out
+
+    def test_capture_stdin_empty(self, capsys, monkeypatch):
+        """Empty stdin should show error."""
+        import io
+
+        k = MagicMock()
+
+        # Mock empty stdin
+        monkeypatch.setattr("sys.stdin", io.StringIO(""))
+
+        args = Namespace(
+            raw_action="capture",
+            content=None,
+            tags=None,
+            source=None,
+            quiet=False,
+            stdin=True,
+        )
+
+        cmd_raw(args, k)
+
+        # Should not call k.raw
+        k.raw.assert_not_called()
+        captured = capsys.readouterr()
+        assert "No content received from stdin" in captured.out
+
+    def test_capture_stdin_quiet_error(self, capsys, monkeypatch):
+        """Quiet mode with empty stdin should produce no output."""
+        import io
+
+        k = MagicMock()
+
+        # Mock empty stdin
+        monkeypatch.setattr("sys.stdin", io.StringIO(""))
+
+        args = Namespace(
+            raw_action="capture",
+            content=None,
+            tags=None,
+            source=None,
+            quiet=True,
+            stdin=True,
+        )
+
+        cmd_raw(args, k)
+
+        k.raw.assert_not_called()
+        captured = capsys.readouterr()
+        # Quiet mode should suppress error output
+        assert captured.out.strip() == ""
+
+    def test_capture_no_content_no_stdin(self, capsys):
+        """Missing content without stdin should show error."""
+        k = MagicMock()
+
+        args = Namespace(
+            raw_action="capture",
+            content=None,
+            tags=None,
+            source=None,
+            quiet=False,
+            stdin=False,
+        )
+
+        cmd_raw(args, k)
+
+        k.raw.assert_not_called()
+        captured = capsys.readouterr()
+        assert "Content is required" in captured.out
 
 
 class TestCmdRawList:
@@ -150,7 +274,7 @@ class TestCmdRawList:
         """Empty list should show message."""
         k = MagicMock()
         k.list_raw.return_value = []
-        
+
         args = Namespace(
             raw_action="list",
             unprocessed=False,
@@ -158,9 +282,9 @@ class TestCmdRawList:
             limit=20,
             json=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "No raw entries found" in captured.out
 
@@ -168,7 +292,7 @@ class TestCmdRawList:
         """Unprocessed filter should be passed."""
         k = MagicMock()
         k.list_raw.return_value = []
-        
+
         args = Namespace(
             raw_action="list",
             unprocessed=True,
@@ -176,16 +300,16 @@ class TestCmdRawList:
             limit=20,
             json=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         k.list_raw.assert_called_once_with(processed=False, limit=20)
 
     def test_list_processed_filter(self):
         """Processed filter should be passed."""
         k = MagicMock()
         k.list_raw.return_value = []
-        
+
         args = Namespace(
             raw_action="list",
             unprocessed=False,
@@ -193,9 +317,9 @@ class TestCmdRawList:
             limit=20,
             json=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         k.list_raw.assert_called_once_with(processed=True, limit=20)
 
     def test_list_with_entries(self, capsys):
@@ -219,7 +343,7 @@ class TestCmdRawList:
                 "processed_into": ["episode:ep123"],
             },
         ]
-        
+
         args = Namespace(
             raw_action="list",
             unprocessed=False,
@@ -227,9 +351,9 @@ class TestCmdRawList:
             limit=20,
             json=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Raw Entries" in captured.out
         assert "2 total" in captured.out
@@ -242,9 +366,15 @@ class TestCmdRawList:
         """List JSON output."""
         k = MagicMock()
         k.list_raw.return_value = [
-            {"id": "abc123", "content": "test", "timestamp": "2026-01-28", "processed": False, "tags": []}
+            {
+                "id": "abc123",
+                "content": "test",
+                "timestamp": "2026-01-28",
+                "processed": False,
+                "tags": [],
+            }
         ]
-        
+
         args = Namespace(
             raw_action="list",
             unprocessed=False,
@@ -252,9 +382,9 @@ class TestCmdRawList:
             limit=20,
             json=True,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert '"id"' in captured.out
         assert '"abc123"' in captured.out
@@ -268,15 +398,15 @@ class TestCmdRawShow:
         k = MagicMock()
         k.get_raw.return_value = None
         k.list_raw.return_value = []
-        
+
         args = Namespace(
             raw_action="show",
             id="nonexistent",
             json=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "not found" in captured.out
 
@@ -296,15 +426,15 @@ class TestCmdRawShow:
                 "processed_into": None,
             },
         ]
-        
+
         args = Namespace(
             raw_action="show",
             id="abc12345",
             json=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Raw Entry: abc12345" in captured.out
         assert "Unprocessed" in captured.out
@@ -327,15 +457,15 @@ class TestCmdRawShow:
                 "processed_into": ["episode:ep123", "note:n456"],
             },
         ]
-        
+
         args = Namespace(
             raw_action="show",
             id="abc12345",
             json=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Processed" in captured.out
         assert "episode:ep123" in captured.out
@@ -355,15 +485,15 @@ class TestCmdRawShow:
                 "processed_into": None,
             },
         ]
-        
+
         args = Namespace(
             raw_action="show",
             id="abc12345",
             json=True,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert '"id"' in captured.out
         assert '"abc12345"' in captured.out
@@ -377,7 +507,7 @@ class TestCmdRawProcess:
         k = MagicMock()
         k.get_raw.return_value = {"id": "abc12345", "content": "test"}
         k.process_raw.return_value = "ep123456"
-        
+
         args = Namespace(
             raw_action="process",
             id="abc12345",
@@ -385,9 +515,9 @@ class TestCmdRawProcess:
             objective="Test objective",
             outcome="Test outcome",
         )
-        
+
         cmd_raw(args, k)
-        
+
         k.process_raw.assert_called_once()
         captured = capsys.readouterr()
         assert "✓ Processed" in captured.out
@@ -398,7 +528,7 @@ class TestCmdRawProcess:
         k = MagicMock()
         k.get_raw.return_value = None
         k.list_raw.return_value = []
-        
+
         args = Namespace(
             raw_action="process",
             id="nonexistent",
@@ -406,9 +536,9 @@ class TestCmdRawProcess:
             objective=None,
             outcome=None,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "✗" in captured.out
         assert "not found" in captured.out
@@ -421,7 +551,7 @@ class TestCmdRawProcess:
             {"id": "def67890", "content": "test2"},
         ]
         k.process_raw.side_effect = ["ep1", "ep2"]
-        
+
         args = Namespace(
             raw_action="process",
             id="abc12345,def67890",
@@ -429,9 +559,9 @@ class TestCmdRawProcess:
             objective=None,
             outcome=None,
         )
-        
+
         cmd_raw(args, k)
-        
+
         assert k.process_raw.call_count == 2
         captured = capsys.readouterr()
         assert "Processed 2/2" in captured.out
@@ -444,15 +574,15 @@ class TestCmdRawReview:
         """Review with no unprocessed entries."""
         k = MagicMock()
         k.list_raw.return_value = []
-        
+
         args = Namespace(
             raw_action="review",
             limit=10,
             json=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "No unprocessed raw entries" in captured.out
         assert "memory is up to date" in captured.out
@@ -474,15 +604,15 @@ class TestCmdRawReview:
                 "tags": [],
             },
         ]
-        
+
         args = Namespace(
             raw_action="review",
             limit=10,
             json=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Raw Entry Review" in captured.out
         assert "2 unprocessed entries" in captured.out
@@ -493,15 +623,15 @@ class TestCmdRawReview:
         """Review JSON output."""
         k = MagicMock()
         k.list_raw.return_value = [{"id": "abc123", "content": "test"}]
-        
+
         args = Namespace(
             raw_action="review",
             limit=10,
             json=True,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert '"id"' in captured.out
 
@@ -513,16 +643,16 @@ class TestCmdRawClean:
         """No targets should show success message."""
         k = MagicMock()
         k.list_raw.return_value = []
-        
+
         args = Namespace(
             raw_action="clean",
             age=7,
             junk=False,
             confirm=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "No unprocessed raw entries" in captured.out
 
@@ -533,16 +663,16 @@ class TestCmdRawClean:
             {"id": "abc123", "content": "test", "timestamp": "2026-01-01T00:00:00Z"},
             {"id": "def456", "content": "real content here", "timestamp": "2026-01-01T00:00:00Z"},
         ]
-        
+
         args = Namespace(
             raw_action="clean",
             age=7,
             junk=True,
             confirm=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         # "test" is <10 chars, should be detected as junk
         assert "junk" in captured.out.lower()
@@ -554,16 +684,16 @@ class TestCmdRawClean:
         k.list_raw.return_value = [
             {"id": "abc123", "content": "old entry content", "timestamp": old_timestamp},
         ]
-        
+
         args = Namespace(
             raw_action="clean",
             age=7,
             junk=False,
             confirm=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "older than 7 days" in captured.out
         assert "DRY RUN" in captured.out
@@ -575,16 +705,16 @@ class TestCmdRawClean:
             {"id": "abc123", "content": "test", "timestamp": "2026-01-01T00:00:00Z"},
         ]
         k._storage.delete_raw.return_value = True
-        
+
         args = Namespace(
             raw_action="clean",
             age=7,
             junk=True,
             confirm=True,
         )
-        
+
         cmd_raw(args, k)
-        
+
         k._storage.delete_raw.assert_called_once_with("abc123")
         captured = capsys.readouterr()
         assert "Deleted 1" in captured.out
@@ -597,16 +727,16 @@ class TestCmdRawClean:
             {"id": "def456", "content": "hello", "timestamp": "2026-01-01T00:00:00Z"},
             {"id": "ghi789", "content": "foo", "timestamp": "2026-01-01T00:00:00Z"},
         ]
-        
+
         args = Namespace(
             raw_action="clean",
             age=7,
             junk=True,
             confirm=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "junk" in captured.out.lower()
 
@@ -617,16 +747,16 @@ class TestCmdRawClean:
             {"id": f"entry{i:05d}", "content": "x", "timestamp": "2026-01-01T00:00:00Z"}
             for i in range(20)
         ]
-        
+
         args = Namespace(
             raw_action="clean",
             age=7,
             junk=True,
             confirm=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "... and" in captured.out  # Shows truncation
 
@@ -643,7 +773,7 @@ class TestCmdRawPromote:
         ]
         k.episode.return_value = "ep123456"
         k._storage.mark_raw_processed.return_value = True
-        
+
         args = Namespace(
             raw_action="promote",
             id="abc12345",
@@ -651,9 +781,9 @@ class TestCmdRawPromote:
             objective=None,
             outcome=None,
         )
-        
+
         cmd_raw(args, k)
-        
+
         k.episode.assert_called_once()
         captured = capsys.readouterr()
         assert "✓ Promoted to episode" in captured.out
@@ -667,7 +797,7 @@ class TestCmdRawPromote:
         ]
         k.note.return_value = "note123"
         k._storage.mark_raw_processed.return_value = True
-        
+
         args = Namespace(
             raw_action="promote",
             id="abc12345",
@@ -675,9 +805,9 @@ class TestCmdRawPromote:
             objective=None,
             outcome=None,
         )
-        
+
         cmd_raw(args, k)
-        
+
         k.note.assert_called_once()
         captured = capsys.readouterr()
         assert "✓ Promoted to note" in captured.out
@@ -691,7 +821,7 @@ class TestCmdRawPromote:
         ]
         k.belief.return_value = "belief123"
         k._storage.mark_raw_processed.return_value = True
-        
+
         args = Namespace(
             raw_action="promote",
             id="abc12345",
@@ -699,9 +829,9 @@ class TestCmdRawPromote:
             objective=None,
             outcome=None,
         )
-        
+
         cmd_raw(args, k)
-        
+
         k.belief.assert_called_once()
         captured = capsys.readouterr()
         assert "✓ Promoted to belief" in captured.out
@@ -711,7 +841,7 @@ class TestCmdRawPromote:
         k = MagicMock()
         k.get_raw.return_value = None
         k.list_raw.return_value = []
-        
+
         args = Namespace(
             raw_action="promote",
             id="nonexistent",
@@ -719,9 +849,9 @@ class TestCmdRawPromote:
             objective=None,
             outcome=None,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "✗" in captured.out
         assert "not found" in captured.out
@@ -734,14 +864,14 @@ class TestCmdRawTriage:
         """Triage with no entries."""
         k = MagicMock()
         k.list_raw.return_value = []
-        
+
         args = Namespace(
             raw_action="triage",
             limit=10,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "No unprocessed raw entries" in captured.out
 
@@ -765,14 +895,14 @@ class TestCmdRawTriage:
                 "timestamp": "2026-01-26T08:00:00Z",
             },
         ]
-        
+
         args = Namespace(
             raw_action="triage",
             limit=10,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Triage" in captured.out
         assert "Delete" in captured.out  # "test" is junk
@@ -786,20 +916,21 @@ class TestCmdRawFiles:
     def test_files_empty(self, capsys):
         """Files with empty directory."""
         from pathlib import Path
+
         k = MagicMock()
         mock_path = MagicMock(spec=Path)
         mock_path.__str__ = lambda self: "/home/test/.kernle/raw"
         mock_path.parent = Path("/home/test/.kernle")
         k._storage.get_raw_dir.return_value = mock_path
         k._storage.get_raw_files.return_value = []
-        
+
         args = Namespace(
             raw_action="files",
             open=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Raw Flat Files Directory" in captured.out
         assert "No raw files yet" in captured.out
@@ -807,30 +938,31 @@ class TestCmdRawFiles:
     def test_files_with_entries(self, capsys):
         """Files with some entries."""
         from pathlib import Path
+
         k = MagicMock()
         mock_path = MagicMock(spec=Path)
         mock_path.__str__ = lambda self: "/home/test/.kernle/raw"
         mock_path.parent = Path("/home/test/.kernle")
         k._storage.get_raw_dir.return_value = mock_path
-        
+
         # Create mock file objects
         mock_file1 = MagicMock()
         mock_file1.name = "2026-01-28.md"
         mock_file1.stat.return_value.st_size = 1024
-        
+
         mock_file2 = MagicMock()
         mock_file2.name = "2026-01-27.md"
         mock_file2.stat.return_value.st_size = 512
-        
+
         k._storage.get_raw_files.return_value = [mock_file1, mock_file2]
-        
+
         args = Namespace(
             raw_action="files",
             open=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "2 total" in captured.out
         assert "2026-01-28.md" in captured.out
@@ -839,12 +971,13 @@ class TestCmdRawFiles:
     def test_files_many_entries(self, capsys):
         """Files with more than 10 entries."""
         from pathlib import Path
+
         k = MagicMock()
         mock_path = MagicMock(spec=Path)
         mock_path.__str__ = lambda self: "/home/test/.kernle/raw"
         mock_path.parent = Path("/home/test/.kernle")
         k._storage.get_raw_dir.return_value = mock_path
-        
+
         # Create 15 mock file objects
         mock_files = []
         for i in range(15):
@@ -852,16 +985,16 @@ class TestCmdRawFiles:
             mock_file.name = f"2026-01-{15-i:02d}.md"
             mock_file.stat.return_value.st_size = 100
             mock_files.append(mock_file)
-        
+
         k._storage.get_raw_files.return_value = mock_files
-        
+
         args = Namespace(
             raw_action="files",
             open=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "15 total" in captured.out
         assert "... and 5 more" in captured.out
@@ -879,14 +1012,14 @@ class TestCmdRawSync:
             "skipped": 10,
             "errors": [],
         }
-        
+
         args = Namespace(
             raw_action="sync",
             dry_run=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Files processed: 5" in captured.out
         assert "Entries imported: 0" in captured.out
@@ -901,14 +1034,14 @@ class TestCmdRawSync:
             "skipped": 2,
             "errors": [],
         }
-        
+
         args = Namespace(
             raw_action="sync",
             dry_run=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Imported 5 entries" in captured.out
 
@@ -921,14 +1054,14 @@ class TestCmdRawSync:
             "skipped": 0,
             "errors": ["Error parsing file1.md", "Error parsing file2.md"],
         }
-        
+
         args = Namespace(
             raw_action="sync",
             dry_run=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Errors (2)" in captured.out
         assert "Error parsing file1.md" in captured.out
@@ -942,14 +1075,14 @@ class TestCmdRawSync:
             "skipped": 0,
             "errors": [],
         }
-        
+
         args = Namespace(
             raw_action="sync",
             dry_run=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "No entries to import" in captured.out
 
@@ -962,14 +1095,14 @@ class TestCmdRawSync:
             "skipped": 0,
             "errors": [f"Error {i}" for i in range(10)],
         }
-        
+
         args = Namespace(
             raw_action="sync",
             dry_run=False,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Errors (10)" in captured.out
         assert "... and 5 more" in captured.out
@@ -983,13 +1116,13 @@ class TestCmdRawSync:
             "skipped": 0,
             "errors": [],
         }
-        
+
         args = Namespace(
             raw_action="sync",
             dry_run=True,
         )
-        
+
         cmd_raw(args, k)
-        
+
         captured = capsys.readouterr()
         assert "DRY RUN" in captured.out
