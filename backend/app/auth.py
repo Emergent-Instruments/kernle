@@ -1,11 +1,14 @@
 """Authentication utilities for Kernle backend."""
 
+import logging
 import secrets
+import threading
 import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
 import bcrypt
+from cachetools import TTLCache
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -21,6 +24,58 @@ security = HTTPBearer(auto_error=False)
 
 # API Key prefix
 API_KEY_PREFIX = "knl_sk_"
+
+# Quota cache: api_key_id -> (allowed: bool, quota_info: dict)
+# TTL of 60 seconds provides resilience while keeping quota reasonably fresh
+_quota_cache: TTLCache = TTLCache(maxsize=10000, ttl=60)
+_quota_cache_lock = threading.Lock()
+
+logger = logging.getLogger("kernle.auth")
+
+
+async def check_quota_cached(
+    db,
+    api_key_id: str,
+    user_id: str,
+    tier: str,
+) -> tuple[bool, dict]:
+    """
+    Check quota with caching for resilience.
+    
+    Behavior:
+    - Cache hit: return cached (allowed, info) decision
+    - Cache miss: query DB, cache result on success
+    - DB error + no cache: 503 (fail-closed)
+    - DB error + fresh cache: use cached decision
+    
+    This ensures brief DB outages don't immediately block all requests.
+    """
+    from .database import check_quota
+    
+    cache_key = api_key_id
+    
+    # Check cache first
+    with _quota_cache_lock:
+        cached = _quota_cache.get(cache_key)
+    
+    if cached is not None:
+        logger.debug(f"Quota cache hit for {api_key_id[:12]}...")
+        return cached
+    
+    # Cache miss - query DB
+    try:
+        allowed, quota_info = await check_quota(db, api_key_id, user_id, tier)
+        with _quota_cache_lock:
+            _quota_cache[cache_key] = (allowed, quota_info)
+        return allowed, quota_info
+    except Exception as e:
+        logger.error(f"Quota check failed for {api_key_id[:12]}...: {e}")
+        # No cache available - fail closed
+        raise HTTPException(
+            status_code=503,
+            detail="Service temporarily unavailable",
+            headers={"Retry-After": "60"},
+        )
 
 
 def generate_user_id() -> str:
@@ -195,7 +250,6 @@ async def get_current_agent(
         from .database import (
             get_supabase_client,
             verify_api_key_auth,
-            check_quota,
             increment_usage,
         )
         
@@ -213,18 +267,8 @@ async def get_current_agent(
         api_key_id = auth_result.get("api_key_id")
         user_id = auth_result["user_id"]
         
-        # Check quota before allowing request (fail closed on error)
-        try:
-            allowed, quota_info = await check_quota(db, api_key_id, user_id, tier)
-        except Exception as e:
-            # Fail closed: deny request if quota check fails
-            import logging
-            logging.getLogger("kernle.auth").error(f"Quota check failed: {e}")
-            raise HTTPException(
-                status_code=503,
-                detail="Service temporarily unavailable",
-                headers={"Retry-After": "60"}
-            )
+        # Check quota with caching for resilience (fail closed on error)
+        allowed, quota_info = await check_quota_cached(db, api_key_id, user_id, tier)
         
         if not allowed:
             # Determine reset time for Retry-After header
@@ -254,8 +298,7 @@ async def get_current_agent(
         try:
             await increment_usage(db, api_key_id, user_id)
         except Exception as e:
-            import logging
-            logging.getLogger("kernle.auth").warning(f"Usage increment failed: {e}")
+            logger.warning(f"Usage increment failed: {e}")
         
         return AuthContext(
             agent_id=auth_result["agent_id"],
@@ -283,8 +326,7 @@ async def get_current_agent(
         tier = await get_agent_tier(db, agent_id)
     except Exception as e:
         # Log but continue with free tier - don't block auth
-        import logging
-        logging.getLogger("kernle.auth").warning(f"Tier lookup failed for {agent_id}, defaulting to free: {e}")
+        logger.warning(f"Tier lookup failed for {agent_id}, defaulting to free: {e}")
     
     return AuthContext(agent_id=agent_id, user_id=user_id, tier=tier)
 
@@ -299,9 +341,6 @@ async def require_admin(agent: CurrentAgent) -> AuthContext:
     Use as a dependency on admin-only routes:
         admin: Annotated[AuthContext, Depends(require_admin)]
     """
-    import logging
-    logger = logging.getLogger("kernle.auth")
-    
     if agent.tier != "admin":
         logger.warning(
             f"Admin access denied: agent={agent.agent_id} user={agent.user_id} tier={agent.tier}"
