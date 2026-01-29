@@ -980,15 +980,13 @@ class TestImportCommand:
 
         # Create a test markdown file
         test_file = tmp_path / "test_import.md"
-        test_file.write_text(
-            """## Decisions
+        test_file.write_text("""## Decisions
 - Test decision 1
 - Test decision 2
 
 ## Lessons
 - Test lesson → Important insight
-"""
-        )
+""")
 
         args = argparse.Namespace(file=str(test_file), dry_run=True, interactive=False, layer=None)
 

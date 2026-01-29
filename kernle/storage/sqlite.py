@@ -1320,8 +1320,7 @@ class SQLiteStorage:
 
         # Create health_check_events table if it doesn't exist
         if "health_check_events" not in table_names:
-            conn.execute(
-                """
+            conn.execute("""
                 CREATE TABLE IF NOT EXISTS health_check_events (
                     id TEXT PRIMARY KEY,
                     agent_id TEXT NOT NULL,
@@ -1330,8 +1329,7 @@ class SQLiteStorage:
                     source TEXT DEFAULT 'cli',
                     triggered_by TEXT DEFAULT 'manual'
                 )
-            """
-            )
+            """)
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_health_check_agent ON health_check_events(agent_id)"
             )
@@ -2924,9 +2922,7 @@ class SQLiteStorage:
                     WHERE e.id LIKE 'playbooks:%'
                     ORDER BY distance
                     LIMIT ?
-                """.replace(
-                        "distance", f"vec_distance_L2(e.embedding, X'{packed.hex()}')"
-                    ),
+                """.replace("distance", f"vec_distance_L2(e.embedding, X'{packed.hex()}')"),
                     (limit * 2,),
                 )
 
@@ -4688,19 +4684,15 @@ class SQLiteStorage:
             synced = conn.execute("SELECT COUNT(*) FROM sync_queue WHERE synced = 1").fetchone()[0]
 
             # Breakdown by table (pending only)
-            table_rows = conn.execute(
-                """SELECT table_name, COUNT(*) as count
+            table_rows = conn.execute("""SELECT table_name, COUNT(*) as count
                    FROM sync_queue WHERE synced = 0
-                   GROUP BY table_name"""
-            ).fetchall()
+                   GROUP BY table_name""").fetchall()
             by_table = {row["table_name"]: row["count"] for row in table_rows}
 
             # Breakdown by operation (pending only)
-            op_rows = conn.execute(
-                """SELECT operation, COUNT(*) as count
+            op_rows = conn.execute("""SELECT operation, COUNT(*) as count
                    FROM sync_queue WHERE synced = 0
-                   GROUP BY operation"""
-            ).fetchall()
+                   GROUP BY operation""").fetchall()
             by_operation = {row["operation"]: row["count"] for row in op_rows}
 
         return {
