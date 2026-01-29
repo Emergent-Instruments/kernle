@@ -80,14 +80,19 @@ async def push_changes(
                     })
                     continue
                 
-                # Auto-generate embedding if text content available
-                data_with_embedding = dict(op.data)
+                # Server-side re-embedding: ALWAYS ignore client's embedding
+                # Client uses 384-dim HashEmbedder locally; server uses 1536-dim OpenAI
+                # This makes semantic search a subscription feature (uses our OpenAI key)
+                data_with_embedding = {k: v for k, v in op.data.items() if k != "embedding"}
+                
                 text_content = extract_text_for_embedding(op.table, op.data)
                 if text_content:
                     embedding = await create_embedding(text_content)
                     if embedding:
                         data_with_embedding["embedding"] = embedding
-                        logger.debug(f"Generated embedding for {op.table}/{op.record_id}")
+                        logger.debug(f"Generated 1536-dim embedding for {op.table}/{op.record_id}")
+                    else:
+                        logger.warning(f"Failed to generate embedding for {op.table}/{op.record_id} - storing without embedding")
                 
                 await upsert_memory(db, agent_id, op.table, op.record_id, data_with_embedding, agent_ref=agent_ref)
                 log_sync_operation(log_prefix, op.operation, op.table, op.record_id, True)
@@ -145,6 +150,10 @@ async def pull_changes(
     operations = []
     for change in changes:
         data = change.get("data", {})
+        # Strip embedding from response - client will re-embed locally with HashEmbedder
+        # Server stores 1536-dim OpenAI embeddings; client uses 384-dim locally
+        data_without_embedding = {k: v for k, v in data.items() if k != "embedding"}
+        
         # Parse local_updated_at or use created_at or current time
         local_updated = data.get("local_updated_at") or data.get("created_at") or datetime.now(timezone.utc)
         if isinstance(local_updated, str):
@@ -157,7 +166,7 @@ async def pull_changes(
             operation=change["operation"],
             table=change["table"],
             record_id=change["record_id"],
-            data=data if change["operation"] != "delete" else None,
+            data=data_without_embedding if change["operation"] != "delete" else None,
             local_updated_at=local_updated,
             version=data.get("version", 1),
         ))
@@ -188,18 +197,20 @@ async def full_sync(
     agent_id = auth.agent_id
     changes = await get_changes_since(db, agent_id, None)
 
-    operations = [
-        SyncOperation(
+    operations = []
+    for change in changes:
+        if change["data"].get("deleted"):
+            continue  # Skip deleted records in full sync
+        # Strip embedding from response - client will re-embed locally
+        data = {k: v for k, v in change["data"].items() if k != "embedding"}
+        operations.append(SyncOperation(
             operation="update",  # Full sync is always "update" (upsert on client)
             table=change["table"],
             record_id=change["record_id"],
-            data=change["data"],
+            data=data,
             local_updated_at=change["data"].get("local_updated_at", datetime.now(timezone.utc)),
             version=change["data"].get("version", 1),
-        )
-        for change in changes
-        if not change["data"].get("deleted")  # Skip deleted records in full sync
-    ]
+        ))
 
     return SyncPullResponse(
         operations=operations,
