@@ -84,22 +84,29 @@ Always run audits using specialist agents before considering work done:
 
 These are intentional design decisions that may look like bugs or security issues. Do NOT change them without explicit user approval.
 
-### Supabase OAuth: HS256 Algorithm Support (backend/app/routes/auth.py)
+### Supabase OAuth: Use API Verification, NOT Local JWT Decode (backend/app/routes/auth.py)
 
-**DO NOT** remove HS256 support from the OAuth token exchange endpoint. This is a recurring issue.
+**DO NOT** "optimize" the OAuth token exchange by adding local JWT verification. This breaks every time.
 
-**Background:** Supabase JWTs can use either:
-- **HS256** (symmetric): Uses `SUPABASE_JWT_SECRET` from Supabase dashboard
-- **RS256** (asymmetric): Uses JWKS endpoint for public key verification
+**Background:** Supabase JWTs can use different algorithms depending on project settings and CLI version:
+- **HS256** (symmetric): Older projects, requires JWT secret
+- **RS256** (asymmetric): Uses JWKS endpoint
+- **ES256** (asymmetric): New default since Supabase CLI v2.71.1+
 
-Many Supabase projects (including ours) use HS256. Removing support causes "Unsupported token algorithm" errors that break all OAuth login.
-
-**If you see code like this, LEAVE IT ALONE:**
+**The ONLY reliable approach** is to call Supabase's `/auth/v1/user` endpoint directly:
 ```python
-if alg not in ("HS256", "RS256"):  # Both are valid!
+# CORRECT - works with ANY algorithm
+auth_url = f"{settings.supabase_url}/auth/v1/user"
+headers = {"Authorization": f"Bearer {token}", "apikey": api_key}
+response = await client.get(auth_url, headers=headers)
 ```
 
-**To verify which algorithm your Supabase uses:**
-Supabase Dashboard > Settings > API > JWT Settings
+**DO NOT do this:**
+```python
+# WRONG - breaks when Supabase changes algorithms
+alg = jwt.get_unverified_header(token).get("alg")
+if alg not in ("HS256", "RS256"):  # ES256 will fail!
+    raise "Unsupported algorithm"
+```
 
-This issue has been "fixed" multiple times by well-meaning security audits that only allow RS256, breaking production each time.
+This issue has been "fixed" multiple times by adding local JWT verification for "security" or "performance", breaking production each time. The Supabase API call is the canonical way to verify tokens.
