@@ -109,14 +109,14 @@ async def exchange_supabase_token(
         logger.info(f"OAuth: Fetching JWKS from {jwks_url}")
         try:
             async with httpx.AsyncClient() as client:
-                response = await client.get(jwks_url, timeout=10.0)
-                if response.status_code != 200:
-                    logger.error(f"OAuth: JWKS fetch failed: {response.status_code}")
+                jwks_response = await client.get(jwks_url, timeout=10.0)
+                if jwks_response.status_code != 200:
+                    logger.error(f"OAuth: JWKS fetch failed: {jwks_response.status_code}")
                     raise HTTPException(
                         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                         detail="Failed to fetch signing keys",
                     )
-                jwks = response.json()
+                jwks = jwks_response.json()
         except httpx.RequestError as e:
             logger.error(f"OAuth: JWKS request failed: {e}")
             raise HTTPException(
