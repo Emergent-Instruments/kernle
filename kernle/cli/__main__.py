@@ -2542,6 +2542,8 @@ def main():
                           help="Summary for emergency save checkpoint")
     p_anxiety.add_argument("--json", "-j", action="store_true",
                           help="Output as JSON")
+    p_anxiety.add_argument("--brief", "-b", action="store_true",
+                          help="Single-line output for quick health checks")
 
     # forget (controlled forgetting)
     p_forget = subparsers.add_parser("forget", help="Controlled forgetting operations")

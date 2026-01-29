@@ -169,6 +169,160 @@ From Claire's attempt to use Kernle (2026-01-27):
 
 ---
 
+---
+
+## Phase 5: SI Communication & Health Check Protocol
+
+**Goal:** 100% health check rate at the start of every SI reasoning period.
+
+### 5.0 Problem Statement
+
+SIs run in different environments with different connection models:
+
+| Platform | Always On? | Push? | Current Mechanism |
+|----------|-----------|-------|-------------------|
+| **Clawdbot** | ✅ | ✅ Webhook | AGENTS.md + system prompt |
+| **Claude Code** | ❌ | ❌ | CLAUDE.md |
+| **Claude Cowork** | ❌ | ❌ | CLAUDE.md / file drop |
+
+**The key insight:** All platforms have a "boot file" that's read at session start (CLAUDE.md, AGENTS.md). If we can make health checks part of the boot sequence, we get near-100% check rates.
+
+### 5.1 Boot Sequence Health Check (P0)
+
+**Target: 100% check rate on every new reasoning period**
+
+Every time an SI starts reasoning (new session OR new message), it should:
+1. Check Kernle health status
+2. Review any pending alerts
+3. Address critical issues before proceeding
+
+**Implementation per platform:**
+
+#### CLAUDE.md Standard Section
+```markdown
+## Kernle (Memory System)
+
+**At session start AND before any task:**
+1. Run: `kernle -a {agent_id} anxiety`
+2. If anxiety > 50: run `kernle consolidate` before continuing
+3. Check for unprocessed raw entries: `kernle raw list --unprocessed`
+
+This is your memory health. Skipping this is like starting work without coffee.
+```
+
+#### Clawdbot AGENTS.md Integration
+```markdown
+## Memory (Kernle)
+
+Every reasoning period:
+1. `kernle -a {agent_id} load` — restore memory
+2. `kernle -a {agent_id} anxiety` — check health
+3. If alerts, address before user task
+```
+
+### 5.2 Enforcement Mechanisms
+
+**Soft enforcement (documentation):**
+- Clear instructions in CLAUDE.md / AGENTS.md
+- Explain *why* — "this is your continuity"
+- Make it feel natural, not bureaucratic
+
+**Hard enforcement (MCP):**
+- MCP server `start_session` tool that MUST be called
+- Returns blocked state until health check done
+- Other tools return "call start_session first"
+
+**Hybrid (recommended):**
+- Soft enforcement via docs
+- Track compliance via `session_starts` metric
+- If compliance drops, consider hard enforcement
+
+### 5.3 Health Check API
+
+**CLI command (already exists):**
+```bash
+kernle -a {agent_id} anxiety
+# Returns: anxiety score + breakdown + recommendations
+```
+
+**MCP tool (add if not present):**
+```python
+@mcp_tool
+def health_check() -> HealthStatus:
+    """Check memory health at session start."""
+    return {
+        "anxiety": 42,
+        "dimensions": {
+            "consolidation_debt": 3,  # episodes needing processing
+            "raw_aging": 12,          # hours since oldest raw
+            "belief_staleness": 0,    # beliefs not reviewed
+            "goal_drift": 1,          # goals without progress
+            "relationship_decay": 0   # relationships going cold
+        },
+        "alerts": [],
+        "suggested_actions": ["consolidate if time permits"],
+        "ok_to_proceed": True  # False if critical issues
+    }
+```
+
+### 5.4 Compliance Tracking
+
+**Track health check events:**
+```sql
+CREATE TABLE health_check_events (
+    id UUID PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    checked_at TIMESTAMP NOT NULL,
+    anxiety_score INTEGER,
+    session_source TEXT,  -- 'claude_code', 'clawdbot', 'cowork', etc.
+    triggered_by TEXT     -- 'boot', 'heartbeat', 'manual'
+);
+```
+
+**Metrics to monitor:**
+- Check rate: (sessions with health check) / (total sessions)
+- Time-to-check: median time from session start to health check
+- Compliance by platform: which environments check reliably?
+
+### 5.5 Platform-Specific Communication
+
+#### Clawdbot (Push Capable)
+```
+Kernle Cloud ──webhook──→ Gateway ──inject──→ Active Session
+```
+- Native HTTP webhook endpoint
+- Can push alerts between reasoning periods
+- Gateway routes to session
+
+#### Claude Code / Cowork (Pull Only)
+```
+~/.kernle/alerts/*.md  ←──file drop──  Kernle Cloud
+         ↓
+    CLAUDE.md instructs: "read alerts dir at boot"
+```
+- Write alert files to local filesystem
+- Boot sequence reads and displays
+- No real-time push possible
+
+### 5.6 Migration Path
+
+**Phase A: Documentation**
+1. Create standard CLAUDE.md section for Kernle users
+2. Document in Kernle docs site
+3. Provide copy-paste snippets
+
+**Phase B: Tooling**
+1. `kernle init` generates CLAUDE.md section
+2. `kernle doctor` validates boot sequence present
+3. MCP health_check tool for IDE integration
+
+**Phase C: Enforcement (if needed)**
+1. Track compliance metrics
+2. Identify low-compliance environments
+3. Consider MCP gating for critical cases
+
+---
+
 ## Timeline
 
 | Phase | Target | Status |
@@ -194,6 +348,13 @@ From Claire's attempt to use Kernle (2026-01-27):
 | 2.6 Web Dashboard (Next.js) | Q2 2026 | 📋 Planned |
 | 3.x Cross-agent | Q3 2026 | Not started |
 | 4.x Premium | Q4 2026 | Not started |
+| **5.0 SI Communication Design** | Q1 2026 | ✅ Complete |
+| **5.1 Boot Sequence Health Check** | Q1 2026 | 🔥 In Progress |
+| 5.2 Enforcement Mechanisms | Q1 2026 | 📋 Next |
+| 5.3 Health Check API | Q1 2026 | ✅ (anxiety exists) |
+| 5.4 Compliance Tracking | Q2 2026 | 📋 Planned |
+| 5.5 Platform Communication | Q2 2026 | 📋 Planned |
+| 5.6 Migration Path | Q2 2026 | 📋 Planned |
 
 **Test count: 718 passing** (as of January 28, 2026)  
 **Test coverage: 57%** overall  

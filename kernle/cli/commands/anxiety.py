@@ -46,6 +46,19 @@ def cmd_anxiety(args, k: "Kernle"):
         print(json.dumps(report, indent=2, default=str))
         return
 
+    # Brief mode - single line output for quick health checks
+    if getattr(args, 'brief', False):
+        score = report['overall_score']
+        emoji = report['overall_emoji']
+        level = report['overall_level']
+        if score >= 80:
+            print(f"{emoji} CRITICAL ({score}) - immediate action needed")
+        elif score >= 50:
+            print(f"{emoji} WARN ({score}) - consider consolidation")
+        else:
+            print(f"{emoji} OK ({score})")
+        return
+
     # Format the report
     print("\nMemory Anxiety Report")
     print("=" * 50)
