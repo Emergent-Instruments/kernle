@@ -103,12 +103,27 @@ class APIKeyCycleResponse(BaseModel):
 # Sync Models
 # =============================================================================
 
+# Valid memory table names for sync operations
+MemoryTable = Literal[
+    "episodes",
+    "beliefs",
+    "values",
+    "goals",
+    "notes",
+    "drives",
+    "relationships",
+    "checkpoints",
+    "raw_captures",
+    "playbooks",
+    "emotional_memories",
+]
+
 
 class SyncOperation(BaseModel):
     """A single sync operation from local to cloud."""
 
     operation: Literal["insert", "update", "delete"]
-    table: str
+    table: MemoryTable  # Validates at API layer
     record_id: str
     data: dict[str, Any] | None = None  # None for delete
     local_updated_at: datetime
