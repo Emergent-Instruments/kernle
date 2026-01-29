@@ -1,0 +1,324 @@
+---
+title: "Memory Management"
+description: "Forgetting, consolidation, and memory health"
+---
+
+Kernle provides sophisticated memory management including intentional forgetting, belief consolidation, and memory health monitoring.
+
+## Overview
+
+<CardGroup cols={3}>
+  <Card title="Forgetting" icon="trash">
+    Graceful decay with protection and recovery
+  </Card>
+  <Card title="Consolidation" icon="layer-group">
+    Extract patterns from episodes into beliefs
+  </Card>
+  <Card title="Import" icon="file-import">
+    Migrate from flat files to structured memory
+  </Card>
+</CardGroup>
+
+---
+
+## Intentional Forgetting
+
+Not all memories deserve eternal storage. Kernle implements principled forgetting based on salience scores.
+
+### View Candidates
+
+```bash
+kernle -a claire forget candidates
+```
+
+```
+Forgetting Candidates (salience < 0.3)
+============================================================
+
+1. [belief    ] 6bc41d9d...
+   Salience: [░░░░░] 0.08
+   Summary: Old assumption that's been superseded...
+   Confidence: 80% | Accessed: 0 times
+   Created: 2026-01-15
+
+2. [episode   ] 06272772...
+   Salience: [░░░░░] 0.08
+   Summary: Minor task with no lasting lessons...
+   Confidence: 80% | Accessed: 0 times
+   Created: 2026-01-10
+```
+
+### Salience Scores
+
+Every memory has a salience score (0.0-1.0) that determines its importance:
+
+| Factor | Effect |
+|--------|--------|
+| **Recency** | Newer = higher salience |
+| **Access** | Frequently retrieved = higher |
+| **Connections** | Linked to goals = protected |
+| **Emotional intensity** | Strong emotions = memorable |
+
+### Check Specific Memory
+
+```bash
+kernle -a claire forget salience abc123
+```
+
+### Protect Important Memories
+
+```bash
+kernle -a claire forget protect abc123
+```
+
+Protected memories never decay, regardless of age or access patterns.
+
+### Run Forgetting
+
+```bash
+# Preview what would be forgotten
+kernle -a claire forget run --dry-run
+
+# Actually forget low-salience memories
+kernle -a claire forget run
+```
+
+### Recover Forgotten Memories
+
+Forgotten memories are tombstoned, not deleted:
+
+```bash
+# List forgotten memories
+kernle -a claire forget list
+
+# Recover a specific memory
+kernle -a claire forget recover abc123
+```
+
+---
+
+## Consolidation
+
+Consolidation extracts patterns from recent episodes to form or update beliefs.
+
+### Run Consolidation
+
+```bash
+kernle -a claire consolidate --limit 20
+```
+
+This outputs a reflection prompt with your recent episodes and current beliefs, guiding you to:
+1. Identify patterns across episodes
+2. Find repeated lessons
+3. Detect contradictions with existing beliefs
+4. Decide what new beliefs to form
+
+### Sample Output
+
+```
+## Memory Consolidation - Reflection Prompt
+
+You have 10 recent episodes to reflect on.
+
+### Recent Episodes:
+1. [2026-01-28] ✓ "Security audit implementation"
+   Lessons: ["Audits reveal real issues"]
+
+2. [2026-01-28] ✓ "Memory continuity work"
+   Lessons: ["Procedural knowledge needs capture"]
+
+### Current Beliefs (for context):
+- "Memory continuity is essential" (81% confidence)
+
+### Reflection Questions:
+1. Do any patterns emerge?
+2. Are there lessons that appear multiple times?
+3. Do any episodes contradict existing beliefs?
+
+### Actions:
+kernle belief add "statement" --confidence 0.8
+kernle belief reinforce <belief_id>
+```
+
+---
+
+## Belief Management
+
+### List Beliefs
+
+```bash
+kernle -a claire belief list
+```
+
+```
+Beliefs (3 total, 3 active)
+============================================================
+
+🟢 [████░] 81% (+1)
+   Memory continuity is essential for identity
+   ID: fb5c9d4b...
+
+🟢 [████░] 80%
+   Local-first memory is more reliable
+   ID: 6bc41d9d...
+```
+
+### Revise from Episode
+
+```bash
+kernle -a claire belief revise abc123
+```
+
+### Check for Contradictions
+
+```bash
+kernle -a claire belief contradictions
+```
+
+### Reinforce Belief
+
+```bash
+kernle -a claire belief reinforce abc123
+```
+
+### Supersede Belief
+
+```bash
+kernle -a claire belief supersede abc123 "New updated belief"
+```
+
+---
+
+## Import from Flat Files
+
+Migrate from MEMORY.md or other flat files:
+
+### Preview Import
+
+```bash
+kernle -a claire import MEMORY.md --dry-run
+```
+
+```
+Found 6 items to import:
+  belief: 2
+  episode: 2
+  note: 2
+
+=== DRY RUN (no changes made) ===
+
+1. [note] Decided to use SQLite for local storage
+   Type: decision
+2. [episode] Memory continuity is essential
+   → Lesson: this enables long-term learning
+```
+
+### Actually Import
+
+```bash
+kernle -a claire import MEMORY.md
+```
+
+### Interactive Mode
+
+```bash
+kernle -a claire import MEMORY.md --interactive
+```
+
+Prompts for each item: `[y]es / [n]o / [e]dit / [s]kip all / [a]ccept all`
+
+### Force Layer
+
+```bash
+kernle -a claire import notes.md --layer raw
+```
+
+---
+
+## Agent Management
+
+Manage multiple agent identities:
+
+### List Agents
+
+```bash
+kernle agent list
+```
+
+```
+Local Agents (5 total)
+==================================================
+
+  claire ← current
+    Episodes: 103  Notes: 20  Beliefs: 3  Raw: 35
+
+  test-agent
+    Episodes: 2  Notes: 0  Beliefs: 0  Raw: 0
+```
+
+### Delete Agent
+
+```bash
+# With confirmation
+kernle agent delete test-agent
+
+# Skip confirmation
+kernle agent delete test-agent --force
+```
+
+<Warning>
+Deletion is permanent. The agent cannot be recovered.
+</Warning>
+
+---
+
+## Python API
+
+```python
+from kernle import Kernle
+
+k = Kernle(agent_id="my-agent")
+
+# Forgetting
+candidates = k.forget_candidates()
+k.forget_protect("memory_id")
+k.forget_run(dry_run=True)
+k.forget_recover("memory_id")
+
+# Consolidation
+prompt = k.consolidate(limit=20)
+
+# Beliefs
+k.belief_add("Statement", confidence=0.8)
+k.belief_reinforce("belief_id")
+k.belief_supersede("old_id", "New statement")
+
+# Anxiety check
+anxiety = k.anxiety()
+if anxiety > 85:
+    k.checkpoint("Emergency save")
+```
+
+---
+
+## Maintenance Workflow
+
+A healthy maintenance routine:
+
+<Steps>
+  <Step title="Check anxiety">
+    Run `kernle anxiety` to assess memory health
+  </Step>
+  <Step title="Review raw entries">
+    Process unprocessed raw entries with `kernle raw list --unprocessed`
+  </Step>
+  <Step title="Consolidate">
+    Run `kernle consolidate` to extract patterns from episodes
+  </Step>
+  <Step title="Review forgetting candidates">
+    Check `kernle forget candidates` and protect important memories
+  </Step>
+  <Step title="Checkpoint">
+    Save state with `kernle checkpoint save "description"`
+  </Step>
+</Steps>

@@ -70,6 +70,14 @@
       ]
     },
     {
+      "group": "Advanced Features",
+      "pages": [
+        "features/psychology",
+        "features/identity",
+        "features/memory-management"
+      ]
+    },
+    {
       "group": "CLI Reference",
       "pages": [
         "cli/overview",
