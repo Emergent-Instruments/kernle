@@ -349,20 +349,56 @@ Kernle Cloud ──webhook──→ Gateway ──inject──→ Active Session
 | 3.x Cross-agent | Q3 2026 | Not started |
 | 4.x Premium | Q4 2026 | Not started |
 | **5.0 SI Communication Design** | Q1 2026 | ✅ Complete |
-| **5.1 Boot Sequence Health Check** | Q1 2026 | 🔥 In Progress |
-| 5.2 Enforcement Mechanisms | Q1 2026 | 📋 Next |
-| 5.3 Health Check API | Q1 2026 | ✅ (anxiety exists) |
-| 5.4 Compliance Tracking | Q2 2026 | 📋 Planned |
+| **5.1 Boot Sequence Health Check** | Q1 2026 | ✅ Complete |
+| **5.2 Frictionless Adoption** | Q1 2026 | ✅ Complete (init, doctor) |
+| **5.3 Health Check API** | Q1 2026 | ✅ Complete (anxiety -b) |
+| **5.4 Compliance Tracking** | Q1 2026 | ✅ Complete (stats) |
 | 5.5 Platform Communication | Q2 2026 | 📋 Planned |
-| 5.6 Migration Path | Q2 2026 | 📋 Planned |
+| 5.6 Webhook Integration | Q2 2026 | 📋 Planned |
+| **Docs Site (Mintlify)** | Q1 2026 | ✅ Complete |
 
-**Test count: 718 passing** (as of January 28, 2026)  
+**Test count: 771 passing** (as of January 28, 2026)  
 **Test coverage: 57%** overall  
-**Architecture audit: B+** (production ready - see ARCHITECTURE_AUDIT.md)
+**Docs:** https://docs.kernle.ai
 
 ---
 
-## Recent Completions (2026-01-28)
+## Recent Completions (2026-01-28 evening)
+
+### SI Communication & Health Check Protocol ✅
+
+**100% health check coverage goal:**
+- `kernle anxiety -b` — brief single-line output for quick checks
+- `kernle init` — generates CLAUDE.md/AGENTS.md sections
+- `kernle doctor` — validates boot sequence compliance
+- `kernle stats health-checks` — compliance tracking and metrics
+- Health check events logged to SQLite automatically
+
+**Boot sequence standard:**
+```markdown
+## Kernle
+At session start: `kernle -a {ID} load && kernle -a {ID} anxiety -b`
+If WARN/CRITICAL, run `kernle consolidate` before proceeding.
+```
+
+### Documentation Overhaul ✅
+
+**Mintlify docs site:** https://docs.kernle.ai
+- Introduction, quickstart, architecture
+- Core concepts: memory model, types, consolidation, identity
+- CLI reference: overview, memory, sync, utility commands
+- Integration: MCP, Claude Desktop, Clawdbot
+- API reference: overview, auth, sync, search, embeddings
+- Feature docs: psychology, identity, memory management
+
+**Local docs restructured:**
+- User docs → docs-site/ (Mintlify)
+- Dev notes → dev/ (internal)
+- Audits → dev/audits/ (historical)
+
+---
+
+## Recent Completions (2026-01-28 morning)
 
 ### Multi-Tenant Schema Refactor ✅
 
