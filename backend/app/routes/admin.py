@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
 from ..auth import AdminAgent
-from ..database import Database, get_supabase_client
+from ..database import Database, MEMORY_TABLES, get_supabase_client
 from ..embeddings import create_embedding, extract_text_for_embedding
 from ..logging_config import get_logger
 
@@ -68,10 +68,7 @@ class SystemStats(BaseModel):
 # Helper Functions
 # =============================================================================
 
-MEMORY_TABLES = [
-    "episodes", "beliefs", "values", "goals", "notes",
-    "drives", "relationships", "raw_captures", "playbooks"
-]
+# MEMORY_TABLES imported from database.py (single source of truth)
 
 
 def _get_text_field(table: str) -> str:
@@ -86,6 +83,8 @@ def _get_text_field(table: str) -> str:
         "relationships": "entity_name",
         "raw_captures": "content",
         "playbooks": "description",
+        "checkpoints": "summary",
+        "emotional_memories": "content",
     }
     return fields.get(table, "id")
 
@@ -135,6 +134,110 @@ async def _get_agent_memory_stats(db, agent_id: str) -> tuple[dict, dict]:
     return counts, coverage
 
 
+async def _get_bulk_memory_stats(db, agent_ids: list[str]) -> dict[str, tuple[dict, dict]]:
+    """Get memory counts and embedding coverage for multiple agents in batch.
+    
+    Returns dict mapping agent_id -> (counts, coverage)
+    This uses 2 queries per table instead of 2 queries per table per agent.
+    """
+    if not agent_ids:
+        return {}
+    
+    # Initialize results for all agents
+    results: dict[str, tuple[dict, dict]] = {}
+    for agent_id in agent_ids:
+        counts = {table: 0 for table in MEMORY_TABLES}
+        coverage = {table: {"total": 0, "with_embedding": 0, "percent": 100.0} for table in MEMORY_TABLES}
+        results[agent_id] = (counts, coverage)
+    
+    # Query each table once for all agents
+    for table in MEMORY_TABLES:
+        try:
+            # Get total counts grouped by agent_id using RPC
+            # Supabase Python doesn't support GROUP BY directly, so we use raw SQL via RPC
+            # Fallback: fetch all rows and count in Python (still better than N queries)
+            total_result = (
+                db.table(table)
+                .select("agent_id")
+                .in_("agent_id", agent_ids)
+                .eq("deleted", False)
+                .execute()
+            )
+            
+            # Count totals per agent
+            total_by_agent: dict[str, int] = {}
+            for row in total_result.data:
+                aid = row["agent_id"]
+                total_by_agent[aid] = total_by_agent.get(aid, 0) + 1
+            
+            # Get rows with embeddings
+            emb_result = (
+                db.table(table)
+                .select("agent_id")
+                .in_("agent_id", agent_ids)
+                .eq("deleted", False)
+                .not_.is_("embedding", "null")
+                .execute()
+            )
+            
+            # Count embeddings per agent
+            emb_by_agent: dict[str, int] = {}
+            for row in emb_result.data:
+                aid = row["agent_id"]
+                emb_by_agent[aid] = emb_by_agent.get(aid, 0) + 1
+            
+            # Update results
+            for agent_id in agent_ids:
+                total = total_by_agent.get(agent_id, 0)
+                with_emb = emb_by_agent.get(agent_id, 0)
+                
+                counts, coverage = results[agent_id]
+                counts[table] = total
+                coverage[table] = {
+                    "total": total,
+                    "with_embedding": with_emb,
+                    "percent": round(with_emb / total * 100, 1) if total > 0 else 100.0
+                }
+                
+        except Exception as e:
+            logger.warning(f"Error getting bulk stats for {table}: {e}")
+            # Results already initialized with zeros
+    
+    return results
+
+
+async def _get_bulk_last_sync(db, agent_ids: list[str]) -> dict[str, str | None]:
+    """Get last sync time for multiple agents in batch.
+    
+    Returns dict mapping agent_id -> last_sync_at (or None)
+    """
+    if not agent_ids:
+        return {}
+    
+    result: dict[str, str | None] = {aid: None for aid in agent_ids}
+    
+    try:
+        # Fetch all sync logs for these agents, ordered by time
+        sync_result = (
+            db.table("sync_log")
+            .select("agent_id, synced_at")
+            .in_("agent_id", agent_ids)
+            .order("synced_at", desc=True)
+            .execute()
+        )
+        
+        # Keep only the most recent per agent
+        for row in sync_result.data:
+            aid = row["agent_id"]
+            if result.get(aid) is None:  # Only take first (most recent)
+                result[aid] = row["synced_at"]
+                
+    except Exception as e:
+        logger.warning(f"Error getting bulk sync times: {e}")
+    
+    return result
+
+
 # =============================================================================
 # Routes
 # =============================================================================
@@ -161,28 +264,26 @@ async def list_agents(
         .execute()
     )
     
+    if not result.data:
+        return AgentListResponse(agents=[], total=0)
+    
+    # Extract agent IDs for batch queries
+    agent_ids = [row["agent_id"] for row in result.data]
+    
+    # Batch fetch all stats and sync times (2 queries per table + 1 for sync = ~19 total)
+    # Instead of 18 queries per agent (could be 900+ for 50 agents)
+    memory_stats = await _get_bulk_memory_stats(db, agent_ids)
+    sync_times = await _get_bulk_last_sync(db, agent_ids)
+    
+    # Build response
     agents = []
     for row in result.data:
-        counts, coverage = await _get_agent_memory_stats(db, row["agent_id"])
-        
-        # Get last sync time from sync_log if available
-        last_sync = None
-        try:
-            sync_result = (
-                db.table("sync_log")
-                .select("synced_at")
-                .eq("agent_id", row["agent_id"])
-                .order("synced_at", desc=True)
-                .limit(1)
-                .execute()
-            )
-            if sync_result.data:
-                last_sync = sync_result.data[0]["synced_at"]
-        except Exception:
-            pass
+        agent_id = row["agent_id"]
+        counts, coverage = memory_stats.get(agent_id, ({}, {}))
+        last_sync = sync_times.get(agent_id)
         
         agents.append(AgentSummary(
-            agent_id=row["agent_id"],
+            agent_id=agent_id,
             user_id=row["user_id"] or "unknown",
             tier=row.get("tier", "free"),
             created_at=row.get("created_at"),

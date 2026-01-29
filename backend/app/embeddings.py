@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 
-from openai import OpenAI
+from openai import AsyncOpenAI
 
 from .config import get_settings
 from .logging_config import get_logger
@@ -14,13 +14,13 @@ EMBEDDING_DIMENSIONS = 1536
 
 
 @lru_cache
-def get_openai_client() -> OpenAI | None:
-    """Get cached OpenAI client, or None if not configured."""
+def get_openai_client() -> AsyncOpenAI | None:
+    """Get cached async OpenAI client, or None if not configured."""
     settings = get_settings()
     if not settings.openai_api_key:
         logger.warning("OPENAI_API_KEY not configured - embeddings disabled")
         return None
-    return OpenAI(api_key=settings.openai_api_key)
+    return AsyncOpenAI(api_key=settings.openai_api_key)
 
 
 async def create_embedding(text: str) -> list[float] | None:
@@ -44,7 +44,7 @@ async def create_embedding(text: str) -> list[float] | None:
             text = text[:max_chars]
             logger.debug(f"Truncated text to {max_chars} chars for embedding")
         
-        response = client.embeddings.create(
+        response = await client.embeddings.create(
             model=settings.openai_embedding_model,
             input=text,
         )
@@ -82,7 +82,7 @@ async def create_embeddings_batch(texts: list[str]) -> list[list[float] | None]:
             for t in texts
         ]
         
-        response = client.embeddings.create(
+        response = await client.embeddings.create(
             model=settings.openai_embedding_model,
             input=truncated_texts,
         )

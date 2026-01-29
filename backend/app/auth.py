@@ -52,9 +52,12 @@ def hash_api_key(key: str) -> str:
 
 def verify_api_key(plain_key: str, hashed: str) -> bool:
     """Verify an API key against its hash."""
+    import logging
     try:
         return bcrypt.checkpw(plain_key.encode(), hashed.encode())
     except Exception:
+        # Log but don't expose details - could be malformed input
+        logging.getLogger("kernle.auth").debug("API key verification failed due to encoding/hashing error")
         return False
 
 
@@ -70,9 +73,12 @@ def hash_secret(secret: str) -> str:
 
 def verify_secret(plain: str, hashed: str) -> bool:
     """Verify an agent secret against hash."""
+    import logging
     try:
         return bcrypt.checkpw(plain.encode(), hashed.encode())
     except Exception:
+        # Log but don't expose details - could be malformed input
+        logging.getLogger("kernle.auth").debug("Secret verification failed due to encoding/hashing error")
         return False
 
 
@@ -271,8 +277,10 @@ async def get_current_agent(
         from .database import get_supabase_client, get_agent_tier
         db = get_supabase_client(settings)
         tier = await get_agent_tier(db, agent_id)
-    except Exception:
-        pass  # Default to free tier if lookup fails
+    except Exception as e:
+        # Log but continue with free tier - don't block auth
+        import logging
+        logging.getLogger("kernle.auth").warning(f"Tier lookup failed for {agent_id}, defaulting to free: {e}")
     
     return AuthContext(agent_id=agent_id, user_id=user_id, tier=tier)
 

@@ -161,9 +161,10 @@ async def create_seed_beliefs(db: Client, agent_id: str) -> int:
         try:
             db.table(BELIEFS_TABLE).insert(data).execute()
             created += 1
-        except Exception:
-            # Skip if belief creation fails (e.g., duplicate)
-            pass
+        except Exception as e:
+            # Skip if belief creation fails (e.g., duplicate) but log it
+            import logging
+            logging.getLogger("kernle.database").debug(f"Seed belief creation skipped for {agent_id}: {e}")
     
     return created
 
@@ -252,25 +253,39 @@ async def get_changes_since(
     since: str | None,
     limit: int = 1000,
 ) -> list[dict]:
-    """Get all changes for an agent since a given timestamp."""
-    changes = []
+    """Get all changes for an agent since a given timestamp.
+    
+    Fetches from all memory tables in parallel using asyncio.gather().
+    """
+    import asyncio
 
-    for table_key, table_name in MEMORY_TABLES.items():
-        query = db.table(table_name).select("*").eq("agent_id", agent_id)
-        if since:
-            query = query.gt("cloud_synced_at", since)
-        query = query.limit(limit)
-        result = query.execute()
-
-        for record in result.data:
-            changes.append({
+    async def fetch_table(table_key: str, table_name: str) -> list[dict]:
+        """Fetch changes from a single table."""
+        def _query():
+            query = db.table(table_name).select("*").eq("agent_id", agent_id)
+            if since:
+                query = query.gt("cloud_synced_at", since)
+            return query.limit(limit).execute()
+        
+        result = await asyncio.to_thread(_query)
+        return [
+            {
                 "table": table_key,
                 "record_id": record["id"],
                 "data": record,
                 "operation": "delete" if record.get("deleted") else "update",
-            })
+            }
+            for record in result.data
+        ]
 
-    return changes
+    # Fetch all tables in parallel
+    results = await asyncio.gather(*[
+        fetch_table(table_key, table_name)
+        for table_key, table_name in MEMORY_TABLES.items()
+    ])
+
+    # Flatten results
+    return [change for table_changes in results for change in table_changes]
 
 
 # =============================================================================

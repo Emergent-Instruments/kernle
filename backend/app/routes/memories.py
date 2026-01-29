@@ -111,8 +111,11 @@ async def _text_search(
     limit: int,
     memory_types: list[str] | None,
 ) -> list[MemorySearchResult]:
-    """Fall back to text-based search (N+1 queries but works without embeddings)."""
-    results = []
+    """Fall back to text-based search.
+    
+    Searches all tables in parallel using asyncio.gather().
+    """
+    import asyncio
     
     tables_to_search = (
         [t for t in memory_types if t in MEMORY_TABLES]
@@ -121,11 +124,13 @@ async def _text_search(
     )
     
     safe_query = escape_like(query)
-    
-    for table_key in tables_to_search:
+
+    async def search_table(table_key: str) -> list[MemorySearchResult]:
+        """Search a single table for matching records."""
         table_name = MEMORY_TABLES[table_key]
+        content_fields = _get_content_fields(table_key)
         
-        try:
+        def _query():
             db_query = (
                 db.table(table_name)
                 .select("*")
@@ -133,31 +138,36 @@ async def _text_search(
                 .eq("deleted", False)
                 .limit(limit)
             )
-            
-            content_fields = _get_content_fields(table_key)
             if content_fields:
                 db_query = db_query.ilike(content_fields[0], f"%{safe_query}%")
-            
-            result = db_query.execute()
-            
-            for record in result.data:
-                content = _extract_content(record, content_fields)
-                results.append(
-                    MemorySearchResult(
-                        id=record["id"],
-                        memory_type=table_key,
-                        content=content,
-                        score=0.5,  # Text search has no similarity score
-                        created_at=record.get("created_at"),
-                        metadata={
-                            k: v for k, v in record.items()
-                            if k not in ["id", "agent_id", "created_at", "deleted", "embedding"]
-                        },
-                    )
+            return db_query.execute()
+        
+        try:
+            result = await asyncio.to_thread(_query)
+            return [
+                MemorySearchResult(
+                    id=record["id"],
+                    memory_type=table_key,
+                    content=_extract_content(record, content_fields),
+                    score=0.5,  # Text search has no similarity score
+                    created_at=record.get("created_at"),
+                    metadata={
+                        k: v for k, v in record.items()
+                        if k not in ["id", "agent_id", "created_at", "deleted", "embedding"]
+                    },
                 )
+                for record in result.data
+            ]
         except Exception:
-            continue
-    
+            return []
+
+    # Search all tables in parallel
+    table_results = await asyncio.gather(*[
+        search_table(table_key) for table_key in tables_to_search
+    ])
+
+    # Flatten and sort by created_at
+    results = [r for table_list in table_results for r in table_list]
     results.sort(key=lambda x: x.created_at or "", reverse=True)
     return results[:limit]
 
