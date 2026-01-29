@@ -587,3 +587,46 @@ GET  /billing/invoices      - User's invoice history
   - Conflict resolution (cloud-wins, local-wins scenarios)
   - Sync metadata (last sync time tracking, persistence)
   - Edge cases (deleted records, empty queue, partial failures)
+
+---
+
+## Known Technical Debt
+
+### Async Supabase Client (P2)
+
+**Issue:** Backend uses sync Supabase client in async FastAPI functions, blocking the event loop under load.
+
+**Impact:** At high concurrency, sync DB calls will bottleneck request throughput.
+
+**Fix:** Refactor to use async Supabase client (`supabase-py` supports async via `create_async_client`).
+
+**Scope:** ~4-8 hours, touches most of `database.py` and route handlers.
+
+**Priority:** Low urgency at current scale, should address before significant traffic growth.
+
+---
+
+## Completed (2026-01-28 evening session)
+
+### Security Fixes
+- OAuth login: issuer validation, response variable shadowing
+- Admin auth: tier='admin' required for /admin/* routes
+- CSRF protection: SameSite=Strict + Origin validation
+- CORS: localhost only in debug mode
+- JWT algorithm: allowlist (HS256/384/512 only)
+- Mass assignment: server-controlled fields stripped in sync push
+- IDOR: agent_id validation in admin backfill
+- Fail-closed auth: cached quota checking with 60s TTL
+
+### Architecture Fixes
+- Admin tier: migration 014 adds 'admin' to constraint
+- Semantic search: migration 015 adds missing tables (drives, relationships, playbooks, emotional_memories)
+- Race conditions: migration 016 atomic interaction increment
+- N+1 queries: admin/agents, sync/pull, text search parallelized
+- Pagination: limit validated (1-200), uses COUNT not fetch-all
+- has_more flag: correct per-table limit checking
+- Forgotten filter: is_forgotten memories excluded from sync
+- Embedding fields: correct schema mappings
+- Server-side re-embedding: semantic search as subscription feature
+
+### Test Count: 771 passing
