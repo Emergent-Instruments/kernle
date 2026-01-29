@@ -33,44 +33,47 @@ _quota_cache_lock = threading.Lock()
 logger = logging.getLogger("kernle.auth")
 
 
-async def check_quota_cached(
+async def check_and_increment_quota_cached(
     db,
     api_key_id: str,
     user_id: str,
     tier: str,
 ) -> tuple[bool, dict]:
     """
-    Check quota with caching for resilience.
+    Atomically check quota and increment usage with caching for resilience.
 
     Behavior:
-    - Cache hit: return cached (allowed, info) decision
-    - Cache miss: query DB, cache result on success
-    - DB error + no cache: 503 (fail-closed)
-    - DB error + fresh cache: use cached decision
+    - For denials: cache the denial decision briefly to avoid hammering DB
+    - For allows: always go to DB to ensure atomic increment
+    - DB error: 503 (fail-closed) - don't allow unlimited requests on errors
 
-    This ensures brief DB outages don't immediately block all requests.
+    This prevents race conditions where concurrent requests could exceed quota.
     """
-    from .database import check_quota
+    from .database import check_and_increment_quota
 
-    cache_key = api_key_id
+    cache_key = f"deny:{api_key_id}"
 
-    # Check cache first
+    # Check if we have a cached denial (don't cache allows - need atomic increment)
     with _quota_cache_lock:
-        cached = _quota_cache.get(cache_key)
+        cached_denial = _quota_cache.get(cache_key)
 
-    if cached is not None:
-        logger.debug(f"Quota cache hit for {api_key_id[:12]}...")
-        return cached
+    if cached_denial is not None:
+        logger.debug(f"Quota denial cache hit for {api_key_id[:12]}...")
+        return False, cached_denial
 
-    # Cache miss - query DB
+    # Call atomic check-and-increment
     try:
-        allowed, quota_info = await check_quota(db, api_key_id, user_id, tier)
-        with _quota_cache_lock:
-            _quota_cache[cache_key] = (allowed, quota_info)
+        allowed, quota_info = await check_and_increment_quota(db, api_key_id, user_id, tier)
+
+        # Cache denials briefly to reduce DB load
+        if not allowed:
+            with _quota_cache_lock:
+                _quota_cache[cache_key] = quota_info
+
         return allowed, quota_info
     except Exception as e:
         logger.error(f"Quota check failed for {api_key_id[:12]}...: {e}")
-        # No cache available - fail closed
+        # Fail closed - don't allow unlimited requests when DB is down
         raise HTTPException(
             status_code=503,
             detail="Service temporarily unavailable",
@@ -256,7 +259,6 @@ async def get_current_agent(
         # Import here to avoid circular imports
         from .database import (
             get_supabase_client,
-            increment_usage,
             verify_api_key_auth,
         )
 
@@ -274,8 +276,8 @@ async def get_current_agent(
         api_key_id = auth_result.get("api_key_id")
         user_id = auth_result["user_id"]
 
-        # Check quota with caching for resilience (fail closed on error)
-        allowed, quota_info = await check_quota_cached(db, api_key_id, user_id, tier)
+        # Atomically check quota and increment usage (prevents race conditions)
+        allowed, quota_info = await check_and_increment_quota_cached(db, api_key_id, user_id, tier)
 
         if not allowed:
             # Determine reset time for Retry-After header
@@ -303,11 +305,7 @@ async def get_current_agent(
                 headers=headers,
             )
 
-        # Increment usage after successful auth and quota check (non-blocking)
-        try:
-            await increment_usage(db, api_key_id, user_id)
-        except Exception as e:
-            logger.warning(f"Usage increment failed: {e}")
+        # Usage increment is now atomic with quota check - no separate call needed
 
         return AuthContext(
             agent_id=auth_result["agent_id"],

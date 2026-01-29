@@ -15,6 +15,18 @@ from .rate_limit import limiter
 from .routes import admin_router, auth_router, embeddings_router, memories_router, sync_router
 
 
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Add security headers to all responses."""
+
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+        return response
+
+
 class CSRFMiddleware(BaseHTTPMiddleware):
     """
     CSRF protection middleware using Origin header validation.
@@ -117,6 +129,9 @@ app.add_middleware(
     allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
 )
 
+# Security headers middleware
+app.add_middleware(SecurityHeadersMiddleware)
+
 # CSRF protection middleware (validates Origin header for state-changing requests)
 app.add_middleware(CSRFMiddleware, allowed_origins=settings.allowed_origins)
 
@@ -150,7 +165,12 @@ async def health():
         db.table("agents").select("id").limit(1).execute()
         db_status = "connected"
     except Exception as e:
-        db_status = f"error: {str(e)[:50]}"
+        import logging
+
+        logging.getLogger("kernle.health").error(
+            f"Health check database error: {type(e).__name__}: {e}"
+        )
+        db_status = "error"
 
     overall_status = "healthy" if db_status == "connected" else "degraded"
 
