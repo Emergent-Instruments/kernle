@@ -758,7 +758,7 @@ def set_auth_cookie(response: Response, token: str, settings: Settings):
         max_age=COOKIE_MAX_AGE,
         httponly=True,
         secure=True,  # Only send over HTTPS
-        samesite="lax",  # Protect against CSRF while allowing normal nav
+        samesite="strict",  # CSRF protection - block cross-site requests entirely
         path="/",
     )
 
@@ -770,7 +770,7 @@ def clear_auth_cookie(response: Response):
         path="/",
         httponly=True,
         secure=True,
-        samesite="lax",
+        samesite="strict",
     )
 
 
