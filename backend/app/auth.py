@@ -11,12 +11,12 @@ import bcrypt
 from cachetools import TTLCache
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-
-# Cookie name for httpOnly auth
-AUTH_COOKIE_NAME = "kernle_auth"
 from jose import JWTError, jwt
 
 from .config import Settings, get_settings
+
+# Cookie name for httpOnly auth
+AUTH_COOKIE_NAME = "kernle_auth"
 
 # Bearer token scheme
 # Make bearer optional to allow cookie fallback
@@ -41,27 +41,27 @@ async def check_quota_cached(
 ) -> tuple[bool, dict]:
     """
     Check quota with caching for resilience.
-    
+
     Behavior:
     - Cache hit: return cached (allowed, info) decision
     - Cache miss: query DB, cache result on success
     - DB error + no cache: 503 (fail-closed)
     - DB error + fresh cache: use cached decision
-    
+
     This ensures brief DB outages don't immediately block all requests.
     """
     from .database import check_quota
-    
+
     cache_key = api_key_id
-    
+
     # Check cache first
     with _quota_cache_lock:
         cached = _quota_cache.get(cache_key)
-    
+
     if cached is not None:
         logger.debug(f"Quota cache hit for {api_key_id[:12]}...")
         return cached
-    
+
     # Cache miss - query DB
     try:
         allowed, quota_info = await check_quota(db, api_key_id, user_id, tier)
@@ -90,7 +90,7 @@ def generate_api_key() -> str:
 
 def get_api_key_prefix(key: str) -> str:
     """Extract prefix from API key for storage (first 12 chars after knl_sk_).
-    
+
     Using 12 chars gives us 5 hex chars after 'knl_sk_' = 16^5 = ~1M possible
     prefixes, making collision-based timing attacks impractical.
     """
@@ -108,11 +108,14 @@ def hash_api_key(key: str) -> str:
 def verify_api_key(plain_key: str, hashed: str) -> bool:
     """Verify an API key against its hash."""
     import logging
+
     try:
         return bcrypt.checkpw(plain_key.encode(), hashed.encode())
     except Exception:
         # Log but don't expose details - could be malformed input
-        logging.getLogger("kernle.auth").debug("API key verification failed due to encoding/hashing error")
+        logging.getLogger("kernle.auth").debug(
+            "API key verification failed due to encoding/hashing error"
+        )
         return False
 
 
@@ -129,11 +132,14 @@ def hash_secret(secret: str) -> str:
 def verify_secret(plain: str, hashed: str) -> bool:
     """Verify an agent secret against hash."""
     import logging
+
     try:
         return bcrypt.checkpw(plain.encode(), hashed.encode())
     except Exception:
         # Log but don't expose details - could be malformed input
-        logging.getLogger("kernle.auth").debug("Secret verification failed due to encoding/hashing error")
+        logging.getLogger("kernle.auth").debug(
+            "Secret verification failed due to encoding/hashing error"
+        )
         return False
 
 
@@ -195,6 +201,7 @@ def decode_token(token: str, settings: Settings) -> dict:
 
 class AuthContext:
     """Context from JWT token containing agent_id and user_id."""
+
     def __init__(
         self,
         agent_id: str,
@@ -209,7 +216,7 @@ class AuthContext:
 
     def namespaced_agent_id(self, project_name: str | None = None) -> str:
         """Return full namespaced agent_id: {user_id}/{project_name}.
-        
+
         If project_name contains '/', it's already namespaced - return as-is.
         If no project_name given, returns the agent_id from token.
         """
@@ -236,45 +243,45 @@ async def get_current_agent(
     else:
         # Check for httpOnly cookie
         token = request.cookies.get(AUTH_COOKIE_NAME)
-    
+
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated - provide Authorization header or auth cookie",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
     # Check if it's an API key
     if is_api_key(token):
         # Import here to avoid circular imports
         from .database import (
             get_supabase_client,
-            verify_api_key_auth,
             increment_usage,
+            verify_api_key_auth,
         )
-        
+
         db = get_supabase_client(settings)
         auth_result = await verify_api_key_auth(db, token)
-        
+
         if not auth_result:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or inactive API key",
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        
+
         tier = auth_result.get("tier", "free")
         api_key_id = auth_result.get("api_key_id")
         user_id = auth_result["user_id"]
-        
+
         # Check quota with caching for resilience (fail closed on error)
         allowed, quota_info = await check_quota_cached(db, api_key_id, user_id, tier)
-        
+
         if not allowed:
             # Determine reset time for Retry-After header
             exceeded = quota_info.get("exceeded", "daily")
             reset_at = quota_info.get(f"{exceeded}_reset_at")
-            
+
             headers = {"WWW-Authenticate": "Bearer"}
             if reset_at:
                 # Add reset time headers
@@ -282,31 +289,33 @@ async def get_current_agent(
                 headers["X-RateLimit-Exceeded"] = exceeded
                 # Calculate seconds until reset for Retry-After
                 from datetime import datetime, timezone
+
                 from dateutil.parser import parse
+
                 now = datetime.now(timezone.utc)
                 reset_dt = parse(reset_at) if isinstance(reset_at, str) else reset_at
                 retry_after = max(1, int((reset_dt - now).total_seconds()))
                 headers["Retry-After"] = str(retry_after)
-            
+
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail=f"Rate limit exceeded: {exceeded} quota reached. Resets at {reset_at}",
                 headers=headers,
             )
-        
+
         # Increment usage after successful auth and quota check (non-blocking)
         try:
             await increment_usage(db, api_key_id, user_id)
         except Exception as e:
             logger.warning(f"Usage increment failed: {e}")
-        
+
         return AuthContext(
             agent_id=auth_result["agent_id"],
             user_id=user_id,
             tier=tier,
             api_key_id=api_key_id,
         )
-    
+
     # Otherwise, treat as JWT (no quota for JWT auth - used for web UI)
     payload = decode_token(token, settings)
     agent_id = payload.get("sub")
@@ -317,17 +326,18 @@ async def get_current_agent(
             headers={"WWW-Authenticate": "Bearer"},
         )
     user_id = payload.get("user_id")
-    
+
     # Get tier from database for JWT auth (fail gracefully to "free")
     tier = "free"
     try:
-        from .database import get_supabase_client, get_agent_tier
+        from .database import get_agent_tier, get_supabase_client
+
         db = get_supabase_client(settings)
         tier = await get_agent_tier(db, agent_id)
     except Exception as e:
         # Log but continue with free tier - don't block auth
         logger.warning(f"Tier lookup failed for {agent_id}, defaulting to free: {e}")
-    
+
     return AuthContext(agent_id=agent_id, user_id=user_id, tier=tier)
 
 
@@ -337,7 +347,7 @@ CurrentAgent = Annotated[AuthContext, Depends(get_current_agent)]
 
 async def require_admin(agent: CurrentAgent) -> AuthContext:
     """Require admin tier for access.
-    
+
     Use as a dependency on admin-only routes:
         admin: Annotated[AuthContext, Depends(require_admin)]
     """
@@ -349,7 +359,7 @@ async def require_admin(agent: CurrentAgent) -> AuthContext:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required",
         )
-    
+
     logger.info(f"Admin access granted: agent={agent.agent_id} user={agent.user_id}")
     return agent
 
