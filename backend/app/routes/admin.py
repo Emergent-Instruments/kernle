@@ -138,7 +138,7 @@ async def _get_bulk_memory_stats(db, agent_ids: list[str]) -> dict[str, tuple[di
     """Get memory counts and embedding coverage for multiple agents in batch.
     
     Returns dict mapping agent_id -> (counts, coverage)
-    This uses 2 queries per table instead of 2 queries per table per agent.
+    Uses count="exact" to get counts without fetching row data.
     """
     if not agent_ids:
         return {}
@@ -150,47 +150,33 @@ async def _get_bulk_memory_stats(db, agent_ids: list[str]) -> dict[str, tuple[di
         coverage = {table: {"total": 0, "with_embedding": 0, "percent": 100.0} for table in MEMORY_TABLES}
         results[agent_id] = (counts, coverage)
     
-    # Query each table once for all agents
+    # Query each table for each agent using count="exact"
+    # This makes more queries but avoids fetching all row data
     for table in MEMORY_TABLES:
-        try:
-            # Get total counts grouped by agent_id using RPC
-            # Supabase Python doesn't support GROUP BY directly, so we use raw SQL via RPC
-            # Fallback: fetch all rows and count in Python (still better than N queries)
-            total_result = (
-                db.table(table)
-                .select("agent_id")
-                .in_("agent_id", agent_ids)
-                .eq("deleted", False)
-                .execute()
-            )
-            
-            # Count totals per agent
-            total_by_agent: dict[str, int] = {}
-            for row in total_result.data:
-                aid = row["agent_id"]
-                total_by_agent[aid] = total_by_agent.get(aid, 0) + 1
-            
-            # Get rows with embeddings
-            emb_result = (
-                db.table(table)
-                .select("agent_id")
-                .in_("agent_id", agent_ids)
-                .eq("deleted", False)
-                .not_.is_("embedding", "null")
-                .execute()
-            )
-            
-            # Count embeddings per agent
-            emb_by_agent: dict[str, int] = {}
-            for row in emb_result.data:
-                aid = row["agent_id"]
-                emb_by_agent[aid] = emb_by_agent.get(aid, 0) + 1
-            
-            # Update results
-            for agent_id in agent_ids:
-                total = total_by_agent.get(agent_id, 0)
-                with_emb = emb_by_agent.get(agent_id, 0)
+        for agent_id in agent_ids:
+            try:
+                # Get total count using count="exact" (no data transfer)
+                total_result = (
+                    db.table(table)
+                    .select("id", count="exact")
+                    .eq("agent_id", agent_id)
+                    .eq("deleted", False)
+                    .execute()
+                )
+                total = total_result.count or 0
                 
+                # Get embedding count using count="exact"
+                emb_result = (
+                    db.table(table)
+                    .select("id", count="exact")
+                    .eq("agent_id", agent_id)
+                    .eq("deleted", False)
+                    .not_.is_("embedding", "null")
+                    .execute()
+                )
+                with_emb = emb_result.count or 0
+                
+                # Update results
                 counts, coverage = results[agent_id]
                 counts[table] = total
                 coverage[table] = {
@@ -199,9 +185,9 @@ async def _get_bulk_memory_stats(db, agent_ids: list[str]) -> dict[str, tuple[di
                     "percent": round(with_emb / total * 100, 1) if total > 0 else 100.0
                 }
                 
-        except Exception as e:
-            logger.warning(f"Error getting bulk stats for {table}: {e}")
-            # Results already initialized with zeros
+            except Exception as e:
+                logger.warning(f"Error getting stats for {table}/{agent_id}: {e}")
+                # Results already initialized with zeros
     
     return results
 
@@ -254,6 +240,9 @@ async def list_agents(
     
     Returns public info only - no private memory contents.
     """
+    # Validate pagination bounds
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
     
     # Get agents
     result = (
