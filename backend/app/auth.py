@@ -213,14 +213,18 @@ async def get_current_agent(
         api_key_id = auth_result.get("api_key_id")
         user_id = auth_result["user_id"]
         
-        # Check quota before allowing request (fail open if error)
+        # Check quota before allowing request (fail closed on error)
         try:
             allowed, quota_info = await check_quota(db, api_key_id, user_id, tier)
         except Exception as e:
-            # Log error but allow request (fail open)
+            # Fail closed: deny request if quota check fails
             import logging
-            logging.getLogger("kernle.auth").warning(f"Quota check failed: {e}")
-            allowed, quota_info = True, {}
+            logging.getLogger("kernle.auth").error(f"Quota check failed: {e}")
+            raise HTTPException(
+                status_code=503,
+                detail="Service temporarily unavailable",
+                headers={"Retry-After": "60"}
+            )
         
         if not allowed:
             # Determine reset time for Retry-After header
