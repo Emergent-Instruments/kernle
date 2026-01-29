@@ -104,7 +104,7 @@ class TestForgettingCandidates:
         candidates = kernle.get_forgetting_candidates(threshold=0.01)
 
         # New memory shouldn't be a candidate
-        assert len(candidates) == 0 or all(c['salience'] < 0.01 for c in candidates)
+        assert len(candidates) == 0 or all(c["salience"] < 0.01 for c in candidates)
 
     def test_get_candidates_finds_old_memories(self, kernle_instance):
         """Should find old, unaccessed memories."""
@@ -128,7 +128,7 @@ class TestForgettingCandidates:
         candidates = kernle.get_forgetting_candidates(threshold=0.5)
 
         # Should find our old episode
-        candidate_ids = [c['id'] for c in candidates]
+        candidate_ids = [c["id"] for c in candidates]
         assert "old-forgettable" in candidate_ids
 
     def test_candidates_exclude_protected(self, kernle_instance):
@@ -154,7 +154,7 @@ class TestForgettingCandidates:
         candidates = kernle.get_forgetting_candidates(threshold=0.5)
 
         # Protected memory should not be in candidates
-        candidate_ids = [c['id'] for c in candidates]
+        candidate_ids = [c["id"] for c in candidates]
         assert "protected-episode" not in candidate_ids
 
 
@@ -350,8 +350,8 @@ class TestForgettingCycle:
         # Run dry cycle
         result = kernle.run_forgetting_cycle(threshold=0.5, dry_run=True)
 
-        assert result['dry_run'] is True
-        assert result['forgotten'] == 0
+        assert result["dry_run"] is True
+        assert result["forgotten"] == 0
 
         # Episode should still not be forgotten
         episode = storage.get_episode("dry-run-test")
@@ -379,8 +379,8 @@ class TestForgettingCycle:
         # Run live cycle with high threshold to catch it
         result = kernle.run_forgetting_cycle(threshold=0.5, dry_run=False, limit=10)
 
-        assert result['dry_run'] is False
-        assert result['forgotten'] >= 1
+        assert result["dry_run"] is False
+        assert result["forgotten"] >= 1
 
         # Episode should be forgotten
         episode = storage.get_episode("live-run-test")
@@ -441,7 +441,7 @@ class TestGetForgottenMemories:
         forgotten = kernle.get_forgotten_memories()
 
         assert len(forgotten) == 2
-        forgotten_ids = [f['id'] for f in forgotten]
+        forgotten_ids = [f["id"] for f in forgotten]
         assert ep1 in forgotten_ids
         assert ep2 in forgotten_ids
 
@@ -463,7 +463,7 @@ class TestMultipleMemoryTypes:
 
         # Verify in forgotten list
         forgotten = kernle.get_forgotten_memories(memory_types=["belief"])
-        assert any(f['id'] == belief_id for f in forgotten)
+        assert any(f["id"] == belief_id for f in forgotten)
 
     def test_forget_note(self, kernle_instance):
         """Should be able to forget notes."""
@@ -485,6 +485,7 @@ class TestMultipleMemoryTypes:
 
 
 # Fixtures
+
 
 @pytest.fixture
 def kernle_instance(temp_db_path, temp_checkpoint_dir):

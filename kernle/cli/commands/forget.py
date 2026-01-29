@@ -10,8 +10,8 @@ if TYPE_CHECKING:
 def cmd_forget(args, k: "Kernle"):
     """Handle controlled forgetting subcommands."""
     if args.forget_action == "candidates":
-        threshold = getattr(args, 'threshold', 0.3)
-        limit = getattr(args, 'limit', 20)
+        threshold = getattr(args, "threshold", 0.3)
+        limit = getattr(args, "limit", 20)
 
         candidates = k.get_forgetting_candidates(threshold=threshold, limit=limit)
 
@@ -28,16 +28,18 @@ def cmd_forget(args, k: "Kernle"):
 
             for i, c in enumerate(candidates, 1):
                 salience_bar = "░" * 5  # Low salience = empty bar
-                if c['salience'] > 0.1:
-                    filled = min(5, int(c['salience'] * 10))
+                if c["salience"] > 0.1:
+                    filled = min(5, int(c["salience"] * 10))
                     salience_bar = "█" * filled + "░" * (5 - filled)
 
                 print(f"{i}. [{c['type']:<10}] {c['id'][:8]}...")
                 print(f"   Salience: [{salience_bar}] {c['salience']:.4f}")
                 print(f"   Summary: {c['summary'][:50]}...")
-                print(f"   Confidence: {c['confidence']:.0%} | Accessed: {c['times_accessed']} times")
+                print(
+                    f"   Confidence: {c['confidence']:.0%} | Accessed: {c['times_accessed']} times"
+                )
                 print(f"   Created: {c['created_at']}")
-                if c['last_accessed']:
+                if c["last_accessed"]:
                     print(f"   Last accessed: {c['last_accessed'][:10]}")
                 print()
 
@@ -45,9 +47,9 @@ def cmd_forget(args, k: "Kernle"):
             print("Run `kernle forget run` to actually forget these memories")
 
     elif args.forget_action == "run":
-        threshold = getattr(args, 'threshold', 0.3)
-        limit = getattr(args, 'limit', 10)
-        dry_run = getattr(args, 'dry_run', False)
+        threshold = getattr(args, "threshold", 0.3)
+        limit = getattr(args, "limit", 10)
+        dry_run = getattr(args, "dry_run", False)
 
         result = k.run_forgetting_cycle(
             threshold=threshold,
@@ -74,13 +76,17 @@ def cmd_forget(args, k: "Kernle"):
 
             print()
 
-            if result['candidates']:
+            if result["candidates"]:
                 print("Affected memories:")
-                for c in result['candidates'][:10]:
-                    status = "🔴 forgotten" if not dry_run and result['forgotten'] > 0 else "⚪ candidate"
+                for c in result["candidates"][:10]:
+                    status = (
+                        "🔴 forgotten"
+                        if not dry_run and result["forgotten"] > 0
+                        else "⚪ candidate"
+                    )
                     print(f"  {status} [{c['type']:<10}] {c['summary'][:40]}...")
 
-            if not dry_run and result['forgotten'] > 0:
+            if not dry_run and result["forgotten"] > 0:
                 print(f"\n✓ Forgotten {result['forgotten']} memories")
                 print("Run `kernle forget list` to see all forgotten memories")
                 print("Run `kernle forget recover <type> <id>` to recover if needed")
@@ -88,7 +94,7 @@ def cmd_forget(args, k: "Kernle"):
     elif args.forget_action == "protect":
         memory_type = args.type
         memory_id = args.id
-        unprotect = getattr(args, 'unprotect', False)
+        unprotect = getattr(args, "unprotect", False)
 
         success = k.protect(memory_type, memory_id, protected=not unprotect)
 
@@ -112,7 +118,7 @@ def cmd_forget(args, k: "Kernle"):
             print(f"Memory not found or not forgotten: {memory_type} {memory_id}")
 
     elif args.forget_action == "list":
-        limit = getattr(args, 'limit', 50)
+        limit = getattr(args, "limit", 50)
 
         forgotten = k.get_forgotten_memories(limit=limit)
 
@@ -130,8 +136,10 @@ def cmd_forget(args, k: "Kernle"):
             for i, f in enumerate(forgotten, 1):
                 print(f"{i}. [{f['type']:<10}] {f['id'][:8]}...")
                 print(f"   Summary: {f['summary'][:50]}...")
-                print(f"   Forgotten at: {f['forgotten_at'][:10] if f['forgotten_at'] else 'unknown'}")
-                if f['forgotten_reason']:
+                print(
+                    f"   Forgotten at: {f['forgotten_at'][:10] if f['forgotten_at'] else 'unknown'}"
+                )
+                if f["forgotten_reason"]:
                     print(f"   Reason: {f['forgotten_reason'][:50]}...")
                 print(f"   Created: {f['created_at']}")
                 print()
@@ -162,17 +170,17 @@ def cmd_forget(args, k: "Kernle"):
         print()
 
         # Component breakdown
-        confidence = getattr(record, 'confidence', 0.8)
-        times_accessed = getattr(record, 'times_accessed', 0) or 0
-        is_protected = getattr(record, 'is_protected', False)
+        confidence = getattr(record, "confidence", 0.8)
+        times_accessed = getattr(record, "times_accessed", 0) or 0
+        is_protected = getattr(record, "is_protected", False)
 
         print("Components:")
         print(f"  Confidence: {confidence:.0%}")
         print(f"  Times accessed: {times_accessed}")
         print(f"  Protected: {'Yes ✓' if is_protected else 'No'}")
 
-        last_accessed = getattr(record, 'last_accessed', None)
-        created_at = getattr(record, 'created_at', None)
+        last_accessed = getattr(record, "last_accessed", None)
+        created_at = getattr(record, "created_at", None)
         if last_accessed:
             print(f"  Last accessed: {last_accessed.isoformat()[:10]}")
         elif created_at:

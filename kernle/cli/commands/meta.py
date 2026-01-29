@@ -65,9 +65,11 @@ def cmd_meta(args, k: "Kernle"):
             if lineage.get("confidence_history"):
                 print("\nConfidence History:")
                 for change in lineage["confidence_history"][-5:]:
-                    print(f"  {change.get('timestamp', 'N/A')[:10]}: "
-                          f"{change.get('old', 'N/A')} → {change.get('new', 'N/A')} "
-                          f"({change.get('reason', 'no reason')})")
+                    print(
+                        f"  {change.get('timestamp', 'N/A')[:10]}: "
+                        f"{change.get('old', 'N/A')} → {change.get('new', 'N/A')} "
+                        f"({change.get('reason', 'no reason')})"
+                    )
 
     elif args.meta_action == "uncertain":
         threshold = args.threshold
@@ -83,7 +85,7 @@ def cmd_meta(args, k: "Kernle"):
             print(f"Uncertain Memories (confidence < {threshold:.0%})")
             print("=" * 50)
             for mem in results:
-                bar = "█" * int(mem['confidence'] * 10) + "░" * (10 - int(mem['confidence'] * 10))
+                bar = "█" * int(mem["confidence"] * 10) + "░" * (10 - int(mem["confidence"] * 10))
                 print(f"[{bar}] {mem['confidence']:.0%} [{mem['type']}] {mem['summary'][:40]}")
                 print(f"         ID: {mem['id'][:12]}...  ({mem['created_at']})")
 
@@ -105,9 +107,13 @@ def cmd_meta(args, k: "Kernle"):
         memory_id = args.id
         source_type = args.source
 
-        if k.set_memory_source(memory_type, memory_id, source_type,
-                               source_episodes=args.episodes,
-                               derived_from=args.derived):
+        if k.set_memory_source(
+            memory_type,
+            memory_id,
+            source_type,
+            source_episodes=args.episodes,
+            derived_from=args.derived,
+        ):
             print(f"✓ Source set for {memory_type}:{memory_id[:8]}...")
             print(f"  Source type: {source_type}")
             if args.episodes:
@@ -141,9 +147,13 @@ def cmd_meta(args, k: "Kernle"):
             print()
             for domain in domains[:15]:
                 icon = coverage_icons.get(domain["coverage"], "⚫")
-                conf_bar = "█" * int(domain["avg_confidence"] * 5) + "░" * (5 - int(domain["avg_confidence"] * 5))
+                conf_bar = "█" * int(domain["avg_confidence"] * 5) + "░" * (
+                    5 - int(domain["avg_confidence"] * 5)
+                )
                 print(f"{icon} {domain['name']:<20} [{conf_bar}] {domain['avg_confidence']:.0%}")
-                print(f"   Beliefs: {domain['belief_count']:>3}  Episodes: {domain['episode_count']:>3}  Notes: {domain['note_count']:>3}")
+                print(
+                    f"   Beliefs: {domain['belief_count']:>3}  Episodes: {domain['episode_count']:>3}  Notes: {domain['note_count']:>3}"
+                )
                 if domain.get("last_updated"):
                     print(f"   Last updated: {domain['last_updated'][:10]}")
                 print()
@@ -173,7 +183,7 @@ def cmd_meta(args, k: "Kernle"):
         if args.json:
             print(json.dumps(result, indent=2, default=str))
         else:
-            print(f"Knowledge Gap Analysis: \"{query}\"")
+            print(f'Knowledge Gap Analysis: "{query}"')
             print("=" * 60)
             print()
 
@@ -247,7 +257,9 @@ def cmd_meta(args, k: "Kernle"):
                 print("## Strengths 💪")
                 for s in strengths[:5]:
                     conf_bar = "█" * int(s["confidence"] * 5) + "░" * (5 - int(s["confidence"] * 5))
-                    print(f"  🟢 {s['domain']:<20} [{conf_bar}] {s['confidence']:.0%} conf, {s['success_rate']:.0%} success")
+                    print(
+                        f"  🟢 {s['domain']:<20} [{conf_bar}] {s['confidence']:.0%} conf, {s['success_rate']:.0%} success"
+                    )
                 print()
 
             # Weaknesses
@@ -256,7 +268,9 @@ def cmd_meta(args, k: "Kernle"):
                 print("## Weaknesses 📚 (learning opportunities)")
                 for w in weaknesses[:5]:
                     conf_bar = "█" * int(w["confidence"] * 5) + "░" * (5 - int(w["confidence"] * 5))
-                    print(f"  🟠 {w['domain']:<20} [{conf_bar}] {w['confidence']:.0%} conf, {w['success_rate']:.0%} success")
+                    print(
+                        f"  🟠 {w['domain']:<20} [{conf_bar}] {w['confidence']:.0%} conf, {w['success_rate']:.0%} success"
+                    )
                 print()
 
             if not strengths and not weaknesses:
@@ -290,7 +304,9 @@ def cmd_meta(args, k: "Kernle"):
                 priority_icon = priority_icons.get(opp["priority"], "⚪")
                 type_icon = type_icons.get(opp["type"], "•")
 
-                print(f"{i}. {priority_icon} [{opp['priority'].upper():>6}] {type_icon} {opp['domain']}")
+                print(
+                    f"{i}. {priority_icon} [{opp['priority'].upper():>6}] {type_icon} {opp['domain']}"
+                )
                 print(f"   Reason: {opp['reason']}")
                 print(f"   Action: {opp['suggested_action']}")
                 print()

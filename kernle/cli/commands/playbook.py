@@ -13,7 +13,9 @@ def cmd_playbook(args, k: "Kernle"):
     """Handle playbook (procedural memory) commands."""
     if args.playbook_action == "create":
         name = validate_input(args.name, "name", 200)
-        description = validate_input(args.description or f"Playbook for {name}", "description", 2000)
+        description = validate_input(
+            args.description or f"Playbook for {name}", "description", 2000
+        )
 
         # Parse steps - support both comma-separated and multiple --step flags
         steps = []
@@ -89,7 +91,9 @@ def cmd_playbook(args, k: "Kernle"):
                 success_pct = f"{p['success_rate']:.0%}" if p["times_used"] > 0 else "n/a"
                 print(f"\n{icon} [{p['id'][:8]}] {p['name']}")
                 print(f"   {p['description'][:60]}{'...' if len(p['description']) > 60 else ''}")
-                print(f"   Mastery: {p['mastery_level']} | Used: {p['times_used']}x | Success: {success_pct}")
+                print(
+                    f"   Mastery: {p['mastery_level']} | Used: {p['times_used']}x | Success: {success_pct}"
+                )
                 if p.get("tags"):
                     print(f"   Tags: {', '.join(p['tags'])}")
 
@@ -113,7 +117,9 @@ def cmd_playbook(args, k: "Kernle"):
                 success_pct = f"{p['success_rate']:.0%}" if p["times_used"] > 0 else "n/a"
                 print(f"{i}. {icon} {p['name']}")
                 print(f"   {p['description'][:60]}{'...' if len(p['description']) > 60 else ''}")
-                print(f"   Mastery: {p['mastery_level']} | Used: {p['times_used']}x | Success: {success_pct}")
+                print(
+                    f"   Mastery: {p['mastery_level']} | Used: {p['times_used']}x | Success: {success_pct}"
+                )
                 print()
 
     elif args.playbook_action == "show":
@@ -147,9 +153,9 @@ def cmd_playbook(args, k: "Kernle"):
             for i, step in enumerate(playbook["steps"], 1):
                 if isinstance(step, dict):
                     print(f"  {i}. {step.get('action', 'Unknown step')}")
-                    if step.get('details'):
+                    if step.get("details"):
                         print(f"     Details: {step['details']}")
-                    if step.get('adaptations'):
+                    if step.get("adaptations"):
                         print(f"     Adaptations: {step['adaptations']}")
                 else:
                     print(f"  {i}. {step}")
@@ -204,7 +210,9 @@ def cmd_playbook(args, k: "Kernle"):
                 else:
                     print(f"  {i}. {step}")
             print()
-            print(f"(Mastery: {playbook['mastery_level']} | Success: {playbook['success_rate']:.0%})")
+            print(
+                f"(Mastery: {playbook['mastery_level']} | Success: {playbook['success_rate']:.0%})"
+            )
             print(f"\nTo record usage: kernle playbook record {playbook['id'][:8]}... --success")
 
     elif args.playbook_action == "record":

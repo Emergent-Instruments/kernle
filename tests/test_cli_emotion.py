@@ -1,8 +1,7 @@
 """Tests for CLI emotion command module."""
 
-import pytest
-from unittest.mock import MagicMock
 from argparse import Namespace
+from unittest.mock import MagicMock
 
 from kernle.cli.commands.emotion import cmd_emotion
 
@@ -20,15 +19,15 @@ class TestCmdEmotionSummary:
             "emotional_trajectory": [],
             "episode_count": 0,
         }
-        
+
         args = Namespace(
             emotion_action="summary",
             days=7,
             json=False,
         )
-        
+
         cmd_emotion(args, k)
-        
+
         captured = capsys.readouterr()
         assert "No emotional data" in captured.out
 
@@ -45,15 +44,15 @@ class TestCmdEmotionSummary:
             ],
             "episode_count": 10,
         }
-        
+
         args = Namespace(
             emotion_action="summary",
             days=7,
             json=False,
         )
-        
+
         cmd_emotion(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Emotional Summary" in captured.out
         assert "positive" in captured.out
@@ -72,15 +71,15 @@ class TestCmdEmotionDetect:
             "tags": [],
             "confidence": 0.0,
         }
-        
+
         args = Namespace(
             emotion_action="detect",
             text="The sky is blue.",
             json=False,
         )
-        
+
         cmd_emotion(args, k)
-        
+
         captured = capsys.readouterr()
         assert "No emotional signals" in captured.out
 
@@ -93,15 +92,15 @@ class TestCmdEmotionDetect:
             "tags": ["joy", "excitement"],
             "confidence": 0.8,
         }
-        
+
         args = Namespace(
             emotion_action="detect",
             text="I'm so happy and excited!",
             json=False,
         )
-        
+
         cmd_emotion(args, k)
-        
+
         captured = capsys.readouterr()
         assert "positive" in captured.out
         assert "joy" in captured.out
@@ -114,7 +113,7 @@ class TestCmdEmotionSearch:
         """Search with positive filter."""
         k = MagicMock()
         k.search_by_emotion.return_value = []
-        
+
         args = Namespace(
             emotion_action="search",
             positive=True,
@@ -129,9 +128,9 @@ class TestCmdEmotionSearch:
             limit=10,
             json=False,
         )
-        
+
         cmd_emotion(args, k)
-        
+
         # Should pass valence_range (0.3, 1.0) for positive
         call_args = k.search_by_emotion.call_args
         assert call_args[1]["valence_range"] == (0.3, 1.0)
@@ -140,7 +139,7 @@ class TestCmdEmotionSearch:
         """Search with negative filter."""
         k = MagicMock()
         k.search_by_emotion.return_value = []
-        
+
         args = Namespace(
             emotion_action="search",
             positive=False,
@@ -155,9 +154,9 @@ class TestCmdEmotionSearch:
             limit=10,
             json=False,
         )
-        
+
         cmd_emotion(args, k)
-        
+
         call_args = k.search_by_emotion.call_args
         assert call_args[1]["valence_range"] == (-1.0, -0.3)
 
@@ -165,7 +164,7 @@ class TestCmdEmotionSearch:
         """Search with calm filter."""
         k = MagicMock()
         k.search_by_emotion.return_value = []
-        
+
         args = Namespace(
             emotion_action="search",
             positive=False,
@@ -180,9 +179,9 @@ class TestCmdEmotionSearch:
             limit=10,
             json=False,
         )
-        
+
         cmd_emotion(args, k)
-        
+
         call_args = k.search_by_emotion.call_args
         assert call_args[1]["arousal_range"] == (0.0, 0.3)
 
@@ -190,7 +189,7 @@ class TestCmdEmotionSearch:
         """Search with intense filter."""
         k = MagicMock()
         k.search_by_emotion.return_value = []
-        
+
         args = Namespace(
             emotion_action="search",
             positive=False,
@@ -205,9 +204,9 @@ class TestCmdEmotionSearch:
             limit=10,
             json=False,
         )
-        
+
         cmd_emotion(args, k)
-        
+
         call_args = k.search_by_emotion.call_args
         assert call_args[1]["arousal_range"] == (0.7, 1.0)
 
@@ -215,7 +214,7 @@ class TestCmdEmotionSearch:
         """Search with custom valence and arousal ranges."""
         k = MagicMock()
         k.search_by_emotion.return_value = []
-        
+
         args = Namespace(
             emotion_action="search",
             positive=False,
@@ -230,9 +229,9 @@ class TestCmdEmotionSearch:
             limit=10,
             json=False,
         )
-        
+
         cmd_emotion(args, k)
-        
+
         call_args = k.search_by_emotion.call_args
         assert call_args[1]["valence_range"] == (-0.5, 0.5)
         assert call_args[1]["arousal_range"] == (0.3, 0.7)
@@ -258,7 +257,7 @@ class TestCmdEmotionSearch:
                 "created_at": "2026-01-27T09:00:00Z",
             },
         ]
-        
+
         args = Namespace(
             emotion_action="search",
             positive=False,
@@ -273,9 +272,9 @@ class TestCmdEmotionSearch:
             limit=10,
             json=False,
         )
-        
+
         cmd_emotion(args, k)
-        
+
         captured = capsys.readouterr()
         assert "2 matching episode" in captured.out
         assert "Test episode objective" in captured.out
@@ -286,10 +285,8 @@ class TestCmdEmotionSearch:
     def test_search_json(self, capsys):
         """Search JSON output."""
         k = MagicMock()
-        k.search_by_emotion.return_value = [
-            {"id": "ep123", "emotional_valence": 0.5}
-        ]
-        
+        k.search_by_emotion.return_value = [{"id": "ep123", "emotional_valence": 0.5}]
+
         args = Namespace(
             emotion_action="search",
             positive=False,
@@ -304,9 +301,9 @@ class TestCmdEmotionSearch:
             limit=10,
             json=True,
         )
-        
+
         cmd_emotion(args, k)
-        
+
         captured = capsys.readouterr()
         assert '"emotional_valence"' in captured.out
 
@@ -318,7 +315,7 @@ class TestCmdEmotionTag:
         """Successful tagging."""
         k = MagicMock()
         k.add_emotional_association.return_value = True
-        
+
         args = Namespace(
             emotion_action="tag",
             episode_id="abc123",
@@ -326,9 +323,9 @@ class TestCmdEmotionTag:
             arousal=0.6,
             tag=["happy"],
         )
-        
+
         cmd_emotion(args, k)
-        
+
         captured = capsys.readouterr()
         assert "✓" in captured.out
         assert "abc123" in captured.out
@@ -337,7 +334,7 @@ class TestCmdEmotionTag:
         """Tagging non-existent episode."""
         k = MagicMock()
         k.add_emotional_association.return_value = False
-        
+
         args = Namespace(
             emotion_action="tag",
             episode_id="nonexistent",
@@ -345,9 +342,9 @@ class TestCmdEmotionTag:
             arousal=0.6,
             tag=None,
         )
-        
+
         cmd_emotion(args, k)
-        
+
         captured = capsys.readouterr()
         assert "✗" in captured.out
         assert "not found" in captured.out
@@ -360,7 +357,7 @@ class TestCmdEmotionMood:
         """Mood with no relevant memories."""
         k = MagicMock()
         k.get_mood_relevant_memories.return_value = []
-        
+
         args = Namespace(
             emotion_action="mood",
             valence=0.5,
@@ -368,9 +365,9 @@ class TestCmdEmotionMood:
             limit=10,
             json=False,
         )
-        
+
         cmd_emotion(args, k)
-        
+
         k.get_mood_relevant_memories.assert_called_with(
             current_valence=0.5,
             current_arousal=0.5,
@@ -394,7 +391,7 @@ class TestCmdEmotionMood:
                 "created_at": "2026-01-28",
             },
         ]
-        
+
         args = Namespace(
             emotion_action="mood",
             valence=0.7,
@@ -402,9 +399,9 @@ class TestCmdEmotionMood:
             limit=10,
             json=False,
         )
-        
+
         cmd_emotion(args, k)
-        
+
         captured = capsys.readouterr()
         assert "😊" in captured.out  # Happy mood
         assert "Happy memory" in captured.out
@@ -424,7 +421,7 @@ class TestCmdEmotionMood:
                 "created_at": "2026-01-27",
             },
         ]
-        
+
         args = Namespace(
             emotion_action="mood",
             valence=-0.5,
@@ -432,19 +429,17 @@ class TestCmdEmotionMood:
             limit=10,
             json=False,
         )
-        
+
         cmd_emotion(args, k)
-        
+
         captured = capsys.readouterr()
         assert "😢" in captured.out  # Sad mood
 
     def test_mood_json(self, capsys):
         """Mood JSON output."""
         k = MagicMock()
-        k.get_mood_relevant_memories.return_value = [
-            {"id": "ep123", "objective": "test"}
-        ]
-        
+        k.get_mood_relevant_memories.return_value = [{"id": "ep123", "objective": "test"}]
+
         args = Namespace(
             emotion_action="mood",
             valence=0.0,
@@ -452,9 +447,9 @@ class TestCmdEmotionMood:
             limit=10,
             json=True,
         )
-        
+
         cmd_emotion(args, k)
-        
+
         captured = capsys.readouterr()
         assert '"id"' in captured.out
 
@@ -472,18 +467,18 @@ class TestCmdEmotionSummaryJson:
             "emotional_trajectory": [],
             "episode_count": 5,
         }
-        
+
         args = Namespace(
             emotion_action="summary",
             days=7,
             json=True,
         )
-        
+
         cmd_emotion(args, k)
-        
+
         captured = capsys.readouterr()
         assert '"average_valence"' in captured.out
-        assert '0.5' in captured.out
+        assert "0.5" in captured.out
 
 
 class TestCmdEmotionDetectJson:
@@ -498,15 +493,15 @@ class TestCmdEmotionDetectJson:
             "tags": ["joy"],
             "confidence": 0.8,
         }
-        
+
         args = Namespace(
             emotion_action="detect",
             text="I'm so happy!",
             json=True,
         )
-        
+
         cmd_emotion(args, k)
-        
+
         captured = capsys.readouterr()
         assert '"valence"' in captured.out
         assert '"tags"' in captured.out

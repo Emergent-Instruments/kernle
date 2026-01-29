@@ -19,7 +19,7 @@ from kernle.storage import SQLiteStorage
 @pytest.fixture
 def temp_db():
     """Create a temporary database path."""
-    path = Path(tempfile.mktemp(suffix='.db'))
+    path = Path(tempfile.mktemp(suffix=".db"))
     yield path
     if path.exists():
         path.unlink()
@@ -37,11 +37,7 @@ def temp_checkpoint_dir(tmp_path):
 def kernle(temp_db, temp_checkpoint_dir):
     """Create a Kernle instance for testing."""
     storage = SQLiteStorage(agent_id="test-agent", db_path=temp_db)
-    return Kernle(
-        agent_id="test-agent",
-        storage=storage,
-        checkpoint_dir=temp_checkpoint_dir
-    )
+    return Kernle(agent_id="test-agent", storage=storage, checkpoint_dir=temp_checkpoint_dir)
 
 
 @pytest.fixture
@@ -49,24 +45,12 @@ def populated_kernle(kernle):
     """Kernle with some test data for meta-cognition."""
     # Add beliefs with varying confidence
     kernle.belief(
-        statement="Python is excellent for rapid prototyping",
-        type="fact",
-        confidence=0.9
+        statement="Python is excellent for rapid prototyping", type="fact", confidence=0.9
     )
+    kernle.belief(statement="Type hints improve code maintainability", type="fact", confidence=0.85)
+    kernle.belief(statement="Docker networking is complex", type="observation", confidence=0.4)
     kernle.belief(
-        statement="Type hints improve code maintainability",
-        type="fact",
-        confidence=0.85
-    )
-    kernle.belief(
-        statement="Docker networking is complex",
-        type="observation",
-        confidence=0.4
-    )
-    kernle.belief(
-        statement="Kubernetes autoscaling is straightforward",
-        type="assumption",
-        confidence=0.3
+        statement="Kubernetes autoscaling is straightforward", type="assumption", confidence=0.3
     )
 
     # Add episodes with tags
@@ -74,43 +58,43 @@ def populated_kernle(kernle):
         objective="Implement Python API endpoint",
         outcome="success",
         lessons=["Use FastAPI for modern APIs"],
-        tags=["python", "api"]
+        tags=["python", "api"],
     )
     kernle.episode(
         objective="Write Python unit tests",
         outcome="success",
         lessons=["pytest fixtures are powerful"],
-        tags=["python", "testing"]
+        tags=["python", "testing"],
     )
     kernle.episode(
         objective="Deploy Docker container",
         outcome="failure",
         lessons=["Check port mappings carefully"],
-        tags=["docker", "deployment"]
+        tags=["docker", "deployment"],
     )
     kernle.episode(
         objective="Configure Docker networking",
         outcome="failure",
         lessons=["Network modes are confusing"],
-        tags=["docker", "networking"]
+        tags=["docker", "networking"],
     )
     kernle.episode(
         objective="Set up Kubernetes cluster",
         outcome="partial",
         lessons=["Start with minikube for learning"],
-        tags=["kubernetes"]
+        tags=["kubernetes"],
     )
 
     # Add notes
     kernle.note(
         content="Python 3.12 has significant performance improvements",
         type="insight",
-        tags=["python"]
+        tags=["python"],
     )
     kernle.note(
         content="Always use docker-compose for multi-container apps",
         type="decision",
-        tags=["docker"]
+        tags=["docker"],
     )
 
     return kernle
@@ -139,8 +123,10 @@ class TestGetKnowledgeMap:
         # Check domain structure
         [d["name"] for d in knowledge_map["domains"]]
         # Should have domains from tags and belief types
-        assert any(d["name"] in ["python", "docker", "kubernetes", "fact", "observation"]
-                  for d in knowledge_map["domains"])
+        assert any(
+            d["name"] in ["python", "docker", "kubernetes", "fact", "observation"]
+            for d in knowledge_map["domains"]
+        )
 
     def test_domain_statistics(self, populated_kernle):
         """Should calculate statistics for each domain."""
@@ -172,25 +158,17 @@ class TestGetKnowledgeMap:
         # High coverage domain (10+ items)
         for i in range(12):
             kernle.episode(
-                objective=f"High coverage task {i}",
-                outcome="success",
-                tags=["high_coverage"]
+                objective=f"High coverage task {i}", outcome="success", tags=["high_coverage"]
             )
 
         # Medium coverage domain (3-9 items)
         for i in range(5):
             kernle.episode(
-                objective=f"Medium coverage task {i}",
-                outcome="success",
-                tags=["medium_coverage"]
+                objective=f"Medium coverage task {i}", outcome="success", tags=["medium_coverage"]
             )
 
         # Low coverage domain (1-2 items)
-        kernle.episode(
-            objective="Low coverage task",
-            outcome="success",
-            tags=["low_coverage"]
-        )
+        kernle.episode(objective="Low coverage task", outcome="success", tags=["low_coverage"])
 
         knowledge_map = kernle.get_knowledge_map()
         domain_by_name = {d["name"]: d for d in knowledge_map["domains"]}
@@ -230,16 +208,17 @@ class TestDetectKnowledgeGaps:
         """Should recommend learning more when confidence is low."""
         # Add a low-confidence belief
         kernle.belief(
-            statement="GraphQL might be better than REST",
-            type="assumption",
-            confidence=0.3
+            statement="GraphQL might be better than REST", type="assumption", confidence=0.3
         )
 
         result = kernle.detect_knowledge_gaps("GraphQL")
 
         # With only one low-confidence result, should recommend learning more
         assert result["has_relevant_knowledge"] is True
-        assert result["recommendation"] in ("I should learn more", "I have limited knowledge - proceed with caution")
+        assert result["recommendation"] in (
+            "I should learn more",
+            "I have limited knowledge - proceed with caution",
+        )
 
     def test_high_confidence_recommendation(self, populated_kernle):
         """Should recommend helping when confidence is high."""
@@ -321,7 +300,7 @@ class TestGetCompetenceBoundaries:
             kernle.episode(
                 objective=f"Task {i}",
                 outcome="success" if i % 2 == 0 else "failure",
-                tags=["test_domain"]
+                tags=["test_domain"],
             )
 
         boundaries = kernle.get_competence_boundaries()
@@ -354,22 +333,14 @@ class TestIdentifyLearningOpportunities:
                 "low_coverage_domain",
                 "uncertain_belief",
                 "repeated_failures",
-                "stale_knowledge"
+                "stale_knowledge",
             )
 
     def test_detects_low_coverage_domains(self, kernle):
         """Should identify domains with low coverage but references."""
         # Add episodes referencing a domain but no beliefs
-        kernle.episode(
-            objective="Learn GraphQL basics",
-            outcome="partial",
-            tags=["graphql"]
-        )
-        kernle.episode(
-            objective="Build GraphQL API",
-            outcome="partial",
-            tags=["graphql"]
-        )
+        kernle.episode(objective="Learn GraphQL basics", outcome="partial", tags=["graphql"])
+        kernle.episode(objective="Build GraphQL API", outcome="partial", tags=["graphql"])
 
         opportunities = kernle.identify_learning_opportunities()
 
@@ -382,15 +353,9 @@ class TestIdentifyLearningOpportunities:
         """Should identify beliefs with low confidence."""
         # Add low-confidence beliefs
         kernle.belief(
-            statement="Microservices are always better",
-            type="assumption",
-            confidence=0.2
+            statement="Microservices are always better", type="assumption", confidence=0.2
         )
-        kernle.belief(
-            statement="NoSQL scales better than SQL",
-            type="assumption",
-            confidence=0.3
-        )
+        kernle.belief(statement="NoSQL scales better than SQL", type="assumption", confidence=0.3)
 
         opportunities = kernle.identify_learning_opportunities()
 
@@ -407,7 +372,7 @@ class TestIdentifyLearningOpportunities:
                 objective=f"Deploy to cloud {i}",
                 outcome="failure",
                 lessons=[f"Failed attempt {i}"],
-                tags=["cloud_deployment"]
+                tags=["cloud_deployment"],
             )
 
         opportunities = kernle.identify_learning_opportunities()
@@ -430,17 +395,11 @@ class TestIdentifyLearningOpportunities:
         # High priority: repeated failures
         for i in range(3):
             kernle.episode(
-                objective=f"High priority task {i}",
-                outcome="failure",
-                tags=["urgent_domain"]
+                objective=f"High priority task {i}", outcome="failure", tags=["urgent_domain"]
             )
 
         # Low priority: stale but has coverage
-        kernle.belief(
-            statement="Old knowledge",
-            type="fact",
-            confidence=0.8
-        )
+        kernle.belief(statement="Old knowledge", type="fact", confidence=0.8)
 
         opportunities = kernle.identify_learning_opportunities(limit=10)
 
@@ -463,16 +422,8 @@ class TestMetaCognitionIntegration:
         initial_domains = len(map1["domains"])
 
         # Add data
-        kernle.belief(
-            statement="Test belief",
-            type="fact",
-            confidence=0.8
-        )
-        kernle.episode(
-            objective="Test episode",
-            outcome="success",
-            tags=["new_domain"]
-        )
+        kernle.belief(statement="Test belief", type="fact", confidence=0.8)
+        kernle.episode(objective="Test episode", outcome="success", tags=["new_domain"])
 
         # Check updated map
         map2 = kernle.get_knowledge_map()
@@ -487,15 +438,13 @@ class TestMetaCognitionIntegration:
 
         # Add relevant knowledge
         kernle.belief(
-            statement="Machine learning requires large datasets",
-            type="fact",
-            confidence=0.85
+            statement="Machine learning requires large datasets", type="fact", confidence=0.85
         )
         kernle.episode(
             objective="Train ML model",
             outcome="success",
             lessons=["Start with simple models"],
-            tags=["machine_learning"]
+            tags=["machine_learning"],
         )
 
         # Query again
@@ -509,29 +458,13 @@ class TestMetaCognitionIntegration:
         """Competence boundaries should reflect actual experience."""
         # Add successful experiences in one domain
         for i in range(5):
-            kernle.episode(
-                objective=f"Python task {i}",
-                outcome="success",
-                tags=["python_dev"]
-            )
-            kernle.belief(
-                statement=f"Python insight {i}",
-                type="fact",
-                confidence=0.85
-            )
+            kernle.episode(objective=f"Python task {i}", outcome="success", tags=["python_dev"])
+            kernle.belief(statement=f"Python insight {i}", type="fact", confidence=0.85)
 
         # Add failed experiences in another domain
         for i in range(3):
-            kernle.episode(
-                objective=f"Rust task {i}",
-                outcome="failure",
-                tags=["rust_dev"]
-            )
-            kernle.belief(
-                statement=f"Rust assumption {i}",
-                type="assumption",
-                confidence=0.3
-            )
+            kernle.episode(objective=f"Rust task {i}", outcome="failure", tags=["rust_dev"])
+            kernle.belief(statement=f"Rust assumption {i}", type="assumption", confidence=0.3)
 
         boundaries = kernle.get_competence_boundaries()
 
@@ -565,9 +498,7 @@ class TestEdgeCases:
     def test_special_characters_in_domain(self, kernle):
         """Should handle special characters in tags/domains."""
         kernle.episode(
-            objective="Test with special chars",
-            outcome="success",
-            tags=["c++", "node.js", "vue-3"]
+            objective="Test with special chars", outcome="success", tags=["c++", "node.js", "vue-3"]
         )
 
         knowledge_map = kernle.get_knowledge_map()
@@ -579,11 +510,7 @@ class TestEdgeCases:
         """Should handle rapid sequential operations."""
         # Rapid additions
         for i in range(20):
-            kernle.belief(
-                statement=f"Concurrent belief {i}",
-                type="fact",
-                confidence=0.7
-            )
+            kernle.belief(statement=f"Concurrent belief {i}", type="fact", confidence=0.7)
 
         # All operations should work
         knowledge_map = kernle.get_knowledge_map()

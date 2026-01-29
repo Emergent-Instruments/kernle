@@ -53,7 +53,8 @@ class TestFindSemanticContradictions:
 
         # Search for "testing" - text search uses LIKE '%testing%'
         contradictions = k.find_semantic_contradictions(
-            "testing is essential", similarity_threshold=0.0  # Full phrase to have opposition words
+            "testing is essential",
+            similarity_threshold=0.0,  # Full phrase to have opposition words
         )
 
         # With text search fallback, "testing is essential" won't match
@@ -208,7 +209,8 @@ class TestFindSemanticContradictions:
 
         # Search for something completely different
         contradictions = k.find_semantic_contradictions(
-            "The weather is nice today", similarity_threshold=0.8  # High threshold
+            "The weather is nice today",
+            similarity_threshold=0.8,  # High threshold
         )
 
         # Should find no contradictions (unrelated topic)

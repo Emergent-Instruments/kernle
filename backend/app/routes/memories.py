@@ -16,7 +16,7 @@ logger = get_logger("kernle.memories")
 
 def escape_like(query: str) -> str:
     """Escape SQL LIKE special characters to prevent injection."""
-    return re.sub(r'([%_\\])', r'\\\1', query)
+    return re.sub(r"([%_\\])", r"\\\1", query)
 
 
 router = APIRouter(prefix="/memories", tags=["memories"])
@@ -30,14 +30,14 @@ async def search_memories(
 ):
     """
     Search agent's memories using semantic similarity (pgvector) with text fallback.
-    
+
     Semantic search creates an embedding of the query and finds memories with
     similar embeddings using cosine similarity. Falls back to text matching
     if embeddings are unavailable.
     """
     # Try semantic search first
     query_embedding = await create_embedding(request.query)
-    
+
     if query_embedding:
         results = await _semantic_search(
             db, auth.agent_id, query_embedding, request.limit, request.memory_types
@@ -48,12 +48,12 @@ async def search_memories(
                 query=request.query,
                 total=len(results),
             )
-    
+
     # Fall back to text search
     results = await _text_search(
         db, auth.agent_id, request.query, request.limit, request.memory_types
     )
-    
+
     return MemorySearchResponse(
         results=results,
         query=request.query,
@@ -70,14 +70,17 @@ async def _semantic_search(
 ) -> list[MemorySearchResult]:
     """Search using pgvector semantic similarity."""
     import logging
+
     logger = logging.getLogger("kernle.memories")
-    
+
     try:
-        logger.info(f"Semantic search: agent={agent_id}, embedding_dims={len(query_embedding)}, limit={limit}")
-        
+        logger.info(
+            f"Semantic search: agent={agent_id}, embedding_dims={len(query_embedding)}, limit={limit}"
+        )
+
         # Convert embedding list to pgvector string format
         embedding_str = "[" + ",".join(str(x) for x in query_embedding) + "]"
-        
+
         # Call the RPC function
         result = db.rpc(
             "search_memories_semantic",
@@ -86,11 +89,11 @@ async def _semantic_search(
                 "p_agent_id": agent_id,
                 "p_limit": limit,
                 "p_memory_types": memory_types,
-            }
+            },
         ).execute()
-        
+
         logger.info(f"Semantic search returned {len(result.data)} results")
-        
+
         return [
             MemorySearchResult(
                 id=row["id"],
@@ -116,23 +119,23 @@ async def _text_search(
     memory_types: list[str] | None,
 ) -> list[MemorySearchResult]:
     """Fall back to text-based search.
-    
+
     Searches all tables in parallel using asyncio.gather().
     """
-    
+
     tables_to_search = (
         [t for t in memory_types if t in MEMORY_TABLES]
         if memory_types
         else list(MEMORY_TABLES.keys())
     )
-    
+
     safe_query = escape_like(query)
 
     async def search_table(table_key: str) -> list[MemorySearchResult]:
         """Search a single table for matching records."""
         table_name = MEMORY_TABLES[table_key]
         content_fields = _get_content_fields(table_key)
-        
+
         def _query():
             db_query = (
                 db.table(table_name)
@@ -144,7 +147,7 @@ async def _text_search(
             if content_fields:
                 db_query = db_query.ilike(content_fields[0], f"%{safe_query}%")
             return db_query.execute()
-        
+
         try:
             result = await asyncio.to_thread(_query)
             return [
@@ -155,7 +158,8 @@ async def _text_search(
                     score=0.5,  # Text search has no similarity score
                     created_at=record.get("created_at"),
                     metadata={
-                        k: v for k, v in record.items()
+                        k: v
+                        for k, v in record.items()
                         if k not in ["id", "agent_id", "created_at", "deleted", "embedding"]
                     },
                 )
@@ -167,9 +171,9 @@ async def _text_search(
             return []
 
     # Search all tables in parallel
-    table_results = await asyncio.gather(*[
-        search_table(table_key) for table_key in tables_to_search
-    ])
+    table_results = await asyncio.gather(
+        *[search_table(table_key) for table_key in tables_to_search]
+    )
 
     # Flatten and sort by created_at
     results = [r for table_list in table_results for r in table_list]

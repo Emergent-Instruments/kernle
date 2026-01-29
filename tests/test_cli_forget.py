@@ -1,8 +1,7 @@
 """Tests for CLI forget command module."""
 
-import pytest
-from unittest.mock import MagicMock
 from argparse import Namespace
+from unittest.mock import MagicMock
 
 from kernle.cli.commands.forget import cmd_forget
 
@@ -14,16 +13,16 @@ class TestCmdForgetCandidates:
         """No candidates should show message."""
         k = MagicMock()
         k.get_forgetting_candidates.return_value = []
-        
+
         args = Namespace(
             forget_action="candidates",
             threshold=0.3,
             limit=20,
             json=False,
         )
-        
+
         cmd_forget(args, k)
-        
+
         captured = capsys.readouterr()
         assert "No forgetting candidates" in captured.out
 
@@ -42,16 +41,16 @@ class TestCmdForgetCandidates:
                 "created_at": "2026-01-01",
             }
         ]
-        
+
         args = Namespace(
             forget_action="candidates",
             threshold=0.3,
             limit=20,
             json=False,
         )
-        
+
         cmd_forget(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Forgetting Candidates" in captured.out
         assert "abc123" in captured.out
@@ -63,16 +62,16 @@ class TestCmdForgetCandidates:
         k.get_forgetting_candidates.return_value = [
             {"type": "episode", "id": "abc123", "salience": 0.1}
         ]
-        
+
         args = Namespace(
             forget_action="candidates",
             threshold=0.3,
             limit=20,
             json=True,
         )
-        
+
         cmd_forget(args, k)
-        
+
         captured = capsys.readouterr()
         assert '"type"' in captured.out
         assert '"episode"' in captured.out
@@ -93,7 +92,7 @@ class TestCmdForgetRun:
             "dry_run": True,
             "timestamp": "2026-01-28T00:00:00Z",
         }
-        
+
         args = Namespace(
             forget_action="run",
             threshold=0.3,
@@ -101,9 +100,9 @@ class TestCmdForgetRun:
             dry_run=True,
             json=False,
         )
-        
+
         cmd_forget(args, k)
-        
+
         k.run_forgetting_cycle.assert_called_with(threshold=0.3, limit=10, dry_run=True)
         captured = capsys.readouterr()
         assert "DRY RUN" in captured.out
@@ -120,7 +119,7 @@ class TestCmdForgetRun:
             "dry_run": False,
             "timestamp": "2026-01-28T00:00:00Z",
         }
-        
+
         args = Namespace(
             forget_action="run",
             threshold=0.3,
@@ -128,9 +127,9 @@ class TestCmdForgetRun:
             dry_run=False,
             json=False,
         )
-        
+
         cmd_forget(args, k)
-        
+
         captured = capsys.readouterr()
         assert "LIVE" in captured.out
         assert "Forgotten: 1" in captured.out
@@ -146,7 +145,7 @@ class TestCmdForgetRun:
             "protected": 0,
             "dry_run": True,
         }
-        
+
         args = Namespace(
             forget_action="run",
             threshold=0.3,
@@ -154,9 +153,9 @@ class TestCmdForgetRun:
             dry_run=True,
             json=True,
         )
-        
+
         cmd_forget(args, k)
-        
+
         captured = capsys.readouterr()
         assert '"threshold"' in captured.out
 
@@ -168,16 +167,16 @@ class TestCmdForgetProtect:
         """Successful protection."""
         k = MagicMock()
         k.protect.return_value = True
-        
+
         args = Namespace(
             forget_action="protect",
             type="episode",
             id="abc123",
             unprotect=False,
         )
-        
+
         cmd_forget(args, k)
-        
+
         k.protect.assert_called_with("episode", "abc123", protected=True)
         captured = capsys.readouterr()
         assert "✓" in captured.out
@@ -187,16 +186,16 @@ class TestCmdForgetProtect:
         """Unprotect should remove protection."""
         k = MagicMock()
         k.protect.return_value = True
-        
+
         args = Namespace(
             forget_action="protect",
             type="episode",
             id="abc123",
             unprotect=True,
         )
-        
+
         cmd_forget(args, k)
-        
+
         k.protect.assert_called_with("episode", "abc123", protected=False)
         captured = capsys.readouterr()
         assert "Removed protection" in captured.out
@@ -205,16 +204,16 @@ class TestCmdForgetProtect:
         """Protection of non-existent memory."""
         k = MagicMock()
         k.protect.return_value = False
-        
+
         args = Namespace(
             forget_action="protect",
             type="episode",
             id="nonexistent",
             unprotect=False,
         )
-        
+
         cmd_forget(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Memory not found" in captured.out
 
@@ -226,15 +225,15 @@ class TestCmdForgetRecover:
         """Successful recovery."""
         k = MagicMock()
         k.recover.return_value = True
-        
+
         args = Namespace(
             forget_action="recover",
             type="episode",
             id="abc123",
         )
-        
+
         cmd_forget(args, k)
-        
+
         k.recover.assert_called_with("episode", "abc123")
         captured = capsys.readouterr()
         assert "✓" in captured.out
@@ -244,15 +243,15 @@ class TestCmdForgetRecover:
         """Recovery of non-existent memory."""
         k = MagicMock()
         k.recover.return_value = False
-        
+
         args = Namespace(
             forget_action="recover",
             type="episode",
             id="nonexistent",
         )
-        
+
         cmd_forget(args, k)
-        
+
         captured = capsys.readouterr()
         assert "not found" in captured.out
 
@@ -264,15 +263,15 @@ class TestCmdForgetList:
         """Empty list of forgotten memories."""
         k = MagicMock()
         k.get_forgotten_memories.return_value = []
-        
+
         args = Namespace(
             forget_action="list",
             limit=50,
             json=False,
         )
-        
+
         cmd_forget(args, k)
-        
+
         captured = capsys.readouterr()
         assert "No forgotten memories" in captured.out
 
@@ -289,15 +288,15 @@ class TestCmdForgetList:
                 "created_at": "2026-01-01",
             }
         ]
-        
+
         args = Namespace(
             forget_action="list",
             limit=50,
             json=False,
         )
-        
+
         cmd_forget(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Forgotten Memories" in captured.out
         assert "abc123" in captured.out
@@ -308,15 +307,15 @@ class TestCmdForgetList:
         k.get_forgotten_memories.return_value = [
             {"type": "episode", "id": "abc123", "summary": "test"}
         ]
-        
+
         args = Namespace(
             forget_action="list",
             limit=50,
             json=True,
         )
-        
+
         cmd_forget(args, k)
-        
+
         captured = capsys.readouterr()
         assert '"type"' in captured.out
         assert '"episode"' in captured.out
@@ -336,15 +335,15 @@ class TestCmdForgetSalience:
             last_accessed=None,
             created_at=MagicMock(isoformat=lambda: "2026-01-01T00:00:00Z"),
         )
-        
+
         args = Namespace(
             forget_action="salience",
             type="episode",
             id="abc123",
         )
-        
+
         cmd_forget(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Salience Analysis" in captured.out
         assert "0.45" in captured.out
@@ -353,15 +352,15 @@ class TestCmdForgetSalience:
         """Salience for non-existent memory."""
         k = MagicMock()
         k.calculate_salience.return_value = -1.0
-        
+
         args = Namespace(
             forget_action="salience",
             type="episode",
             id="nonexistent",
         )
-        
+
         cmd_forget(args, k)
-        
+
         captured = capsys.readouterr()
         assert "not found" in captured.out
 
@@ -376,15 +375,15 @@ class TestCmdForgetSalience:
             last_accessed=MagicMock(isoformat=lambda: "2026-01-28T00:00:00Z"),
             created_at=MagicMock(isoformat=lambda: "2026-01-01T00:00:00Z"),
         )
-        
+
         args = Namespace(
             forget_action="salience",
             type="episode",
             id="abc123",
         )
-        
+
         cmd_forget(args, k)
-        
+
         captured = capsys.readouterr()
         assert "PROTECTED" in captured.out
         assert "🛡️" in captured.out
@@ -400,15 +399,15 @@ class TestCmdForgetSalience:
             last_accessed=None,
             created_at=MagicMock(isoformat=lambda: "2026-01-01T00:00:00Z"),
         )
-        
+
         args = Namespace(
             forget_action="salience",
             type="episode",
             id="abc123",
         )
-        
+
         cmd_forget(args, k)
-        
+
         captured = capsys.readouterr()
         assert "CRITICAL" in captured.out
         assert "🔴" in captured.out
@@ -424,15 +423,15 @@ class TestCmdForgetSalience:
             last_accessed=None,
             created_at=MagicMock(isoformat=lambda: "2026-01-01T00:00:00Z"),
         )
-        
+
         args = Namespace(
             forget_action="salience",
             type="episode",
             id="abc123",
         )
-        
+
         cmd_forget(args, k)
-        
+
         captured = capsys.readouterr()
         assert "LOW" in captured.out
         assert "🟠" in captured.out
@@ -448,15 +447,15 @@ class TestCmdForgetSalience:
             last_accessed=None,
             created_at=MagicMock(isoformat=lambda: "2026-01-01T00:00:00Z"),
         )
-        
+
         args = Namespace(
             forget_action="salience",
             type="episode",
             id="abc123",
         )
-        
+
         cmd_forget(args, k)
-        
+
         captured = capsys.readouterr()
         assert "MODERATE" in captured.out
         assert "🟡" in captured.out
@@ -472,15 +471,15 @@ class TestCmdForgetSalience:
             last_accessed=MagicMock(isoformat=lambda: "2026-01-28T00:00:00Z"),
             created_at=MagicMock(isoformat=lambda: "2026-01-01T00:00:00Z"),
         )
-        
+
         args = Namespace(
             forget_action="salience",
             type="episode",
             id="abc123",
         )
-        
+
         cmd_forget(args, k)
-        
+
         captured = capsys.readouterr()
         assert "HIGH" in captured.out
         assert "🟢" in captured.out

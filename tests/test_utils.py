@@ -29,9 +29,9 @@ class TestGenerateDefaultAgentId:
         id2 = generate_default_agent_id()
         assert id1 == id2
 
-    @patch('kernle.utils._get_git_root')
-    @patch('os.getcwd')
-    @patch('platform.node')
+    @patch("kernle.utils._get_git_root")
+    @patch("os.getcwd")
+    @patch("platform.node")
     def test_different_for_different_machines(self, mock_node, mock_cwd, mock_git):
         """Different machines should produce different IDs."""
         mock_git.return_value = None
@@ -45,9 +45,9 @@ class TestGenerateDefaultAgentId:
 
         assert id_a != id_b
 
-    @patch('kernle.utils._get_git_root')
-    @patch('os.getcwd')
-    @patch('platform.node')
+    @patch("kernle.utils._get_git_root")
+    @patch("os.getcwd")
+    @patch("platform.node")
     def test_different_for_different_paths(self, mock_node, mock_cwd, mock_git):
         """Different paths should produce different IDs."""
         mock_git.return_value = None
@@ -61,9 +61,9 @@ class TestGenerateDefaultAgentId:
 
         assert id_a != id_b
 
-    @patch('kernle.utils._get_git_root')
-    @patch('os.getcwd')
-    @patch('platform.node')
+    @patch("kernle.utils._get_git_root")
+    @patch("os.getcwd")
+    @patch("platform.node")
     def test_prefers_git_root_over_cwd(self, mock_node, mock_cwd, mock_git):
         """When in a git repo, should use git root for path."""
         mock_node.return_value = "test-machine"
@@ -79,7 +79,7 @@ class TestGenerateDefaultAgentId:
         # Both should be the same since git root is used
         assert id_from_subdir == id_from_root
 
-    @patch('platform.node')
+    @patch("platform.node")
     def test_handles_empty_hostname(self, mock_node):
         """Should handle empty hostname gracefully."""
         mock_node.return_value = ""
@@ -99,7 +99,7 @@ class TestResolveAgentId:
     def test_default_string_triggers_fallback(self):
         """'default' should be treated as no explicit ID."""
         with patch.dict(os.environ, {}, clear=True):
-            with patch('kernle.utils.generate_default_agent_id', return_value="auto-abcd1234"):
+            with patch("kernle.utils.generate_default_agent_id", return_value="auto-abcd1234"):
                 result = resolve_agent_id("default")
                 assert result == "auto-abcd1234"
 

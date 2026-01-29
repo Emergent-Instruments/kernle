@@ -39,7 +39,7 @@ def _health_checks_stats(args, k: "Kernle"):
     if last_at:
         # Calculate time since last check
         try:
-            last_dt = datetime.fromisoformat(last_at.replace('Z', '+00:00'))
+            last_dt = datetime.fromisoformat(last_at.replace("Z", "+00:00"))
             now = datetime.now(timezone.utc)
             elapsed = now - last_dt
 

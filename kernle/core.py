@@ -1975,7 +1975,9 @@ class Kernle(
         """
         # Search for semantically similar beliefs
         search_results = self._storage.search(
-            belief_statement, limit=limit * 2, record_types=["belief"]  # Get more to filter
+            belief_statement,
+            limit=limit * 2,
+            record_types=["belief"],  # Get more to filter
         )
 
         contradictions = []
@@ -2381,7 +2383,9 @@ class Kernle(
 
         # Search for semantically similar beliefs
         search_results = self._storage.search(
-            belief, limit=limit * 3, record_types=["belief"]  # Get more to filter by threshold
+            belief,
+            limit=limit * 3,
+            record_types=["belief"],  # Get more to filter by threshold
         )
 
         contradictions = []

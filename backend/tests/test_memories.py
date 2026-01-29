@@ -1,6 +1,5 @@
 """Tests for memory search routes."""
 
-import pytest
 from unittest.mock import MagicMock, patch
 
 from app.routes.memories import escape_like

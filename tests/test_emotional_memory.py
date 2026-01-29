@@ -23,7 +23,7 @@ from kernle.storage import (
 @pytest.fixture
 def temp_db():
     """Create a temporary database path."""
-    path = Path(tempfile.mktemp(suffix='.db'))
+    path = Path(tempfile.mktemp(suffix=".db"))
     yield path
     if path.exists():
         path.unlink()
@@ -140,14 +140,16 @@ class TestSQLiteEmotionalStorage:
     def test_search_by_emotion_valence(self, storage):
         # Create episodes with different valences
         for i, (v, label) in enumerate([(-0.8, "negative"), (0.0, "neutral"), (0.8, "positive")]):
-            storage.save_episode(Episode(
-                id=f"ep-{label}",
-                agent_id="test-agent",
-                objective=f"{label} experience",
-                outcome=f"Outcome {i}",
-                emotional_valence=v,
-                emotional_arousal=0.5,
-            ))
+            storage.save_episode(
+                Episode(
+                    id=f"ep-{label}",
+                    agent_id="test-agent",
+                    objective=f"{label} experience",
+                    outcome=f"Outcome {i}",
+                    emotional_valence=v,
+                    emotional_arousal=0.5,
+                )
+            )
 
         # Search for positive episodes
         positive = storage.search_by_emotion(valence_range=(0.5, 1.0))
@@ -161,22 +163,26 @@ class TestSQLiteEmotionalStorage:
 
     def test_search_by_emotion_arousal(self, storage):
         # Create episodes with different arousal levels
-        storage.save_episode(Episode(
-            id="ep-calm",
-            agent_id="test-agent",
-            objective="Calm experience",
-            outcome="Peaceful",
-            emotional_valence=0.3,
-            emotional_arousal=0.1,
-        ))
-        storage.save_episode(Episode(
-            id="ep-intense",
-            agent_id="test-agent",
-            objective="Intense experience",
-            outcome="Exciting",
-            emotional_valence=0.3,
-            emotional_arousal=0.9,
-        ))
+        storage.save_episode(
+            Episode(
+                id="ep-calm",
+                agent_id="test-agent",
+                objective="Calm experience",
+                outcome="Peaceful",
+                emotional_valence=0.3,
+                emotional_arousal=0.1,
+            )
+        )
+        storage.save_episode(
+            Episode(
+                id="ep-intense",
+                agent_id="test-agent",
+                objective="Intense experience",
+                outcome="Exciting",
+                emotional_valence=0.3,
+                emotional_arousal=0.9,
+            )
+        )
 
         # Search for calm episodes
         calm = storage.search_by_emotion(arousal_range=(0.0, 0.3))
@@ -189,20 +195,24 @@ class TestSQLiteEmotionalStorage:
         assert intense[0].id == "ep-intense"
 
     def test_search_by_emotion_tags(self, storage):
-        storage.save_episode(Episode(
-            id="ep-joy",
-            agent_id="test-agent",
-            objective="Joyful moment",
-            outcome="Happy",
-            emotional_tags=["joy", "excitement"],
-        ))
-        storage.save_episode(Episode(
-            id="ep-sad",
-            agent_id="test-agent",
-            objective="Sad moment",
-            outcome="Disappointed",
-            emotional_tags=["sadness", "disappointment"],
-        ))
+        storage.save_episode(
+            Episode(
+                id="ep-joy",
+                agent_id="test-agent",
+                objective="Joyful moment",
+                outcome="Happy",
+                emotional_tags=["joy", "excitement"],
+            )
+        )
+        storage.save_episode(
+            Episode(
+                id="ep-sad",
+                agent_id="test-agent",
+                objective="Sad moment",
+                outcome="Disappointed",
+                emotional_tags=["sadness", "disappointment"],
+            )
+        )
 
         # Search by tag
         joyful = storage.search_by_emotion(tags=["joy"])
@@ -211,19 +221,23 @@ class TestSQLiteEmotionalStorage:
 
     def test_get_emotional_episodes(self, storage):
         # Create mix of emotional and non-emotional episodes
-        storage.save_episode(Episode(
-            id="ep-with-emotion",
-            agent_id="test-agent",
-            objective="Emotional",
-            outcome="Done",
-            emotional_valence=0.5,
-        ))
-        storage.save_episode(Episode(
-            id="ep-no-emotion",
-            agent_id="test-agent",
-            objective="Plain",
-            outcome="Done",
-        ))
+        storage.save_episode(
+            Episode(
+                id="ep-with-emotion",
+                agent_id="test-agent",
+                objective="Emotional",
+                outcome="Done",
+                emotional_valence=0.5,
+            )
+        )
+        storage.save_episode(
+            Episode(
+                id="ep-no-emotion",
+                agent_id="test-agent",
+                objective="Plain",
+                outcome="Done",
+            )
+        )
 
         emotional = storage.get_emotional_episodes(days=7)
         assert len(emotional) == 1

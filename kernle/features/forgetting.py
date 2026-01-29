@@ -6,7 +6,7 @@ gracefully fade while preserving core identity memories.
 
 import math
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 if TYPE_CHECKING:
     from kernle.core import Kernle
@@ -46,10 +46,10 @@ class ForgettingMixin:
         if not record:
             return -1.0
 
-        confidence = getattr(record, 'confidence', 0.8)
-        times_accessed = getattr(record, 'times_accessed', 0) or 0
-        last_accessed = getattr(record, 'last_accessed', None)
-        created_at = getattr(record, 'created_at', None)
+        confidence = getattr(record, "confidence", 0.8)
+        times_accessed = getattr(record, "times_accessed", 0) or 0
+        last_accessed = getattr(record, "last_accessed", None)
+        created_at = getattr(record, "created_at", None)
 
         # Use last_accessed if available, otherwise created_at
         reference_time = last_accessed or created_at
@@ -100,22 +100,26 @@ class ForgettingMixin:
         for r in results:
             if r.score < threshold:
                 record = r.record
-                candidates.append({
-                    "type": r.record_type,
-                    "id": record.id,
-                    "salience": round(r.score, 4),
-                    "summary": self._get_memory_summary(r.record_type, record),
-                    "confidence": getattr(record, 'confidence', 0.8),
-                    "times_accessed": getattr(record, 'times_accessed', 0),
-                    "last_accessed": (
-                        getattr(record, 'last_accessed').isoformat()
-                        if getattr(record, 'last_accessed', None) else None
-                    ),
-                    "created_at": (
-                        getattr(record, 'created_at').strftime("%Y-%m-%d")
-                        if getattr(record, 'created_at', None) else "unknown"
-                    ),
-                })
+                candidates.append(
+                    {
+                        "type": r.record_type,
+                        "id": record.id,
+                        "salience": round(r.score, 4),
+                        "summary": self._get_memory_summary(r.record_type, record),
+                        "confidence": getattr(record, "confidence", 0.8),
+                        "times_accessed": getattr(record, "times_accessed", 0),
+                        "last_accessed": (
+                            getattr(record, "last_accessed").isoformat()
+                            if getattr(record, "last_accessed", None)
+                            else None
+                        ),
+                        "created_at": (
+                            getattr(record, "created_at").strftime("%Y-%m-%d")
+                            if getattr(record, "created_at", None)
+                            else "unknown"
+                        ),
+                    }
+                )
 
         return candidates[:limit]
 
@@ -246,20 +250,24 @@ class ForgettingMixin:
         forgotten = []
         for r in results:
             record = r.record
-            forgotten.append({
-                "type": r.record_type,
-                "id": record.id,
-                "summary": self._get_memory_summary(r.record_type, record),
-                "forgotten_at": (
-                    getattr(record, 'forgotten_at').isoformat()
-                    if getattr(record, 'forgotten_at', None) else None
-                ),
-                "forgotten_reason": getattr(record, 'forgotten_reason', None),
-                "created_at": (
-                    getattr(record, 'created_at').strftime("%Y-%m-%d")
-                    if getattr(record, 'created_at', None) else "unknown"
-                ),
-            })
+            forgotten.append(
+                {
+                    "type": r.record_type,
+                    "id": record.id,
+                    "summary": self._get_memory_summary(r.record_type, record),
+                    "forgotten_at": (
+                        getattr(record, "forgotten_at").isoformat()
+                        if getattr(record, "forgotten_at", None)
+                        else None
+                    ),
+                    "forgotten_reason": getattr(record, "forgotten_reason", None),
+                    "created_at": (
+                        getattr(record, "created_at").strftime("%Y-%m-%d")
+                        if getattr(record, "created_at", None)
+                        else "unknown"
+                    ),
+                }
+            )
 
         return forgotten
 

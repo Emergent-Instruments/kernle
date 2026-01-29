@@ -27,9 +27,7 @@ def k(temp_checkpoint_dir, temp_db_path):
     )
 
     kernle = Kernle(
-        agent_id="test_anxiety_agent",
-        storage=storage,
-        checkpoint_dir=temp_checkpoint_dir
+        agent_id="test_anxiety_agent", storage=storage, checkpoint_dir=temp_checkpoint_dir
     )
 
     return kernle
@@ -41,10 +39,7 @@ class TestAnxietyDimensions:
     def test_context_pressure_with_tokens(self, k):
         """Context pressure should be calculated from token usage."""
         # 50% context usage
-        report = k.get_anxiety_report(
-            context_tokens=100000,
-            context_limit=200000
-        )
+        report = k.get_anxiety_report(context_tokens=100000, context_limit=200000)
 
         dim = report["dimensions"]["context_pressure"]
         assert "score" in dim
@@ -54,10 +49,7 @@ class TestAnxietyDimensions:
     def test_context_pressure_high(self, k):
         """High context pressure should produce high anxiety."""
         # 90% context usage
-        report = k.get_anxiety_report(
-            context_tokens=180000,
-            context_limit=200000
-        )
+        report = k.get_anxiety_report(context_tokens=180000, context_limit=200000)
 
         dim = report["dimensions"]["context_pressure"]
         # 90% usage should produce high anxiety (non-linear scaling)
@@ -113,7 +105,7 @@ class TestAnxietyDimensions:
                 objective=f"Task {i}",
                 outcome="completed",
                 lessons=None,  # No lessons = unreflected
-                tags=["test"]
+                tags=["test"],
             )
 
         report = k.get_anxiety_report()
@@ -202,7 +194,9 @@ class TestCompositeAnxietyScore:
         for score, expected_level, expected_emoji in test_cases:
             emoji, level = k._get_anxiety_level(score)
             assert level == expected_level, f"Score {score} should be {expected_level}, got {level}"
-            assert emoji == expected_emoji, f"Score {score} should have emoji {expected_emoji}, got {emoji}"
+            assert (
+                emoji == expected_emoji
+            ), f"Score {score} should have emoji {expected_emoji}, got {emoji}"
 
     def test_report_structure(self, k):
         """Verify report contains all required fields."""
@@ -316,9 +310,7 @@ class TestEmergencySave:
 
     def test_emergency_save_with_summary(self, k):
         """Emergency save should accept custom summary."""
-        result = k.emergency_save(
-            summary="Test emergency - verifying save functionality"
-        )
+        result = k.emergency_save(summary="Test emergency - verifying save functionality")
 
         assert result["checkpoint_saved"] is True
 
@@ -404,9 +396,7 @@ class TestUnreflectedEpisodes:
         """Episodes with lessons should not be unreflected."""
         # Create episode with lessons (reflected)
         k.episode(
-            objective="Learned something",
-            outcome="success",
-            lessons=["Important lesson learned"]
+            objective="Learned something", outcome="success", lessons=["Important lesson learned"]
         )
 
         unreflected = k._get_unreflected_episodes()
@@ -456,7 +446,7 @@ class TestAnxietyCLI:
 
         from kernle.cli.__main__ import main
 
-        with patch.object(sys, 'argv', ['kernle', '--agent', k.agent_id, 'anxiety']):
+        with patch.object(sys, "argv", ["kernle", "--agent", k.agent_id, "anxiety"]):
             try:
                 main()
             except SystemExit:
@@ -472,7 +462,7 @@ class TestAnxietyCLI:
 
         from kernle.cli.__main__ import main
 
-        with patch.object(sys, 'argv', ['kernle', '--agent', k.agent_id, 'anxiety', '--detailed']):
+        with patch.object(sys, "argv", ["kernle", "--agent", k.agent_id, "anxiety", "--detailed"]):
             try:
                 main()
             except SystemExit:
@@ -487,7 +477,7 @@ class TestAnxietyCLI:
 
         from kernle.cli.__main__ import main
 
-        with patch.object(sys, 'argv', ['kernle', '--agent', k.agent_id, 'anxiety', '--json']):
+        with patch.object(sys, "argv", ["kernle", "--agent", k.agent_id, "anxiety", "--json"]):
             try:
                 main()
             except SystemExit:
@@ -505,7 +495,11 @@ class TestAnxietyCLI:
 
         from kernle.cli.__main__ import main
 
-        with patch.object(sys, 'argv', ['kernle', '--agent', k.agent_id, 'anxiety', '--context', '150000', '--json']):
+        with patch.object(
+            sys,
+            "argv",
+            ["kernle", "--agent", k.agent_id, "anxiety", "--context", "150000", "--json"],
+        ):
             try:
                 main()
             except SystemExit:
@@ -522,7 +516,7 @@ class TestAnxietyCLI:
 
         from kernle.cli.__main__ import main
 
-        with patch.object(sys, 'argv', ['kernle', '--agent', k.agent_id, 'anxiety', '--emergency']):
+        with patch.object(sys, "argv", ["kernle", "--agent", k.agent_id, "anxiety", "--emergency"]):
             try:
                 main()
             except SystemExit:
@@ -542,17 +536,16 @@ class TestAnxietyIntegration:
 
         # Do some work
         for i in range(3):
-            k.episode(
-                objective=f"Work item {i}",
-                outcome="completed"
-            )
+            k.episode(objective=f"Work item {i}", outcome="completed")
 
         # Get new anxiety
         after_work = k.get_anxiety_report()
 
         # Consolidation debt should increase
-        assert after_work["dimensions"]["consolidation_debt"]["raw_value"] >= \
-               baseline["dimensions"]["consolidation_debt"]["raw_value"]
+        assert (
+            after_work["dimensions"]["consolidation_debt"]["raw_value"]
+            >= baseline["dimensions"]["consolidation_debt"]["raw_value"]
+        )
 
     def test_anxiety_after_checkpoint(self, k):
         """Anxiety should decrease after checkpointing."""
@@ -565,17 +558,16 @@ class TestAnxietyIntegration:
         after = k.get_anxiety_report()
 
         # Unsaved work should decrease
-        assert after["dimensions"]["unsaved_work"]["score"] <= \
-               before["dimensions"]["unsaved_work"]["score"]
+        assert (
+            after["dimensions"]["unsaved_work"]["score"]
+            <= before["dimensions"]["unsaved_work"]["score"]
+        )
 
     def test_anxiety_after_consolidation(self, k):
         """Consolidation should reduce consolidation debt anxiety."""
         # Add unreflected episodes
         for i in range(4):
-            k.episode(
-                objective=f"Unprocessed event {i}",
-                outcome="completed"
-            )
+            k.episode(objective=f"Unprocessed event {i}", outcome="completed")
 
         k.get_anxiety_report()
 

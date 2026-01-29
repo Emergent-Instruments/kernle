@@ -61,20 +61,24 @@ def cmd_belief(args, k: "Kernle"):
             print(json.dumps(results, indent=2, default=str))
         else:
             if not results:
-                print(f"No contradictions found for: \"{statement[:50]}...\"")
+                print(f'No contradictions found for: "{statement[:50]}..."')
                 return
 
-            print(f"Potential Contradictions for: \"{statement[:50]}...\"")
+            print(f'Potential Contradictions for: "{statement[:50]}..."')
             print("=" * 60)
 
             for i, r in enumerate(results, 1):
-                conf_bar = "█" * int(r["contradiction_confidence"] * 10) + "░" * (10 - int(r["contradiction_confidence"] * 10))
+                conf_bar = "█" * int(r["contradiction_confidence"] * 10) + "░" * (
+                    10 - int(r["contradiction_confidence"] * 10)
+                )
                 status = "active" if r["is_active"] else "superseded"
 
                 print(f"\n{i}. [{conf_bar}] {r['contradiction_confidence']:.0%} confidence")
                 print(f"   Type: {r['contradiction_type']}")
                 print(f"   Statement: {r['statement'][:60]}...")
-                print(f"   Belief ID: {r['belief_id'][:8]}... ({status}, reinforced {r['times_reinforced']}x)")
+                print(
+                    f"   Belief ID: {r['belief_id'][:8]}... ({status}, reinforced {r['times_reinforced']}x)"
+                )
                 print(f"   Reason: {r['explanation']}")
 
     elif args.belief_action == "history":
@@ -94,12 +98,18 @@ def cmd_belief(args, k: "Kernle"):
             for i, entry in enumerate(history):
                 is_current = ">>> " if entry["is_current"] else "    "
                 status = "🟢 active" if entry["is_active"] else "⚫ superseded"
-                conf_bar = "█" * int(entry["confidence"] * 5) + "░" * (5 - int(entry["confidence"] * 5))
+                conf_bar = "█" * int(entry["confidence"] * 5) + "░" * (
+                    5 - int(entry["confidence"] * 5)
+                )
 
-                print(f"\n{is_current}[{i+1}] {entry['id'][:8]}... ({status})")
+                print(f"\n{is_current}[{i + 1}] {entry['id'][:8]}... ({status})")
                 print(f"     Statement: {entry['statement'][:55]}...")
-                print(f"     Confidence: [{conf_bar}] {entry['confidence']:.0%} | Reinforced: {entry['times_reinforced']}x")
-                print(f"     Created: {entry['created_at'][:10] if entry['created_at'] else 'unknown'}")
+                print(
+                    f"     Confidence: [{conf_bar}] {entry['confidence']:.0%} | Reinforced: {entry['times_reinforced']}x"
+                )
+                print(
+                    f"     Created: {entry['created_at'][:10] if entry['created_at'] else 'unknown'}"
+                )
 
                 if entry.get("supersession_reason"):
                     print(f"     Reason: {entry['supersession_reason'][:50]}...")

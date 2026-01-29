@@ -69,8 +69,7 @@ class AnxietyMixin:
         episodes = self._storage.get_episodes(limit=100)
         # Filter out checkpoints and episodes that already have lessons
         unreflected = [
-            e for e in episodes
-            if (not e.tags or "checkpoint" not in e.tags) and not e.lessons
+            e for e in episodes if (not e.tags or "checkpoint" not in e.tags) and not e.lessons
         ]
         return unreflected
 
@@ -144,7 +143,9 @@ class AnxietyMixin:
             if checkpoint_age is not None:
                 estimated_tokens = checkpoint_age * 500
                 context_pressure_pct = min(100, int((estimated_tokens / context_limit) * 100))
-                context_detail = f"~{estimated_tokens:,} tokens (estimated from {checkpoint_age}min session)"
+                context_detail = (
+                    f"~{estimated_tokens:,} tokens (estimated from {checkpoint_age}min session)"
+                )
             else:
                 context_pressure_pct = 10
                 context_detail = "No checkpoint (fresh session)"
@@ -246,10 +247,14 @@ class AnxietyMixin:
             uncertainty_detail = f"{len(low_conf_beliefs)} low-confidence beliefs"
         elif len(low_conf_beliefs) <= 5:
             uncertainty_score = int(30 + (len(low_conf_beliefs) - 2) * 15)
-            uncertainty_detail = f"{len(low_conf_beliefs)} low-confidence beliefs (some uncertainty)"
+            uncertainty_detail = (
+                f"{len(low_conf_beliefs)} low-confidence beliefs (some uncertainty)"
+            )
         else:
             uncertainty_score = min(100, int(75 + (len(low_conf_beliefs) - 5) * 5))
-            uncertainty_detail = f"{len(low_conf_beliefs)} low-confidence beliefs (HIGH uncertainty)"
+            uncertainty_detail = (
+                f"{len(low_conf_beliefs)} low-confidence beliefs (HIGH uncertainty)"
+            )
 
         dimensions["memory_uncertainty"] = {
             "score": min(100, uncertainty_score),
@@ -277,7 +282,9 @@ class AnxietyMixin:
         else:
             raw_aging_score = min(100, int(92 + (aging_count - 7) * 1))
             oldest_days = int(oldest_hours / 24)
-            raw_aging_detail = f"{aging_count} entries STALE (oldest: {oldest_days}d) - review needed"
+            raw_aging_detail = (
+                f"{aging_count} entries STALE (oldest: {oldest_days}d) - review needed"
+            )
 
         dimensions["raw_aging"] = {
             "score": min(100, raw_aging_score),
@@ -317,7 +324,7 @@ class AnxietyMixin:
         detailed: bool = False,
     ) -> dict:
         """Alias for get_anxiety_report() - more intuitive API.
-        
+
         See get_anxiety_report() for full documentation.
         """
         return self.get_anxiety_report(context_tokens, context_limit, detailed)
@@ -343,112 +350,140 @@ class AnxietyMixin:
         # Calm (0-30): Continue normal work
         if anxiety_level <= 30:
             if len(unreflected) > 0:
-                actions.append({
-                    "priority": "low",
-                    "description": f"Reflect on {len(unreflected)} recent experiences when convenient",
-                    "command": "kernle consolidate",
-                    "method": "consolidate",
-                })
+                actions.append(
+                    {
+                        "priority": "low",
+                        "description": f"Reflect on {len(unreflected)} recent experiences when convenient",
+                        "command": "kernle consolidate",
+                        "method": "consolidate",
+                    }
+                )
             return actions
 
         # Aware (31-50): Checkpoint and note major decisions
         if anxiety_level <= 50:
             if checkpoint_age is None or checkpoint_age > 15:
-                actions.append({
-                    "priority": "medium",
-                    "description": "Checkpoint current work state",
-                    "command": "kernle checkpoint save '<task>'",
-                    "method": "checkpoint",
-                })
+                actions.append(
+                    {
+                        "priority": "medium",
+                        "description": "Checkpoint current work state",
+                        "command": "kernle checkpoint save '<task>'",
+                        "method": "checkpoint",
+                    }
+                )
             if len(unreflected) > 3:
-                actions.append({
-                    "priority": "medium",
-                    "description": f"Process {len(unreflected)} unreflected episodes",
-                    "command": "kernle consolidate",
-                    "method": "consolidate",
-                })
+                actions.append(
+                    {
+                        "priority": "medium",
+                        "description": f"Process {len(unreflected)} unreflected episodes",
+                        "command": "kernle consolidate",
+                        "method": "consolidate",
+                    }
+                )
             return actions
 
         # Elevated (51-70): Full checkpoint, consolidate, verify
         if anxiety_level <= 70:
-            actions.append({
-                "priority": "high",
-                "description": "Full checkpoint with context",
-                "command": "kernle checkpoint save '<task>' --context '<summary>'",
-                "method": "checkpoint",
-            })
-            if len(unreflected) > 0:
-                actions.append({
+            actions.append(
+                {
                     "priority": "high",
-                    "description": f"Consolidate {len(unreflected)} unreflected episodes",
-                    "command": "kernle consolidate",
-                    "method": "consolidate",
-                })
+                    "description": "Full checkpoint with context",
+                    "command": "kernle checkpoint save '<task>' --context '<summary>'",
+                    "method": "checkpoint",
+                }
+            )
+            if len(unreflected) > 0:
+                actions.append(
+                    {
+                        "priority": "high",
+                        "description": f"Consolidate {len(unreflected)} unreflected episodes",
+                        "command": "kernle consolidate",
+                        "method": "consolidate",
+                    }
+                )
             if identity_conf < 0.7:
-                actions.append({
-                    "priority": "medium",
-                    "description": "Run identity synthesis to strengthen coherence",
-                    "command": "kernle identity show",
-                    "method": "synthesize_identity",
-                })
+                actions.append(
+                    {
+                        "priority": "medium",
+                        "description": "Run identity synthesis to strengthen coherence",
+                        "command": "kernle identity show",
+                        "method": "synthesize_identity",
+                    }
+                )
             if len(low_conf) > 0:
-                actions.append({
-                    "priority": "low",
-                    "description": f"Review {len(low_conf)} uncertain beliefs",
-                    "command": "kernle meta uncertain",
-                    "method": "get_uncertain_memories",
-                })
+                actions.append(
+                    {
+                        "priority": "low",
+                        "description": f"Review {len(low_conf)} uncertain beliefs",
+                        "command": "kernle meta uncertain",
+                        "method": "get_uncertain_memories",
+                    }
+                )
             return actions
 
         # High (71-85): Priority memory work
         if anxiety_level <= 85:
-            actions.append({
-                "priority": "critical",
-                "description": "PRIORITY: Run full consolidation",
-                "command": "kernle consolidate",
-                "method": "consolidate",
-            })
-            actions.append({
-                "priority": "critical",
-                "description": "Full checkpoint with session summary",
-                "command": "kernle checkpoint save '<task>' --context '<full summary>'",
-                "method": "checkpoint",
-            })
-            actions.append({
-                "priority": "high",
-                "description": "Run identity synthesis and save",
-                "command": "kernle identity show",
-                "method": "synthesize_identity",
-            })
+            actions.append(
+                {
+                    "priority": "critical",
+                    "description": "PRIORITY: Run full consolidation",
+                    "command": "kernle consolidate",
+                    "method": "consolidate",
+                }
+            )
+            actions.append(
+                {
+                    "priority": "critical",
+                    "description": "Full checkpoint with session summary",
+                    "command": "kernle checkpoint save '<task>' --context '<full summary>'",
+                    "method": "checkpoint",
+                }
+            )
+            actions.append(
+                {
+                    "priority": "high",
+                    "description": "Run identity synthesis and save",
+                    "command": "kernle identity show",
+                    "method": "synthesize_identity",
+                }
+            )
             sync_status = self.get_sync_status()
             if sync_status.get("online"):
-                actions.append({
-                    "priority": "high",
-                    "description": "Sync to cloud storage",
-                    "command": "kernle sync (if available)",
-                    "method": "sync",
-                })
+                actions.append(
+                    {
+                        "priority": "high",
+                        "description": "Sync to cloud storage",
+                        "command": "kernle sync (if available)",
+                        "method": "sync",
+                    }
+                )
             return actions
 
         # Critical (86-100): Emergency protocols
-        actions.append({
-            "priority": "emergency",
-            "description": "EMERGENCY: Run emergency_save immediately",
-            "command": "kernle anxiety --emergency",
-            "method": "emergency_save",
-        })
-        actions.append({
-            "priority": "emergency",
-            "description": "Final checkpoint with handoff note",
-            "command": "kernle checkpoint save 'HANDOFF' --context '<state for next session>'",
-            "method": "checkpoint",
-        })
-        actions.append({
-            "priority": "critical",
-            "description": "Accept some context will be lost - prioritize key insights",
-            "command": None,
-            "method": None,
-        })
+        actions.append(
+            {
+                "priority": "emergency",
+                "description": "EMERGENCY: Run emergency_save immediately",
+                "command": "kernle anxiety --emergency",
+                "method": "emergency_save",
+            }
+        )
+        actions.append(
+            {
+                "priority": "emergency",
+                "description": "Final checkpoint with handoff note",
+                "command": "kernle checkpoint save 'HANDOFF' --context '<state for next session>'",
+                "method": "checkpoint",
+            }
+        )
+        actions.append(
+            {
+                "priority": "critical",
+                "description": "Accept some context will be lost - prioritize key insights",
+                "command": None,
+                "method": None,
+            }
+        )
 
         return actions
 

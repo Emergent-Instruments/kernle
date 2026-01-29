@@ -8,7 +8,6 @@ Tests the belief revision system including:
 - Getting belief history
 """
 
-
 import pytest
 
 from kernle import Kernle
@@ -82,14 +81,20 @@ class TestFindContradictions:
         k = kernle_with_beliefs
 
         # Add a belief with comparative
-        k.belief("Local-first memory is more reliable than cloud-dependent", type="fact", confidence=0.8)
+        k.belief(
+            "Local-first memory is more reliable than cloud-dependent", type="fact", confidence=0.8
+        )
 
         # Find contradictions with opposite comparative
-        contradictions = k.find_contradictions("Local-first memory is less reliable than cloud-dependent")
+        contradictions = k.find_contradictions(
+            "Local-first memory is less reliable than cloud-dependent"
+        )
 
         # Should find the contradiction
         assert len(contradictions) >= 1
-        contra = next((c for c in contradictions if "more reliable" in c["statement"].lower()), None)
+        contra = next(
+            (c for c in contradictions if "more reliable" in c["statement"].lower()), None
+        )
         assert contra is not None
         assert contra["contradiction_type"] == "comparative_opposition"
 
@@ -223,10 +228,7 @@ class TestSupersedeBelief:
 
         # Supersede it
         new_id = k.supersede_belief(
-            old_id,
-            "Python 3 is the best",
-            confidence=0.9,
-            reason="Python 2 is deprecated"
+            old_id, "Python 3 is the best", confidence=0.9, reason="Python 2 is deprecated"
         )
 
         assert new_id != old_id
@@ -301,7 +303,7 @@ class TestReviseFromEpisode:
         episode_id = k.episode(
             objective="Implement feature using TDD",
             outcome="success",
-            lessons=["Writing tests first helped catch bugs early"]
+            lessons=["Writing tests first helped catch bugs early"],
         )
 
         # Revise beliefs
@@ -325,7 +327,7 @@ class TestReviseFromEpisode:
         episode_id = k.episode(
             objective="Ship without automated tests",
             outcome="failure",
-            lessons=["Manual testing missed critical bugs"]
+            lessons=["Manual testing missed critical bugs"],
         )
 
         result = k.revise_beliefs_from_episode(episode_id)
@@ -341,7 +343,7 @@ class TestReviseFromEpisode:
         episode_id = k.episode(
             objective="Learn about quantum computing",
             outcome="success",
-            lessons=["Quantum superposition enables parallel computation"]
+            lessons=["Quantum superposition enables parallel computation"],
         )
 
         result = k.revise_beliefs_from_episode(episode_id)
@@ -439,10 +441,10 @@ class TestBeliefDataclassFields:
         belief = next((b for b in beliefs if b.id == belief_id), None)
 
         # Check fields exist
-        assert hasattr(belief, 'supersedes')
-        assert hasattr(belief, 'superseded_by')
-        assert hasattr(belief, 'times_reinforced')
-        assert hasattr(belief, 'is_active')
+        assert hasattr(belief, "supersedes")
+        assert hasattr(belief, "superseded_by")
+        assert hasattr(belief, "times_reinforced")
+        assert hasattr(belief, "is_active")
 
         # Check default values
         assert belief.supersedes is None

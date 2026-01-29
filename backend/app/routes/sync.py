@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Request
 
 from ..auth import CurrentAgent
-from ..rate_limit import limiter
 from ..database import (
     Database,
     delete_memory,
@@ -23,21 +22,24 @@ from ..models import (
     SyncPushRequest,
     SyncPushResponse,
 )
+from ..rate_limit import limiter
 
 logger = get_logger("kernle.sync")
 router = APIRouter(prefix="/sync", tags=["sync"])
 
 # Fields that clients are NEVER allowed to set (server-controlled)
 # These are stripped from any incoming sync data to prevent mass assignment attacks
-SERVER_CONTROLLED_FIELDS = frozenset({
-    "agent_ref",      # Server sets based on authenticated user (FK integrity)
-    "deleted",        # Server controls soft-delete state
-    "version",        # Server manages versioning
-    "id",             # Server assigns/validates record IDs
-    "embedding",      # Server generates embeddings (already stripped separately)
-    "synced_at",      # Server timestamp
-    "server_updated_at",  # Server timestamp
-})
+SERVER_CONTROLLED_FIELDS = frozenset(
+    {
+        "agent_ref",  # Server sets based on authenticated user (FK integrity)
+        "deleted",  # Server controls soft-delete state
+        "version",  # Server manages versioning
+        "id",  # Server assigns/validates record IDs
+        "embedding",  # Server generates embeddings (already stripped separately)
+        "synced_at",  # Server timestamp
+        "server_updated_at",  # Server timestamp
+    }
+)
 
 
 @router.post("/push", response_model=SyncPushResponse)
@@ -56,7 +58,7 @@ async def push_changes(
     - delete: Soft-delete the record
 
     Returns count of synced operations and any conflicts.
-    
+
     Agent ID namespacing:
     - Client can send just project_name (e.g., "claire")
     - Server uses agent_id from JWT for DB (maintains FK integrity)
@@ -66,14 +68,14 @@ async def push_changes(
     agent_id = auth.agent_id
     log_prefix = f"{auth.user_id}/{agent_id}" if auth.user_id else agent_id
     logger.info(f"PUSH | {log_prefix} | {len(sync_request.operations)} operations")
-    
+
     # Look up agent UUID for FK (multi-tenant: use user_id + agent_id)
     agent_ref = None
     if auth.user_id:
         agent = await get_agent_by_user_and_name(db, auth.user_id, agent_id)
         if agent:
             agent_ref = agent.get("id")
-    
+
     synced = 0
     conflicts = []
 
@@ -85,13 +87,17 @@ async def push_changes(
             else:
                 # insert or update
                 if op.data is None:
-                    log_sync_operation(log_prefix, op.operation, op.table, op.record_id, False, "Missing data")
-                    conflicts.append({
-                        "record_id": op.record_id,
-                        "error": "Missing data for insert/update",
-                    })
+                    log_sync_operation(
+                        log_prefix, op.operation, op.table, op.record_id, False, "Missing data"
+                    )
+                    conflicts.append(
+                        {
+                            "record_id": op.record_id,
+                            "error": "Missing data for insert/update",
+                        }
+                    )
                     continue
-                
+
                 # SECURITY: Strip server-controlled fields to prevent mass assignment
                 # Client cannot set agent_ref, deleted, version, id, etc.
                 stripped_fields = [k for k in op.data.keys() if k in SERVER_CONTROLLED_FIELDS]
@@ -99,18 +105,17 @@ async def push_changes(
                     logger.warning(
                         f"Stripped server-controlled fields from {op.table}/{op.record_id}: {stripped_fields}"
                     )
-                
+
                 # Filter to only allowed fields (exclude server-controlled AND embedding)
                 sanitized_data = {
-                    k: v for k, v in op.data.items() 
-                    if k not in SERVER_CONTROLLED_FIELDS
+                    k: v for k, v in op.data.items() if k not in SERVER_CONTROLLED_FIELDS
                 }
-                
+
                 # Server-side re-embedding: generate OpenAI embedding
                 # Client uses 384-dim HashEmbedder locally; server uses 1536-dim OpenAI
                 # This makes semantic search a subscription feature (uses our OpenAI key)
                 data_with_embedding = sanitized_data.copy()
-                
+
                 text_content = extract_text_for_embedding(op.table, sanitized_data)
                 if text_content:
                     embedding = await create_embedding(text_content)
@@ -118,26 +123,34 @@ async def push_changes(
                         data_with_embedding["embedding"] = embedding
                         logger.debug(f"Generated 1536-dim embedding for {op.table}/{op.record_id}")
                     else:
-                        logger.warning(f"Failed to generate embedding for {op.table}/{op.record_id} - storing without embedding")
-                
-                await upsert_memory(db, agent_id, op.table, op.record_id, data_with_embedding, agent_ref=agent_ref)
+                        logger.warning(
+                            f"Failed to generate embedding for {op.table}/{op.record_id} - storing without embedding"
+                        )
+
+                await upsert_memory(
+                    db, agent_id, op.table, op.record_id, data_with_embedding, agent_ref=agent_ref
+                )
                 log_sync_operation(log_prefix, op.operation, op.table, op.record_id, True)
             synced += 1
         except ValueError as e:
             log_sync_operation(log_prefix, op.operation, op.table, op.record_id, False, str(e))
-            conflicts.append({
-                "record_id": op.record_id,
-                "error": str(e),
-            })
+            conflicts.append(
+                {
+                    "record_id": op.record_id,
+                    "error": str(e),
+                }
+            )
         except Exception as e:
             # Log full error server-side for debugging
             logger.error(f"Database error during {op.operation} on {op.table}/{op.record_id}: {e}")
             log_sync_operation(log_prefix, op.operation, op.table, op.record_id, False, str(e))
             # Return generic message to client to avoid leaking internal details
-            conflicts.append({
-                "record_id": op.record_id,
-                "error": "Database error: operation failed",
-            })
+            conflicts.append(
+                {
+                    "record_id": op.record_id,
+                    "error": "Database error: operation failed",
+                }
+            )
 
     # Update agent's last sync time
     await update_agent_last_sync(db, agent_id)
@@ -179,23 +192,27 @@ async def pull_changes(
         # Strip embedding from response - client will re-embed locally with HashEmbedder
         # Server stores 1536-dim OpenAI embeddings; client uses 384-dim locally
         data_without_embedding = {k: v for k, v in data.items() if k != "embedding"}
-        
+
         # Parse local_updated_at or use created_at or current time
-        local_updated = data.get("local_updated_at") or data.get("created_at") or datetime.now(timezone.utc)
+        local_updated = (
+            data.get("local_updated_at") or data.get("created_at") or datetime.now(timezone.utc)
+        )
         if isinstance(local_updated, str):
             try:
                 local_updated = datetime.fromisoformat(local_updated.replace("Z", "+00:00"))
             except (ValueError, TypeError):
                 local_updated = datetime.now(timezone.utc)
 
-        operations.append(SyncOperation(
-            operation=change["operation"],
-            table=change["table"],
-            record_id=change["record_id"],
-            data=data_without_embedding if change["operation"] != "delete" else None,
-            local_updated_at=local_updated,
-            version=data.get("version", 1),
-        ))
+        operations.append(
+            SyncOperation(
+                operation=change["operation"],
+                table=change["table"],
+                record_id=change["record_id"],
+                data=data_without_embedding if change["operation"] != "delete" else None,
+                local_updated_at=local_updated,
+                version=data.get("version", 1),
+            )
+        )
 
     logger.info(f"PULL COMPLETE | {log_prefix} | {len(operations)} operations, has_more={has_more}")
 
@@ -230,14 +247,16 @@ async def full_sync(
             continue  # Skip deleted records in full sync
         # Strip embedding from response - client will re-embed locally
         data = {k: v for k, v in change["data"].items() if k != "embedding"}
-        operations.append(SyncOperation(
-            operation="update",  # Full sync is always "update" (upsert on client)
-            table=change["table"],
-            record_id=change["record_id"],
-            data=data,
-            local_updated_at=change["data"].get("local_updated_at", datetime.now(timezone.utc)),
-            version=change["data"].get("version", 1),
-        ))
+        operations.append(
+            SyncOperation(
+                operation="update",  # Full sync is always "update" (upsert on client)
+                table=change["table"],
+                record_id=change["record_id"],
+                data=data,
+                local_updated_at=change["data"].get("local_updated_at", datetime.now(timezone.utc)),
+                version=change["data"].get("version", 1),
+            )
+        )
 
     return SyncPullResponse(
         operations=operations,

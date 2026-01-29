@@ -46,13 +46,13 @@ def mock_kernle():
         "timestamp": "2024-01-01T12:00:00Z",
         "current_task": "Test task",
         "pending": ["item1", "item2"],
-        "context": "Test context"
+        "context": "Test context",
     }
     kernle.load_checkpoint.return_value = {
         "current_task": "Loaded task",
         "timestamp": "2024-01-01T11:00:00Z",
         "pending": ["pending1"],
-        "context": "Loaded context"
+        "context": "Loaded context",
     }
     kernle.clear_checkpoint.return_value = True
     kernle.episode.return_value = "episode123"
@@ -64,15 +64,15 @@ def mock_kernle():
             "title": "Complete testing",
             "content": "All tests completed successfully",
             "lessons": ["Test thoroughly"],
-            "date": "2024-01-01"
+            "date": "2024-01-01",
         },
         {
             "type": "belief",
             "title": "Testing leads to quality",
             "content": "Testing leads to quality software",
             "confidence": 0.9,
-            "date": "2024-01-01"
-        }
+            "date": "2024-01-01",
+        },
     ]
     kernle.status.return_value = {
         "agent_id": "test_agent",
@@ -80,23 +80,19 @@ def mock_kernle():
         "beliefs": 10,
         "goals": 3,
         "episodes": 25,
-        "checkpoint": True
+        "checkpoint": True,
     }
     kernle.load_drives.return_value = [
         {"drive_type": "curiosity", "intensity": 0.8, "focus_areas": ["AI", "ML"]},
-        {"drive_type": "growth", "intensity": 0.6, "focus_areas": []}
+        {"drive_type": "growth", "intensity": 0.6, "focus_areas": []},
     ]
     kernle.drive.return_value = "drive789"
     kernle.satisfy_drive.return_value = True
-    kernle.consolidate.return_value = {
-        "consolidated": 5,
-        "new_beliefs": 2,
-        "lessons_found": 12
-    }
+    kernle.consolidate.return_value = {"consolidated": 5, "new_beliefs": 2, "lessons_found": 12}
     kernle.what_happened.return_value = {
         "range": {"start": "2024-01-01T00:00:00Z", "end": "2024-01-01T23:59:59Z"},
         "episodes": [{"objective": "Test something", "outcome_type": "success"}],
-        "notes": [{"content": "Important note"}]
+        "notes": [{"content": "Important note"}],
     }
 
     return kernle
@@ -113,9 +109,9 @@ def mock_sys_argv():
 class TestMainFunction:
     """Test the main CLI entry point."""
 
-    @patch('kernle.cli.__main__.resolve_agent_id')
-    @patch('kernle.cli.__main__.Kernle')
-    @patch('sys.argv')
+    @patch("kernle.cli.__main__.resolve_agent_id")
+    @patch("kernle.cli.__main__.Kernle")
+    @patch("sys.argv")
     def test_main_load_command(self, mock_argv, mock_kernle_class, mock_resolve, mock_kernle):
         """Test main function with load command (no explicit agent ID)."""
         mock_argv.__getitem__.side_effect = lambda x: ["kernle", "load"][x]
@@ -123,7 +119,7 @@ class TestMainFunction:
         mock_kernle_class.return_value = mock_kernle
         mock_resolve.return_value = "auto-test1234"
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             main()
 
         # When no -a is provided, resolve_agent_id is called to generate one
@@ -133,21 +129,23 @@ class TestMainFunction:
         mock_kernle.format_memory.assert_called_once()
         assert "# Working Memory" in fake_out.getvalue()
 
-    @patch('kernle.cli.__main__.Kernle')
-    @patch('sys.argv')
+    @patch("kernle.cli.__main__.Kernle")
+    @patch("sys.argv")
     def test_main_with_agent_id(self, mock_argv, mock_kernle_class, mock_kernle):
         """Test main function with agent ID parameter."""
-        mock_argv.__getitem__.side_effect = lambda x: ["kernle", "--agent", "test_agent", "status"][x]
+        mock_argv.__getitem__.side_effect = lambda x: ["kernle", "--agent", "test_agent", "status"][
+            x
+        ]
         mock_argv.__len__.return_value = 4
         mock_kernle_class.return_value = mock_kernle
 
-        with patch('sys.stdout', new=StringIO()):
+        with patch("sys.stdout", new=StringIO()):
             main()
 
         mock_kernle_class.assert_called_once_with(agent_id="test_agent")
 
-    @patch('kernle.cli.__main__.Kernle')
-    @patch('sys.argv')
+    @patch("kernle.cli.__main__.Kernle")
+    @patch("sys.argv")
     def test_main_missing_required_args(self, mock_argv, mock_kernle_class):
         """Test main function with missing required arguments."""
         mock_argv.__getitem__.side_effect = lambda x: ["kernle"][x]
@@ -164,7 +162,7 @@ class TestLoadCommand:
         """Test load command with formatted output."""
         args = argparse.Namespace(json=False)
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_load(args, mock_kernle)
 
         mock_kernle.load.assert_called_once()
@@ -175,7 +173,7 @@ class TestLoadCommand:
         """Test load command with JSON output."""
         args = argparse.Namespace(json=True)
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_load(args, mock_kernle)
 
         mock_kernle.load.assert_called_once()
@@ -202,7 +200,7 @@ class TestCheckpointCommands:
             no_sync=False,
         )
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_checkpoint(args, mock_kernle)
 
         mock_kernle.checkpoint.assert_called_once_with(
@@ -224,7 +222,7 @@ class TestCheckpointCommands:
             no_sync=False,
         )
 
-        with patch('sys.stdout', new=StringIO()):
+        with patch("sys.stdout", new=StringIO()):
             cmd_checkpoint(args, mock_kernle)
 
         mock_kernle.checkpoint.assert_called_once_with("Simple task", [], None, sync=None)
@@ -233,7 +231,7 @@ class TestCheckpointCommands:
         """Test checkpoint load with formatted output."""
         args = argparse.Namespace(checkpoint_action="load", json=False)
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_checkpoint(args, mock_kernle)
 
         mock_kernle.load_checkpoint.assert_called_once()
@@ -249,7 +247,7 @@ class TestCheckpointCommands:
         """Test checkpoint load with JSON output."""
         args = argparse.Namespace(checkpoint_action="load", json=True)
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_checkpoint(args, mock_kernle)
 
         output = fake_out.getvalue()
@@ -262,7 +260,7 @@ class TestCheckpointCommands:
         mock_kernle.load_checkpoint.return_value = None
         args = argparse.Namespace(checkpoint_action="load", json=False)
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_checkpoint(args, mock_kernle)
 
         assert "No checkpoint found." in fake_out.getvalue()
@@ -271,7 +269,7 @@ class TestCheckpointCommands:
         """Test checkpoint clear when checkpoint exists."""
         args = argparse.Namespace(checkpoint_action="clear")
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_checkpoint(args, mock_kernle)
 
         mock_kernle.clear_checkpoint.assert_called_once()
@@ -282,7 +280,7 @@ class TestCheckpointCommands:
         mock_kernle.clear_checkpoint.return_value = False
         args = argparse.Namespace(checkpoint_action="clear")
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_checkpoint(args, mock_kernle)
 
         assert "No checkpoint to clear" in fake_out.getvalue()
@@ -297,10 +295,10 @@ class TestEpisodeCommand:
             objective="Implement user authentication",
             outcome="Successfully implemented with JWT",
             lesson=["Validate all inputs", "Use secure libraries"],
-            tag=["security", "feature"]
+            tag=["security", "feature"],
         )
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_episode(args, mock_kernle)
 
         # With auto_emotion=True by default, episode_with_emotion is called
@@ -322,13 +320,10 @@ class TestEpisodeCommand:
     def test_cmd_episode_minimal(self, mock_kernle):
         """Test episode command with minimal parameters."""
         args = argparse.Namespace(
-            objective="Simple task",
-            outcome="completed",
-            lesson=None,
-            tag=None
+            objective="Simple task", outcome="completed", lesson=None, tag=None
         )
 
-        with patch('sys.stdout', new=StringIO()):
+        with patch("sys.stdout", new=StringIO()):
             cmd_episode(args, mock_kernle)
 
         # With auto_emotion=True by default, episode_with_emotion is called
@@ -357,10 +352,10 @@ class TestNoteCommand:
             speaker=None,
             reason="Better component reusability",
             tag=["frontend", "architecture"],
-            protect=True
+            protect=True,
         )
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_note(args, mock_kernle)
 
         mock_kernle.note.assert_called_once_with(
@@ -384,10 +379,10 @@ class TestNoteCommand:
             speaker="Donald Knuth",
             reason=None,
             tag=["wisdom"],
-            protect=False
+            protect=False,
         )
 
-        with patch('sys.stdout', new=StringIO()):
+        with patch("sys.stdout", new=StringIO()):
             cmd_note(args, mock_kernle)
 
         mock_kernle.note.assert_called_once_with(
@@ -409,10 +404,10 @@ class TestNoteCommand:
             speaker=None,
             reason=None,
             tag=None,
-            protect=False
+            protect=False,
         )
 
-        with patch('sys.stdout', new=StringIO()):
+        with patch("sys.stdout", new=StringIO()):
             cmd_note(args, mock_kernle)
 
         mock_kernle.note.assert_called_once_with(
@@ -434,7 +429,7 @@ class TestSearchCommand:
         """Test search command with results."""
         args = argparse.Namespace(query="testing", limit=10, min_score=None)
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_search(args, mock_kernle)
 
         mock_kernle.search.assert_called_once_with("testing", 10, min_score=None)
@@ -451,7 +446,7 @@ class TestSearchCommand:
         mock_kernle.search.return_value = []
         args = argparse.Namespace(query="nonexistent", limit=10, min_score=None)
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_search(args, mock_kernle)
 
         assert "No results for 'nonexistent'" in fake_out.getvalue()
@@ -472,7 +467,7 @@ class TestStatusCommand:
         """Test status command output."""
         args = argparse.Namespace()
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_status(args, mock_kernle)
 
         mock_kernle.status.assert_called_once()
@@ -493,11 +488,11 @@ class TestStatusCommand:
             "beliefs": 0,
             "goals": 0,
             "episodes": 0,
-            "checkpoint": False
+            "checkpoint": False,
         }
         args = argparse.Namespace()
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_status(args, mock_kernle)
 
         output = fake_out.getvalue()
@@ -511,7 +506,7 @@ class TestDriveCommands:
         """Test drive list command."""
         args = argparse.Namespace(drive_action="list")
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_drive(args, mock_kernle)
 
         mock_kernle.load_drives.assert_called_once()
@@ -527,7 +522,7 @@ class TestDriveCommands:
         mock_kernle.load_drives.return_value = []
         args = argparse.Namespace(drive_action="list")
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_drive(args, mock_kernle)
 
         assert "No drives set." in fake_out.getvalue()
@@ -538,10 +533,10 @@ class TestDriveCommands:
             drive_action="set",
             type="curiosity",
             intensity=0.9,
-            focus=["machine learning", "AI safety"]
+            focus=["machine learning", "AI safety"],
         )
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_drive(args, mock_kernle)
 
         mock_kernle.drive.assert_called_once_with(
@@ -551,13 +546,9 @@ class TestDriveCommands:
 
     def test_cmd_drive_satisfy_success(self, mock_kernle):
         """Test drive satisfy command success."""
-        args = argparse.Namespace(
-            drive_action="satisfy",
-            type="growth",
-            amount=0.3
-        )
+        args = argparse.Namespace(drive_action="satisfy", type="growth", amount=0.3)
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_drive(args, mock_kernle)
 
         mock_kernle.satisfy_drive.assert_called_once_with("growth", 0.3)
@@ -566,13 +557,9 @@ class TestDriveCommands:
     def test_cmd_drive_satisfy_not_found(self, mock_kernle):
         """Test drive satisfy when drive not found."""
         mock_kernle.satisfy_drive.return_value = False
-        args = argparse.Namespace(
-            drive_action="satisfy",
-            type="nonexistent",
-            amount=0.2
-        )
+        args = argparse.Namespace(drive_action="satisfy", type="nonexistent", amount=0.2)
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_drive(args, mock_kernle)
 
         assert "Drive 'nonexistent' not found" in fake_out.getvalue()
@@ -613,7 +600,7 @@ class TestConsolidateCommand:
 
         args = argparse.Namespace(min_episodes=3, limit=20)
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_consolidate(args, mock_kernle)
 
         output = fake_out.getvalue()
@@ -668,7 +655,7 @@ class TestConsolidateCommand:
 
         args = argparse.Namespace(min_episodes=3, limit=20)
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_consolidate(args, mock_kernle)
 
         output = fake_out.getvalue()
@@ -688,7 +675,7 @@ class TestConsolidateCommand:
 
         args = argparse.Namespace(min_episodes=3, limit=20)
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_consolidate(args, mock_kernle)
 
         output = fake_out.getvalue()
@@ -703,7 +690,7 @@ class TestTemporalCommand:
         """Test temporal command for today."""
         args = argparse.Namespace(when="today")
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_temporal(args, mock_kernle)
 
         mock_kernle.what_happened.assert_called_once_with("today")
@@ -737,11 +724,11 @@ class TestTemporalCommand:
         mock_kernle.what_happened.return_value = {
             "range": {"start": "2024-01-01T00:00:00Z", "end": "2024-01-01T23:59:59Z"},
             "episodes": [],
-            "notes": []
+            "notes": [],
         }
         args = argparse.Namespace(when="today")
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_temporal(args, mock_kernle)
 
         output = fake_out.getvalue()
@@ -757,22 +744,29 @@ class TestArgumentParsing:
         from kernle.cli.__main__ import main
 
         test_args = [
-            "kernle", "checkpoint", "save", "Test task",
-            "--pending", "item1", "--pending", "item2",
-            "--context", "Test context"
+            "kernle",
+            "checkpoint",
+            "save",
+            "Test task",
+            "--pending",
+            "item1",
+            "--pending",
+            "item2",
+            "--context",
+            "Test context",
         ]
 
-        with patch('sys.argv', test_args):
-            with patch('kernle.cli.__main__.Kernle') as mock_kernle_class:
+        with patch("sys.argv", test_args):
+            with patch("kernle.cli.__main__.Kernle") as mock_kernle_class:
                 mock_kernle = Mock()
                 mock_kernle_class.return_value = mock_kernle
                 mock_kernle.checkpoint.return_value = {
                     "timestamp": "2024-01-01T12:00:00Z",
                     "current_task": "Test task",
-                    "pending": ["item1", "item2"]
+                    "pending": ["item1", "item2"],
                 }
 
-                with patch('sys.stdout', new=StringIO()):
+                with patch("sys.stdout", new=StringIO()):
                     main()
 
                 mock_kernle.checkpoint.assert_called_once_with(
@@ -782,19 +776,28 @@ class TestArgumentParsing:
     def test_parse_episode_args(self):
         """Test parsing episode arguments."""
         test_args = [
-            "kernle", "episode", "Complete testing", "success",
-            "--lesson", "Test early", "--lesson", "Test often",
-            "--tag", "testing", "--tag", "quality"
+            "kernle",
+            "episode",
+            "Complete testing",
+            "success",
+            "--lesson",
+            "Test early",
+            "--lesson",
+            "Test often",
+            "--tag",
+            "testing",
+            "--tag",
+            "quality",
         ]
 
-        with patch('sys.argv', test_args):
-            with patch('kernle.cli.__main__.Kernle') as mock_kernle_class:
+        with patch("sys.argv", test_args):
+            with patch("kernle.cli.__main__.Kernle") as mock_kernle_class:
                 mock_kernle = Mock()
                 mock_kernle_class.return_value = mock_kernle
                 mock_kernle.episode.return_value = "episode123"
                 mock_kernle.episode_with_emotion.return_value = "episode123"
 
-                with patch('sys.stdout', new=StringIO()):
+                with patch("sys.stdout", new=StringIO()):
                     main()
 
                 # With auto_emotion=True by default, episode_with_emotion is called
@@ -814,18 +817,25 @@ class TestArgumentParsing:
     def test_parse_note_args(self):
         """Test parsing note arguments."""
         test_args = [
-            "kernle", "note", "Important decision content",
-            "--type", "decision", "--reason", "Performance benefits",
-            "--tag", "architecture", "--protect"
+            "kernle",
+            "note",
+            "Important decision content",
+            "--type",
+            "decision",
+            "--reason",
+            "Performance benefits",
+            "--tag",
+            "architecture",
+            "--protect",
         ]
 
-        with patch('sys.argv', test_args):
-            with patch('kernle.cli.__main__.Kernle') as mock_kernle_class:
+        with patch("sys.argv", test_args):
+            with patch("kernle.cli.__main__.Kernle") as mock_kernle_class:
                 mock_kernle = Mock()
                 mock_kernle_class.return_value = mock_kernle
                 mock_kernle.note.return_value = "note123"
 
-                with patch('sys.stdout', new=StringIO()):
+                with patch("sys.stdout", new=StringIO()):
                     main()
 
                 mock_kernle.note.assert_called_once_with(
@@ -841,23 +851,18 @@ class TestArgumentParsing:
 
     def test_parse_drive_set_args(self):
         """Test parsing drive set arguments."""
-        test_args = [
-            "kernle", "drive", "set", "curiosity", "0.8",
-            "--focus", "AI", "--focus", "ML"
-        ]
+        test_args = ["kernle", "drive", "set", "curiosity", "0.8", "--focus", "AI", "--focus", "ML"]
 
-        with patch('sys.argv', test_args):
-            with patch('kernle.cli.__main__.Kernle') as mock_kernle_class:
+        with patch("sys.argv", test_args):
+            with patch("kernle.cli.__main__.Kernle") as mock_kernle_class:
                 mock_kernle = Mock()
                 mock_kernle_class.return_value = mock_kernle
                 mock_kernle.drive.return_value = "drive123"
 
-                with patch('sys.stdout', new=StringIO()):
+                with patch("sys.stdout", new=StringIO()):
                     main()
 
-                mock_kernle.drive.assert_called_once_with(
-                    "curiosity", 0.8, ["AI", "ML"]
-                )
+                mock_kernle.drive.assert_called_once_with("curiosity", 0.8, ["AI", "ML"])
 
 
 class TestErrorHandling:
@@ -865,11 +870,11 @@ class TestErrorHandling:
 
     def test_kernle_initialization_error(self, mock_kernle):
         """Test handling of Kernle initialization errors."""
-        with patch('kernle.cli.__main__.Kernle') as mock_kernle_class:
+        with patch("kernle.cli.__main__.Kernle") as mock_kernle_class:
             mock_kernle_class.side_effect = ValueError("Missing credentials")
 
             test_args = ["kernle", "status"]
-            with patch('sys.argv', test_args):
+            with patch("sys.argv", test_args):
                 with pytest.raises(SystemExit):
                     main()
 
@@ -887,14 +892,15 @@ class TestErrorHandling:
         """Test handling of JSON serialization errors."""
         # Mock a response that can't be serialized
         from datetime import datetime
+
         mock_kernle.load.return_value = {
             "timestamp": datetime.now(),  # datetime objects can't be serialized by default
-            "data": "test"
+            "data": "test",
         }
 
         args = argparse.Namespace(json=True)
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             # Should handle datetime with default=str
             cmd_load(args, mock_kernle)
 
@@ -907,7 +913,7 @@ class TestErrorHandling:
         mock_kernle.search.return_value = []
         args = argparse.Namespace(query="nothing", limit=10)
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_search(args, mock_kernle)
 
         output = fake_out.getvalue()
@@ -925,13 +931,13 @@ class TestErrorHandling:
                 "title": "Valid belief",
                 "content": "Valid content",
                 "confidence": 0.8,
-                "date": "2024-01-01"
-            }
+                "date": "2024-01-01",
+            },
         ]
 
         args = argparse.Namespace(query="test", limit=10)
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             # Should handle malformed results gracefully
             cmd_search(args, mock_kernle)
 
@@ -946,17 +952,18 @@ class TestAgentCommand:
 
     def test_cmd_agent_list(self, mock_kernle):
         """Test agent list command."""
-        from kernle.cli.commands.agent import cmd_agent
         import argparse
-        
+
+        from kernle.cli.commands.agent import cmd_agent
+
         # Add agent_id attribute to mock
         mock_kernle.agent_id = "test-agent"
-        
+
         args = argparse.Namespace(agent_action="list")
-        
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_agent(args, mock_kernle)
-        
+
         output = fake_out.getvalue()
         # Should run without error
         assert "Agents" in output or "agents" in output or "No agents" in output
@@ -967,29 +974,27 @@ class TestImportCommand:
 
     def test_cmd_import_dry_run(self, mock_kernle, tmp_path):
         """Test import command with dry-run."""
-        from kernle.cli.commands.import_cmd import cmd_import
         import argparse
-        
+
+        from kernle.cli.commands.import_cmd import cmd_import
+
         # Create a test markdown file
         test_file = tmp_path / "test_import.md"
-        test_file.write_text("""## Decisions
+        test_file.write_text(
+            """## Decisions
 - Test decision 1
 - Test decision 2
 
 ## Lessons
 - Test lesson → Important insight
-""")
-        
-        args = argparse.Namespace(
-            file=str(test_file),
-            dry_run=True,
-            interactive=False,
-            layer=None
+"""
         )
-        
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+
+        args = argparse.Namespace(file=str(test_file), dry_run=True, interactive=False, layer=None)
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_import(args, mock_kernle)
-        
+
         output = fake_out.getvalue()
         assert "DRY RUN" in output
         assert "items to import" in output or "Found" in output
@@ -1001,24 +1006,23 @@ class TestSearchMinScore:
     def test_search_with_min_score(self, mock_kernle):
         """Test that min_score filters results."""
         # Mock search to return results with scores
-        from kernle.storage.base import SearchResult
         from dataclasses import dataclass
-        
+
         @dataclass
         class MockRecord:
             objective: str = "Test episode"
             outcome: str = "Test outcome"
             lessons: list = None
             created_at: None = None
-        
+
         mock_kernle.search.return_value = [
             {"type": "episode", "title": "High score", "score": 0.8},
             {"type": "episode", "title": "Low score", "score": 0.2},
         ]
-        
+
         args = argparse.Namespace(query="test", limit=10, min_score=0.5)
-        
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+
+        with patch("sys.stdout", new=StringIO()):
             cmd_search(args, mock_kernle)
-        
+
         mock_kernle.search.assert_called_once_with("test", 10, min_score=0.5)

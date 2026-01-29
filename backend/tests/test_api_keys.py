@@ -3,7 +3,6 @@
 import os
 
 import pytest
-
 from app.auth import (
     API_KEY_PREFIX,
     generate_api_key,
@@ -25,7 +24,7 @@ class TestAPIKeyUtilities:
         assert len(key) == len(API_KEY_PREFIX) + 32  # prefix + 32 hex chars
 
         # Extract hex part and verify it's valid hex
-        hex_part = key[len(API_KEY_PREFIX):]
+        hex_part = key[len(API_KEY_PREFIX) :]
         assert len(hex_part) == 32
         int(hex_part, 16)  # Should not raise
 
@@ -38,7 +37,7 @@ class TestAPIKeyUtilities:
         """Test key prefix extraction."""
         key = "knl_sk_abc123def456789012345678901234567890"
         prefix = get_api_key_prefix(key)
-        
+
         # Prefix is now 12 chars (knl_sk_ + 5 hex chars) for collision resistance
         assert prefix == "knl_sk_abc12"
         assert len(prefix) == 12
@@ -143,57 +142,52 @@ class TestAPIKeyEndpoints:
 
 class TestAPIKeyIntegration:
     """Integration tests for API key flow (requires real DB).
-    
+
     Run with: RUN_INTEGRATION=1 pytest tests/test_api_keys.py -v
     """
 
     @pytest.mark.skipif(
-        not os.environ.get("RUN_INTEGRATION"),
-        reason="Integration tests require RUN_INTEGRATION=1"
+        not os.environ.get("RUN_INTEGRATION"), reason="Integration tests require RUN_INTEGRATION=1"
     )
     def test_full_api_key_lifecycle(self, client):
         """Test complete API key lifecycle: create, list, use, cycle, delete."""
         import uuid
-        
+
         # 1. Register a new agent
         agent_id = f"test-apikey-{uuid.uuid4().hex[:8]}"
         response = client.post("/auth/register", json={"agent_id": agent_id})
         assert response.status_code == 200
         token = response.json()["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
-        
+
         # 2. Create an API key
-        response = client.post(
-            "/auth/keys",
-            headers=headers,
-            json={"name": "Test Key"}
-        )
+        response = client.post("/auth/keys", headers=headers, json={"name": "Test Key"})
         assert response.status_code == 200
         key_data = response.json()
         assert "key" in key_data
         api_key = key_data["key"]
         key_id = key_data["id"]
-        
+
         # 3. Use the API key to authenticate
         api_headers = {"Authorization": f"Bearer {api_key}"}
         response = client.get("/auth/me", headers=api_headers)
         assert response.status_code == 200
-        
+
         # 4. List keys
         response = client.get("/auth/keys", headers=headers)
         assert response.status_code == 200
         keys = response.json()["keys"]
         assert len(keys) >= 1
-        
+
         # 5. Cycle the key
         response = client.post(f"/auth/keys/{key_id}/cycle", headers=headers)
         assert response.status_code == 200
         new_key = response.json()["new_key"]["key"]
-        
+
         # 6. Verify old key no longer works
         response = client.get("/auth/me", headers=api_headers)
         assert response.status_code == 401
-        
+
         # 7. New key works
         new_api_headers = {"Authorization": f"Bearer {new_key}"}
         response = client.get("/auth/me", headers=new_api_headers)

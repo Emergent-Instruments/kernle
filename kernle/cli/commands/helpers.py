@@ -14,7 +14,7 @@ def validate_input(value: str, field_name: str, max_length: int = 1000) -> str:
         raise ValueError(f"{field_name} too long (max {max_length} characters)")
 
     # Remove null bytes and control characters except newlines
-    sanitized = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]', '', value)
+    sanitized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", value)
 
     return sanitized
 

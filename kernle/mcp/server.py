@@ -1393,13 +1393,13 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         elif name == "memory_status":
             status = k.status()
-            result = f"""Memory Status ({status['agent_id']})
+            result = f"""Memory Status ({status["agent_id"]})
 =====================================
-Values:     {status['values']}
-Beliefs:    {status['beliefs']}
-Goals:      {status['goals']} active
-Episodes:   {status['episodes']}
-Checkpoint: {'Yes' if status['checkpoint'] else 'No'}"""
+Values:     {status["values"]}
+Beliefs:    {status["beliefs"]}
+Goals:      {status["goals"]} active
+Episodes:   {status["episodes"]}
+Checkpoint: {"Yes" if status["checkpoint"] else "No"}"""
 
         elif name == "memory_auto_capture":
             source = sanitized_args.get("source", "auto")

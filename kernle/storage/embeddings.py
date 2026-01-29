@@ -66,7 +66,7 @@ class HashEmbedder(EmbeddingProvider):
         ngrams = []
         for n in range(self.ngram_range[0], self.ngram_range[1] + 1):
             for i in range(len(text) - n + 1):
-                ngrams.append(text[i:i+n])
+                ngrams.append(text[i : i + n])
         # Also add word-level features
         words = text.split()
         ngrams.extend(words)
@@ -86,12 +86,12 @@ class HashEmbedder(EmbeddingProvider):
             # Use MD5 for fast, consistent hashing
             h = hashlib.md5(ngram.encode()).digest()
             # Extract index and sign from hash
-            idx = int.from_bytes(h[:4], 'little') % self._dim
+            idx = int.from_bytes(h[:4], "little") % self._dim
             sign = 1 if h[4] & 1 else -1
             embedding[idx] += sign
 
         # Normalize to unit length
-        norm = sum(x*x for x in embedding) ** 0.5
+        norm = sum(x * x for x in embedding) ** 0.5
         if norm > 0:
             embedding = [x / norm for x in embedding]
 
@@ -125,6 +125,7 @@ class OpenAIEmbedder(EmbeddingProvider):
         if self._client is None:
             try:
                 import openai
+
                 self._client = openai.OpenAI(api_key=self._api_key)
             except ImportError:
                 raise RuntimeError("openai package not installed. Run: pip install openai")
@@ -133,19 +134,13 @@ class OpenAIEmbedder(EmbeddingProvider):
     def embed(self, text: str) -> List[float]:
         """Embed text using OpenAI API."""
         client = self._get_client()
-        response = client.embeddings.create(
-            model=self.model,
-            input=text
-        )
+        response = client.embeddings.create(model=self.model, input=text)
         return response.data[0].embedding
 
     def embed_batch(self, texts: List[str]) -> List[List[float]]:
         """Batch embed texts."""
         client = self._get_client()
-        response = client.embeddings.create(
-            model=self.model,
-            input=texts
-        )
+        response = client.embeddings.create(model=self.model, input=texts)
         return [item.embedding for item in response.data]
 
 
@@ -170,6 +165,7 @@ def get_default_embedder() -> EmbeddingProvider:
     The OpenAI availability check is cached to avoid repeated API calls.
     """
     import os
+
     global _openai_available
 
     # Only test OpenAI once and cache the result
@@ -193,10 +189,10 @@ def get_default_embedder() -> EmbeddingProvider:
 
 def pack_embedding(embedding: List[float]) -> bytes:
     """Pack embedding as bytes for sqlite-vec storage."""
-    return struct.pack(f'{len(embedding)}f', *embedding)
+    return struct.pack(f"{len(embedding)}f", *embedding)
 
 
 def unpack_embedding(data: bytes) -> List[float]:
     """Unpack embedding from bytes."""
     count = len(data) // 4  # 4 bytes per float
-    return list(struct.unpack(f'{count}f', data))
+    return list(struct.unpack(f"{count}f", data))

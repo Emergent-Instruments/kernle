@@ -4136,7 +4136,7 @@ class SQLiteStorage:
                     SELECT * FROM {table}
                     WHERE agent_id = ? AND deleted = 0
                     AND confidence {op} ?
-                    ORDER BY confidence {'ASC' if below else 'DESC'}
+                    ORDER BY confidence {"ASC" if below else "DESC"}
                     LIMIT ?
                 """
 

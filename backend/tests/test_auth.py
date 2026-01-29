@@ -31,6 +31,7 @@ class TestAuthUtilities:
     def test_hash_and_verify_secret(self):
         """Test secret hashing and verification."""
         import bcrypt
+
         secret = "test-secret-123"
         # Use bcrypt directly to avoid passlib issues
         hashed = bcrypt.hashpw(secret.encode(), bcrypt.gensalt()).decode()

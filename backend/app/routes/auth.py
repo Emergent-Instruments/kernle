@@ -4,7 +4,6 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from pydantic import BaseModel
-from supabase import create_client
 
 from ..auth import (
     CurrentAgent,
@@ -19,8 +18,8 @@ from ..auth import (
 )
 from ..config import Settings, get_settings
 from ..database import (
-    Database,
     TIER_LIMITS,
+    Database,
     create_agent,
     create_api_key,
     create_seed_beliefs,
@@ -34,7 +33,6 @@ from ..database import (
 )
 from ..logging_config import get_logger, log_auth_event
 from ..models import (
-    AgentInfo,
     AgentInfoWithUsage,
     AgentLogin,
     AgentRegister,
@@ -57,6 +55,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 class SupabaseTokenExchange(BaseModel):
     """Request to exchange a Supabase access token for a Kernle token."""
+
     access_token: str
 
 
@@ -71,20 +70,19 @@ async def exchange_supabase_token(
 ):
     """
     Exchange a Supabase OAuth access token for a Kernle access token.
-    
+
     This endpoint verifies the Supabase token, extracts user info,
     and creates/returns a Kernle agent + token. Also sets httpOnly cookie.
     """
     try:
         # Verify Supabase JWT using public keys from JWKS endpoint
         # This is the correct approach for the new asymmetric key system
+
         import httpx
-        from jose import jwt, JWTError, jwk
-        from jose.utils import base64url_decode
-        import json
-        
+        from jose import JWTError, jwk, jwt
+
         token = token_request.access_token
-        
+
         # First, decode header to get the key ID (kid) and issuer
         try:
             # Decode header without verification to get kid
@@ -93,9 +91,9 @@ async def exchange_supabase_token(
             kid = header.get("kid")
             alg = header.get("alg")
             issuer = claims.get("iss")
-            
+
             logger.info(f"OAuth: JWT kid={kid}, alg={alg}, iss={issuer}")
-            
+
             # SECURITY: Validate algorithm to prevent algorithm confusion attacks
             if alg != "RS256":
                 logger.error(f"OAuth: Unsupported algorithm: {alg}")
@@ -103,7 +101,7 @@ async def exchange_supabase_token(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Unsupported token algorithm",
                 )
-            
+
             # SECURITY: Validate issuer against allowlist to prevent JWKS URL spoofing
             # Only trust our Supabase instance's auth endpoint
             expected_issuer = f"{settings.supabase_url}/auth/v1"
@@ -121,10 +119,10 @@ async def exchange_supabase_token(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid token format",
             )
-        
+
         # Fetch JWKS from our trusted Supabase instance only
         jwks_url = f"{expected_issuer}/.well-known/jwks.json"
-        
+
         logger.info(f"OAuth: Fetching JWKS from {jwks_url}")
         try:
             async with httpx.AsyncClient() as client:
@@ -142,27 +140,26 @@ async def exchange_supabase_token(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Authentication service temporarily unavailable",
             )
-        
+
         # Find the key matching our token's kid
         signing_key = None
         for key in jwks.get("keys", []):
             if key.get("kid") == kid:
                 signing_key = key
                 break
-        
+
         if not signing_key:
             logger.error(f"OAuth: No matching key found for kid={kid}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Token signing key not found",
             )
-        
+
         # Verify the JWT
         try:
             # Convert JWK to PEM for jose
-            from jose.backends import RSAKey
             public_key = jwk.construct(signing_key)
-            
+
             payload = jwt.decode(
                 token,
                 public_key,
@@ -170,7 +167,7 @@ async def exchange_supabase_token(
                 audience="authenticated",
                 issuer=issuer,
             )
-            
+
             user_data = {
                 "id": payload.get("sub"),
                 "email": payload.get("email"),
@@ -182,28 +179,28 @@ async def exchange_supabase_token(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired token",
             )
-        
+
         email = user_data.get("email")
         supabase_id = user_data.get("id")
-        
+
         if not supabase_id:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid user data",
             )
-        
+
         # Use supabase user ID as agent_id (prefixed to avoid collisions)
         agent_id = f"oauth_{supabase_id[:12]}"
-        
+
         # First, check if there's an existing agent with the same email
         # This enables account merging across OAuth providers (Google, GitHub, etc.)
         existing_by_email = None
         if email:
             existing_by_email = await get_agent_by_email(db, email)
-        
+
         # Check if agent already exists by agent_id
         existing = await get_agent(db, agent_id)
-        
+
         if existing:
             # Agent exists with this OAuth ID, use it
             user_id = existing.get("user_id")
@@ -211,35 +208,37 @@ async def exchange_supabase_token(
             token = create_access_token(agent_id_to_use, settings, user_id=user_id)
             log_auth_event("oauth_login", agent_id_to_use, True)
             set_auth_cookie(response, token, settings)
-            
+
             return TokenResponse(
                 access_token=token,
                 expires_in=settings.jwt_expire_minutes * 60,
                 user_id=user_id,
             )
-        
+
         if existing_by_email:
             # Found an existing account with the same email from a different OAuth provider
             # Merge by using the existing account's user_id
             user_id = existing_by_email.get("user_id")
             agent_id_to_use = existing_by_email.get("agent_id")
-            logger.info(f"OAuth: Merging account - email {email} already exists with agent {agent_id_to_use}")
+            logger.info(
+                f"OAuth: Merging account - email {email} already exists with agent {agent_id_to_use}"
+            )
             token = create_access_token(agent_id_to_use, settings, user_id=user_id)
             log_auth_event("oauth_login_merged", agent_id_to_use, True)
             set_auth_cookie(response, token, settings)
-            
+
             return TokenResponse(
                 access_token=token,
                 expires_in=settings.jwt_expire_minutes * 60,
                 user_id=user_id,
             )
-        
+
         # Create new agent for OAuth user
         user_id = generate_user_id()
         # OAuth users don't have a secret (they auth via Supabase)
         # Store a random hash that can never be matched
         secret_hash = hash_secret(generate_agent_secret())
-        
+
         agent = await create_agent(
             db,
             agent_id=agent_id,
@@ -248,14 +247,14 @@ async def exchange_supabase_token(
             display_name=email.split("@")[0] if email else None,
             email=email,
         )
-        
+
         if not agent:
             log_auth_event("oauth_register", agent_id, False, "database error")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Failed to create agent",
             )
-        
+
         # Plant seed beliefs - foundational SI wisdom for new agents
         try:
             beliefs_created = await create_seed_beliefs(db, agent_id)
@@ -263,23 +262,24 @@ async def exchange_supabase_token(
         except Exception as e:
             # Don't fail registration if seed beliefs fail
             logger.warning(f"OAuth: Failed to create seed beliefs: {e}")
-        
+
         token = create_access_token(agent_id, settings, user_id=user_id)
         log_auth_event("oauth_register", agent_id, True)
         logger.info(f"OAuth agent created: {agent_id} for {email}")
         set_auth_cookie(response, token, settings)
-        
+
         return TokenResponse(
             access_token=token,
             expires_in=settings.jwt_expire_minutes * 60,
             user_id=user_id,
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"OAuth token exchange error: {type(e).__name__}: {e}")
         import traceback
+
         logger.debug(f"OAuth traceback: {traceback.format_exc()}")  # DEBUG level for traces
         # Generic error message to clients (security: don't expose internals)
         raise HTTPException(
@@ -408,7 +408,7 @@ async def get_current_agent_info(
 
     tier = agent.get("tier", "free")
     limits_config = TIER_LIMITS.get(tier, TIER_LIMITS["free"])
-    
+
     # Get usage stats if user_id available
     usage_stats = None
     if auth.user_id:
@@ -420,7 +420,7 @@ async def get_current_agent_info(
                 daily_reset_at=usage_data.get("daily_reset_at"),
                 monthly_reset_at=usage_data.get("monthly_reset_at"),
             )
-    
+
     return AgentInfoWithUsage(
         agent_id=agent["agent_id"],
         display_name=agent.get("display_name"),
@@ -443,7 +443,7 @@ async def get_usage_stats(
 ):
     """
     Get current usage statistics for the authenticated user.
-    
+
     Returns tier, limits, current usage, and remaining quota.
     """
     agent = await get_agent(db, auth.agent_id)
@@ -452,25 +452,25 @@ async def get_usage_stats(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Agent not found",
         )
-    
+
     tier = agent.get("tier", "free")
     limits_config = TIER_LIMITS.get(tier, TIER_LIMITS["free"])
-    
+
     # Get usage stats
     usage_data = None
     if auth.user_id:
         usage_data = await get_usage_for_user(db, auth.user_id)
-    
+
     daily_requests = usage_data.get("daily_requests", 0) if usage_data else 0
     monthly_requests = usage_data.get("monthly_requests", 0) if usage_data else 0
-    
+
     # Calculate remaining
     daily_limit = limits_config["daily"]
     monthly_limit = limits_config["monthly"]
-    
+
     daily_remaining = None if daily_limit is None else max(0, daily_limit - daily_requests)
     monthly_remaining = None if monthly_limit is None else max(0, monthly_limit - monthly_requests)
-    
+
     return UsageResponse(
         tier=tier,
         limits=UsageLimits(
@@ -499,20 +499,20 @@ async def login_with_api_key(
 ):
     """
     Validate API key and return user info with a fresh JWT token.
-    
+
     This endpoint is primarily for CLI login flow - validates the API key
     (via the CurrentAgent dependency) and returns user context plus a
     fresh JWT for subsequent requests. Also sets httpOnly cookie.
     """
     from datetime import datetime, timedelta, timezone
-    
+
     agent = await get_agent(db, auth.agent_id)
     if not agent:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Agent not found",
         )
-    
+
     # Generate a fresh JWT token
     expires_delta = timedelta(minutes=settings.jwt_expire_minutes)
     token = create_access_token(
@@ -521,15 +521,15 @@ async def login_with_api_key(
         expires_delta=expires_delta,
         user_id=auth.user_id,
     )
-    
+
     token_expires = (datetime.now(timezone.utc) + expires_delta).isoformat()
-    
+
     log_auth_event("login", auth.agent_id, True)
     logger.info(f"API key login successful for {auth.agent_id}")
-    
+
     # Set httpOnly cookie for browser auth
     set_auth_cookie(response, token, settings)
-    
+
     return LoginResponse(
         user_id=auth.user_id or agent.get("user_id", ""),
         agent_id=auth.agent_id,
@@ -553,7 +553,7 @@ async def create_new_api_key(
 ):
     """
     Create a new API key for the authenticated user.
-    
+
     Returns the raw key ONCE - store it safely as it cannot be retrieved again.
     """
     if not auth.user_id:
@@ -561,14 +561,14 @@ async def create_new_api_key(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User ID not found. Please re-register to get a user_id.",
         )
-    
+
     name = key_request.name if key_request else "Default"
-    
+
     # Generate the key
     raw_key = generate_api_key()
     key_hash = hash_api_key(raw_key)
     key_prefix = get_api_key_prefix(raw_key)
-    
+
     # Store in database
     key_record = await create_api_key(
         db,
@@ -577,15 +577,15 @@ async def create_new_api_key(
         key_prefix=key_prefix,
         name=name,
     )
-    
+
     if not key_record:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create API key",
         )
-    
+
     logger.info(f"API key created for user {auth.user_id}: {key_prefix}...")
-    
+
     return APIKeyResponse(
         id=str(key_record["id"]),
         name=key_record["name"],
@@ -602,7 +602,7 @@ async def list_user_api_keys(
 ):
     """
     List all API keys for the authenticated user.
-    
+
     Returns metadata only - the raw keys are never stored or retrievable.
     """
     if not auth.user_id:
@@ -610,9 +610,9 @@ async def list_user_api_keys(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User ID not found.",
         )
-    
+
     keys = await list_api_keys(db, auth.user_id)
-    
+
     return APIKeyList(
         keys=[
             APIKeyInfo(
@@ -636,7 +636,7 @@ async def revoke_api_key(
 ):
     """
     Revoke (delete) an API key.
-    
+
     The key will immediately stop working.
     """
     if not auth.user_id:
@@ -644,7 +644,7 @@ async def revoke_api_key(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User ID not found.",
         )
-    
+
     # Check key exists and belongs to user
     key = await get_api_key(db, key_id, auth.user_id)
     if not key:
@@ -652,14 +652,14 @@ async def revoke_api_key(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="API key not found",
         )
-    
+
     deleted = await delete_api_key(db, key_id, auth.user_id)
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to delete API key",
         )
-    
+
     logger.info(f"API key revoked for user {auth.user_id}: {key['key_prefix']}...")
 
 
@@ -673,7 +673,7 @@ async def cycle_api_key(
 ):
     """
     Cycle an API key: deactivate the old one and create a new one atomically.
-    
+
     Returns the new raw key ONCE - store it safely.
     The old key is deactivated (not deleted) for audit purposes.
     """
@@ -682,7 +682,7 @@ async def cycle_api_key(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User ID not found.",
         )
-    
+
     # Check old key exists and belongs to user
     old_key = await get_api_key(db, key_id, auth.user_id)
     if not old_key:
@@ -690,18 +690,18 @@ async def cycle_api_key(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="API key not found",
         )
-    
+
     if not old_key["is_active"]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot cycle an already inactive key",
         )
-    
+
     # Generate new key with same name
     raw_key = generate_api_key()
     key_hash = hash_api_key(raw_key)
     key_prefix = get_api_key_prefix(raw_key)
-    
+
     # Create new key first (safer: if this fails, old key still works)
     new_key_record = await create_api_key(
         db,
@@ -710,13 +710,13 @@ async def cycle_api_key(
         key_prefix=key_prefix,
         name=old_key["name"],
     )
-    
+
     if not new_key_record:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to create new API key",
         )
-    
+
     # Deactivate old key (after new one is created)
     # If this fails, user has two active keys (safe, just suboptimal)
     try:
@@ -728,9 +728,11 @@ async def cycle_api_key(
             f"Failed to deactivate old key {key_id} during cycle for user {auth.user_id}: {e}. "
             "New key created successfully. User may need to manually deactivate old key."
         )
-    
-    logger.info(f"API key cycled for user {auth.user_id}: {old_key['key_prefix']}... -> {key_prefix}...")
-    
+
+    logger.info(
+        f"API key cycled for user {auth.user_id}: {old_key['key_prefix']}... -> {key_prefix}..."
+    )
+
     return APIKeyCycleResponse(
         old_key_id=key_id,
         new_key=APIKeyResponse(
@@ -741,6 +743,7 @@ async def cycle_api_key(
             created_at=new_key_record["created_at"],
         ),
     )
+
 
 # =============================================================================
 # Cookie-based Auth Helpers

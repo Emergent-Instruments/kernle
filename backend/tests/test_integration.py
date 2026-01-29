@@ -10,8 +10,7 @@ import pytest
 
 # Skip all tests in this file unless --run-integration is passed
 pytestmark = pytest.mark.skipif(
-    not os.environ.get("RUN_INTEGRATION"),
-    reason="Integration tests require RUN_INTEGRATION=1"
+    not os.environ.get("RUN_INTEGRATION"), reason="Integration tests require RUN_INTEGRATION=1"
 )
 
 
@@ -25,6 +24,7 @@ def real_client():
     from app import database
     from app.main import app
     from fastapi.testclient import TestClient
+
     database._supabase_client = None
 
     return TestClient(app)
@@ -41,13 +41,11 @@ class TestIntegration:
     def test_register_and_login(self, real_client):
         """Test full registration and login flow."""
         import uuid
+
         agent_id = f"test-agent-{uuid.uuid4().hex[:8]}"
 
         # Register
-        response = real_client.post(
-            "/auth/register",
-            json={"agent_id": agent_id}
-        )
+        response = real_client.post("/auth/register", json={"agent_id": agent_id})
         assert response.status_code == 200
         data = response.json()
         assert "access_token" in data
@@ -69,10 +67,7 @@ class TestIntegration:
 
         # First register
         agent_id = f"test-sync-{uuid.uuid4().hex[:8]}"
-        response = real_client.post(
-            "/auth/register",
-            json={"agent_id": agent_id}
-        )
+        response = real_client.post("/auth/register", json={"agent_id": agent_id})
         token = response.json()["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -86,26 +81,19 @@ class TestIntegration:
                         "operation": "insert",
                         "table": "notes",
                         "record_id": f"note-{uuid.uuid4().hex[:8]}",
-                        "data": {
-                            "content": "Test note from integration test",
-                            "note_type": "note"
-                        },
+                        "data": {"content": "Test note from integration test", "note_type": "note"},
                         "local_updated_at": datetime.now(timezone.utc).isoformat(),
-                        "version": 1
+                        "version": 1,
                     }
                 ]
-            }
+            },
         )
         assert response.status_code == 200
         push_data = response.json()
         assert push_data["synced"] == 1
 
         # Pull changes
-        response = real_client.post(
-            "/sync/pull",
-            headers=headers,
-            json={}
-        )
+        response = real_client.post("/sync/pull", headers=headers, json={})
         assert response.status_code == 200
         pull_data = response.json()
         assert len(pull_data["operations"]) >= 1
@@ -116,19 +104,12 @@ class TestIntegration:
 
         # Register
         agent_id = f"test-search-{uuid.uuid4().hex[:8]}"
-        response = real_client.post(
-            "/auth/register",
-            json={"agent_id": agent_id}
-        )
+        response = real_client.post("/auth/register", json={"agent_id": agent_id})
         token = response.json()["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
 
         # Search (should return empty for new agent)
-        response = real_client.post(
-            "/memories/search",
-            headers=headers,
-            json={"query": "test"}
-        )
+        response = real_client.post("/memories/search", headers=headers, json={"query": "test"})
         assert response.status_code == 200
         data = response.json()
         assert "results" in data

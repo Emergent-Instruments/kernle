@@ -1,8 +1,7 @@
 """Tests for CLI meta command module."""
 
-import pytest
-from unittest.mock import MagicMock
 from argparse import Namespace
+from unittest.mock import MagicMock
 
 from kernle.cli.commands.meta import cmd_meta
 
@@ -14,15 +13,15 @@ class TestCmdMetaConfidence:
         """Confidence for existing memory."""
         k = MagicMock()
         k.get_memory_confidence.return_value = 0.75
-        
+
         args = Namespace(
             meta_action="confidence",
             type="belief",
             id="abc123",
         )
-        
+
         cmd_meta(args, k)
-        
+
         k.get_memory_confidence.assert_called_with("belief", "abc123")
         captured = capsys.readouterr()
         assert "Confidence:" in captured.out
@@ -32,15 +31,15 @@ class TestCmdMetaConfidence:
         """Confidence for non-existent memory."""
         k = MagicMock()
         k.get_memory_confidence.return_value = -1.0
-        
+
         args = Namespace(
             meta_action="confidence",
             type="belief",
             id="nonexistent",
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert "✗" in captured.out
         assert "not found" in captured.out
@@ -54,16 +53,16 @@ class TestCmdMetaVerify:
         k = MagicMock()
         k.verify_memory.return_value = True
         k.get_memory_confidence.return_value = 0.9
-        
+
         args = Namespace(
             meta_action="verify",
             type="note",
             id="abc123",
             evidence="Test evidence",
         )
-        
+
         cmd_meta(args, k)
-        
+
         k.verify_memory.assert_called_with("note", "abc123", "Test evidence")
         captured = capsys.readouterr()
         assert "✓" in captured.out
@@ -74,16 +73,16 @@ class TestCmdMetaVerify:
         """Verification failure."""
         k = MagicMock()
         k.verify_memory.return_value = False
-        
+
         args = Namespace(
             meta_action="verify",
             type="note",
             id="abc123",
             evidence="Some evidence",
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert "✗" in captured.out
         assert "Could not verify" in captured.out
@@ -96,16 +95,16 @@ class TestCmdMetaLineage:
         """Lineage with error."""
         k = MagicMock()
         k.get_memory_lineage.return_value = {"error": "Memory not found"}
-        
+
         args = Namespace(
             meta_action="lineage",
             type="belief",
             id="nonexistent",
             json=False,
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert "✗" in captured.out
         assert "Memory not found" in captured.out
@@ -127,16 +126,16 @@ class TestCmdMetaLineage:
                 },
             ],
         }
-        
+
         args = Namespace(
             meta_action="lineage",
             type="belief",
             id="abc123",
             json=False,
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Lineage for belief:abc123" in captured.out
         assert "inferred" in captured.out
@@ -153,16 +152,16 @@ class TestCmdMetaLineage:
             "source_type": "direct",
             "current_confidence": 0.9,
         }
-        
+
         args = Namespace(
             meta_action="lineage",
             type="belief",
             id="abc123",
             json=True,
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert '"source_type"' in captured.out
         assert '"direct"' in captured.out
@@ -175,16 +174,16 @@ class TestCmdMetaUncertain:
         """No uncertain memories."""
         k = MagicMock()
         k.get_uncertain_memories.return_value = []
-        
+
         args = Namespace(
             meta_action="uncertain",
             threshold=0.5,
             limit=20,
             json=False,
         )
-        
+
         cmd_meta(args, k)
-        
+
         k.get_uncertain_memories.assert_called_with(0.5, limit=20)
         captured = capsys.readouterr()
         assert "No memories below" in captured.out
@@ -202,16 +201,16 @@ class TestCmdMetaUncertain:
                 "created_at": "2026-01-01",
             },
         ]
-        
+
         args = Namespace(
             meta_action="uncertain",
             threshold=0.5,
             limit=20,
             json=False,
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Uncertain Memories" in captured.out
         assert "30%" in captured.out
@@ -223,16 +222,16 @@ class TestCmdMetaUncertain:
         k.get_uncertain_memories.return_value = [
             {"type": "belief", "id": "abc123", "summary": "test", "confidence": 0.3}
         ]
-        
+
         args = Namespace(
             meta_action="uncertain",
             threshold=0.5,
             limit=20,
             json=True,
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert '"type"' in captured.out
         assert '"belief"' in captured.out
@@ -248,15 +247,15 @@ class TestCmdMetaPropagate:
             "source_confidence": 0.9,
             "updated": 3,
         }
-        
+
         args = Namespace(
             meta_action="propagate",
             type="episode",
             id="abc123",
         )
-        
+
         cmd_meta(args, k)
-        
+
         k.propagate_confidence.assert_called_with("episode", "abc123")
         captured = capsys.readouterr()
         assert "✓" in captured.out
@@ -267,15 +266,15 @@ class TestCmdMetaPropagate:
         """Propagation error."""
         k = MagicMock()
         k.propagate_confidence.return_value = {"error": "Memory not found"}
-        
+
         args = Namespace(
             meta_action="propagate",
             type="episode",
             id="nonexistent",
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert "✗" in captured.out
 
@@ -287,7 +286,7 @@ class TestCmdMetaSource:
         """Successful source setting."""
         k = MagicMock()
         k.set_memory_source.return_value = True
-        
+
         args = Namespace(
             meta_action="source",
             type="belief",
@@ -296,13 +295,15 @@ class TestCmdMetaSource:
             episodes=["ep1", "ep2"],
             derived=["belief:b1"],
         )
-        
+
         cmd_meta(args, k)
-        
+
         k.set_memory_source.assert_called_with(
-            "belief", "abc123", "inferred",
+            "belief",
+            "abc123",
+            "inferred",
             source_episodes=["ep1", "ep2"],
-            derived_from=["belief:b1"]
+            derived_from=["belief:b1"],
         )
         captured = capsys.readouterr()
         assert "✓" in captured.out
@@ -313,7 +314,7 @@ class TestCmdMetaSource:
         """Source setting failure."""
         k = MagicMock()
         k.set_memory_source.return_value = False
-        
+
         args = Namespace(
             meta_action="source",
             type="belief",
@@ -322,9 +323,9 @@ class TestCmdMetaSource:
             episodes=None,
             derived=None,
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert "✗" in captured.out
         assert "Could not set source" in captured.out
@@ -342,14 +343,14 @@ class TestCmdMetaKnowledge:
             "uncertain_areas": [],
             "total_domains": 0,
         }
-        
+
         args = Namespace(
             meta_action="knowledge",
             json=False,
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Knowledge Map" in captured.out
         assert "No knowledge domains found" in captured.out
@@ -373,14 +374,14 @@ class TestCmdMetaKnowledge:
             "uncertain_areas": ["machine learning"],
             "total_domains": 1,
         }
-        
+
         args = Namespace(
             meta_action="knowledge",
             json=False,
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Knowledge Map" in captured.out
         assert "programming" in captured.out
@@ -394,14 +395,14 @@ class TestCmdMetaKnowledge:
         """Knowledge map JSON output."""
         k = MagicMock()
         k.get_knowledge_map.return_value = {"domains": [], "total_domains": 0}
-        
+
         args = Namespace(
             meta_action="knowledge",
             json=True,
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert '"domains"' in captured.out
 
@@ -416,9 +417,7 @@ class TestCmdMetaGaps:
             "recommendation": "I can help",
             "confidence": 0.85,
             "search_results_count": 5,
-            "relevant_beliefs": [
-                {"statement": "Python is a great language", "confidence": 0.9}
-            ],
+            "relevant_beliefs": [{"statement": "Python is a great language", "confidence": 0.9}],
             "relevant_episodes": [
                 {
                     "objective": "Built a web app",
@@ -428,15 +427,15 @@ class TestCmdMetaGaps:
             ],
             "gaps": ["Advanced async patterns"],
         }
-        
+
         args = Namespace(
             meta_action="gaps",
             query="Python programming",
             json=False,
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Knowledge Gap Analysis" in captured.out
         assert "I can help" in captured.out
@@ -456,15 +455,15 @@ class TestCmdMetaGaps:
             "relevant_episodes": [],
             "gaps": ["Everything about this topic"],
         }
-        
+
         args = Namespace(
             meta_action="gaps",
             query="Quantum computing",
             json=False,
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert "🟡" in captured.out  # Yellow for limited knowledge
         assert "30%" in captured.out
@@ -480,15 +479,15 @@ class TestCmdMetaGaps:
             "relevant_episodes": [],
             "gaps": [],
         }
-        
+
         args = Namespace(
             meta_action="gaps",
             query="Advanced topic",
             json=False,
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert "🟠" in captured.out  # Orange for should learn more
 
@@ -503,15 +502,15 @@ class TestCmdMetaGaps:
             "relevant_episodes": [],
             "gaps": [],
         }
-        
+
         args = Namespace(
             meta_action="gaps",
             query="Unknown topic",
             json=False,
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert "🔴" in captured.out  # Red for ask someone else
 
@@ -523,15 +522,15 @@ class TestCmdMetaGaps:
             "confidence": 0.9,
             "search_results_count": 10,
         }
-        
+
         args = Namespace(
             meta_action="gaps",
             query="test",
             json=True,
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert '"recommendation"' in captured.out
 
@@ -555,14 +554,14 @@ class TestCmdMetaBoundaries:
                 {"domain": "databases", "confidence": 0.3, "success_rate": 0.4},
             ],
         }
-        
+
         args = Namespace(
             meta_action="boundaries",
             json=False,
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Competence Boundaries" in captured.out
         assert "75%" in captured.out
@@ -584,14 +583,14 @@ class TestCmdMetaBoundaries:
             "strengths": [],
             "weaknesses": [],
         }
-        
+
         args = Namespace(
             meta_action="boundaries",
             json=False,
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Not enough data" in captured.out
 
@@ -602,14 +601,14 @@ class TestCmdMetaBoundaries:
             "overall_confidence": 0.5,
             "success_rate": 0.5,
         }
-        
+
         args = Namespace(
             meta_action="boundaries",
             json=True,
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert '"overall_confidence"' in captured.out
 
@@ -621,15 +620,15 @@ class TestCmdMetaLearn:
         """No learning opportunities."""
         k = MagicMock()
         k.identify_learning_opportunities.return_value = []
-        
+
         args = Namespace(
             meta_action="learn",
             limit=10,
             json=False,
         )
-        
+
         cmd_meta(args, k)
-        
+
         k.identify_learning_opportunities.assert_called_with(limit=10)
         captured = capsys.readouterr()
         assert "No urgent learning needs" in captured.out
@@ -653,15 +652,15 @@ class TestCmdMetaLearn:
                 "suggested_action": "Review testing best practices",
             },
         ]
-        
+
         args = Namespace(
             meta_action="learn",
             limit=10,
             json=False,
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Learning Opportunities" in captured.out
         assert "databases" in captured.out
@@ -673,18 +672,16 @@ class TestCmdMetaLearn:
     def test_learn_json(self, capsys):
         """Learning opportunities JSON output."""
         k = MagicMock()
-        k.identify_learning_opportunities.return_value = [
-            {"domain": "test", "priority": "low"}
-        ]
-        
+        k.identify_learning_opportunities.return_value = [{"domain": "test", "priority": "low"}]
+
         args = Namespace(
             meta_action="learn",
             limit=10,
             json=True,
         )
-        
+
         cmd_meta(args, k)
-        
+
         captured = capsys.readouterr()
         assert '"domain"' in captured.out
         assert '"priority"' in captured.out

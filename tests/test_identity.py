@@ -60,8 +60,9 @@ class TestSynthesizeIdentity:
         for ep in identity["significant_episodes"]:
             objective = ep.get("objective", "")
             # Checkpoint episodes should not be in significant_episodes
-            assert "[CHECKPOINT]" not in objective, \
-                f"Checkpoint episode found in significant_episodes: {objective}"
+            assert (
+                "[CHECKPOINT]" not in objective
+            ), f"Checkpoint episode found in significant_episodes: {objective}"
 
     def test_synthesize_identity_high_confidence_beliefs_only(self, kernle_instance):
         """Test that beliefs are sorted by confidence."""
@@ -91,7 +92,9 @@ class TestSynthesizeIdentity:
 
         # Beliefs should be sorted by confidence (high first)
         if len(identity["key_beliefs"]) >= 2:
-            assert identity["key_beliefs"][0]["confidence"] >= identity["key_beliefs"][1]["confidence"]
+            assert (
+                identity["key_beliefs"][0]["confidence"] >= identity["key_beliefs"][1]["confidence"]
+            )
 
 
 class TestIdentityNarrative:
@@ -116,7 +119,9 @@ class TestIdentityNarrative:
 
         # Should have a non-forming narrative
         assert identity["narrative"] != "Identity still forming."
-        assert "value" in identity["narrative"].lower() or "quality" in identity["narrative"].lower()
+        assert (
+            "value" in identity["narrative"].lower() or "quality" in identity["narrative"].lower()
+        )
 
     def test_narrative_includes_values(self, kernle_instance, populated_storage):
         """Test that narrative mentions values."""
@@ -125,7 +130,9 @@ class TestIdentityNarrative:
         identity = kernle.synthesize_identity()
 
         # Should mention the value in some form
-        assert "value" in identity["narrative"].lower() or "quality" in identity["narrative"].lower()
+        assert (
+            "value" in identity["narrative"].lower() or "quality" in identity["narrative"].lower()
+        )
 
     def test_narrative_includes_beliefs(self, kernle_instance, populated_storage):
         """Test that narrative includes key beliefs."""

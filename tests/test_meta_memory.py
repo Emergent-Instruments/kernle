@@ -29,7 +29,7 @@ from kernle.storage import (
 @pytest.fixture
 def temp_db():
     """Create a temporary database path."""
-    path = Path(tempfile.mktemp(suffix='.db'))
+    path = Path(tempfile.mktemp(suffix=".db"))
     yield path
     if path.exists():
         path.unlink()
@@ -186,12 +186,9 @@ class TestGetMemory:
 
     def test_get_memory_episode(self, storage):
         """Should retrieve episode by type and ID."""
-        storage.save_episode(Episode(
-            id="ep-get-1",
-            agent_id="test-agent",
-            objective="Test",
-            outcome="OK"
-        ))
+        storage.save_episode(
+            Episode(id="ep-get-1", agent_id="test-agent", objective="Test", outcome="OK")
+        )
 
         memory = storage.get_memory("episode", "ep-get-1")
         assert memory is not None
@@ -199,11 +196,7 @@ class TestGetMemory:
 
     def test_get_memory_belief(self, storage):
         """Should retrieve belief by type and ID."""
-        storage.save_belief(Belief(
-            id="b-get-1",
-            agent_id="test-agent",
-            statement="Test belief"
-        ))
+        storage.save_belief(Belief(id="b-get-1", agent_id="test-agent", statement="Test belief"))
 
         memory = storage.get_memory("belief", "b-get-1")
         assert memory is not None
@@ -225,18 +218,13 @@ class TestUpdateMemoryMeta:
 
     def test_update_confidence(self, storage):
         """Should update confidence field."""
-        storage.save_episode(Episode(
-            id="ep-upd-1",
-            agent_id="test-agent",
-            objective="Test",
-            outcome="OK",
-            confidence=0.5
-        ))
-
-        result = storage.update_memory_meta(
-            "episode", "ep-upd-1",
-            confidence=0.9
+        storage.save_episode(
+            Episode(
+                id="ep-upd-1", agent_id="test-agent", objective="Test", outcome="OK", confidence=0.5
+            )
         )
+
+        result = storage.update_memory_meta("episode", "ep-upd-1", confidence=0.9)
 
         assert result is True
 
@@ -245,17 +233,16 @@ class TestUpdateMemoryMeta:
 
     def test_update_source_type(self, storage):
         """Should update source_type field."""
-        storage.save_belief(Belief(
-            id="b-upd-1",
-            agent_id="test-agent",
-            statement="Test",
-            source_type="direct_experience"
-        ))
-
-        result = storage.update_memory_meta(
-            "belief", "b-upd-1",
-            source_type="inference"
+        storage.save_belief(
+            Belief(
+                id="b-upd-1",
+                agent_id="test-agent",
+                statement="Test",
+                source_type="direct_experience",
+            )
         )
+
+        result = storage.update_memory_meta("belief", "b-upd-1", source_type="inference")
 
         assert result is True
 
@@ -264,17 +251,12 @@ class TestUpdateMemoryMeta:
 
     def test_update_verification_count(self, storage):
         """Should update verification_count."""
-        storage.save_note(Note(
-            id="n-upd-1",
-            agent_id="test-agent",
-            content="Test note",
-            verification_count=0
-        ))
+        storage.save_note(
+            Note(id="n-upd-1", agent_id="test-agent", content="Test note", verification_count=0)
+        )
 
         storage.update_memory_meta(
-            "note", "n-upd-1",
-            verification_count=3,
-            last_verified=datetime.now(timezone.utc)
+            "note", "n-upd-1", verification_count=3, last_verified=datetime.now(timezone.utc)
         )
 
         note = storage.get_memory("note", "n-upd-1")
@@ -283,26 +265,16 @@ class TestUpdateMemoryMeta:
 
     def test_update_derived_from(self, storage):
         """Should update derived_from list."""
-        storage.save_belief(Belief(
-            id="b-upd-2",
-            agent_id="test-agent",
-            statement="Derived belief"
-        ))
+        storage.save_belief(Belief(id="b-upd-2", agent_id="test-agent", statement="Derived belief"))
 
-        storage.update_memory_meta(
-            "belief", "b-upd-2",
-            derived_from=["episode:ep-1", "note:n-1"]
-        )
+        storage.update_memory_meta("belief", "b-upd-2", derived_from=["episode:ep-1", "note:n-1"])
 
         belief = storage.get_memory("belief", "b-upd-2")
         assert belief.derived_from == ["episode:ep-1", "note:n-1"]
 
     def test_update_nonexistent_memory(self, storage):
         """Should return False for non-existent memory."""
-        result = storage.update_memory_meta(
-            "episode", "nonexistent",
-            confidence=0.5
-        )
+        result = storage.update_memory_meta("episode", "nonexistent", confidence=0.5)
         assert result is False
 
 
@@ -311,18 +283,21 @@ class TestGetMemoriesByConfidence:
 
     def test_get_low_confidence_memories(self, storage):
         """Should get memories below threshold."""
-        storage.save_belief(Belief(
-            id="b-lo-1", agent_id="test-agent",
-            statement="Low confidence", confidence=0.3
-        ))
-        storage.save_belief(Belief(
-            id="b-hi-1", agent_id="test-agent",
-            statement="High confidence", confidence=0.9
-        ))
-        storage.save_episode(Episode(
-            id="ep-lo-1", agent_id="test-agent",
-            objective="Low conf ep", outcome="OK", confidence=0.4
-        ))
+        storage.save_belief(
+            Belief(id="b-lo-1", agent_id="test-agent", statement="Low confidence", confidence=0.3)
+        )
+        storage.save_belief(
+            Belief(id="b-hi-1", agent_id="test-agent", statement="High confidence", confidence=0.9)
+        )
+        storage.save_episode(
+            Episode(
+                id="ep-lo-1",
+                agent_id="test-agent",
+                objective="Low conf ep",
+                outcome="OK",
+                confidence=0.4,
+            )
+        )
 
         results = storage.get_memories_by_confidence(0.5, below=True)
 
@@ -332,14 +307,12 @@ class TestGetMemoriesByConfidence:
 
     def test_get_high_confidence_memories(self, storage):
         """Should get memories above threshold."""
-        storage.save_belief(Belief(
-            id="b-lo-2", agent_id="test-agent",
-            statement="Low confidence", confidence=0.3
-        ))
-        storage.save_belief(Belief(
-            id="b-hi-2", agent_id="test-agent",
-            statement="High confidence", confidence=0.9
-        ))
+        storage.save_belief(
+            Belief(id="b-lo-2", agent_id="test-agent", statement="Low confidence", confidence=0.3)
+        )
+        storage.save_belief(
+            Belief(id="b-hi-2", agent_id="test-agent", statement="High confidence", confidence=0.9)
+        )
 
         results = storage.get_memories_by_confidence(0.5, below=False)
 
@@ -349,19 +322,20 @@ class TestGetMemoriesByConfidence:
 
     def test_filter_by_memory_type(self, storage):
         """Should filter by memory type."""
-        storage.save_belief(Belief(
-            id="b-filter-1", agent_id="test-agent",
-            statement="Test", confidence=0.3
-        ))
-        storage.save_episode(Episode(
-            id="ep-filter-1", agent_id="test-agent",
-            objective="Test", outcome="OK", confidence=0.3
-        ))
-
-        results = storage.get_memories_by_confidence(
-            0.5, below=True,
-            memory_types=["belief"]
+        storage.save_belief(
+            Belief(id="b-filter-1", agent_id="test-agent", statement="Test", confidence=0.3)
         )
+        storage.save_episode(
+            Episode(
+                id="ep-filter-1",
+                agent_id="test-agent",
+                objective="Test",
+                outcome="OK",
+                confidence=0.3,
+            )
+        )
+
+        results = storage.get_memories_by_confidence(0.5, below=True, memory_types=["belief"])
 
         assert all(r.record_type == "belief" for r in results)
 
@@ -371,38 +345,42 @@ class TestGetMemoriesBySource:
 
     def test_get_inferred_memories(self, storage):
         """Should get memories with inference source."""
-        storage.save_belief(Belief(
-            id="b-inf-1", agent_id="test-agent",
-            statement="Inferred belief",
-            source_type="inference"
-        ))
-        storage.save_belief(Belief(
-            id="b-dir-1", agent_id="test-agent",
-            statement="Direct belief",
-            source_type="direct_experience"
-        ))
+        storage.save_belief(
+            Belief(
+                id="b-inf-1",
+                agent_id="test-agent",
+                statement="Inferred belief",
+                source_type="inference",
+            )
+        )
+        storage.save_belief(
+            Belief(
+                id="b-dir-1",
+                agent_id="test-agent",
+                statement="Direct belief",
+                source_type="direct_experience",
+            )
+        )
 
         results = storage.get_memories_by_source("inference")
 
         assert len(results) >= 1
         assert any(
-            r.record.statement == "Inferred belief"
-            for r in results
-            if r.record_type == "belief"
+            r.record.statement == "Inferred belief" for r in results if r.record_type == "belief"
         )
 
     def test_get_consolidated_memories(self, storage):
         """Should get memories from consolidation."""
-        storage.save_note(Note(
-            id="n-cons-1", agent_id="test-agent",
-            content="Consolidated note",
-            source_type="consolidation"
-        ))
-
-        results = storage.get_memories_by_source(
-            "consolidation",
-            memory_types=["note"]
+        storage.save_note(
+            Note(
+                id="n-cons-1",
+                agent_id="test-agent",
+                content="Consolidated note",
+                source_type="consolidation",
+            )
         )
+
+        results = storage.get_memories_by_source("consolidation", memory_types=["note"])
 
         assert len(results) >= 1
 
@@ -429,11 +407,14 @@ class TestConfidenceHistory:
             {"timestamp": "2024-01-02T00:00:00Z", "old": 0.6, "new": 0.8, "reason": "confirmed"},
         ]
 
-        storage.save_belief(Belief(
-            id="b-hist-1", agent_id="test-agent",
-            statement="Belief with history",
-            confidence_history=history
-        ))
+        storage.save_belief(
+            Belief(
+                id="b-hist-1",
+                agent_id="test-agent",
+                statement="Belief with history",
+                confidence_history=history,
+            )
+        )
 
         belief = storage.get_memory("belief", "b-hist-1")
         assert belief.confidence_history is not None

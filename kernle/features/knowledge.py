@@ -27,16 +27,18 @@ class KnowledgeMixin:
 
         Returns a dict mapping domain names to their statistics.
         """
-        domain_stats: Dict[str, Dict[str, Any]] = defaultdict(lambda: {
-            "belief_count": 0,
-            "belief_confidences": [],
-            "episode_count": 0,
-            "episode_outcomes": [],
-            "note_count": 0,
-            "goal_count": 0,
-            "last_updated": None,
-            "tags": set(),
-        })
+        domain_stats: Dict[str, Dict[str, Any]] = defaultdict(
+            lambda: {
+                "belief_count": 0,
+                "belief_confidences": [],
+                "episode_count": 0,
+                "episode_outcomes": [],
+                "note_count": 0,
+                "goal_count": 0,
+                "last_updated": None,
+                "tags": set(),
+            }
+        )
 
         # Process beliefs
         beliefs = self._storage.get_beliefs(limit=1000)
@@ -46,7 +48,10 @@ class KnowledgeMixin:
             domain_stats[domain]["belief_count"] += 1
             domain_stats[domain]["belief_confidences"].append(belief.confidence)
             if belief.created_at:
-                if domain_stats[domain]["last_updated"] is None or belief.created_at > domain_stats[domain]["last_updated"]:
+                if (
+                    domain_stats[domain]["last_updated"] is None
+                    or belief.created_at > domain_stats[domain]["last_updated"]
+                ):
                     domain_stats[domain]["last_updated"] = belief.created_at
 
         # Process episodes - extract domains from tags
@@ -54,7 +59,11 @@ class KnowledgeMixin:
         for episode in episodes:
             tags = episode.tags or []
             # Skip checkpoint tags
-            tags = [t for t in tags if t not in ("checkpoint", "working_state", "auto-captured", "manual")]
+            tags = [
+                t
+                for t in tags
+                if t not in ("checkpoint", "working_state", "auto-captured", "manual")
+            ]
 
             if tags:
                 for tag in tags:
@@ -62,12 +71,17 @@ class KnowledgeMixin:
                     domain_stats[tag]["episode_outcomes"].append(episode.outcome_type or "partial")
                     domain_stats[tag]["tags"].add(tag)
                     if episode.created_at:
-                        if domain_stats[tag]["last_updated"] is None or episode.created_at > domain_stats[tag]["last_updated"]:
+                        if (
+                            domain_stats[tag]["last_updated"] is None
+                            or episode.created_at > domain_stats[tag]["last_updated"]
+                        ):
                             domain_stats[tag]["last_updated"] = episode.created_at
             else:
                 # No tags - count in general
                 domain_stats["general"]["episode_count"] += 1
-                domain_stats["general"]["episode_outcomes"].append(episode.outcome_type or "partial")
+                domain_stats["general"]["episode_outcomes"].append(
+                    episode.outcome_type or "partial"
+                )
 
         # Process notes
         notes = self._storage.get_notes(limit=1000)
@@ -78,7 +92,10 @@ class KnowledgeMixin:
                     domain_stats[tag]["note_count"] += 1
                     domain_stats[tag]["tags"].add(tag)
                     if note.created_at:
-                        if domain_stats[tag]["last_updated"] is None or note.created_at > domain_stats[tag]["last_updated"]:
+                        if (
+                            domain_stats[tag]["last_updated"] is None
+                            or note.created_at > domain_stats[tag]["last_updated"]
+                        ):
                             domain_stats[tag]["last_updated"] = note.created_at
             else:
                 domain_stats["general"]["note_count"] += 1
@@ -96,11 +113,7 @@ class KnowledgeMixin:
 
     def _calculate_coverage(self: "Kernle", stats: Dict[str, Any]) -> str:
         """Calculate coverage level based on domain statistics."""
-        total_items = (
-            stats["belief_count"] +
-            stats["episode_count"] +
-            stats["note_count"]
-        )
+        total_items = stats["belief_count"] + stats["episode_count"] + stats["note_count"]
 
         if total_items == 0:
             return "none"
@@ -154,7 +167,9 @@ class KnowledgeMixin:
                 "note_count": stats["note_count"],
                 "goal_count": stats["goal_count"],
                 "coverage": coverage,
-                "last_updated": stats["last_updated"].isoformat() if stats["last_updated"] else None,
+                "last_updated": (
+                    stats["last_updated"].isoformat() if stats["last_updated"] else None
+                ),
             }
             domains.append(domain_info)
 
@@ -164,15 +179,18 @@ class KnowledgeMixin:
 
         # Sort domains by coverage (high first) then by item count
         coverage_order = {"high": 0, "medium": 1, "low": 2, "none": 3}
-        domains.sort(key=lambda d: (
-            coverage_order.get(d["coverage"], 3),
-            -(d["belief_count"] + d["episode_count"] + d["note_count"])
-        ))
+        domains.sort(
+            key=lambda d: (
+                coverage_order.get(d["coverage"], 3),
+                -(d["belief_count"] + d["episode_count"] + d["note_count"]),
+            )
+        )
 
         # Blind spots are harder to detect without a reference list
         # For now, we identify domains with very little data that were mentioned
         blind_spots = [
-            d["name"] for d in domains
+            d["name"]
+            for d in domains
             if d["coverage"] == "none" or (d["coverage"] == "low" and d["avg_confidence"] == 0)
         ]
 
@@ -217,27 +235,33 @@ class KnowledgeMixin:
             record_type = result.record_type
 
             if record_type == "belief":
-                relevant_beliefs.append({
-                    "statement": record.statement,
-                    "confidence": record.confidence,
-                    "type": record.belief_type,
-                })
+                relevant_beliefs.append(
+                    {
+                        "statement": record.statement,
+                        "confidence": record.confidence,
+                        "type": record.belief_type,
+                    }
+                )
                 confidences.append(record.confidence)
             elif record_type == "episode":
-                relevant_episodes.append({
-                    "objective": record.objective,
-                    "outcome": record.outcome,
-                    "outcome_type": record.outcome_type,
-                    "lessons": record.lessons,
-                })
-                confidences.append(getattr(record, 'confidence', 0.8))
+                relevant_episodes.append(
+                    {
+                        "objective": record.objective,
+                        "outcome": record.outcome,
+                        "outcome_type": record.outcome_type,
+                        "lessons": record.lessons,
+                    }
+                )
+                confidences.append(getattr(record, "confidence", 0.8))
             elif record_type == "note":
-                relevant_notes.append({
-                    "content": record.content[:200],
-                    "type": record.note_type,
-                    "tags": record.tags,
-                })
-                confidences.append(getattr(record, 'confidence', 0.8))
+                relevant_notes.append(
+                    {
+                        "content": record.content[:200],
+                        "type": record.note_type,
+                        "tags": record.tags,
+                    }
+                )
+                confidences.append(getattr(record, "confidence", 0.8))
 
         # Calculate overall confidence
         has_relevant = len(results) > 0
@@ -254,7 +278,11 @@ class KnowledgeMixin:
             found_topics.update(e["objective"].lower().split())
 
         # Words in query not found in results might indicate gaps
-        potential_gaps = query_words - found_topics - {"how", "do", "i", "what", "is", "the", "a", "to", "for", "and", "or"}
+        potential_gaps = (
+            query_words
+            - found_topics
+            - {"how", "do", "i", "what", "is", "the", "a", "to", "for", "and", "or"}
+        )
         if potential_gaps and len(results) < 3:
             gaps = list(potential_gaps)[:3]
 
@@ -357,7 +385,9 @@ class KnowledgeMixin:
             "overall_confidence": round(overall_confidence, 2),
             "success_rate": round(overall_success, 2),
             "experience_depth": len(all_outcomes),
-            "knowledge_breadth": len([d for d in domain_stats if d not in ("general", "manual", "auto-captured")]),
+            "knowledge_breadth": len(
+                [d for d in domain_stats if d not in ("general", "manual", "auto-captured")]
+            ),
         }
 
     def identify_learning_opportunities(self: "Kernle", limit: int = 5) -> List[Dict[str, Any]]:
@@ -387,52 +417,58 @@ class KnowledgeMixin:
             reference_count = stats["episode_count"] + stats["note_count"]
 
             if coverage in ("low", "none") and reference_count > 0:
-                opportunities.append({
-                    "type": "low_coverage_domain",
-                    "domain": domain_name,
-                    "reason": f"Referenced {reference_count} times but only {stats['belief_count']} beliefs",
-                    "priority": "high" if reference_count > 3 else "medium",
-                    "suggested_action": f"Research and form beliefs about {domain_name}",
-                })
+                opportunities.append(
+                    {
+                        "type": "low_coverage_domain",
+                        "domain": domain_name,
+                        "reason": f"Referenced {reference_count} times but only {stats['belief_count']} beliefs",
+                        "priority": "high" if reference_count > 3 else "medium",
+                        "suggested_action": f"Research and form beliefs about {domain_name}",
+                    }
+                )
 
         # 2. Uncertain beliefs that might affect decisions
         beliefs = self._storage.get_beliefs(limit=1000)
         low_confidence_beliefs = [
-            b for b in beliefs
-            if b.confidence < 0.5 and not getattr(b, 'deleted', False)
+            b for b in beliefs if b.confidence < 0.5 and not getattr(b, "deleted", False)
         ]
 
         for belief in low_confidence_beliefs[:3]:
-            opportunities.append({
-                "type": "uncertain_belief",
-                "domain": belief.belief_type or "general",
-                "reason": f"Belief with only {belief.confidence:.0%} confidence: '{belief.statement[:50]}...'",
-                "priority": "medium",
-                "suggested_action": "Verify or update this belief with evidence",
-            })
+            opportunities.append(
+                {
+                    "type": "uncertain_belief",
+                    "domain": belief.belief_type or "general",
+                    "reason": f"Belief with only {belief.confidence:.0%} confidence: '{belief.statement[:50]}...'",
+                    "priority": "medium",
+                    "suggested_action": "Verify or update this belief with evidence",
+                }
+            )
 
         # 3. Failed episodes indicating knowledge gaps
         episodes = self._storage.get_episodes(limit=100)
         failed_episodes = [
-            e for e in episodes
+            e
+            for e in episodes
             if e.outcome_type == "failure" and e.tags and "checkpoint" not in e.tags
         ]
 
         # Group failures by domain
         failure_domains = {}
         for ep in failed_episodes:
-            for tag in (ep.tags or []):
+            for tag in ep.tags or []:
                 if tag not in ("manual", "auto-captured"):
                     failure_domains[tag] = failure_domains.get(tag, 0) + 1
 
         for domain, count in sorted(failure_domains.items(), key=lambda x: -x[1])[:3]:
-            opportunities.append({
-                "type": "repeated_failures",
-                "domain": domain,
-                "reason": f"{count} failed episodes in {domain}",
-                "priority": "high" if count > 2 else "medium",
-                "suggested_action": f"Study {domain} to improve success rate",
-            })
+            opportunities.append(
+                {
+                    "type": "repeated_failures",
+                    "domain": domain,
+                    "reason": f"{count} failed episodes in {domain}",
+                    "priority": "high" if count > 2 else "medium",
+                    "suggested_action": f"Study {domain} to improve success rate",
+                }
+            )
 
         # 4. Areas with no recent activity (might be getting stale)
         now = datetime.now(timezone.utc)
@@ -446,13 +482,15 @@ class KnowledgeMixin:
             if coverage in ("medium", "high") and stats["last_updated"]:
                 age = now - stats["last_updated"]
                 if age > stale_threshold:
-                    opportunities.append({
-                        "type": "stale_knowledge",
-                        "domain": domain_name,
-                        "reason": f"No updates in {age.days} days - knowledge may be outdated",
-                        "priority": "low",
-                        "suggested_action": f"Review and refresh knowledge about {domain_name}",
-                    })
+                    opportunities.append(
+                        {
+                            "type": "stale_knowledge",
+                            "domain": domain_name,
+                            "reason": f"No updates in {age.days} days - knowledge may be outdated",
+                            "priority": "low",
+                            "suggested_action": f"Review and refresh knowledge about {domain_name}",
+                        }
+                    )
 
         # Sort by priority
         priority_order = {"high": 0, "medium": 1, "low": 2}

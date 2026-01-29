@@ -1,8 +1,7 @@
 """Tests for CLI belief command module."""
 
-import pytest
-from unittest.mock import MagicMock
 from argparse import Namespace
+from unittest.mock import MagicMock
 
 from kernle.cli.commands.belief import cmd_belief
 
@@ -14,21 +13,19 @@ class TestCmdBeliefRevise:
         """Successful belief revision."""
         k = MagicMock()
         k.revise_beliefs_from_episode.return_value = {
-            "reinforced": [
-                {"statement": "Test works", "belief_id": "b123"}
-            ],
+            "reinforced": [{"statement": "Test works", "belief_id": "b123"}],
             "contradicted": [],
             "suggested_new": [],
         }
-        
+
         args = Namespace(
             belief_action="revise",
             episode_id="ep123",
             json=False,
         )
-        
+
         cmd_belief(args, k)
-        
+
         k.revise_beliefs_from_episode.assert_called_with("ep123")
         captured = capsys.readouterr()
         assert "Reinforced" in captured.out
@@ -40,15 +37,15 @@ class TestCmdBeliefRevise:
         k.revise_beliefs_from_episode.return_value = {
             "error": "Episode not found",
         }
-        
+
         args = Namespace(
             belief_action="revise",
             episode_id="nonexistent",
             json=False,
         )
-        
+
         cmd_belief(args, k)
-        
+
         captured = capsys.readouterr()
         assert "✗" in captured.out
 
@@ -60,15 +57,15 @@ class TestCmdBeliefRevise:
             "contradicted": [],
             "suggested_new": [],
         }
-        
+
         args = Namespace(
             belief_action="revise",
             episode_id="ep123",
             json=True,
         )
-        
+
         cmd_belief(args, k)
-        
+
         captured = capsys.readouterr()
         assert '"reinforced"' in captured.out
 
@@ -86,15 +83,15 @@ class TestCmdBeliefRevise:
             ],
             "suggested_new": [],
         }
-        
+
         args = Namespace(
             belief_action="revise",
             episode_id="ep123",
             json=False,
         )
-        
+
         cmd_belief(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Potential Contradictions" in captured.out
         assert "Contradicting statement" in captured.out
@@ -112,15 +109,15 @@ class TestCmdBeliefRevise:
                 }
             ],
         }
-        
+
         args = Namespace(
             belief_action="revise",
             episode_id="ep123",
             json=False,
         )
-        
+
         cmd_belief(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Suggested New Beliefs" in captured.out
         assert "75%" in captured.out
@@ -133,15 +130,15 @@ class TestCmdBeliefRevise:
             "contradicted": [],
             "suggested_new": [],
         }
-        
+
         args = Namespace(
             belief_action="revise",
             episode_id="ep123",
             json=False,
         )
-        
+
         cmd_belief(args, k)
-        
+
         captured = capsys.readouterr()
         assert "No belief revisions found" in captured.out
 
@@ -153,16 +150,16 @@ class TestCmdBeliefContradictions:
         """No contradictions found."""
         k = MagicMock()
         k.find_contradictions.return_value = []
-        
+
         args = Namespace(
             belief_action="contradictions",
             statement="The sky is blue",
             limit=10,
             json=False,
         )
-        
+
         cmd_belief(args, k)
-        
+
         captured = capsys.readouterr()
         assert "No contradictions found" in captured.out
 
@@ -180,16 +177,16 @@ class TestCmdBeliefContradictions:
                 "explanation": "Direct conflict",
             }
         ]
-        
+
         args = Namespace(
             belief_action="contradictions",
             statement="Test statement",
             limit=10,
             json=False,
         )
-        
+
         cmd_belief(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Potential Contradictions" in captured.out
         assert "Contradicting belief" in captured.out
@@ -200,16 +197,16 @@ class TestCmdBeliefContradictions:
         k.find_contradictions.return_value = [
             {"belief_id": "b123", "statement": "test", "contradiction_confidence": 0.7}
         ]
-        
+
         args = Namespace(
             belief_action="contradictions",
             statement="Test",
             limit=10,
             json=True,
         )
-        
+
         cmd_belief(args, k)
-        
+
         captured = capsys.readouterr()
         assert '"belief_id"' in captured.out
 
@@ -221,15 +218,15 @@ class TestCmdBeliefHistory:
         """History for non-existent belief."""
         k = MagicMock()
         k.get_belief_history.return_value = []
-        
+
         args = Namespace(
             belief_action="history",
             id="nonexistent",
             json=False,
         )
-        
+
         cmd_belief(args, k)
-        
+
         captured = capsys.readouterr()
         assert "No history found" in captured.out
 
@@ -258,17 +255,17 @@ class TestCmdBeliefHistory:
                 "created_at": "2026-01-15",
                 "supersession_reason": None,
                 "superseded_by": None,
-            }
+            },
         ]
-        
+
         args = Namespace(
             belief_action="history",
             id="b123",
             json=False,
         )
-        
+
         cmd_belief(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Belief Revision History" in captured.out
         assert "Original belief" in captured.out
@@ -277,18 +274,16 @@ class TestCmdBeliefHistory:
     def test_history_json(self, capsys):
         """History JSON output."""
         k = MagicMock()
-        k.get_belief_history.return_value = [
-            {"id": "b123", "statement": "test", "confidence": 0.8}
-        ]
-        
+        k.get_belief_history.return_value = [{"id": "b123", "statement": "test", "confidence": 0.8}]
+
         args = Namespace(
             belief_action="history",
             id="b123",
             json=True,
         )
-        
+
         cmd_belief(args, k)
-        
+
         captured = capsys.readouterr()
         assert '"id"' in captured.out
         assert '"b123"' in captured.out
@@ -301,14 +296,14 @@ class TestCmdBeliefReinforce:
         """Successful reinforcement."""
         k = MagicMock()
         k.reinforce_belief.return_value = True
-        
+
         args = Namespace(
             belief_action="reinforce",
             id="b123",
         )
-        
+
         cmd_belief(args, k)
-        
+
         k.reinforce_belief.assert_called_with("b123")
         captured = capsys.readouterr()
         assert "✓" in captured.out
@@ -318,14 +313,14 @@ class TestCmdBeliefReinforce:
         """Reinforcement of non-existent belief."""
         k = MagicMock()
         k.reinforce_belief.return_value = False
-        
+
         args = Namespace(
             belief_action="reinforce",
             id="nonexistent",
         )
-        
+
         cmd_belief(args, k)
-        
+
         captured = capsys.readouterr()
         assert "✗" in captured.out
         assert "not found" in captured.out
@@ -338,7 +333,7 @@ class TestCmdBeliefSupersede:
         """Successful supersession."""
         k = MagicMock()
         k.supersede_belief.return_value = "new-b456"
-        
+
         args = Namespace(
             belief_action="supersede",
             old_id="b123",
@@ -346,9 +341,9 @@ class TestCmdBeliefSupersede:
             confidence=0.85,
             reason="Better evidence",
         )
-        
+
         cmd_belief(args, k)
-        
+
         captured = capsys.readouterr()
         assert "✓" in captured.out
         assert "superseded" in captured.out
@@ -358,7 +353,7 @@ class TestCmdBeliefSupersede:
         """Supersession with error."""
         k = MagicMock()
         k.supersede_belief.side_effect = ValueError("Belief not found")
-        
+
         args = Namespace(
             belief_action="supersede",
             old_id="nonexistent",
@@ -366,9 +361,9 @@ class TestCmdBeliefSupersede:
             confidence=0.8,
             reason="Test",
         )
-        
+
         cmd_belief(args, k)
-        
+
         captured = capsys.readouterr()
         assert "✗" in captured.out
 
@@ -380,16 +375,16 @@ class TestCmdBeliefList:
         """Empty belief list."""
         k = MagicMock()
         k._storage.get_beliefs.return_value = []
-        
+
         args = Namespace(
             belief_action="list",
             limit=20,
             all=False,
             json=False,
         )
-        
+
         cmd_belief(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Beliefs" in captured.out
         assert "0 total" in captured.out
@@ -406,19 +401,19 @@ class TestCmdBeliefList:
         belief1.superseded_by = None
         belief1.created_at = MagicMock()
         belief1.created_at.isoformat.return_value = "2026-01-01T00:00:00Z"
-        
+
         k = MagicMock()
         k._storage.get_beliefs.return_value = [belief1]
-        
+
         args = Namespace(
             belief_action="list",
             limit=20,
             all=False,
             json=False,
         )
-        
+
         cmd_belief(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Test belief" in captured.out
         assert "80%" in captured.out
@@ -435,7 +430,7 @@ class TestCmdBeliefList:
         belief1.superseded_by = "b456"
         belief1.created_at = MagicMock()
         belief1.created_at.isoformat.return_value = "2026-01-01T00:00:00Z"
-        
+
         belief2 = MagicMock()
         belief2.id = "b456"
         belief2.statement = "New belief that supersedes old"
@@ -446,19 +441,19 @@ class TestCmdBeliefList:
         belief2.superseded_by = None
         belief2.created_at = MagicMock()
         belief2.created_at.isoformat.return_value = "2026-01-15T00:00:00Z"
-        
+
         k = MagicMock()
         k._storage.get_beliefs.return_value = [belief1, belief2]
-        
+
         args = Namespace(
             belief_action="list",
             limit=20,
             all=True,
             json=False,
         )
-        
+
         cmd_belief(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Supersedes:" in captured.out
         assert "Superseded by:" in captured.out
@@ -477,19 +472,19 @@ class TestCmdBeliefList:
         belief1.superseded_by = None
         belief1.created_at = MagicMock()
         belief1.created_at.isoformat.return_value = "2026-01-01T00:00:00Z"
-        
+
         k = MagicMock()
         k._storage.get_beliefs.return_value = [belief1]
-        
+
         args = Namespace(
             belief_action="list",
             limit=20,
             all=False,
             json=True,
         )
-        
+
         cmd_belief(args, k)
-        
+
         captured = capsys.readouterr()
         assert '"id"' in captured.out
         assert '"statement"' in captured.out

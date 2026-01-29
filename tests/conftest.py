@@ -48,11 +48,7 @@ def kernle_instance(temp_checkpoint_dir, temp_db_path):
         db_path=temp_db_path,
     )
 
-    kernle = Kernle(
-        agent_id="test_agent",
-        storage=storage,
-        checkpoint_dir=temp_checkpoint_dir
-    )
+    kernle = Kernle(agent_id="test_agent", storage=storage, checkpoint_dir=temp_checkpoint_dir)
 
     yield kernle, storage
     storage.close()
@@ -143,8 +139,15 @@ def sample_drive():
 
 
 @pytest.fixture
-def populated_storage(kernle_instance, sample_episode, sample_note,
-                     sample_belief, sample_value, sample_goal, sample_drive):
+def populated_storage(
+    kernle_instance,
+    sample_episode,
+    sample_note,
+    sample_belief,
+    sample_value,
+    sample_goal,
+    sample_drive,
+):
     """Populate the kernle_instance storage with sample data.
 
     This fixture depends on kernle_instance and populates its storage.
@@ -204,6 +207,7 @@ def populated_storage(kernle_instance, sample_episode, sample_note,
 # Legacy fixtures for backwards compatibility with old test patterns
 # These mock the Supabase client interface
 
+
 @pytest.fixture
 def mock_supabase_client():
     """Mock Supabase client that simulates database operations.
@@ -242,27 +246,28 @@ def mock_supabase_client():
                 return result
 
             def ilike_mock(field, value):
-                pattern = value.replace('%', '')
+                pattern = value.replace("%", "")
                 filtered_data = [
-                    item for item in table_data
-                    if pattern.lower() in str(item.get(field, '')).lower()
+                    item
+                    for item in table_data
+                    if pattern.lower() in str(item.get(field, "")).lower()
                 ]
                 result.data = filtered_data
                 return result
 
             def gte_mock(field, value):
-                result.data = [item for item in result.data if item.get(field, '') >= value]
+                result.data = [item for item in result.data if item.get(field, "") >= value]
                 return result
 
             def lte_mock(field, value):
-                result.data = [item for item in result.data if item.get(field, '') <= value]
+                result.data = [item for item in result.data if item.get(field, "") <= value]
                 return result
 
             def order_mock(field, desc=False):
                 if result.data:
                     reverse = desc
                     try:
-                        result.data.sort(key=lambda x: x.get(field, ''), reverse=reverse)
+                        result.data.sort(key=lambda x: x.get(field, ""), reverse=reverse)
                     except (TypeError, KeyError):
                         pass  # Skip sorting if comparison fails
                 return result
@@ -288,14 +293,14 @@ def mock_supabase_client():
         def insert_mock(data):
             if isinstance(data, list):
                 for item in data:
-                    if 'id' not in item:
-                        item['id'] = str(uuid.uuid4())
-                    item['created_at'] = datetime.now(timezone.utc).isoformat()
+                    if "id" not in item:
+                        item["id"] = str(uuid.uuid4())
+                    item["created_at"] = datetime.now(timezone.utc).isoformat()
                     table_data.append(item)
             else:
-                if 'id' not in data:
-                    data['id'] = str(uuid.uuid4())
-                data['created_at'] = datetime.now(timezone.utc).isoformat()
+                if "id" not in data:
+                    data["id"] = str(uuid.uuid4())
+                data["created_at"] = datetime.now(timezone.utc).isoformat()
                 table_data.append(data)
 
             result = Mock()
@@ -374,7 +379,7 @@ def sample_memory_data():
         "metadata": {
             "note_type": "decision",
             "tags": ["testing"],
-            "reason": "Industry standard with good plugin ecosystem"
+            "reason": "Industry standard with good plugin ecosystem",
         },
         "visibility": "private",
         "is_curated": True,

@@ -18,19 +18,19 @@ from .routes import admin_router, auth_router, embeddings_router, memories_route
 class CSRFMiddleware(BaseHTTPMiddleware):
     """
     CSRF protection middleware using Origin header validation.
-    
-    Validates that state-changing requests (POST, PUT, DELETE, PATCH) 
+
+    Validates that state-changing requests (POST, PUT, DELETE, PATCH)
     originate from allowed origins when using cookie-based auth.
     Works in conjunction with SameSite=Strict cookies for defense-in-depth.
-    
+
     CSRF is only relevant for cookie auth because:
     - API keys can't be forged by malicious sites (they're not auto-sent)
     - Cookies ARE auto-sent, making them vulnerable to CSRF
     """
-    
+
     STATE_CHANGING_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
     COOKIE_NAME = "kernle_auth"
-    
+
     def __init__(self, app, allowed_origins: list[str]):
         super().__init__(app)
         # Normalize origins to just scheme://host(:port) for comparison
@@ -39,26 +39,26 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             parsed = urlparse(origin)
             normalized = f"{parsed.scheme}://{parsed.netloc}"
             self.allowed_origins.add(normalized.lower())
-    
+
     async def dispatch(self, request: Request, call_next):
         # Only check state-changing methods
         if request.method not in self.STATE_CHANGING_METHODS:
             return await call_next(request)
-        
+
         # Check if request uses API key auth (Bearer header with knl_ prefix)
         # API key requests don't need CSRF protection - they can't be forged
         auth_header = request.headers.get("authorization", "")
         if auth_header.startswith("Bearer knl_"):
             return await call_next(request)
-        
+
         # Check if request has auth cookie (cookie-based auth needs CSRF protection)
         has_auth_cookie = self.COOKIE_NAME in request.cookies
-        
+
         # No auth cookie = not using cookie auth, let it through
         # (will fail auth check later if auth is required)
         if not has_auth_cookie:
             return await call_next(request)
-        
+
         # Cookie auth detected - validate Origin header
         origin = request.headers.get("origin")
         if not origin:
@@ -66,14 +66,14 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             if referer:
                 parsed = urlparse(referer)
                 origin = f"{parsed.scheme}://{parsed.netloc}"
-        
+
         # Cookie auth without Origin = potential CSRF attack
         if not origin:
             return JSONResponse(
                 status_code=403,
                 content={"detail": "CSRF validation failed: missing Origin header"},
             )
-        
+
         # Validate origin against allowed list
         origin_lower = origin.lower()
         if origin_lower not in self.allowed_origins:
@@ -81,7 +81,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
                 status_code=403,
                 content={"detail": f"CSRF validation failed: origin '{origin}' not allowed"},
             )
-        
+
         return await call_next(request)
 
 
@@ -142,18 +142,18 @@ async def root():
 async def health():
     """Detailed health check with actual database verification."""
     from .database import get_supabase_client
-    
+
     db_status = "disconnected"
     try:
         db = get_supabase_client()
         # Simple query to verify connection
-        result = db.table("agents").select("id").limit(1).execute()
+        db.table("agents").select("id").limit(1).execute()
         db_status = "connected"
     except Exception as e:
         db_status = f"error: {str(e)[:50]}"
-    
+
     overall_status = "healthy" if db_status == "connected" else "degraded"
-    
+
     return {
         "status": overall_status,
         "database": db_status,

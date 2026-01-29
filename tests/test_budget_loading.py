@@ -11,18 +11,18 @@ from datetime import datetime, timezone
 import pytest
 
 from kernle.core import (
-    Kernle,
-    estimate_tokens,
-    truncate_at_word_boundary,
-    compute_priority_score,
-    MEMORY_TYPE_PRIORITIES,
     DEFAULT_TOKEN_BUDGET,
     MAX_TOKEN_BUDGET,
+    MEMORY_TYPE_PRIORITIES,
     MIN_TOKEN_BUDGET,
     TOKEN_ESTIMATION_SAFETY_MARGIN,
+    Kernle,
+    compute_priority_score,
+    estimate_tokens,
+    truncate_at_word_boundary,
 )
 from kernle.storage import SQLiteStorage
-from kernle.storage.base import Belief, Drive, Episode, Goal, Note, Value, Relationship
+from kernle.storage.base import Belief, Drive, Episode, Goal, Note, Relationship, Value
 
 
 class TestEstimateTokens:
@@ -134,12 +134,8 @@ class TestComputePriorityScore:
 
     def test_belief_priority(self):
         """Belief priority should scale with confidence."""
-        high_confidence_belief = Belief(
-            id="b1", agent_id="test", statement="test", confidence=0.95
-        )
-        low_confidence_belief = Belief(
-            id="b2", agent_id="test", statement="test", confidence=0.3
-        )
+        high_confidence_belief = Belief(id="b1", agent_id="test", statement="test", confidence=0.95)
+        low_confidence_belief = Belief(id="b2", agent_id="test", statement="test", confidence=0.3)
 
         high_score = compute_priority_score("belief", high_confidence_belief)
         low_score = compute_priority_score("belief", low_confidence_belief)
@@ -148,12 +144,8 @@ class TestComputePriorityScore:
 
     def test_drive_priority(self):
         """Drive priority should scale with intensity."""
-        high_intensity_drive = Drive(
-            id="d1", agent_id="test", drive_type="growth", intensity=0.9
-        )
-        low_intensity_drive = Drive(
-            id="d2", agent_id="test", drive_type="curiosity", intensity=0.2
-        )
+        high_intensity_drive = Drive(id="d1", agent_id="test", drive_type="growth", intensity=0.9)
+        low_intensity_drive = Drive(id="d2", agent_id="test", drive_type="curiosity", intensity=0.2)
 
         high_score = compute_priority_score("drive", high_intensity_drive)
         low_score = compute_priority_score("drive", low_intensity_drive)
@@ -168,7 +160,13 @@ class TestComputePriorityScore:
         goal = Goal(id="g", agent_id="test", title="test")
         episode = Episode(id="e", agent_id="test", objective="test", outcome="test")
         note = Note(id="n", agent_id="test", content="test")
-        relationship = Relationship(id="r", agent_id="test", entity_name="test", entity_type="person", relationship_type="knows")
+        relationship = Relationship(
+            id="r",
+            agent_id="test",
+            entity_name="test",
+            entity_type="person",
+            relationship_type="knows",
+        )
 
         scores = {
             "value": compute_priority_score("value", value),
@@ -208,43 +206,45 @@ class TestBudgetLoading:
         checkpoint_dir.mkdir()
 
         storage = SQLiteStorage(agent_id="test_agent", db_path=db_path)
-        kernle = Kernle(
-            agent_id="test_agent",
-            storage=storage,
-            checkpoint_dir=checkpoint_dir
-        )
+        kernle = Kernle(agent_id="test_agent", storage=storage, checkpoint_dir=checkpoint_dir)
 
         # Add test data with varying priorities/confidence
         for i in range(10):
-            storage.save_value(Value(
-                id=str(uuid.uuid4()),
-                agent_id="test_agent",
-                name=f"value_{i}",
-                statement=f"This is value statement {i} with some content to test token estimation",
-                priority=i * 10,  # 0, 10, 20, ..., 90
-                created_at=datetime.now(timezone.utc),
-            ))
+            storage.save_value(
+                Value(
+                    id=str(uuid.uuid4()),
+                    agent_id="test_agent",
+                    name=f"value_{i}",
+                    statement=f"This is value statement {i} with some content to test token estimation",
+                    priority=i * 10,  # 0, 10, 20, ..., 90
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
 
         for i in range(15):
-            storage.save_belief(Belief(
-                id=str(uuid.uuid4()),
-                agent_id="test_agent",
-                statement=f"This is belief {i} with confidence level varying",
-                belief_type="fact",
-                confidence=0.1 + (i * 0.05),  # 0.1, 0.15, ..., 0.85
-                created_at=datetime.now(timezone.utc),
-            ))
+            storage.save_belief(
+                Belief(
+                    id=str(uuid.uuid4()),
+                    agent_id="test_agent",
+                    statement=f"This is belief {i} with confidence level varying",
+                    belief_type="fact",
+                    confidence=0.1 + (i * 0.05),  # 0.1, 0.15, ..., 0.85
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
 
         for i in range(8):
-            storage.save_episode(Episode(
-                id=str(uuid.uuid4()),
-                agent_id="test_agent",
-                objective=f"Episode {i} objective that is moderately long",
-                outcome=f"Episode {i} outcome with details about what happened",
-                outcome_type="success" if i % 2 == 0 else "failure",
-                lessons=[f"Lesson from episode {i}"],
-                created_at=datetime.now(timezone.utc),
-            ))
+            storage.save_episode(
+                Episode(
+                    id=str(uuid.uuid4()),
+                    agent_id="test_agent",
+                    objective=f"Episode {i} objective that is moderately long",
+                    outcome=f"Episode {i} outcome with details about what happened",
+                    outcome_type="success" if i % 2 == 0 else "failure",
+                    lessons=[f"Lesson from episode {i}"],
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
 
         yield kernle
         storage.close()
@@ -269,14 +269,14 @@ class TestBudgetLoading:
 
         # Small budget should have fewer items
         small_total = (
-            len(small_memory.get("values", [])) +
-            len(small_memory.get("beliefs", [])) +
-            len(small_memory.get("recent_work", []))
+            len(small_memory.get("values", []))
+            + len(small_memory.get("beliefs", []))
+            + len(small_memory.get("recent_work", []))
         )
         default_total = (
-            len(default_memory.get("values", [])) +
-            len(default_memory.get("beliefs", [])) +
-            len(default_memory.get("recent_work", []))
+            len(default_memory.get("values", []))
+            + len(default_memory.get("beliefs", []))
+            + len(default_memory.get("recent_work", []))
         )
 
         assert small_total <= default_total
@@ -304,10 +304,7 @@ class TestBudgetLoading:
 
         # Content should be full length
         # Values statements are ~70 chars, should not be truncated
-        has_long_statement = any(
-            len(v.get("statement", "")) > 50
-            for v in memory.get("values", [])
-        )
+        has_long_statement = any(len(v.get("statement", "")) > 50 for v in memory.get("values", []))
         assert has_long_statement
 
     def test_priority_ordering(self, kernle_with_data):
@@ -400,6 +397,7 @@ class TestCLIBudgetValidation:
     def test_cli_validate_budget_too_low(self):
         """Budget below minimum should raise error."""
         import argparse
+
         from kernle.cli.__main__ import validate_budget
 
         with pytest.raises(argparse.ArgumentTypeError, match="at least"):
@@ -408,6 +406,7 @@ class TestCLIBudgetValidation:
     def test_cli_validate_budget_too_high(self):
         """Budget above maximum should raise error."""
         import argparse
+
         from kernle.cli.__main__ import validate_budget
 
         with pytest.raises(argparse.ArgumentTypeError, match="cannot exceed"):
@@ -416,6 +415,7 @@ class TestCLIBudgetValidation:
     def test_cli_validate_budget_non_integer(self):
         """Non-integer budget should raise error."""
         import argparse
+
         from kernle.cli.__main__ import validate_budget
 
         with pytest.raises(argparse.ArgumentTypeError, match="must be an integer"):
@@ -433,14 +433,16 @@ class TestLoadAllWithOptionalLimits:
 
         # Add test data
         for i in range(5):
-            storage.save_value(Value(
-                id=str(uuid.uuid4()),
-                agent_id="test_agent",
-                name=f"value_{i}",
-                statement=f"Statement {i}",
-                priority=i * 20,
-                created_at=datetime.now(timezone.utc),
-            ))
+            storage.save_value(
+                Value(
+                    id=str(uuid.uuid4()),
+                    agent_id="test_agent",
+                    name=f"value_{i}",
+                    statement=f"Statement {i}",
+                    priority=i * 20,
+                    created_at=datetime.now(timezone.utc),
+                )
+            )
 
         yield storage
         storage.close()

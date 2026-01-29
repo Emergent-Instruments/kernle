@@ -244,10 +244,7 @@ class TestKernleRaw:
         raw_id = kernle.raw("Completed the sync feature implementation")
 
         episode_id = kernle.process_raw(
-            raw_id,
-            "episode",
-            objective="Implement sync feature",
-            outcome="completed"
+            raw_id, "episode", objective="Implement sync feature", outcome="completed"
         )
 
         assert episode_id is not None
@@ -434,7 +431,7 @@ class TestCLIRaw:
             tags="dev,idea",
         )
 
-        with patch('sys.stdout'):
+        with patch("sys.stdout"):
             cmd_raw(args, mock_kernle)
 
         mock_kernle.raw.assert_called_once()
@@ -458,7 +455,7 @@ class TestCLIRaw:
             json=False,
         )
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_raw(args, mock_kernle)
 
         mock_kernle.list_raw.assert_called_once_with(processed=None, limit=50)
@@ -479,7 +476,7 @@ class TestCLIRaw:
             json=False,
         )
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_raw(args, mock_kernle)
 
         # Called twice: once for ID resolution (exact match check), once to fetch entry
@@ -500,7 +497,7 @@ class TestCLIRaw:
         # then list_raw returns entries, then get_raw returns the entry
         mock_kernle.get_raw.side_effect = [
             None,  # No exact match for partial ID
-            {      # Found via list_raw, fetch full entry
+            {  # Found via list_raw, fetch full entry
                 "id": "raw123-full-uuid-here",
                 "content": "Test content here",
                 "timestamp": "2024-01-01T12:00:00+00:00",
@@ -508,7 +505,7 @@ class TestCLIRaw:
                 "processed": False,
                 "processed_into": None,
                 "tags": ["dev"],
-            }
+            },
         ]
         mock_kernle.list_raw.return_value = [
             {
@@ -528,7 +525,7 @@ class TestCLIRaw:
             json=False,
         )
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_raw(args, mock_kernle)
 
         # Should have called list_raw to find the match
@@ -552,7 +549,7 @@ class TestCLIRaw:
             outcome=None,
         )
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_raw(args, mock_kernle)
 
         mock_kernle.process_raw.assert_called_once_with(
@@ -579,7 +576,7 @@ class TestCLIRaw:
             include_raw=True,
         )
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_dump(args, mock_kernle)
 
         mock_kernle.dump.assert_called_once_with(include_raw=True, format="markdown")
@@ -601,13 +598,11 @@ class TestCLIRaw:
             include_raw=True,
         )
 
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_export(args, mock_kernle)
 
         mock_kernle.export.assert_called_once_with(
-            str(export_path),
-            include_raw=True,
-            format="markdown"
+            str(export_path), include_raw=True, format="markdown"
         )
         output = fake_out.getvalue()
         assert "Exported memory" in output
@@ -632,9 +627,9 @@ class TestRawMemoryIntegration:
         assert len(unprocessed) == 3
 
         # 4. Process one into an episode
-        kernle.process_raw(raw1, "episode",
-                          objective="Analyze sync queue",
-                          outcome="Found deduplication issue")
+        kernle.process_raw(
+            raw1, "episode", objective="Analyze sync queue", outcome="Found deduplication issue"
+        )
 
         # 5. Process another into a note
         kernle.process_raw(raw3, "note", type="insight")

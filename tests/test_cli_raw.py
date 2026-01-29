@@ -982,7 +982,7 @@ class TestCmdRawFiles:
         mock_files = []
         for i in range(15):
             mock_file = MagicMock()
-            mock_file.name = f"2026-01-{15-i:02d}.md"
+            mock_file.name = f"2026-01-{15 - i:02d}.md"
             mock_file.stat.return_value.st_size = 100
             mock_files.append(mock_file)
 

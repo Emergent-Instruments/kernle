@@ -1,8 +1,9 @@
 """Tests for server-side re-embedding on sync."""
 
-import pytest
-from unittest.mock import AsyncMock, patch
 from datetime import datetime, timezone
+from unittest.mock import AsyncMock, patch
+
+import pytest
 
 
 class TestServerSideReembedding:
@@ -13,6 +14,7 @@ class TestServerSideReembedding:
         """Create test client."""
         from app.main import app
         from fastapi.testclient import TestClient
+
         return TestClient(app)
 
     @pytest.fixture
@@ -20,6 +22,7 @@ class TestServerSideReembedding:
         """Create auth headers with a test token."""
         from app.auth import create_access_token
         from app.config import get_settings
+
         settings = get_settings()
         token = create_access_token("test-agent", settings)
         return {"Authorization": f"Bearer {token}"}
@@ -29,7 +32,13 @@ class TestServerSideReembedding:
     @patch("app.routes.sync.get_agent_by_user_and_name", new_callable=AsyncMock)
     @patch("app.routes.sync.create_embedding", new_callable=AsyncMock)
     def test_push_ignores_client_embedding(
-        self, mock_create_embedding, mock_get_agent, mock_update_sync, mock_upsert, client, auth_headers
+        self,
+        mock_create_embedding,
+        mock_get_agent,
+        mock_update_sync,
+        mock_upsert,
+        client,
+        auth_headers,
     ):
         """Client's 384-dim embedding should be stripped and replaced with server 1536-dim."""
         # Setup: server returns 1536-dim embedding
@@ -51,13 +60,13 @@ class TestServerSideReembedding:
                         "data": {
                             "content": "Test note content",
                             "note_type": "note",
-                            "embedding": [0.5] * 384  # Client's 384-dim embedding
+                            "embedding": [0.5] * 384,  # Client's 384-dim embedding
                         },
                         "local_updated_at": datetime.now(timezone.utc).isoformat(),
-                        "version": 1
+                        "version": 1,
                     }
                 ]
-            }
+            },
         )
 
         assert response.status_code == 200
@@ -79,7 +88,13 @@ class TestServerSideReembedding:
     @patch("app.routes.sync.get_agent_by_user_and_name", new_callable=AsyncMock)
     @patch("app.routes.sync.create_embedding", new_callable=AsyncMock)
     def test_push_without_client_embedding(
-        self, mock_create_embedding, mock_get_agent, mock_update_sync, mock_upsert, client, auth_headers
+        self,
+        mock_create_embedding,
+        mock_get_agent,
+        mock_update_sync,
+        mock_upsert,
+        client,
+        auth_headers,
     ):
         """Push works even when client doesn't send any embedding."""
         mock_create_embedding.return_value = [0.1] * 1536
@@ -98,14 +113,14 @@ class TestServerSideReembedding:
                         "record_id": "test-note-2",
                         "data": {
                             "content": "Note without embedding",
-                            "note_type": "note"
+                            "note_type": "note",
                             # No embedding field
                         },
                         "local_updated_at": datetime.now(timezone.utc).isoformat(),
-                        "version": 1
+                        "version": 1,
                     }
                 ]
-            }
+            },
         )
 
         assert response.status_code == 200
@@ -121,7 +136,13 @@ class TestServerSideReembedding:
     @patch("app.routes.sync.get_agent_by_user_and_name", new_callable=AsyncMock)
     @patch("app.routes.sync.create_embedding", new_callable=AsyncMock)
     def test_push_with_failed_embedding(
-        self, mock_create_embedding, mock_get_agent, mock_update_sync, mock_upsert, client, auth_headers
+        self,
+        mock_create_embedding,
+        mock_get_agent,
+        mock_update_sync,
+        mock_upsert,
+        client,
+        auth_headers,
     ):
         """If server embedding fails, don't store client's embedding either."""
         mock_create_embedding.return_value = None  # Embedding failed
@@ -141,13 +162,13 @@ class TestServerSideReembedding:
                         "data": {
                             "content": "Note content",
                             "note_type": "note",
-                            "embedding": [0.5] * 384  # Client's embedding
+                            "embedding": [0.5] * 384,  # Client's embedding
                         },
                         "local_updated_at": datetime.now(timezone.utc).isoformat(),
-                        "version": 1
+                        "version": 1,
                     }
                 ]
-            }
+            },
         )
 
         assert response.status_code == 200
@@ -166,12 +187,14 @@ class TestPullStripsEmbeddings:
     def client(self):
         from app.main import app
         from fastapi.testclient import TestClient
+
         return TestClient(app)
 
     @pytest.fixture
     def auth_headers(self):
         from app.auth import create_access_token
         from app.config import get_settings
+
         settings = get_settings()
         token = create_access_token("test-agent", settings)
         return {"Authorization": f"Bearer {token}"}
@@ -191,18 +214,14 @@ class TestPullStripsEmbeddings:
                         "content": "Note content",
                         "note_type": "note",
                         "embedding": [0.1] * 1536,  # Server's 1536-dim embedding
-                        "created_at": datetime.now(timezone.utc).isoformat()
-                    }
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    },
                 }
             ],
             False,  # has_more
         )
 
-        response = client.post(
-            "/sync/pull",
-            headers=auth_headers,
-            json={}
-        )
+        response = client.post("/sync/pull", headers=auth_headers, json={})
 
         assert response.status_code == 200
         data = response.json()

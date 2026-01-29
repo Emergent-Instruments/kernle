@@ -20,10 +20,7 @@ class TestAdminEndpoints:
 
     def test_backfill_requires_auth(self, client):
         """Test that backfill endpoint requires authentication."""
-        response = client.post(
-            "/admin/embeddings/backfill",
-            json={"agent_id": "test"}
-        )
+        response = client.post("/admin/embeddings/backfill", json={"agent_id": "test"})
         assert response.status_code == 401
 
 
@@ -31,8 +28,7 @@ class TestAdminIntegration:
     """Integration tests for admin endpoints (requires real DB)."""
 
     @pytest.mark.skipif(
-        not os.environ.get("RUN_INTEGRATION"),
-        reason="Integration tests require RUN_INTEGRATION=1"
+        not os.environ.get("RUN_INTEGRATION"), reason="Integration tests require RUN_INTEGRATION=1"
     )
     def test_stats_with_auth(self, client, auth_headers):
         """Test stats endpoint with valid auth."""
@@ -41,8 +37,7 @@ class TestAdminIntegration:
         assert response.status_code != 401
 
     @pytest.mark.skipif(
-        not os.environ.get("RUN_INTEGRATION"),
-        reason="Integration tests require RUN_INTEGRATION=1"
+        not os.environ.get("RUN_INTEGRATION"), reason="Integration tests require RUN_INTEGRATION=1"
     )
     def test_agents_with_auth(self, client, auth_headers):
         """Test agents list with valid auth."""

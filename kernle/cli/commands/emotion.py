@@ -28,7 +28,9 @@ def cmd_emotion(args, k: "Kernle"):
             valence = summary["average_valence"]
             valence_pct = (valence + 1) / 2  # Convert -1..1 to 0..1
             valence_bar = "█" * int(valence_pct * 20) + "░" * (20 - int(valence_pct * 20))
-            valence_label = "positive" if valence > 0.2 else "negative" if valence < -0.2 else "neutral"
+            valence_label = (
+                "positive" if valence > 0.2 else "negative" if valence < -0.2 else "neutral"
+            )
             print(f"Avg Valence:  [{valence_bar}] {valence:+.2f} ({valence_label})")
 
             # Arousal visualization
@@ -131,8 +133,12 @@ def cmd_emotion(args, k: "Kernle"):
                 mood = "😊" if v > 0.3 else "😢" if v < -0.3 else "😐"
 
                 print(f"Detected Emotions: {mood}")
-                print(f"  Valence: {v:+.2f} ({'positive' if v > 0 else 'negative' if v < 0 else 'neutral'})")
-                print(f"  Arousal: {a:.2f} ({'high' if a > 0.6 else 'low' if a < 0.3 else 'moderate'})")
+                print(
+                    f"  Valence: {v:+.2f} ({'positive' if v > 0 else 'negative' if v < 0 else 'neutral'})"
+                )
+                print(
+                    f"  Arousal: {a:.2f} ({'high' if a > 0.6 else 'low' if a < 0.3 else 'moderate'})"
+                )
                 print(f"  Tags: {', '.join(result['tags']) if result['tags'] else 'none'}")
                 print(f"  Confidence: {result['confidence']:.0%}")
 
@@ -148,7 +154,9 @@ def cmd_emotion(args, k: "Kernle"):
             print(json.dumps(results, indent=2, default=str))
         else:
             mood = "😊" if args.valence > 0.3 else "😢" if args.valence < -0.3 else "😐"
-            print(f"Memories relevant to mood: {mood} (v={args.valence:+.2f}, a={args.arousal:.2f})")
+            print(
+                f"Memories relevant to mood: {mood} (v={args.valence:+.2f}, a={args.arousal:.2f})"
+            )
             print("=" * 50)
 
             if not results:

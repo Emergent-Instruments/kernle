@@ -1,8 +1,7 @@
 """Tests for CLI anxiety command module."""
 
-import pytest
-from unittest.mock import MagicMock
 from argparse import Namespace
+from unittest.mock import MagicMock
 
 from kernle.cli.commands.anxiety import cmd_anxiety
 
@@ -28,7 +27,7 @@ class TestCmdAnxiety:
             "timestamp": "2026-01-28T12:00:00Z",
             "agent_id": "test",
         }
-        
+
         args = Namespace(
             context=None,
             limit=200000,
@@ -38,9 +37,9 @@ class TestCmdAnxiety:
             auto=False,
             json=False,
         )
-        
+
         cmd_anxiety(args, k)
-        
+
         captured = capsys.readouterr()
         assert "Memory Anxiety Report" in captured.out
         assert "Aware" in captured.out
@@ -58,7 +57,7 @@ class TestCmdAnxiety:
             "errors": [],
             "success": True,
         }
-        
+
         args = Namespace(
             context=None,
             limit=200000,
@@ -69,9 +68,9 @@ class TestCmdAnxiety:
             actions=False,
             auto=False,
         )
-        
+
         cmd_anxiety(args, k)
-        
+
         k.emergency_save.assert_called_once()
         captured = capsys.readouterr()
         assert "EMERGENCY SAVE" in captured.out
@@ -88,7 +87,7 @@ class TestCmdAnxiety:
             "timestamp": "2026-01-28T12:00:00Z",
             "agent_id": "test",
         }
-        
+
         args = Namespace(
             context=None,
             limit=200000,
@@ -98,9 +97,9 @@ class TestCmdAnxiety:
             auto=False,
             json=True,
         )
-        
+
         cmd_anxiety(args, k)
-        
+
         captured = capsys.readouterr()
         assert '"overall_score": 35' in captured.out
 
@@ -123,10 +122,15 @@ class TestCmdAnxiety:
             "agent_id": "test",
         }
         k.get_recommended_actions.return_value = [
-            {"priority": "high", "description": "Checkpoint", "method": "checkpoint", "command": "kernle checkpoint"},
+            {
+                "priority": "high",
+                "description": "Checkpoint",
+                "method": "checkpoint",
+                "command": "kernle checkpoint",
+            },
         ]
         k.checkpoint.return_value = {"task": "test"}
-        
+
         args = Namespace(
             context=None,
             limit=200000,
@@ -136,9 +140,9 @@ class TestCmdAnxiety:
             auto=True,
             json=False,
         )
-        
+
         cmd_anxiety(args, k)
-        
+
         k.checkpoint.assert_called_once()
         captured = capsys.readouterr()
         assert "Auto-execution complete" in captured.out

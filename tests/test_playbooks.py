@@ -47,7 +47,11 @@ class TestPlaybookDataModel:
             trigger_conditions=["high memory usage", "out of memory errors"],
             steps=[
                 {"action": "Run profiler", "details": "Use memory_profiler", "adaptations": None},
-                {"action": "Identify leaks", "details": None, "adaptations": {"large datasets": "use sampling"}},
+                {
+                    "action": "Identify leaks",
+                    "details": None,
+                    "adaptations": {"large datasets": "use sampling"},
+                },
                 {"action": "Fix and verify", "details": None, "adaptations": None},
             ],
             failure_modes=["Profiler crashes", "Leak not reproducible"],
@@ -208,7 +212,9 @@ class TestPlaybookStorage:
         updated = storage.get_playbook(playbook.id)
         assert updated.times_used == 10
         assert updated.success_rate == 0.5  # 5 success, 5 failure
-        assert updated.mastery_level == "competent"  # Still competent (10 uses but only 50% success)
+        assert (
+            updated.mastery_level == "competent"
+        )  # Still competent (10 uses but only 50% success)
 
     def test_mastery_progression(self, storage):
         """Test that mastery level increases with usage and success."""
@@ -291,7 +297,11 @@ class TestPlaybookCore:
             description="Deployment with adaptations",
             steps=[
                 {"action": "Run tests", "details": "Use pytest -v", "adaptations": None},
-                {"action": "Build", "details": "docker build", "adaptations": {"arm64": "use buildx"}},
+                {
+                    "action": "Build",
+                    "details": "docker build",
+                    "adaptations": {"arm64": "use buildx"},
+                },
                 {"action": "Deploy", "details": None, "adaptations": None},
             ],
             triggers=["releasing code", "hotfix needed"],
@@ -491,7 +501,8 @@ class TestPlaybookCLI:
         )
 
         from io import StringIO
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_playbook(args, mock_kernle)
 
         mock_kernle.playbook.assert_called_once()
@@ -514,7 +525,8 @@ class TestPlaybookCLI:
         )
 
         from io import StringIO
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_playbook(args, mock_kernle)
 
         mock_kernle.load_playbooks.assert_called_once()
@@ -536,7 +548,8 @@ class TestPlaybookCLI:
         )
 
         from io import StringIO
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_playbook(args, mock_kernle)
 
         mock_kernle.search_playbooks.assert_called_once_with("deploy", limit=10)
@@ -555,7 +568,8 @@ class TestPlaybookCLI:
         )
 
         from io import StringIO
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_playbook(args, mock_kernle)
 
         mock_kernle.get_playbook.assert_called_once_with("pb-1")
@@ -577,7 +591,8 @@ class TestPlaybookCLI:
         )
 
         from io import StringIO
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_playbook(args, mock_kernle)
 
         mock_kernle.find_playbook.assert_called_once_with("I need to deploy the app")
@@ -599,7 +614,8 @@ class TestPlaybookCLI:
         )
 
         from io import StringIO
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_playbook(args, mock_kernle)
 
         mock_kernle.record_playbook_use.assert_called_once_with("pb-1", True)
@@ -619,7 +635,8 @@ class TestPlaybookCLI:
         )
 
         from io import StringIO
-        with patch('sys.stdout', new=StringIO()) as fake_out:
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_playbook(args, mock_kernle)
 
         mock_kernle.record_playbook_use.assert_called_once_with("pb-1", False)

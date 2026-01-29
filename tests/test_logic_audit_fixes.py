@@ -8,16 +8,13 @@ These tests verify the fixes for:
 4. HIGH: Null handling in detect_emotion()
 """
 
-import uuid
 import threading
-import time
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch
+import uuid
+from unittest.mock import patch
 
 import pytest
 
 from kernle import Kernle
-from kernle.storage.base import Belief, Value
 from kernle.storage.sqlite import SQLiteStorage
 
 
@@ -49,13 +46,14 @@ class TestDivisionByZeroProtection:
         # Create a mock storage that returns a truthy but empty object
         class TruthyEmptyList(list):
             """A list that's truthy even when empty (simulates proxy objects)."""
+
             def __bool__(self):
                 return True
 
         # Patch the storage methods to return truthy empty lists
-        with patch.object(storage, 'get_values', return_value=TruthyEmptyList()):
-            with patch.object(storage, 'get_beliefs', return_value=TruthyEmptyList()):
-                with patch.object(storage, 'get_episodes', return_value=TruthyEmptyList()):
+        with patch.object(storage, "get_values", return_value=TruthyEmptyList()):
+            with patch.object(storage, "get_beliefs", return_value=TruthyEmptyList()):
+                with patch.object(storage, "get_episodes", return_value=TruthyEmptyList()):
                     # This should not raise ZeroDivisionError
                     confidence = kernle.get_identity_confidence()
 
@@ -72,8 +70,8 @@ class TestSyncQueueRaceCondition:
         storage = sqlite_storage
 
         # Queue the same operation twice quickly
-        result1 = storage.queue_sync_operation("upsert", "episodes", "test-id-1", {"test": "data1"})
-        result2 = storage.queue_sync_operation("upsert", "episodes", "test-id-1", {"test": "data2"})
+        storage.queue_sync_operation("upsert", "episodes", "test-id-1", {"test": "data1"})
+        storage.queue_sync_operation("upsert", "episodes", "test-id-1", {"test": "data2"})
 
         # Should not have duplicate entries - the second should update the first
         pending = storage.get_pending_sync_operations(limit=100)
@@ -94,10 +92,7 @@ class TestSyncQueueRaceCondition:
         def queue_operation(thread_num):
             try:
                 result = storage.queue_sync_operation(
-                    "upsert",
-                    "episodes",
-                    record_id,
-                    {"thread": thread_num}
+                    "upsert", "episodes", record_id, {"thread": thread_num}
                 )
                 results.append(result)
             except Exception as e:

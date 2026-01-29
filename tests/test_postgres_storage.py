@@ -16,6 +16,7 @@ from kernle.storage.postgres import SupabaseStorage
 
 # === Initialization Tests ===
 
+
 class TestSupabaseStorageInit:
     """Tests for SupabaseStorage initialization."""
 
@@ -24,7 +25,7 @@ class TestSupabaseStorageInit:
         storage = SupabaseStorage(
             agent_id="test_agent",
             supabase_url="https://example.supabase.co",
-            supabase_key="test-key-12345"
+            supabase_key="test-key-12345",
         )
         assert storage.agent_id == "test_agent"
         assert storage.supabase_url == "https://example.supabase.co"
@@ -64,9 +65,7 @@ class TestSupabaseStorageInit:
     def test_client_lazy_load_invalid_url_format(self):
         """Test that accessing client raises error with invalid URL format."""
         storage = SupabaseStorage(
-            agent_id="test_agent",
-            supabase_url="not-a-valid-url",
-            supabase_key="test-key"
+            agent_id="test_agent", supabase_url="not-a-valid-url", supabase_key="test-key"
         )
 
         with pytest.raises(ValueError, match="(Invalid|must use HTTPS)"):
@@ -77,7 +76,7 @@ class TestSupabaseStorageInit:
         storage = SupabaseStorage(
             agent_id="test_agent",
             supabase_url="https://example.supabase.co",
-            supabase_key="   "  # Whitespace only
+            supabase_key="   ",  # Whitespace only
         )
 
         with pytest.raises(ValueError, match="Supabase key cannot be empty"):
@@ -85,6 +84,7 @@ class TestSupabaseStorageInit:
 
 
 # === Mock Client Fixture ===
+
 
 @pytest.fixture
 def mock_supabase_client():
@@ -117,11 +117,11 @@ def mock_supabase_client():
                 return chain
 
             def gte_filter(field, value):
-                chain._data = [r for r in chain._data if r.get(field, '') >= value]
+                chain._data = [r for r in chain._data if r.get(field, "") >= value]
                 return chain
 
             def lte_filter(field, value):
-                chain._data = [r for r in chain._data if r.get(field, '') <= value]
+                chain._data = [r for r in chain._data if r.get(field, "") <= value]
                 return chain
 
             def lt_filter(field, value):
@@ -130,7 +130,7 @@ def mock_supabase_client():
 
             def order_mock(field, desc=False):
                 try:
-                    chain._data.sort(key=lambda x: x.get(field, ''), reverse=desc)
+                    chain._data.sort(key=lambda x: x.get(field, ""), reverse=desc)
                 except TypeError:
                     pass
                 return chain
@@ -142,7 +142,7 @@ def mock_supabase_client():
             def execute_mock():
                 result = MagicMock()
                 result.data = chain._data
-                result.count = chain._count if kwargs.get('count') == 'exact' else None
+                result.count = chain._count if kwargs.get("count") == "exact" else None
                 return result
 
             chain.eq = eq_filter
@@ -159,8 +159,12 @@ def mock_supabase_client():
             # Add to storage
             if table_name in storage:
                 # Remove existing record with same ID
-                storage[table_name] = [r for r in storage[table_name] if r.get('id') != data.get('id')]
-                data['created_at'] = data.get('created_at') or datetime.now(timezone.utc).isoformat()
+                storage[table_name] = [
+                    r for r in storage[table_name] if r.get("id") != data.get("id")
+                ]
+                data["created_at"] = (
+                    data.get("created_at") or datetime.now(timezone.utc).isoformat()
+                )
                 storage[table_name].append(data)
 
             def execute_mock():
@@ -174,7 +178,9 @@ def mock_supabase_client():
         def insert_mock(data):
             chain = MagicMock()
             if table_name in storage:
-                data['created_at'] = data.get('created_at') or datetime.now(timezone.utc).isoformat()
+                data["created_at"] = (
+                    data.get("created_at") or datetime.now(timezone.utc).isoformat()
+                )
                 storage[table_name].append(data)
 
             def execute_mock():
@@ -224,9 +230,7 @@ def supabase_storage(mock_supabase_client):
     client, storage = mock_supabase_client
 
     supabase = SupabaseStorage(
-        agent_id="test_agent",
-        supabase_url="https://test.supabase.co",
-        supabase_key="test-key"
+        agent_id="test_agent", supabase_url="https://test.supabase.co", supabase_key="test-key"
     )
     # Inject the mock client directly
     supabase._client = client
@@ -235,6 +239,7 @@ def supabase_storage(mock_supabase_client):
 
 
 # === Episode Tests ===
+
 
 class TestSupabaseEpisodes:
     """Tests for episode operations."""
@@ -266,17 +271,19 @@ class TestSupabaseEpisodes:
         storage, db = supabase_storage
 
         # Add test data directly to mock storage
-        db["agent_episodes"].append({
-            "id": str(uuid.uuid4()),
-            "agent_id": "test_agent",
-            "objective": "First task",
-            "outcome_description": "Completed",
-            "outcome_type": "success",
-            "lessons_learned": [],
-            "tags": ["work"],
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "confidence": 0.9,
-        })
+        db["agent_episodes"].append(
+            {
+                "id": str(uuid.uuid4()),
+                "agent_id": "test_agent",
+                "objective": "First task",
+                "outcome_description": "Completed",
+                "outcome_type": "success",
+                "lessons_learned": [],
+                "tags": ["work"],
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "confidence": 0.9,
+            }
+        )
 
         episodes = storage.get_episodes()
         assert len(episodes) == 1
@@ -287,14 +294,16 @@ class TestSupabaseEpisodes:
         storage, db = supabase_storage
 
         ep_id = str(uuid.uuid4())
-        db["agent_episodes"].append({
-            "id": ep_id,
-            "agent_id": "test_agent",
-            "objective": "Specific episode",
-            "outcome_description": "Done",
-            "outcome_type": "success",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
+        db["agent_episodes"].append(
+            {
+                "id": ep_id,
+                "agent_id": "test_agent",
+                "objective": "Specific episode",
+                "outcome_description": "Done",
+                "outcome_type": "success",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
         episode = storage.get_episode(ep_id)
         assert episode is not None
@@ -305,23 +314,24 @@ class TestSupabaseEpisodes:
         storage, db = supabase_storage
 
         ep_id = str(uuid.uuid4())
-        db["agent_episodes"].append({
-            "id": ep_id,
-            "agent_id": "test_agent",
-            "objective": "Emotional episode",
-            "outcome_description": "Felt good",
-            "emotional_valence": 0.0,
-            "emotional_arousal": 0.0,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
-
-        result = storage.update_episode_emotion(
-            ep_id, valence=0.8, arousal=0.5, tags=["joy"]
+        db["agent_episodes"].append(
+            {
+                "id": ep_id,
+                "agent_id": "test_agent",
+                "objective": "Emotional episode",
+                "outcome_description": "Felt good",
+                "emotional_valence": 0.0,
+                "emotional_arousal": 0.0,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
         )
+
+        result = storage.update_episode_emotion(ep_id, valence=0.8, arousal=0.5, tags=["joy"])
         assert result is True
 
 
 # === Belief Tests ===
+
 
 class TestSupabaseBeliefs:
     """Tests for belief operations."""
@@ -346,15 +356,17 @@ class TestSupabaseBeliefs:
         """Test retrieving beliefs."""
         storage, db = supabase_storage
 
-        db["agent_beliefs"].append({
-            "id": str(uuid.uuid4()),
-            "agent_id": "test_agent",
-            "statement": "Code should be tested",
-            "belief_type": "fact",
-            "confidence": 0.85,
-            "is_active": True,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
+        db["agent_beliefs"].append(
+            {
+                "id": str(uuid.uuid4()),
+                "agent_id": "test_agent",
+                "statement": "Code should be tested",
+                "belief_type": "fact",
+                "confidence": 0.85,
+                "is_active": True,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
         beliefs = storage.get_beliefs()
         assert len(beliefs) == 1
@@ -364,14 +376,16 @@ class TestSupabaseBeliefs:
         """Test finding a belief by statement."""
         storage, db = supabase_storage
 
-        db["agent_beliefs"].append({
-            "id": str(uuid.uuid4()),
-            "agent_id": "test_agent",
-            "statement": "Unique statement",
-            "belief_type": "fact",
-            "is_active": True,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
+        db["agent_beliefs"].append(
+            {
+                "id": str(uuid.uuid4()),
+                "agent_id": "test_agent",
+                "statement": "Unique statement",
+                "belief_type": "fact",
+                "is_active": True,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
         found = storage.find_belief("Unique statement")
         assert found is not None
@@ -379,6 +393,7 @@ class TestSupabaseBeliefs:
 
 
 # === Value Tests ===
+
 
 class TestSupabaseValues:
     """Tests for value operations."""
@@ -403,15 +418,17 @@ class TestSupabaseValues:
         """Test retrieving values."""
         storage, db = supabase_storage
 
-        db["agent_values"].append({
-            "id": str(uuid.uuid4()),
-            "agent_id": "test_agent",
-            "name": "Integrity",
-            "statement": "Be honest and transparent",
-            "priority": 90,
-            "is_active": True,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
+        db["agent_values"].append(
+            {
+                "id": str(uuid.uuid4()),
+                "agent_id": "test_agent",
+                "name": "Integrity",
+                "statement": "Be honest and transparent",
+                "priority": 90,
+                "is_active": True,
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
         values = storage.get_values()
         assert len(values) == 1
@@ -419,6 +436,7 @@ class TestSupabaseValues:
 
 
 # === Goal Tests ===
+
 
 class TestSupabaseGoals:
     """Tests for goal operations."""
@@ -444,15 +462,17 @@ class TestSupabaseGoals:
         """Test retrieving goals."""
         storage, db = supabase_storage
 
-        db["agent_goals"].append({
-            "id": str(uuid.uuid4()),
-            "agent_id": "test_agent",
-            "title": "Ship feature",
-            "description": "Complete the feature",
-            "priority": "high",
-            "status": "active",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
+        db["agent_goals"].append(
+            {
+                "id": str(uuid.uuid4()),
+                "agent_id": "test_agent",
+                "title": "Ship feature",
+                "description": "Complete the feature",
+                "priority": "high",
+                "status": "active",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
         goals = storage.get_goals(status="active")
         assert len(goals) == 1
@@ -460,6 +480,7 @@ class TestSupabaseGoals:
 
 
 # === Note Tests ===
+
 
 class TestSupabaseNotes:
     """Tests for note operations."""
@@ -484,14 +505,16 @@ class TestSupabaseNotes:
         """Test retrieving notes."""
         storage, db = supabase_storage
 
-        db["memories"].append({
-            "id": str(uuid.uuid4()),
-            "owner_id": "test_agent",
-            "content": "A curated memory",
-            "source": "curated",
-            "metadata": {"note_type": "note", "tags": []},
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
+        db["memories"].append(
+            {
+                "id": str(uuid.uuid4()),
+                "owner_id": "test_agent",
+                "content": "A curated memory",
+                "source": "curated",
+                "metadata": {"note_type": "note", "tags": []},
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
         notes = storage.get_notes()
         assert len(notes) == 1
@@ -499,6 +522,7 @@ class TestSupabaseNotes:
 
 
 # === Drive Tests ===
+
 
 class TestSupabaseDrives:
     """Tests for drive operations."""
@@ -522,14 +546,16 @@ class TestSupabaseDrives:
         """Test retrieving drives."""
         storage, db = supabase_storage
 
-        db["agent_drives"].append({
-            "id": str(uuid.uuid4()),
-            "agent_id": "test_agent",
-            "drive_type": "growth",
-            "intensity": 0.8,
-            "focus_areas": ["improvement"],
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
+        db["agent_drives"].append(
+            {
+                "id": str(uuid.uuid4()),
+                "agent_id": "test_agent",
+                "drive_type": "growth",
+                "intensity": 0.8,
+                "focus_areas": ["improvement"],
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
         drives = storage.get_drives()
         assert len(drives) == 1
@@ -537,6 +563,7 @@ class TestSupabaseDrives:
 
 
 # === Sync Tests ===
+
 
 class TestSupabaseSync:
     """Tests for sync-related operations."""
@@ -562,6 +589,7 @@ class TestSupabaseSync:
 
 # === Stats Tests ===
 
+
 class TestSupabaseStats:
     """Tests for statistics operations."""
 
@@ -586,6 +614,7 @@ class TestSupabaseStats:
 
 # === Search Tests ===
 
+
 class TestSupabaseSearch:
     """Tests for search operations."""
 
@@ -593,14 +622,16 @@ class TestSupabaseSearch:
         """Test searching episodes by text."""
         storage, db = supabase_storage
 
-        db["agent_episodes"].append({
-            "id": str(uuid.uuid4()),
-            "agent_id": "test_agent",
-            "objective": "Implement feature X",
-            "outcome_description": "Successfully deployed",
-            "lessons_learned": ["Plan ahead"],
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
+        db["agent_episodes"].append(
+            {
+                "id": str(uuid.uuid4()),
+                "agent_id": "test_agent",
+                "objective": "Implement feature X",
+                "outcome_description": "Successfully deployed",
+                "lessons_learned": ["Plan ahead"],
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
         results = storage.search("feature", record_types=["episode"])
         assert len(results) >= 1
@@ -609,20 +640,23 @@ class TestSupabaseSearch:
         """Test searching notes by content."""
         storage, db = supabase_storage
 
-        db["memories"].append({
-            "id": str(uuid.uuid4()),
-            "owner_id": "test_agent",
-            "content": "Important discovery about testing",
-            "source": "curated",
-            "metadata": {},
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
+        db["memories"].append(
+            {
+                "id": str(uuid.uuid4()),
+                "owner_id": "test_agent",
+                "content": "Important discovery about testing",
+                "source": "curated",
+                "metadata": {},
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
         results = storage.search("discovery", record_types=["note"])
         assert len(results) >= 1
 
 
 # === Meta-Memory Tests ===
+
 
 class TestSupabaseMetaMemory:
     """Tests for meta-memory operations."""
@@ -632,13 +666,15 @@ class TestSupabaseMetaMemory:
         storage, db = supabase_storage
 
         ep_id = str(uuid.uuid4())
-        db["agent_episodes"].append({
-            "id": ep_id,
-            "agent_id": "test_agent",
-            "objective": "Test memory",
-            "outcome_description": "Found",
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
+        db["agent_episodes"].append(
+            {
+                "id": ep_id,
+                "agent_id": "test_agent",
+                "objective": "Test memory",
+                "outcome_description": "Found",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
 
         memory = storage.get_memory("episode", ep_id)
         assert memory is not None

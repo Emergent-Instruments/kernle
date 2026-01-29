@@ -17,7 +17,7 @@ def cmd_consolidate(args, k: "Kernle"):
     reasoning - Kernle just provides the data and structure.
     """
     # Get episode limit from args (default 20)
-    limit = getattr(args, 'limit', 20) or 20
+    limit = getattr(args, "limit", 20) or 20
 
     # Fetch recent episodes with full details
     episodes = k._storage.get_episodes(limit=limit)
@@ -42,7 +42,9 @@ def cmd_consolidate(args, k: "Kernle"):
     # Output the reflection prompt
     print("## Memory Consolidation - Reflection Prompt")
     print()
-    print(f"You have {len(episodes)} recent episodes to reflect on. Review them and identify patterns.")
+    print(
+        f"You have {len(episodes)} recent episodes to reflect on. Review them and identify patterns."
+    )
     print()
 
     # Recent Episodes section
@@ -55,9 +57,17 @@ def cmd_consolidate(args, k: "Kernle"):
             date_str = ep.created_at.strftime("%Y-%m-%d") if ep.created_at else "unknown"
 
             # Outcome type indicator
-            outcome_icon = "✓" if ep.outcome_type == "success" else "○" if ep.outcome_type == "partial" else "✗" if ep.outcome_type == "failure" else "•"
+            outcome_icon = (
+                "✓"
+                if ep.outcome_type == "success"
+                else (
+                    "○"
+                    if ep.outcome_type == "partial"
+                    else "✗" if ep.outcome_type == "failure" else "•"
+                )
+            )
 
-            print(f"{i}. [{date_str}] {outcome_icon} \"{ep.objective}\"")
+            print(f'{i}. [{date_str}] {outcome_icon} "{ep.objective}"')
             print(f"   Outcome: {ep.outcome}")
 
             if ep.lessons:
@@ -66,8 +76,16 @@ def cmd_consolidate(args, k: "Kernle"):
 
             # Emotional context if present
             if ep.emotional_valence != 0 or ep.emotional_arousal != 0:
-                valence_label = "positive" if ep.emotional_valence > 0.2 else "negative" if ep.emotional_valence < -0.2 else "neutral"
-                arousal_label = "high" if ep.emotional_arousal > 0.6 else "low" if ep.emotional_arousal < 0.3 else "moderate"
+                valence_label = (
+                    "positive"
+                    if ep.emotional_valence > 0.2
+                    else "negative" if ep.emotional_valence < -0.2 else "neutral"
+                )
+                arousal_label = (
+                    "high"
+                    if ep.emotional_arousal > 0.6
+                    else "low" if ep.emotional_arousal < 0.3 else "moderate"
+                )
                 print(f"   Emotion: {valence_label}, {arousal_label} intensity")
                 if ep.emotional_tags:
                     print(f"   Feelings: {', '.join(ep.emotional_tags)}")
@@ -80,7 +98,7 @@ def cmd_consolidate(args, k: "Kernle"):
         print("No beliefs recorded yet.")
     else:
         for b in beliefs[:10]:  # Limit to top 10 by confidence
-            print(f"- \"{b.statement}\" (confidence: {b.confidence:.2f})")
+            print(f'- "{b.statement}" (confidence: {b.confidence:.2f})')
     print()
 
     # Repeated Lessons section (if any)
@@ -88,7 +106,7 @@ def cmd_consolidate(args, k: "Kernle"):
         print("### Patterns Detected:")
         print("These lessons appear in multiple episodes:")
         for lesson, count in repeated_lessons[:5]:
-            print(f"- \"{lesson}\" (appears {count} times)")
+            print(f'- "{lesson}" (appears {count} times)')
         print()
 
     # Reflection Questions
@@ -102,9 +120,11 @@ def cmd_consolidate(args, k: "Kernle"):
 
     # Instructions for the agent
     print("### Actions:")
-    print(f"To add a new belief: kernle -a {k.agent_id} belief add \"statement\" --confidence 0.8")
+    print(f'To add a new belief: kernle -a {k.agent_id} belief add "statement" --confidence 0.8')
     print(f"To reinforce existing: kernle -a {k.agent_id} belief reinforce <belief_id>")
-    print(f"To revise a belief: kernle -a {k.agent_id} belief revise <belief_id> \"new statement\" --reason \"why\"")
+    print(
+        f'To revise a belief: kernle -a {k.agent_id} belief revise <belief_id> "new statement" --reason "why"'
+    )
     print()
     print("---")
     print("Note: You (the agent) do the reasoning. Kernle just provides the data.")
@@ -115,7 +135,7 @@ def cmd_identity(args, k: "Kernle"):
     if args.identity_action == "show" or args.identity_action is None:
         identity = k.synthesize_identity()
 
-        if getattr(args, 'json', False):
+        if getattr(args, "json", False):
             print(json.dumps(identity, indent=2, default=str))
         else:
             print(f"Identity Synthesis for {k.agent_id}")
@@ -146,7 +166,9 @@ def cmd_identity(args, k: "Kernle"):
 
             if identity["drives"]:
                 print("## Drives")
-                for drive_type, intensity in sorted(identity["drives"].items(), key=lambda x: -x[1]):
+                for drive_type, intensity in sorted(
+                    identity["drives"].items(), key=lambda x: -x[1]
+                ):
                     bar = "█" * int(intensity * 10) + "░" * (10 - int(intensity * 10))
                     print(f"  {drive_type:12} [{bar}] {intensity:.0%}")
                 print()
@@ -184,10 +206,13 @@ def cmd_identity(args, k: "Kernle"):
             drift_score = drift["drift_score"]
             bar = "█" * int(drift_score * 20) + "░" * (20 - int(drift_score * 20))
             interpretation = (
-                "stable" if drift_score < 0.2 else
-                "evolving" if drift_score < 0.5 else
-                "significant change" if drift_score < 0.8 else
-                "transformational"
+                "stable"
+                if drift_score < 0.2
+                else (
+                    "evolving"
+                    if drift_score < 0.5
+                    else "significant change" if drift_score < 0.8 else "transformational"
+                )
             )
             print(f"Drift Score: [{bar}] {drift_score:.0%} ({interpretation})")
             print()

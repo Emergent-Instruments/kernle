@@ -43,12 +43,7 @@ class TestAuthContextTier:
 
     def test_auth_context_api_key_id(self):
         """Test AuthContext includes api_key_id."""
-        ctx = AuthContext(
-            agent_id="test",
-            user_id="usr_123",
-            tier="free",
-            api_key_id="key_123"
-        )
+        ctx = AuthContext(agent_id="test", user_id="usr_123", tier="free", api_key_id="key_123")
         assert ctx.api_key_id == "key_123"
 
 

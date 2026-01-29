@@ -1,6 +1,5 @@
 """Init command for Kernle CLI - generates CLAUDE.md sections for frictionless adoption."""
 
-import os
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
@@ -10,7 +9,7 @@ if TYPE_CHECKING:
 
 
 # Template sections for different instruction file types
-STANDARD_SECTION = '''## Memory (Kernle)
+STANDARD_SECTION = """## Memory (Kernle)
 
 You have persistent memory through Kernle. **Every session, before any task:**
 
@@ -38,24 +37,24 @@ You have persistent memory through Kernle. **Every session, before any task:**
    - `kernle checkpoint save "end of session"`
 
 This is your continuity. The few seconds of health check ensures you don't accumulate memory debt.
-'''
+"""
 
-MINIMAL_SECTION = '''## Kernle
+MINIMAL_SECTION = """## Kernle
 
 At session start: `kernle -a {agent_id} load && kernle -a {agent_id} anxiety -b`
 If WARN/CRITICAL, run `kernle consolidate` before proceeding.
-'''
+"""
 
-PER_MESSAGE_SECTION = '''## Memory Health (Every Message)
+PER_MESSAGE_SECTION = """## Memory Health (Every Message)
 
 Before processing any request:
 1. `kernle -a {agent_id} anxiety -b`
 2. If 🟡 WARN or 🔴 CRITICAL: pause and consolidate first
 
 This takes <1 second and prevents memory debt accumulation.
-'''
+"""
 
-COMBINED_SECTION = '''## Memory (Kernle)
+COMBINED_SECTION = """## Memory (Kernle)
 
 You have persistent memory through Kernle.
 
@@ -82,7 +81,7 @@ Quick pulse: `kernle -a {agent_id} anxiety -b`
 ### Before Session Ends
 
 `kernle checkpoint save "state description"`
-'''
+"""
 
 
 def detect_instruction_file() -> Optional[Path]:
@@ -93,31 +92,33 @@ def detect_instruction_file() -> Optional[Path]:
         Path(".cursorrules"),
         Path(".clinerules"),
     ]
-    
+
     for candidate in candidates:
         if candidate.exists():
             return candidate
-    
+
     return None
 
 
 def has_kernle_section(content: str) -> bool:
     """Check if content already has Kernle instructions."""
     patterns = [
-        r'##\s*Memory\s*\(Kernle\)',
-        r'##\s*Kernle',
-        r'kernle\s+(-a\s+\w+\s+)?load',
-        r'kernle\s+(-a\s+\w+\s+)?anxiety',
+        r"##\s*Memory\s*\(Kernle\)",
+        r"##\s*Kernle",
+        r"kernle\s+(-a\s+\w+\s+)?load",
+        r"kernle\s+(-a\s+\w+\s+)?anxiety",
     ]
-    
+
     for pattern in patterns:
         if re.search(pattern, content, re.IGNORECASE):
             return True
-    
+
     return False
 
 
-def generate_section(agent_id: str, style: str = "standard", include_per_message: bool = True) -> str:
+def generate_section(
+    agent_id: str, style: str = "standard", include_per_message: bool = True
+) -> str:
     """Generate the appropriate Kernle section based on style."""
     if style == "minimal":
         section = MINIMAL_SECTION.format(agent_id=agent_id)
@@ -135,20 +136,20 @@ def generate_section(agent_id: str, style: str = "standard", include_per_message
 
 def cmd_init(args, k: "Kernle"):
     """Generate CLAUDE.md section for Kernle health checks.
-    
+
     Creates or appends Kernle memory instructions to your instruction file
     (CLAUDE.md, AGENTS.md, etc.) so any SI can adopt health checks with zero friction.
     """
     agent_id = k.agent_id
-    style = getattr(args, 'style', 'standard') or 'standard'
-    include_per_message = not getattr(args, 'no_per_message', False)
-    output_file = getattr(args, 'output', None)
-    force = getattr(args, 'force', False)
-    print_only = getattr(args, 'print', False)
-    
+    style = getattr(args, "style", "standard") or "standard"
+    include_per_message = not getattr(args, "no_per_message", False)
+    output_file = getattr(args, "output", None)
+    force = getattr(args, "force", False)
+    print_only = getattr(args, "print", False)
+
     # Generate the section
     section = generate_section(agent_id, style, include_per_message)
-    
+
     # Print-only mode
     if print_only:
         print("# Kernle Instructions for CLAUDE.md")
@@ -156,7 +157,7 @@ def cmd_init(args, k: "Kernle"):
         print()
         print(section)
         return
-    
+
     # Determine target file
     if output_file:
         target_file = Path(output_file)
@@ -170,40 +171,40 @@ def cmd_init(args, k: "Kernle"):
             # Default to CLAUDE.md
             target_file = Path("CLAUDE.md")
             print(f"No existing instruction file found, will create: {target_file}")
-    
+
     # Check if file exists and already has Kernle section
     if target_file.exists():
         content = target_file.read_text()
-        
+
         if has_kernle_section(content) and not force:
             print(f"\n⚠️  {target_file} already contains Kernle instructions.")
             print("   Use --force to overwrite/append anyway.")
             print("   Use --print to just display the section.")
             return
-        
+
         # Append mode
-        if not getattr(args, 'non_interactive', False):
+        if not getattr(args, "non_interactive", False):
             print(f"\nWill append to existing {target_file}")
             try:
                 confirm = input("Proceed? [Y/n]: ").strip().lower()
-                if confirm and confirm != 'y' and confirm != 'yes':
+                if confirm and confirm != "y" and confirm != "yes":
                     print("Aborted.")
                     return
             except (EOFError, KeyboardInterrupt):
                 print("\nAborted.")
                 return
-        
+
         # Add separator and append
         new_content = content.rstrip() + "\n\n" + section
         target_file.write_text(new_content)
         print(f"\n✓ Appended Kernle instructions to {target_file}")
-        
+
     else:
         # Create new file
-        header = f"# Instructions\n\n"
+        header = "# Instructions\n\n"
         target_file.write_text(header + section)
         print(f"\n✓ Created {target_file} with Kernle instructions")
-    
+
     # Show quick verification command
-    print(f"\nVerify with: kernle doctor")
+    print("\nVerify with: kernle doctor")
     print(f"Test health check: kernle -a {agent_id} anxiety -b")
