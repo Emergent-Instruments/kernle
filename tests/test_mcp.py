@@ -24,10 +24,10 @@ class TestMCPToolDefinitions:
 
     @pytest.mark.asyncio
     async def test_list_tools_returns_all_tools(self):
-        """Test that list_tools returns all 23 expected tools."""
+        """Test that list_tools returns all 27 expected tools."""
         tools = await list_tools()
 
-        assert len(tools) == 23
+        assert len(tools) == 27
         assert all(isinstance(tool, Tool) for tool in tools)
 
         # Check all expected tools are present
@@ -57,9 +57,14 @@ class TestMCPToolDefinitions:
             "memory_episode_update",
             "memory_goal_update",
             "memory_belief_update",
-            # New sync and search tools (2)
+            # Sync and search tools (2)
             "memory_sync",
             "memory_note_search",
+            # Suggestions tools (4)
+            "memory_suggestions_extract",
+            "memory_suggestions_list",
+            "memory_suggestions_promote",
+            "memory_suggestions_reject",
         }
         assert tool_names == expected_names
 
@@ -350,6 +355,8 @@ class TestMCPToolCalls:
             outcome="success",
             lessons=["Mock dependencies", "Test error cases"],
             tags=["testing", "development"],
+            context=None,
+            context_tags=None,
         )
 
     @pytest.mark.asyncio
@@ -406,6 +413,8 @@ class TestMCPToolCalls:
                 speaker=expected["speaker"],
                 reason=expected["reason"],
                 tags=note_args["tags"],
+                context=None,
+                context_tags=None,
             )
 
     @pytest.mark.asyncio
@@ -417,7 +426,13 @@ class TestMCPToolCalls:
         assert "Note saved: Simple note..." in result[0].text
 
         patched_get_kernle.note.assert_called_once_with(
-            content="Simple note", type="note", speaker="", reason="", tags=[]
+            content="Simple note",
+            type="note",
+            speaker="",
+            reason="",
+            tags=[],
+            context=None,
+            context_tags=None,
         )
 
     @pytest.mark.asyncio
@@ -464,7 +479,11 @@ class TestMCPToolCalls:
         assert "Belief saved: belief_1" in result[0].text
 
         patched_get_kernle.belief.assert_called_once_with(
-            statement="Testing is essential for quality software", type="fact", confidence=0.95
+            statement="Testing is essential for quality software",
+            type="fact",
+            confidence=0.95,
+            context=None,
+            context_tags=None,
         )
 
     @pytest.mark.asyncio
@@ -473,7 +492,7 @@ class TestMCPToolCalls:
         await call_tool("memory_belief", {"statement": "Simple belief"})
 
         patched_get_kernle.belief.assert_called_once_with(
-            statement="Simple belief", type="fact", confidence=0.8
+            statement="Simple belief", type="fact", confidence=0.8, context=None, context_tags=None
         )
 
     @pytest.mark.asyncio
@@ -491,7 +510,11 @@ class TestMCPToolCalls:
         assert "Value saved: quality" in result[0].text
 
         patched_get_kernle.value.assert_called_once_with(
-            name="quality", statement="Software must be thoroughly tested and reliable", priority=90
+            name="quality",
+            statement="Software must be thoroughly tested and reliable",
+            priority=90,
+            context=None,
+            context_tags=None,
         )
 
     @pytest.mark.asyncio
@@ -512,6 +535,8 @@ class TestMCPToolCalls:
             title="Achieve comprehensive test coverage",
             description="Write tests for all MCP tools with edge cases",
             priority="high",
+            context=None,
+            context_tags=None,
         )
 
     @pytest.mark.asyncio
@@ -520,7 +545,7 @@ class TestMCPToolCalls:
         await call_tool("memory_goal", {"title": "Simple goal"})
 
         patched_get_kernle.goal.assert_called_once_with(
-            title="Simple goal", description="", priority="medium"
+            title="Simple goal", description="", priority="medium", context=None, context_tags=None
         )
 
     @pytest.mark.asyncio
@@ -992,6 +1017,8 @@ class TestMultiToolWorkflows:
             outcome="success",
             lessons=["Comprehensive mocking is essential"],
             tags=[],
+            context=None,
+            context_tags=None,
         )
         patched_get_kernle.checkpoint.assert_called_once_with(
             task="Testing complete", pending=[], context=""
@@ -1017,13 +1044,25 @@ class TestMultiToolWorkflows:
 
         # Verify correct methods called with correct arguments
         patched_get_kernle.belief.assert_called_once_with(
-            statement="Testing prevents bugs", type="fact", confidence=0.9
+            statement="Testing prevents bugs",
+            type="fact",
+            confidence=0.9,
+            context=None,
+            context_tags=None,
         )
         patched_get_kernle.value.assert_called_once_with(
-            name="reliability", statement="Software should be dependable", priority=85
+            name="reliability",
+            statement="Software should be dependable",
+            priority=85,
+            context=None,
+            context_tags=None,
         )
         patched_get_kernle.goal.assert_called_once_with(
-            title="Achieve zero critical bugs", description="", priority="high"
+            title="Achieve zero critical bugs",
+            description="",
+            priority="high",
+            context=None,
+            context_tags=None,
         )
 
     @pytest.mark.asyncio

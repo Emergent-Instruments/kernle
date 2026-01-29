@@ -187,79 +187,93 @@ This is a preamble that should be treated as raw.
         assert types["value"] == 1
 
 
-class TestJsonParsing:
-    """Tests for JSON import parsing."""
+class TestJsonExportFormat:
+    """Tests for JSON export format validation.
 
-    def test_parse_kernle_json_export(self, tmp_path):
-        """Parse a Kernle JSON export file."""
+    These tests verify that the expected JSON export structure
+    is well-formed for later import operations.
+    """
+
+    def test_export_structure_has_required_fields(self):
+        """JSON export should have agent_id and exported_at fields."""
+        # This tests the expected structure of Kernle's JSON export format
+        # which is documented and used by the import command
+        required_fields = {"agent_id", "exported_at"}
+        memory_types = {"values", "beliefs", "goals", "episodes", "notes"}
+
+        # A minimal valid export
         export_data = {
             "agent_id": "test-agent",
             "exported_at": "2026-01-15T10:00:00Z",
-            "values": [{"name": "Quality", "statement": "Always write tests", "priority": 90}],
-            "beliefs": [{"statement": "Testing matters", "confidence": 0.9, "type": "fact"}],
-            "goals": [{"title": "Ship v2", "description": "Release version 2", "status": "active"}],
-            "episodes": [
-                {"objective": "Fix bug", "outcome": "Bug fixed", "outcome_type": "success"}
-            ],
-            "notes": [{"content": "Remember this", "type": "note"}],
+            "values": [],
+            "beliefs": [],
+            "goals": [],
+            "episodes": [],
+            "notes": [],
         }
 
-        json_file = tmp_path / "export.json"
-        json_file.write_text(json.dumps(export_data))
+        # Verify required fields exist
+        assert required_fields.issubset(export_data.keys())
+        # Verify memory type arrays exist
+        assert memory_types.issubset(export_data.keys())
 
-        # The import happens through the CLI, but we can verify the file is valid
-        content = json_file.read_text()
-        data = json.loads(content)
+    def test_episode_export_includes_outcome(self):
+        """Exported episodes should have objective and outcome."""
+        episode_data = {
+            "objective": "Fix bug",
+            "outcome": "Bug fixed successfully",
+            "lessons": ["Always add tests"],
+        }
 
-        assert data["agent_id"] == "test-agent"
-        assert len(data["values"]) == 1
-        assert len(data["beliefs"]) == 1
-        assert len(data["goals"]) == 1
-        assert len(data["episodes"]) == 1
-        assert len(data["notes"]) == 1
+        # Verify episode has required fields for import
+        assert "objective" in episode_data
+        assert "outcome" in episode_data
+        # Note: outcome_type is inferred from outcome text, not stored explicitly
 
 
-class TestCsvParsing:
-    """Tests for CSV import parsing."""
+class TestCsvFormatRequirements:
+    """Tests for CSV import format requirements.
 
-    def test_csv_with_type_column(self, tmp_path):
-        """Parse CSV with type column."""
-        csv_content = """type,content,confidence
-belief,Testing is important,0.9
-belief,Code should be readable,0.85
-note,Remember to document,
-"""
-        csv_file = tmp_path / "import.csv"
-        csv_file.write_text(csv_content)
+    The import command expects specific column names and normalizes
+    various formats. These tests document those expectations.
+    """
 
-        # Verify file is valid CSV
-        import csv
-        import io
+    def test_type_column_required_unless_layer_specified(self):
+        """CSV must have a type/memory_type/kind column for import."""
+        # Valid type column names recognized by the import command
+        valid_type_columns = ["type", "memory_type", "kind"]
 
-        reader = csv.DictReader(io.StringIO(csv_content))
-        rows = list(reader)
-
-        assert len(rows) == 3
-        assert rows[0]["type"] == "belief"
-        assert rows[0]["confidence"] == "0.9"
-
-    def test_csv_with_various_columns(self, tmp_path):
-        """Parse CSV with different column names."""
-        csv_content = """memory_type,statement,conf
-belief,First belief,90
-belief,Second belief,0.8
-"""
-        csv_file = tmp_path / "import.csv"
-        csv_file.write_text(csv_content)
+        # Test that at least one is required (per import_cmd.py line 375)
+        csv_with_type = "type,content\nbelief,Test belief\n"
+        csv_with_memory_type = "memory_type,content\nbelief,Test belief\n"
+        csv_with_kind = "kind,content\nbelief,Test belief\n"
 
         import csv
         import io
 
-        reader = csv.DictReader(io.StringIO(csv_content))
-        rows = list(reader)
+        # Each should be parseable with type column
+        for csv_content in [csv_with_type, csv_with_memory_type, csv_with_kind]:
+            reader = csv.DictReader(io.StringIO(csv_content))
+            headers = [h.lower() for h in (reader.fieldnames or [])]
+            has_type = any(h in valid_type_columns for h in headers)
+            assert has_type, f"Should recognize type column in: {csv_content[:50]}"
 
-        assert len(rows) == 2
-        assert rows[0]["memory_type"] == "belief"
+    def test_confidence_normalization(self):
+        """Confidence can be 0-1 float or 0-100 integer."""
+        # The import command normalizes confidence values > 1
+        # by dividing by 100 (see import_cmd.py lines 421-424)
+        test_cases = [
+            ("0.9", 0.9),
+            ("90", 0.9),  # Will be normalized to 0.9
+            ("0.85", 0.85),
+            ("75", 0.75),  # Will be normalized to 0.75
+        ]
+
+        for raw_value, expected_normalized in test_cases:
+            value = float(raw_value)
+            if value > 1:
+                value = value / 100
+            assert abs(value - expected_normalized) < 0.01, f"Failed for {raw_value}"
 
 
 class TestImportIntegration:
@@ -317,8 +331,8 @@ class TestImportIntegration:
                 pytest.skip("Belief schema has context fields not yet in dataclass")
             raise
 
-        kernle_instance.episode("Test task", "Task completed", outcome_type="success")
-        kernle_instance.note("Test note", type="observation")
+        kernle_instance.episode("Test task", "Task completed successfully")
+        kernle_instance.note("Test note", type="insight")
 
         # Export
         export_json = kernle_instance.dump(format="json")

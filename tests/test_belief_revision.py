@@ -183,7 +183,8 @@ class TestReinforceBeliefs:
         belief_id = k.belief("Testing is important", confidence=0.95)
 
         original_beliefs = k._storage.get_beliefs(include_inactive=True)
-        next((b for b in original_beliefs if b.id == belief_id), None).confidence
+        original_belief = next((b for b in original_beliefs if b.id == belief_id), None)
+        original_confidence = original_belief.confidence
 
         # Reinforce many times
         for _ in range(10):
@@ -193,6 +194,8 @@ class TestReinforceBeliefs:
         beliefs = k._storage.get_beliefs(include_inactive=True)
         belief = next((b for b in beliefs if b.id == belief_id), None)
         assert belief.confidence <= 0.99
+        # Verify confidence did increase (diminishing returns, not zero returns)
+        assert belief.confidence > original_confidence
 
     def test_returns_false_for_nonexistent(self, kernle_fresh):
         """Should return False for nonexistent belief."""

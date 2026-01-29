@@ -313,6 +313,8 @@ class TestEpisodeCommand:
             auto_detect=True,
             relates_to=None,
             source=None,
+            context=None,
+            context_tags=None,
         )
         assert "✓ Episode saved: episode1..." in fake_out.getvalue()
         assert "Lessons: 2" in fake_out.getvalue()
@@ -338,6 +340,8 @@ class TestEpisodeCommand:
             auto_detect=True,
             relates_to=None,
             source=None,
+            context=None,
+            context_tags=None,
         )
 
 
@@ -367,6 +371,8 @@ class TestNoteCommand:
             protect=True,
             relates_to=None,
             source=None,
+            context=None,
+            context_tags=None,
         )
         assert "✓ Note saved: Use React for the frontend framework..." in fake_out.getvalue()
         assert "Tags: frontend, architecture" in fake_out.getvalue()
@@ -394,6 +400,8 @@ class TestNoteCommand:
             protect=False,
             relates_to=None,
             source=None,
+            context=None,
+            context_tags=None,
         )
 
     def test_cmd_note_minimal(self, mock_kernle):
@@ -419,6 +427,8 @@ class TestNoteCommand:
             protect=False,
             relates_to=None,
             source=None,
+            context=None,
+            context_tags=None,
         )
 
 
@@ -812,6 +822,8 @@ class TestArgumentParsing:
                     auto_detect=True,
                     relates_to=None,
                     source=None,
+                    context=None,
+                    context_tags=None,
                 )
 
     def test_parse_note_args(self):
@@ -847,6 +859,8 @@ class TestArgumentParsing:
                     protect=True,
                     relates_to=None,
                     source=None,
+                    context=None,
+                    context_tags=None,
                 )
 
     def test_parse_drive_set_args(self):

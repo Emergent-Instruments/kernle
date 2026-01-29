@@ -240,12 +240,8 @@ def _import_json(file_path: Path, k: "Kernle", dry_run: bool, skip_duplicates: b
             k.episode(
                 objective=objective,
                 outcome=outcome,
-                outcome_type=item.get("outcome_type"),
                 lessons=item.get("lessons"),
                 tags=item.get("tags"),
-                emotional_valence=item.get("emotional_valence", 0.0),
-                emotional_arousal=item.get("emotional_arousal", 0.0),
-                emotional_tags=item.get("emotional_tags"),
             )
             imported["episode"] = imported.get("episode", 0) + 1
         except Exception as e:
@@ -947,7 +943,6 @@ def _import_item(item: Dict[str, Any], k: "Kernle") -> None:
         k.episode(
             objective=item["objective"],
             outcome=item.get("outcome", item["objective"]),
-            outcome_type=item.get("outcome_type"),
             lessons=lessons,
             tags=item.get("tags"),
         )

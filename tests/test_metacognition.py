@@ -120,12 +120,13 @@ class TestGetKnowledgeMap:
         assert len(knowledge_map["domains"]) > 0
         assert knowledge_map["total_domains"] > 0
 
-        # Check domain structure
-        [d["name"] for d in knowledge_map["domains"]]
+        # Check domain structure - verify domains exist and have expected names
+        domain_names = [d["name"] for d in knowledge_map["domains"]]
+        assert len(domain_names) > 0
         # Should have domains from tags and belief types
         assert any(
-            d["name"] in ["python", "docker", "kubernetes", "fact", "observation"]
-            for d in knowledge_map["domains"]
+            name in ["python", "docker", "kubernetes", "fact", "observation"]
+            for name in domain_names
         )
 
     def test_domain_statistics(self, populated_kernle):
@@ -344,10 +345,17 @@ class TestIdentifyLearningOpportunities:
 
         opportunities = kernle.identify_learning_opportunities()
 
-        # Should suggest learning about graphql
-        [o["type"] for o in opportunities]
-        # May or may not appear depending on threshold
+        # Should return a list of opportunities
         assert isinstance(opportunities, list)
+        # Verify opportunity structure if any exist
+        opportunity_types = [o["type"] for o in opportunities]
+        for opp_type in opportunity_types:
+            assert opp_type in (
+                "low_coverage_domain",
+                "uncertain_belief",
+                "repeated_failures",
+                "stale_knowledge",
+            )
 
     def test_detects_uncertain_beliefs(self, kernle):
         """Should identify beliefs with low confidence."""
@@ -468,14 +476,19 @@ class TestMetaCognitionIntegration:
 
         boundaries = kernle.get_competence_boundaries()
 
-        # Python should be a strength, Rust a weakness
-        [s["domain"] for s in boundaries["strengths"]]
-        [w["domain"] for w in boundaries["weaknesses"]]
+        # Extract domain names for validation
+        strength_domains = [s["domain"] for s in boundaries["strengths"]]
+        weakness_domains = [w["domain"] for w in boundaries["weaknesses"]]
 
-        # Due to tagging, we might find these domains
-        # The test validates the general flow works
+        # Verify we got valid lists
         assert isinstance(boundaries["strengths"], list)
         assert isinstance(boundaries["weaknesses"], list)
+
+        # If domains were classified, verify structure is correct
+        for domain in strength_domains:
+            assert isinstance(domain, str)
+        for domain in weakness_domains:
+            assert isinstance(domain, str)
 
 
 class TestEdgeCases:
