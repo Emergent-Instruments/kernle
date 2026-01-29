@@ -48,6 +48,15 @@ FROM agents a
 WHERE a.user_id IS NOT NULL
 ORDER BY a.user_id, a.created_at;
 
+-- Also insert any orphaned user_ids from api_keys that don't have agents
+-- These are API keys created for users without corresponding agent records
+INSERT INTO users (user_id, tier, is_admin, created_at)
+SELECT DISTINCT k.user_id, 'free', FALSE, k.created_at
+FROM api_keys k
+WHERE k.user_id IS NOT NULL
+  AND NOT EXISTS (SELECT 1 FROM users u WHERE u.user_id = k.user_id)
+ON CONFLICT (user_id) DO NOTHING;
+
 -- =============================================================================
 -- Update agents table
 -- =============================================================================
