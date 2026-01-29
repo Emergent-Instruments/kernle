@@ -32,7 +32,7 @@ Clawdbot is an AI agent runtime that supports Kernle as a skill for persistent m
 
 ### Every Session Start
 
-Your `AGENTS.md` should include loading memory:
+Your `AGENTS.md` should include loading memory with a budget to prevent context overflow:
 
 ```markdown
 ## Every Session
@@ -40,10 +40,14 @@ Your `AGENTS.md` should include loading memory:
 Before doing anything else:
 1. Read `SOUL.md` — this is who you are
 2. Read `USER.md` — this is who you're helping
-3. **Run `kernle -a <agent> load`** to restore your memory
+3. **Run `kernle -a <agent> load --budget 6000`** to restore your memory
 
 Don't ask permission. Just do it.
 ```
+
+<Tip>
+The `--budget` flag limits memory loading to prevent context overflow. Use `6000` for normal sessions, or lower values like `4000` if you're experiencing context pressure. See [Context Overload Recovery](/troubleshooting/context-overload) for details.
+</Tip>
 
 ### During Work
 

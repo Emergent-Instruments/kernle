@@ -95,6 +95,12 @@
       ]
     },
     {
+      "group": "Troubleshooting",
+      "pages": [
+        "troubleshooting/context-overload"
+      ]
+    },
+    {
       "group": "API Reference",
       "pages": [
         "api-reference/overview",

@@ -58,6 +58,22 @@ def validate_input(value: str, field_name: str, max_length: int = 1000) -> str:
     return sanitized
 
 
+def validate_budget(value: str) -> int:
+    """Validate budget argument for token budget."""
+    from kernle.core import MIN_TOKEN_BUDGET, MAX_TOKEN_BUDGET
+
+    try:
+        ivalue = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"Budget must be an integer, got '{value}'")
+
+    if ivalue < MIN_TOKEN_BUDGET:
+        raise argparse.ArgumentTypeError(f"Budget must be at least {MIN_TOKEN_BUDGET}, got {ivalue}")
+    if ivalue > MAX_TOKEN_BUDGET:
+        raise argparse.ArgumentTypeError(f"Budget cannot exceed {MAX_TOKEN_BUDGET}, got {ivalue}")
+    return ivalue
+
+
 def cmd_load(args, k: Kernle):
     """Load and display working memory."""
     # Determine sync setting from args
@@ -67,7 +83,11 @@ def cmd_load(args, k: Kernle):
     elif getattr(args, 'sync', False):
         sync = True
 
-    memory = k.load(sync=sync)
+    # Get budget and truncate settings
+    budget = getattr(args, 'budget', 8000)
+    truncate = not getattr(args, 'no_truncate', False)
+
+    memory = k.load(budget=budget, truncate=truncate, sync=sync)
 
     if args.json:
         print(json.dumps(memory, indent=2, default=str))
@@ -2119,6 +2139,10 @@ def main():
     # load
     p_load = subparsers.add_parser("load", help="Load working memory")
     p_load.add_argument("--json", "-j", action="store_true")
+    p_load.add_argument("--budget", "-b", type=validate_budget, default=8000,
+                        help="Token budget for memory loading (100-50000, default: 8000)")
+    p_load.add_argument("--no-truncate", action="store_true",
+                        help="Disable content truncation (may exceed budget)")
     p_load.add_argument("--sync", "-s", action="store_true",
                         help="Force sync (pull) before loading")
     p_load.add_argument("--no-sync", dest="no_sync", action="store_true",

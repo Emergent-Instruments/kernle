@@ -838,7 +838,7 @@ class SupabaseStorage:
         if "episode" in types:
             episodes = self.client.table("agent_episodes").select("*").eq(
                 "agent_id", self.agent_id
-            ).order("created_at", desc=True).limit(50).execute()
+            ).order("created_at", desc=True).limit(limit * 5).execute()
 
             for row in episodes.data:
                 text = f"{row.get('objective', '')} {row.get('outcome_description', '')} {' '.join(row.get('lessons_learned', []))}"
@@ -852,7 +852,7 @@ class SupabaseStorage:
         if "note" in types:
             notes = self.client.table("memories").select("*").eq(
                 "owner_id", self.agent_id
-            ).eq("source", "curated").order("created_at", desc=True).limit(50).execute()
+            ).eq("source", "curated").order("created_at", desc=True).limit(limit * 5).execute()
 
             for row in notes.data:
                 if query_lower in row.get("content", "").lower():
@@ -865,7 +865,7 @@ class SupabaseStorage:
         if "belief" in types:
             beliefs = self.client.table("agent_beliefs").select("*").eq(
                 "agent_id", self.agent_id
-            ).eq("is_active", True).execute()
+            ).eq("is_active", True).limit(limit * 5).execute()
 
             for row in beliefs.data:
                 if query_lower in row.get("statement", "").lower():
@@ -936,12 +936,14 @@ class SupabaseStorage:
 
     def load_all(
         self,
-        values_limit: int = 10,
-        beliefs_limit: int = 20,
-        goals_limit: int = 10,
+        values_limit: Optional[int] = 10,
+        beliefs_limit: Optional[int] = 20,
+        goals_limit: Optional[int] = 10,
         goals_status: str = "active",
-        episodes_limit: int = 20,
-        notes_limit: int = 5,
+        episodes_limit: Optional[int] = 20,
+        notes_limit: Optional[int] = 5,
+        drives_limit: Optional[int] = None,
+        relationships_limit: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Load all memory types in a single operation.
 
@@ -951,16 +953,26 @@ class SupabaseStorage:
         loading working memory context.
 
         Args:
-            values_limit: Max values to load
-            beliefs_limit: Max beliefs to load
-            goals_limit: Max goals to load
+            values_limit: Max values to load (None = 1000 for budget loading)
+            beliefs_limit: Max beliefs to load (None = 1000 for budget loading)
+            goals_limit: Max goals to load (None = 1000 for budget loading)
             goals_status: Goal status filter ("active", "all", etc.)
-            episodes_limit: Max episodes to load
-            notes_limit: Max notes to load
+            episodes_limit: Max episodes to load (None = 1000 for budget loading)
+            notes_limit: Max notes to load (None = 1000 for budget loading)
+            drives_limit: Max drives to load (None = all drives)
+            relationships_limit: Max relationships to load (None = all relationships)
 
         Returns:
             Dict with keys: values, beliefs, goals, drives, episodes, notes, relationships
         """
+        # Use high limit (1000) when None is passed - for budget-based loading
+        HIGH_LIMIT = 1000
+        _values_limit = values_limit if values_limit is not None else HIGH_LIMIT
+        _beliefs_limit = beliefs_limit if beliefs_limit is not None else HIGH_LIMIT
+        _goals_limit = goals_limit if goals_limit is not None else HIGH_LIMIT
+        _episodes_limit = episodes_limit if episodes_limit is not None else HIGH_LIMIT
+        _notes_limit = notes_limit if notes_limit is not None else HIGH_LIMIT
+
         result: Dict[str, Any] = {
             "values": [],
             "beliefs": [],
@@ -973,44 +985,50 @@ class SupabaseStorage:
 
         try:
             # Values - ordered by priority
-            result["values"] = self.get_values(limit=values_limit)
+            result["values"] = self.get_values(limit=_values_limit)
         except Exception as e:
             logger.warning(f"Failed to load values: {e}")
 
         try:
             # Beliefs - ordered by confidence
-            result["beliefs"] = self.get_beliefs(limit=beliefs_limit)
+            result["beliefs"] = self.get_beliefs(limit=_beliefs_limit)
         except Exception as e:
             logger.warning(f"Failed to load beliefs: {e}")
 
         try:
             # Goals - filtered by status
             status = goals_status if goals_status != "all" else None
-            result["goals"] = self.get_goals(status=status, limit=goals_limit)
+            result["goals"] = self.get_goals(status=status, limit=_goals_limit)
         except Exception as e:
             logger.warning(f"Failed to load goals: {e}")
 
         try:
-            # Drives - all for agent
-            result["drives"] = self.get_drives()
+            # Drives - all for agent (limited if specified)
+            drives = self.get_drives()
+            if drives_limit is not None:
+                drives = drives[:drives_limit]
+            result["drives"] = drives
         except Exception as e:
             logger.warning(f"Failed to load drives: {e}")
 
         try:
             # Episodes - most recent
-            result["episodes"] = self.get_episodes(limit=episodes_limit)
+            result["episodes"] = self.get_episodes(limit=_episodes_limit)
         except Exception as e:
             logger.warning(f"Failed to load episodes: {e}")
 
         try:
             # Notes - most recent
-            result["notes"] = self.get_notes(limit=notes_limit)
+            result["notes"] = self.get_notes(limit=_notes_limit)
         except Exception as e:
             logger.warning(f"Failed to load notes: {e}")
 
         try:
-            # Relationships - all for agent
-            result["relationships"] = self.get_relationships()
+            # Relationships - all for agent (limited if specified)
+            relationships = self.get_relationships()
+            if relationships_limit is not None:
+                relationships = relationships[:relationships_limit]
+            result["relationships"] = relationships
         except Exception as e:
             logger.warning(f"Failed to load relationships: {e}")
 

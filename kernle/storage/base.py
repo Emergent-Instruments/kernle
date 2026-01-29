@@ -710,12 +710,14 @@ class Storage(Protocol):
 
     def load_all(
         self,
-        values_limit: int = 10,
-        beliefs_limit: int = 20,
-        goals_limit: int = 10,
+        values_limit: Optional[int] = 10,
+        beliefs_limit: Optional[int] = 20,
+        goals_limit: Optional[int] = 10,
         goals_status: str = "active",
-        episodes_limit: int = 20,
-        notes_limit: int = 5,
+        episodes_limit: Optional[int] = 20,
+        notes_limit: Optional[int] = 5,
+        drives_limit: Optional[int] = None,
+        relationships_limit: Optional[int] = None,
     ) -> Optional[Dict[str, Any]]:
         """Load all memory types in a single operation (optional optimization).
 
@@ -727,12 +729,14 @@ class Storage(Protocol):
         fall back to individual get_* methods.
 
         Args:
-            values_limit: Max values to load
-            beliefs_limit: Max beliefs to load
-            goals_limit: Max goals to load
+            values_limit: Max values to load (None = use high limit for budget loading)
+            beliefs_limit: Max beliefs to load (None = use high limit for budget loading)
+            goals_limit: Max goals to load (None = use high limit for budget loading)
             goals_status: Goal status filter
-            episodes_limit: Max episodes to load
-            notes_limit: Max notes to load
+            episodes_limit: Max episodes to load (None = use high limit for budget loading)
+            notes_limit: Max notes to load (None = use high limit for budget loading)
+            drives_limit: Max drives to load (None = all drives)
+            relationships_limit: Max relationships to load (None = all relationships)
 
         Returns:
             Dict with keys: values, beliefs, goals, drives, episodes, notes, relationships

@@ -41,6 +41,128 @@ if TYPE_CHECKING:
 # Set up logging
 logger = logging.getLogger(__name__)
 
+# Default token budget for memory loading
+DEFAULT_TOKEN_BUDGET = 8000
+
+# Maximum token budget allowed (consistent across CLI, MCP, and core)
+MAX_TOKEN_BUDGET = 50000
+
+# Minimum token budget allowed
+MIN_TOKEN_BUDGET = 100
+
+# Maximum characters per memory item (for truncation)
+DEFAULT_MAX_ITEM_CHARS = 500
+
+# Token estimation safety margin (actual JSON output is larger than text estimation)
+TOKEN_ESTIMATION_SAFETY_MARGIN = 1.3
+
+# Priority scores for each memory type (higher = more important)
+MEMORY_TYPE_PRIORITIES = {
+    "checkpoint": 1.00,  # Always loaded first
+    "value": 0.90,
+    "belief": 0.70,
+    "goal": 0.65,
+    "drive": 0.60,
+    "episode": 0.40,
+    "note": 0.35,
+    "relationship": 0.30,
+}
+
+
+def estimate_tokens(text: str, include_safety_margin: bool = True) -> int:
+    """Estimate token count from text.
+
+    Uses the simple heuristic of ~4 characters per token, with a safety
+    margin to account for JSON serialization overhead.
+
+    Args:
+        text: The text to estimate tokens for
+        include_safety_margin: If True, multiply by safety margin (default: True)
+
+    Returns:
+        Estimated token count
+    """
+    if not text:
+        return 0
+    base_estimate = len(text) // 4
+    if include_safety_margin:
+        return int(base_estimate * TOKEN_ESTIMATION_SAFETY_MARGIN)
+    return base_estimate
+
+
+def truncate_at_word_boundary(text: str, max_chars: int) -> str:
+    """Truncate text at a word boundary with ellipsis.
+
+    Args:
+        text: Text to truncate
+        max_chars: Maximum characters (including ellipsis)
+
+    Returns:
+        Truncated text with "..." if truncated
+    """
+    if not text or len(text) <= max_chars:
+        return text
+
+    # Leave room for ellipsis
+    target = max_chars - 3
+    if target <= 0:
+        return "..."
+
+    # Find last space before target
+    truncated = text[:target]
+    last_space = truncated.rfind(' ')
+
+    if last_space > target // 2:  # Only use word boundary if reasonable
+        truncated = truncated[:last_space]
+
+    return truncated + "..."
+
+
+def compute_priority_score(memory_type: str, record: Any) -> float:
+    """Compute priority score for a memory record.
+
+    The score combines the base type priority with record-specific factors:
+    - Values: priority field (0-100 -> 0.0-1.0)
+    - Beliefs: confidence (0.0-1.0)
+    - Goals: recency (newer = higher)
+    - Drives: intensity (0.0-1.0)
+    - Episodes: recency (newer = higher)
+    - Notes: recency (newer = higher)
+    - Relationships: last_interaction recency
+
+    Args:
+        memory_type: Type of memory (value, belief, etc.)
+        record: The memory record (dataclass or dict)
+
+    Returns:
+        Priority score (0.0-1.0)
+    """
+    base_priority = MEMORY_TYPE_PRIORITIES.get(memory_type, 0.5)
+
+    # Get record value based on type
+    if memory_type == "value":
+        # priority is 0-100, normalize to 0-1
+        priority = getattr(record, 'priority', 50) if hasattr(record, 'priority') else record.get('priority', 50)
+        type_factor = priority / 100.0
+    elif memory_type == "belief":
+        type_factor = getattr(record, 'confidence', 0.8) if hasattr(record, 'confidence') else record.get('confidence', 0.8)
+    elif memory_type == "drive":
+        type_factor = getattr(record, 'intensity', 0.5) if hasattr(record, 'intensity') else record.get('intensity', 0.5)
+    elif memory_type in ("goal", "episode", "note"):
+        # For time-based priority, we'd need to compute recency
+        # For now, use a default factor (records are already sorted by recency)
+        type_factor = 0.7
+    elif memory_type == "relationship":
+        # Use sentiment as a factor
+        sentiment = getattr(record, 'sentiment', 0.0) if hasattr(record, 'sentiment') else record.get('sentiment', 0.0)
+        type_factor = (sentiment + 1) / 2  # Normalize -1..1 to 0..1
+    else:
+        type_factor = 0.5
+
+    # Combine base priority with type-specific factor
+    # Weight: 60% type priority, 40% record-specific factor
+    return base_priority * 0.6 + type_factor * 0.4
+
 
 class Kernle(
     AnxietyMixin,
@@ -232,44 +354,202 @@ class Kernle(
     # LOAD
     # =========================================================================
 
-    def load(self, budget: int = 6000, sync: Optional[bool] = None) -> Dict[str, Any]:
-        """Load working memory context.
+    def load(
+        self,
+        budget: int = DEFAULT_TOKEN_BUDGET,
+        truncate: bool = True,
+        max_item_chars: int = DEFAULT_MAX_ITEM_CHARS,
+        sync: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        """Load working memory context with budget-aware selection.
 
-        If auto_sync is enabled (or sync=True), pulls remote changes first
-        to ensure the local database has the latest data before loading.
+        Memories are loaded by priority across all types until the budget
+        is exhausted, preventing context overflow. Higher priority items
+        are loaded first.
 
-        Uses batched loading when available to optimize database queries,
-        reducing 9 sequential queries to a single batched operation.
+        Priority order (highest first):
+        - Checkpoint: Always loaded (task continuity)
+        - Values: 0.90 base, sorted by priority DESC
+        - Beliefs: 0.70 base, sorted by confidence DESC
+        - Goals: 0.65 base, sorted by recency
+        - Drives: 0.60 base, sorted by intensity DESC
+        - Episodes: 0.40 base, sorted by recency
+        - Notes: 0.35 base, sorted by recency
+        - Relationships: 0.30 base, sorted by last_interaction
 
         Args:
-            budget: Token budget for memory (unused currently, for future optimization)
+            budget: Token budget for memory (default: 8000, range: 100-100000)
+            truncate: If True, truncate long items to fit more in budget
+            max_item_chars: Max characters per item when truncating (default: 500)
             sync: Override auto_sync setting. If None, uses self.auto_sync.
 
         Returns:
             Dict containing all memory layers
         """
+        # Validate budget parameter (defense in depth - also validated at MCP layer)
+        if not isinstance(budget, int) or budget < MIN_TOKEN_BUDGET:
+            budget = MIN_TOKEN_BUDGET
+        elif budget > MAX_TOKEN_BUDGET:
+            budget = MAX_TOKEN_BUDGET
+
+        # Validate max_item_chars parameter
+        if not isinstance(max_item_chars, int) or max_item_chars < 10:
+            max_item_chars = 10
+        elif max_item_chars > 10000:
+            max_item_chars = 10000
+
         # Sync before load if enabled
         should_sync = sync if sync is not None else self._auto_sync
         if should_sync:
             self._sync_before_load()
 
-        # Try batched loading first (available in SQLiteStorage)
+        # Load checkpoint first - always included
+        checkpoint = self.load_checkpoint()
+        remaining_budget = budget
+
+        # Estimate checkpoint tokens
+        if checkpoint:
+            checkpoint_text = json.dumps(checkpoint, default=str)
+            remaining_budget -= estimate_tokens(checkpoint_text)
+
+        # Fetch candidates from all types with high limits for budget selection
         batched = self._storage.load_all(
-            values_limit=10,
-            beliefs_limit=20,
-            goals_limit=10,
+            values_limit=None,      # Use high limit (1000)
+            beliefs_limit=None,
+            goals_limit=None,
             goals_status="active",
-            episodes_limit=20,  # For both lessons and recent_work
-            notes_limit=5,
+            episodes_limit=None,
+            notes_limit=None,
+            drives_limit=None,
+            relationships_limit=None,
         )
 
         if batched is not None:
-            # Use batched results - format for API compatibility
-            episodes = batched.get("episodes", [])
+            # Build candidate list with priority scores
+            candidates = []
 
-            # Extract lessons from episodes
+            # Values - sorted by priority DESC
+            for v in batched.get("values", []):
+                candidates.append((
+                    compute_priority_score("value", v),
+                    "value",
+                    v
+                ))
+
+            # Beliefs - sorted by confidence DESC
+            for b in batched.get("beliefs", []):
+                candidates.append((
+                    compute_priority_score("belief", b),
+                    "belief",
+                    b
+                ))
+
+            # Goals - recency already handled by storage
+            for g in batched.get("goals", []):
+                candidates.append((
+                    compute_priority_score("goal", g),
+                    "goal",
+                    g
+                ))
+
+            # Drives - sorted by intensity DESC
+            for d in batched.get("drives", []):
+                candidates.append((
+                    compute_priority_score("drive", d),
+                    "drive",
+                    d
+                ))
+
+            # Episodes - recency already handled by storage
+            for e in batched.get("episodes", []):
+                candidates.append((
+                    compute_priority_score("episode", e),
+                    "episode",
+                    e
+                ))
+
+            # Notes - recency already handled by storage
+            for n in batched.get("notes", []):
+                candidates.append((
+                    compute_priority_score("note", n),
+                    "note",
+                    n
+                ))
+
+            # Relationships - sorted by last_interaction
+            for r in batched.get("relationships", []):
+                candidates.append((
+                    compute_priority_score("relationship", r),
+                    "relationship",
+                    r
+                ))
+
+            # Sort by priority descending
+            candidates.sort(key=lambda x: x[0], reverse=True)
+
+            # Fill budget with highest priority items
+            selected = {
+                "values": [],
+                "beliefs": [],
+                "goals": [],
+                "drives": [],
+                "episodes": [],
+                "notes": [],
+                "relationships": [],
+            }
+
+            for priority, memory_type, record in candidates:
+                # Format the record for token estimation
+                if memory_type == "value":
+                    text = f"{record.name}: {record.statement}"
+                elif memory_type == "belief":
+                    text = record.statement
+                elif memory_type == "goal":
+                    text = f"{record.title} {record.description or ''}"
+                elif memory_type == "drive":
+                    text = f"{record.drive_type}: {record.focus_areas or ''}"
+                elif memory_type == "episode":
+                    text = f"{record.objective} {record.outcome}"
+                elif memory_type == "note":
+                    text = record.content
+                elif memory_type == "relationship":
+                    text = f"{record.entity_name}: {record.notes or ''}"
+                else:
+                    text = str(record)
+
+                # Truncate if enabled and text exceeds limit
+                if truncate and len(text) > max_item_chars:
+                    text = truncate_at_word_boundary(text, max_item_chars)
+
+                # Estimate tokens for this item
+                tokens = estimate_tokens(text)
+
+                # Check if it fits in budget
+                if tokens <= remaining_budget:
+                    if memory_type == "value":
+                        selected["values"].append(record)
+                    elif memory_type == "belief":
+                        selected["beliefs"].append(record)
+                    elif memory_type == "goal":
+                        selected["goals"].append(record)
+                    elif memory_type == "drive":
+                        selected["drives"].append(record)
+                    elif memory_type == "episode":
+                        selected["episodes"].append(record)
+                    elif memory_type == "note":
+                        selected["notes"].append(record)
+                    elif memory_type == "relationship":
+                        selected["relationships"].append(record)
+
+                    remaining_budget -= tokens
+
+                # Stop if budget exhausted
+                if remaining_budget <= 0:
+                    break
+
+            # Extract lessons from selected episodes
             lessons = []
-            for ep in episodes:
+            for ep in selected["episodes"]:
                 if ep.lessons:
                     lessons.extend(ep.lessons[:2])
 
@@ -281,40 +561,41 @@ class Kernle(
                     "tags": e.tags,
                     "created_at": e.created_at.isoformat() if e.created_at else None,
                 }
-                for e in episodes
+                for e in selected["episodes"]
                 if not e.tags or "checkpoint" not in e.tags
             ][:5]
 
+            # Format selected items for API compatibility
             batched_result = {
-                "checkpoint": self.load_checkpoint(),
+                "checkpoint": checkpoint,
                 "values": [
                     {
                         "id": v.id,
                         "name": v.name,
-                        "statement": v.statement,
+                        "statement": truncate_at_word_boundary(v.statement, max_item_chars) if truncate else v.statement,
                         "priority": v.priority,
                         "value_type": "core_value",
                     }
-                    for v in batched.get("values", [])
+                    for v in selected["values"]
                 ],
                 "beliefs": [
                     {
                         "id": b.id,
-                        "statement": b.statement,
+                        "statement": truncate_at_word_boundary(b.statement, max_item_chars) if truncate else b.statement,
                         "belief_type": b.belief_type,
                         "confidence": b.confidence,
                     }
-                    for b in sorted(batched.get("beliefs", []), key=lambda x: x.confidence, reverse=True)
+                    for b in sorted(selected["beliefs"], key=lambda x: x.confidence, reverse=True)
                 ],
                 "goals": [
                     {
                         "id": g.id,
                         "title": g.title,
-                        "description": g.description,
+                        "description": truncate_at_word_boundary(g.description, max_item_chars) if truncate and g.description else g.description,
                         "priority": g.priority,
                         "status": g.status,
                     }
-                    for g in batched.get("goals", [])
+                    for g in selected["goals"]
                 ],
                 "drives": [
                     {
@@ -324,13 +605,13 @@ class Kernle(
                         "last_satisfied_at": d.updated_at.isoformat() if d.updated_at else None,
                         "focus_areas": d.focus_areas,
                     }
-                    for d in batched.get("drives", [])
+                    for d in selected["drives"]
                 ],
                 "lessons": lessons,
                 "recent_work": recent_work,
                 "recent_notes": [
                     {
-                        "content": n.content,
+                        "content": truncate_at_word_boundary(n.content, max_item_chars) if truncate else n.content,
                         "metadata": {
                             "note_type": n.note_type,
                             "tags": n.tags,
@@ -339,7 +620,7 @@ class Kernle(
                         },
                         "created_at": n.created_at.isoformat() if n.created_at else None,
                     }
-                    for n in batched.get("notes", [])
+                    for n in selected["notes"]
                 ],
                 "relationships": [
                     {
@@ -349,25 +630,25 @@ class Kernle(
                         "sentiment": r.sentiment,
                         "interaction_count": r.interaction_count,
                         "last_interaction": r.last_interaction.isoformat() if r.last_interaction else None,
-                        "notes": r.notes,
+                        "notes": truncate_at_word_boundary(r.notes, max_item_chars) if truncate and r.notes else r.notes,
                     }
                     for r in sorted(
-                        batched.get("relationships", []),
+                        selected["relationships"],
                         key=lambda x: x.last_interaction or datetime.min.replace(tzinfo=timezone.utc),
                         reverse=True
                     )
                 ],
             }
-            
+
             # Log the load operation (batched path)
             log_load(
                 self.agent_id,
-                values=len(batched.get("values", [])),
-                beliefs=len(batched.get("beliefs", [])),
-                episodes=len(batched.get("episodes", [])),
-                checkpoint=batched_result.get("checkpoint") is not None,
+                values=len(selected["values"]),
+                beliefs=len(selected["beliefs"]),
+                episodes=len(selected["episodes"]),
+                checkpoint=checkpoint is not None,
             )
-            
+
             return batched_result
 
         # Fallback to individual queries (for backends without load_all)

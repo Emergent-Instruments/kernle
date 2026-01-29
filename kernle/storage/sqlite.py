@@ -3240,12 +3240,14 @@ class SQLiteStorage:
 
     def load_all(
         self,
-        values_limit: int = 10,
-        beliefs_limit: int = 20,
-        goals_limit: int = 10,
+        values_limit: Optional[int] = 10,
+        beliefs_limit: Optional[int] = 20,
+        goals_limit: Optional[int] = 10,
         goals_status: str = "active",
-        episodes_limit: int = 20,
-        notes_limit: int = 5,
+        episodes_limit: Optional[int] = 20,
+        notes_limit: Optional[int] = 5,
+        drives_limit: Optional[int] = None,
+        relationships_limit: Optional[int] = None,
     ) -> Dict[str, Any]:
         """Load all memory types in a single database connection.
 
@@ -3254,16 +3256,26 @@ class SQLiteStorage:
         patterns where each memory type requires a separate connection.
 
         Args:
-            values_limit: Max values to load
-            beliefs_limit: Max beliefs to load
-            goals_limit: Max goals to load
+            values_limit: Max values to load (None = 1000 for budget loading)
+            beliefs_limit: Max beliefs to load (None = 1000 for budget loading)
+            goals_limit: Max goals to load (None = 1000 for budget loading)
             goals_status: Goal status filter ("active", "all", etc.)
-            episodes_limit: Max episodes to load
-            notes_limit: Max notes to load
+            episodes_limit: Max episodes to load (None = 1000 for budget loading)
+            notes_limit: Max notes to load (None = 1000 for budget loading)
+            drives_limit: Max drives to load (None = all drives)
+            relationships_limit: Max relationships to load (None = all relationships)
 
         Returns:
             Dict with keys: values, beliefs, goals, drives, episodes, notes, relationships
         """
+        # Use high limit (1000) when None is passed - for budget-based loading
+        HIGH_LIMIT = 1000
+        _values_limit = values_limit if values_limit is not None else HIGH_LIMIT
+        _beliefs_limit = beliefs_limit if beliefs_limit is not None else HIGH_LIMIT
+        _goals_limit = goals_limit if goals_limit is not None else HIGH_LIMIT
+        _episodes_limit = episodes_limit if episodes_limit is not None else HIGH_LIMIT
+        _notes_limit = notes_limit if notes_limit is not None else HIGH_LIMIT
+
         result = {
             "values": [],
             "beliefs": [],
@@ -3275,59 +3287,71 @@ class SQLiteStorage:
         }
 
         with self._connect() as conn:
-            # Values - ordered by priority
+            # Values - ordered by priority, exclude forgotten
             rows = conn.execute(
-                "SELECT * FROM agent_values WHERE agent_id = ? AND deleted = 0 ORDER BY priority DESC LIMIT ?",
-                (self.agent_id, values_limit)
+                "SELECT * FROM agent_values WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 ORDER BY priority DESC LIMIT ?",
+                (self.agent_id, _values_limit)
             ).fetchall()
             result["values"] = [self._row_to_value(row) for row in rows]
 
-            # Beliefs - ordered by confidence (will be sorted in caller)
+            # Beliefs - ordered by confidence, exclude forgotten
             rows = conn.execute(
-                "SELECT * FROM beliefs WHERE agent_id = ? AND deleted = 0 AND (is_active = 1 OR is_active IS NULL) ORDER BY confidence DESC LIMIT ?",
-                (self.agent_id, beliefs_limit)
+                "SELECT * FROM beliefs WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 AND (is_active = 1 OR is_active IS NULL) ORDER BY confidence DESC LIMIT ?",
+                (self.agent_id, _beliefs_limit)
             ).fetchall()
             result["beliefs"] = [self._row_to_belief(row) for row in rows]
 
-            # Goals - filtered by status
+            # Goals - filtered by status, exclude forgotten
             if goals_status and goals_status != "all":
                 rows = conn.execute(
-                    "SELECT * FROM goals WHERE agent_id = ? AND deleted = 0 AND status = ? ORDER BY created_at DESC LIMIT ?",
-                    (self.agent_id, goals_status, goals_limit)
+                    "SELECT * FROM goals WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 AND status = ? ORDER BY created_at DESC LIMIT ?",
+                    (self.agent_id, goals_status, _goals_limit)
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT * FROM goals WHERE agent_id = ? AND deleted = 0 ORDER BY created_at DESC LIMIT ?",
-                    (self.agent_id, goals_limit)
+                    "SELECT * FROM goals WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 ORDER BY created_at DESC LIMIT ?",
+                    (self.agent_id, _goals_limit)
                 ).fetchall()
             result["goals"] = [self._row_to_goal(row) for row in rows]
 
-            # Drives - all for agent
-            rows = conn.execute(
-                "SELECT * FROM drives WHERE agent_id = ? AND deleted = 0",
-                (self.agent_id,)
-            ).fetchall()
+            # Drives - all for agent (or limited), exclude forgotten
+            if drives_limit is not None:
+                rows = conn.execute(
+                    "SELECT * FROM drives WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 LIMIT ?",
+                    (self.agent_id, drives_limit)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM drives WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0",
+                    (self.agent_id,)
+                ).fetchall()
             result["drives"] = [self._row_to_drive(row) for row in rows]
 
-            # Episodes - most recent
+            # Episodes - most recent, exclude forgotten
             rows = conn.execute(
-                "SELECT * FROM episodes WHERE agent_id = ? AND deleted = 0 ORDER BY created_at DESC LIMIT ?",
-                (self.agent_id, episodes_limit)
+                "SELECT * FROM episodes WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 ORDER BY created_at DESC LIMIT ?",
+                (self.agent_id, _episodes_limit)
             ).fetchall()
             result["episodes"] = [self._row_to_episode(row) for row in rows]
 
-            # Notes - most recent
+            # Notes - most recent, exclude forgotten
             rows = conn.execute(
-                "SELECT * FROM notes WHERE agent_id = ? AND deleted = 0 ORDER BY created_at DESC LIMIT ?",
-                (self.agent_id, notes_limit)
+                "SELECT * FROM notes WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 ORDER BY created_at DESC LIMIT ?",
+                (self.agent_id, _notes_limit)
             ).fetchall()
             result["notes"] = [self._row_to_note(row) for row in rows]
 
-            # Relationships - all for agent
-            rows = conn.execute(
-                "SELECT * FROM relationships WHERE agent_id = ? AND deleted = 0",
-                (self.agent_id,)
-            ).fetchall()
+            # Relationships - all for agent (or limited), exclude forgotten
+            if relationships_limit is not None:
+                rows = conn.execute(
+                    "SELECT * FROM relationships WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 LIMIT ?",
+                    (self.agent_id, relationships_limit)
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM relationships WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0",
+                    (self.agent_id,)
+                ).fetchall()
             result["relationships"] = [self._row_to_relationship(row) for row in rows]
 
         return result

@@ -153,6 +153,11 @@ def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
             sanitized["format"] = validate_enum(
                 arguments.get("format"), "format", ["text", "json"], "text"
             )
+            from kernle.core import MIN_TOKEN_BUDGET, MAX_TOKEN_BUDGET
+            sanitized["budget"] = int(validate_number(arguments.get("budget"), "budget", MIN_TOKEN_BUDGET, MAX_TOKEN_BUDGET, 8000))
+            sanitized["truncate"] = arguments.get("truncate", True)
+            if not isinstance(sanitized["truncate"], bool):
+                sanitized["truncate"] = True
 
         elif name == "memory_checkpoint_save":
             sanitized["task"] = sanitize_string(arguments.get("task"), "task", 500, required=True)
@@ -332,7 +337,7 @@ def handle_tool_error(e: Exception, tool_name: str, arguments: Dict[str, Any]) -
 TOOLS = [
     Tool(
         name="memory_load",
-        description="Load working memory context including checkpoint, values, beliefs, goals, drives, lessons, and recent work. Call at session start.",
+        description="Load working memory context including checkpoint, values, beliefs, goals, drives, lessons, and recent work. Uses priority-based budget loading to prevent context overflow. Call at session start.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -341,6 +346,18 @@ TOOLS = [
                     "enum": ["text", "json"],
                     "description": "Output format (default: text)",
                     "default": "text",
+                },
+                "budget": {
+                    "type": "integer",
+                    "description": "Token budget for memory loading (default: 8000, range: 100-50000). Higher values load more memories.",
+                    "default": 8000,
+                    "minimum": 100,
+                    "maximum": 50000,
+                },
+                "truncate": {
+                    "type": "boolean",
+                    "description": "Truncate long content to fit more items in budget (default: true)",
+                    "default": True,
                 },
             },
         },
@@ -822,7 +839,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         if name == "memory_load":
             format_type = sanitized_args.get("format", "text")
-            memory = k.load()
+            budget = sanitized_args.get("budget", 8000)
+            truncate = sanitized_args.get("truncate", True)
+            memory = k.load(budget=budget, truncate=truncate)
             if format_type == "json":
                 result = json.dumps(memory, indent=2, default=str)
             else:
