@@ -26,12 +26,15 @@ from kernle.cli.commands import (
     cmd_anxiety,
     cmd_belief,
     cmd_consolidate,
+    cmd_doctor,
     cmd_emotion,
     cmd_forget,
     cmd_identity,
+    cmd_init_md,
     cmd_meta,
     cmd_playbook,
     cmd_raw,
+    cmd_stats,
     resolve_raw_id,
 )
 from kernle.cli.commands.agent import cmd_agent
@@ -2189,16 +2192,28 @@ def main():
     # resume - quick "where was I?" view
     subparsers.add_parser("resume", help="Quick view: last task, next step, time since checkpoint")
 
-    # init
-    p_init = subparsers.add_parser("init", help="Initialize Kernle for your environment")
+    # init - generate CLAUDE.md/AGENTS.md section for health checks
+    p_init = subparsers.add_parser("init", help="Generate CLAUDE.md section for Kernle health checks")
+    p_init.add_argument("--style", "-s", choices=["standard", "minimal", "combined"],
+                        default="standard", help="Section style (default: standard)")
+    p_init.add_argument("--output", "-o", help="Output file path (auto-detects CLAUDE.md/AGENTS.md)")
+    p_init.add_argument("--print", "-p", action="store_true",
+                        help="Print section to stdout instead of writing to file")
+    p_init.add_argument("--force", "-f", action="store_true",
+                        help="Overwrite/append even if Kernle section already exists")
+    p_init.add_argument("--no-per-message", action="store_true",
+                        help="Skip per-message health check section")
     p_init.add_argument("--non-interactive", "-y", action="store_true",
                         help="Non-interactive mode (use defaults)")
-    p_init.add_argument("--env", choices=["claude-code", "clawdbot", "cline", "cursor", "desktop"],
-                        help="Target environment")
-    p_init.add_argument("--seed-values", action="store_true", default=True,
-                        help="Seed initial values (default: true)")
-    p_init.add_argument("--no-seed-values", dest="seed_values", action="store_false",
-                        help="Skip seeding initial values")
+
+    # doctor - validate boot sequence compliance
+    p_doctor = subparsers.add_parser("doctor", help="Validate Kernle boot sequence compliance")
+    p_doctor.add_argument("--json", "-j", action="store_true",
+                          help="Output as JSON")
+    p_doctor.add_argument("--verbose", "-v", action="store_true",
+                          help="Show detailed check information")
+    p_doctor.add_argument("--fix", action="store_true",
+                          help="Auto-fix missing instructions")
 
     # relation (social graph / relationships)
     p_relation = subparsers.add_parser("relation", help="Manage relationships")
@@ -2544,6 +2559,20 @@ def main():
                           help="Output as JSON")
     p_anxiety.add_argument("--brief", "-b", action="store_true",
                           help="Single-line output for quick health checks")
+    p_anxiety.add_argument("--source", choices=["cli", "mcp"], default="cli",
+                          help="Source of the health check (default: cli)")
+    p_anxiety.add_argument("--triggered-by", dest="triggered_by",
+                          choices=["boot", "heartbeat", "manual"], default="manual",
+                          help="What triggered this check (default: manual)")
+
+    # stats (compliance and analytics)
+    p_stats = subparsers.add_parser("stats", help="Compliance and analytics stats")
+    stats_sub = p_stats.add_subparsers(dest="stats_action", required=True)
+
+    # kernle stats health-checks
+    stats_health = stats_sub.add_parser("health-checks", help="Show health check compliance stats")
+    stats_health.add_argument("--json", "-j", action="store_true",
+                              help="Output as JSON")
 
     # forget (controlled forgetting)
     p_forget = subparsers.add_parser("forget", help="Controlled forgetting operations")
@@ -2758,7 +2787,9 @@ def main():
         elif args.command == "resume":
             cmd_resume(args, k)
         elif args.command == "init":
-            cmd_init(args, k)
+            cmd_init_md(args, k)
+        elif args.command == "doctor":
+            cmd_doctor(args, k)
         elif args.command == "relation":
             cmd_relation(args, k)
         elif args.command == "drive":
@@ -2779,6 +2810,8 @@ def main():
             cmd_meta(args, k)
         elif args.command == "anxiety":
             cmd_anxiety(args, k)
+        elif args.command == "stats":
+            cmd_stats(args, k)
         elif args.command == "forget":
             cmd_forget(args, k)
         elif args.command == "playbook":
