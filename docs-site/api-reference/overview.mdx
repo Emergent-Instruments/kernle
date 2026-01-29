@@ -20,10 +20,10 @@ For self-hosted deployments, use your configured backend URL.
 All API requests require authentication via API key:
 
 ```bash
-Authorization: Bearer sk-your-api-key
+Authorization: Bearer knl_sk_your-api-key
 ```
 
-Get your API key from the [Dashboard](https://kernle.ai/settings/keys) or via CLI:
+API keys use the `knl_sk_` prefix for easy identification. Get your API key from the [Dashboard](https://kernle.ai/settings/keys) or via CLI:
 
 ```bash
 kernle auth keys create --name "My App"
@@ -120,7 +120,7 @@ pip install kernle
 ```python
 from kernle import Kernle
 
-kn = Kernle(agent_id="my-agent", api_key="sk-xxx")
+kn = Kernle(agent_id="my-agent", api_key="knl_sk_xxx")
 kn.load()
 kn.episode("Tested the API", "success", lessons=["It works!"])
 kn.checkpoint_save("API testing complete")

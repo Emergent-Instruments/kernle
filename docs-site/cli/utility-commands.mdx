@@ -12,7 +12,7 @@ Commands for managing memory state, searching, analysis, and maintenance.
 Load and display working memory at session start.
 
 ```bash
-kernle -a <agent> load [--json] [--sync] [--no-sync]
+kernle -a <agent> load [--json] [--sync] [--no-sync] [--budget TOKENS] [--no-truncate]
 ```
 
 | Option | Description |
@@ -20,6 +20,12 @@ kernle -a <agent> load [--json] [--sync] [--no-sync]
 | `-j, --json` | Output as JSON |
 | `-s, --sync` | Force sync (pull) before loading |
 | `--no-sync` | Skip sync even if auto-sync enabled |
+| `-b, --budget TOKENS` | Token budget to limit memory loading (e.g., 6000) |
+| `--no-truncate` | Disable content truncation (may exceed budget) |
+
+<Tip>
+Use `--budget` to prevent context overflow. A budget of 6000 tokens is recommended for most sessions. See [Context Overload Recovery](/troubleshooting/context-overload) for details.
+</Tip>
 
 ```bash
 # Standard load
@@ -27,6 +33,9 @@ kernle -a claire load
 
 # Force sync from cloud first
 kernle -a claire load --sync
+
+# Load with token budget (recommended)
+kernle -a claire load --budget 6000
 ```
 
 ---
@@ -45,8 +54,15 @@ kernle -a <agent> checkpoint save TASK [options]
 |--------|-------------|
 | `-p, --pending PENDING` | Pending item (repeatable) |
 | `-c, --context CONTEXT` | Additional context |
+| `--progress PROGRESS` | Current progress on the task |
+| `-n, --next NEXT` | Immediate next step |
+| `-b, --blocker BLOCKER` | Current blocker if any |
 | `-s, --sync` | Force sync after saving |
 | `--no-sync` | Skip sync |
+
+<Tip>
+Use `--progress`, `--next`, and `--blocker` for better context recovery. These structured fields help your agent resume work more effectively.
+</Tip>
 
 <Tabs>
   <Tab title="Basic">

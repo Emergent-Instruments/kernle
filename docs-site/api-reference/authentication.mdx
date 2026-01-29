@@ -7,6 +7,46 @@ description: "API endpoints for authentication and key management"
 
 Endpoints for user registration, login, and API key management.
 
+## OAuth Token Exchange
+
+Exchange a Supabase OAuth token for a Kernle session. Used by the web dashboard after Supabase authentication.
+
+```http
+POST /auth/oauth/token
+```
+
+### Request Body
+
+```json
+{
+  "access_token": "supabase-jwt-access-token"
+}
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `access_token` | string | JWT access token from Supabase OAuth flow |
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "user_id": "usr_abc123def456",
+    "email": "user@example.com",
+    "api_key": "knl_sk_your-new-api-key",
+    "tier": "free"
+  }
+}
+```
+
+<Info>
+This endpoint verifies Supabase JWTs using JWKS (JSON Web Key Set) public key verification. It supports all JWT algorithms used by Supabase (RS256, ES256, HS256).
+</Info>
+
+---
+
 ## Register
 
 Create a new Kernle account.
@@ -90,7 +130,7 @@ POST /auth/login
 
 ```json
 {
-  "api_key": "sk-your-api-key"
+  "api_key": "knl_sk_your-api-key"
 }
 ```
 
@@ -110,7 +150,7 @@ POST /auth/login
 ### CLI Equivalent
 
 ```bash
-kernle auth login --api-key sk-your-api-key
+kernle auth login --api-key knl_sk_your-api-key
 ```
 
 ---
@@ -126,7 +166,7 @@ GET /auth/status
 ### Headers
 
 ```
-Authorization: Bearer sk-your-api-key
+Authorization: Bearer knl_sk_your-api-key
 ```
 
 ### Response
@@ -163,7 +203,7 @@ GET /auth/keys
 ### Headers
 
 ```
-Authorization: Bearer sk-your-api-key
+Authorization: Bearer knl_sk_your-api-key
 ```
 
 ### Response
@@ -213,7 +253,7 @@ POST /auth/keys
 ### Headers
 
 ```
-Authorization: Bearer sk-your-api-key
+Authorization: Bearer knl_sk_your-api-key
 ```
 
 ### Request Body
@@ -262,7 +302,7 @@ DELETE /auth/keys/{key_id}
 ### Headers
 
 ```
-Authorization: Bearer sk-your-api-key
+Authorization: Bearer knl_sk_your-api-key
 ```
 
 ### Response
@@ -297,7 +337,7 @@ POST /auth/keys/{key_id}/cycle
 ### Headers
 
 ```
-Authorization: Bearer sk-your-api-key
+Authorization: Bearer knl_sk_your-api-key
 ```
 
 ### Response

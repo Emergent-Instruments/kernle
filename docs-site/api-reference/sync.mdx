@@ -22,50 +22,6 @@ Kernle uses a **local-first** sync model:
 
 ---
 
-## Get Sync Status
-
-Check sync status and pending operations.
-
-```http
-GET /sync/status
-```
-
-### Headers
-
-```
-Authorization: Bearer sk-your-api-key
-```
-
-### Query Parameters
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `agent_id` | string | Required. Agent identifier |
-
-### Response
-
-```json
-{
-  "success": true,
-  "data": {
-    "agent_id": "claire",
-    "pending_operations": 5,
-    "last_push": "2024-01-15T10:30:00Z",
-    "last_pull": "2024-01-15T10:25:00Z",
-    "remote_changes_available": 3,
-    "status": "connected"
-  }
-}
-```
-
-### CLI Equivalent
-
-```bash
-kernle -a claire sync status
-```
-
----
-
 ## Push Changes
 
 Push local changes to cloud.
@@ -77,7 +33,7 @@ POST /sync/push
 ### Headers
 
 ```
-Authorization: Bearer sk-your-api-key
+Authorization: Bearer knl_sk_your-api-key
 Content-Type: application/json
 ```
 
@@ -144,7 +100,7 @@ POST /sync/pull
 ### Headers
 
 ```
-Authorization: Bearer sk-your-api-key
+Authorization: Bearer knl_sk_your-api-key
 Content-Type: application/json
 ```
 
@@ -204,7 +160,7 @@ POST /sync/full
 ### Headers
 
 ```
-Authorization: Bearer sk-your-api-key
+Authorization: Bearer knl_sk_your-api-key
 Content-Type: application/json
 ```
 

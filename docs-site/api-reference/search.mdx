@@ -12,13 +12,13 @@ The search endpoint provides semantic search across all memory types using vecto
 Perform semantic search across an agent's memories.
 
 ```http
-POST /search
+POST /memories/search
 ```
 
 ### Headers
 
 ```
-Authorization: Bearer sk-your-api-key
+Authorization: Bearer knl_sk_your-api-key
 Content-Type: application/json
 ```
 
@@ -26,21 +26,17 @@ Content-Type: application/json
 
 ```json
 {
-  "agent_id": "claire",
   "query": "performance optimization techniques",
   "limit": 10,
-  "types": ["episodes", "beliefs", "notes"],
-  "min_score": 0.5
+  "types": ["episodes", "beliefs", "notes"]
 }
 ```
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `agent_id` | string | Required | Agent identifier |
 | `query` | string | Required | Search query text |
 | `limit` | integer | 10 | Maximum results to return |
 | `types` | array | all | Memory types to search |
-| `min_score` | float | 0.0 | Minimum similarity score (0-1) |
 
 ### Response
 
@@ -97,7 +93,7 @@ kernle -a claire search "performance optimization techniques" --limit 10
 
 ## Searchable Memory Types
 
-| Type | What's Indexed | 
+| Type | What's Indexed |
 |------|----------------|
 | `episodes` | Objective, outcome, lessons |
 | `beliefs` | Statement |
@@ -110,78 +106,20 @@ kernle -a claire search "performance optimization techniques" --limit 10
 
 ---
 
-## Search Modes
-
-### Hybrid Search (Default)
-
-Combines vector similarity with keyword matching for best results:
-
-```json
-{
-  "agent_id": "claire",
-  "query": "API rate limiting",
-  "mode": "hybrid"
-}
-```
-
-### Vector Only
-
-Pure semantic similarity search:
-
-```json
-{
-  "agent_id": "claire",
-  "query": "API rate limiting",
-  "mode": "vector"
-}
-```
-
-### Keyword Only
-
-Traditional text search:
-
-```json
-{
-  "agent_id": "claire",
-  "query": "API rate limiting",
-  "mode": "keyword"
-}
-```
-
----
-
 ## Filtered Search
 
 ### By Memory Type
 
 ```json
 {
-  "agent_id": "claire",
   "query": "debugging techniques",
   "types": ["episodes"]
 }
 ```
 
-### By Time Range
-
-```json
-{
-  "agent_id": "claire",
-  "query": "debugging",
-  "created_after": "2024-01-01T00:00:00Z",
-  "created_before": "2024-01-31T23:59:59Z"
-}
-```
-
-### By Tags
-
-```json
-{
-  "agent_id": "claire",
-  "query": "debugging",
-  "tags": ["production", "urgent"]
-}
-```
+<Info>
+The `types` parameter accepts any combination of: `episodes`, `beliefs`, `notes`, `agent_values`, `goals`, `playbooks`, `raw_entries`, `relationships`.
+</Info>
 
 ---
 
@@ -196,6 +134,10 @@ Search quality depends on:
 <Tip>
 For best results, write clear, descriptive content when recording memories. "Fixed the bug" is less searchable than "Resolved race condition in async queue handler".
 </Tip>
+
+<Note>
+**Note on documented features**: Some search filters documented elsewhere (e.g., `mode`, `min_score`, time range filters, tags) are planned but not yet implemented in the current API.
+</Note>
 
 ---
 
