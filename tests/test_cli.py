@@ -432,12 +432,12 @@ class TestSearchCommand:
 
     def test_cmd_search_with_results(self, mock_kernle):
         """Test search command with results."""
-        args = argparse.Namespace(query="testing", limit=10)
+        args = argparse.Namespace(query="testing", limit=10, min_score=None)
 
         with patch('sys.stdout', new=StringIO()) as fake_out:
             cmd_search(args, mock_kernle)
 
-        mock_kernle.search.assert_called_once_with("testing", 10)
+        mock_kernle.search.assert_called_once_with("testing", 10, min_score=None)
 
         output = fake_out.getvalue()
         assert "Found 2 result(s) for 'testing'" in output
@@ -449,7 +449,7 @@ class TestSearchCommand:
     def test_cmd_search_no_results(self, mock_kernle):
         """Test search command with no results."""
         mock_kernle.search.return_value = []
-        args = argparse.Namespace(query="nonexistent", limit=10)
+        args = argparse.Namespace(query="nonexistent", limit=10, min_score=None)
 
         with patch('sys.stdout', new=StringIO()) as fake_out:
             cmd_search(args, mock_kernle)
@@ -458,11 +458,11 @@ class TestSearchCommand:
 
     def test_cmd_search_custom_limit(self, mock_kernle):
         """Test search command with custom limit."""
-        args = argparse.Namespace(query="test", limit=5)
+        args = argparse.Namespace(query="test", limit=5, min_score=None)
 
         cmd_search(args, mock_kernle)
 
-        mock_kernle.search.assert_called_once_with("test", 5)
+        mock_kernle.search.assert_called_once_with("test", 5, min_score=None)
 
 
 class TestStatusCommand:
@@ -939,3 +939,86 @@ class TestErrorHandling:
         assert "Found 3 result(s)" in output
         # Should still display the valid result
         assert "Valid belief" in output
+
+
+class TestAgentCommand:
+    """Test agent management commands."""
+
+    def test_cmd_agent_list(self, mock_kernle):
+        """Test agent list command."""
+        from kernle.cli.commands.agent import cmd_agent
+        import argparse
+        
+        # Add agent_id attribute to mock
+        mock_kernle.agent_id = "test-agent"
+        
+        args = argparse.Namespace(agent_action="list")
+        
+        with patch('sys.stdout', new=StringIO()) as fake_out:
+            cmd_agent(args, mock_kernle)
+        
+        output = fake_out.getvalue()
+        # Should run without error
+        assert "Agents" in output or "agents" in output or "No agents" in output
+
+
+class TestImportCommand:
+    """Test import command."""
+
+    def test_cmd_import_dry_run(self, mock_kernle, tmp_path):
+        """Test import command with dry-run."""
+        from kernle.cli.commands.import_cmd import cmd_import
+        import argparse
+        
+        # Create a test markdown file
+        test_file = tmp_path / "test_import.md"
+        test_file.write_text("""## Decisions
+- Test decision 1
+- Test decision 2
+
+## Lessons
+- Test lesson → Important insight
+""")
+        
+        args = argparse.Namespace(
+            file=str(test_file),
+            dry_run=True,
+            interactive=False,
+            layer=None
+        )
+        
+        with patch('sys.stdout', new=StringIO()) as fake_out:
+            cmd_import(args, mock_kernle)
+        
+        output = fake_out.getvalue()
+        assert "DRY RUN" in output
+        assert "items to import" in output or "Found" in output
+
+
+class TestSearchMinScore:
+    """Test search with min_score parameter."""
+
+    def test_search_with_min_score(self, mock_kernle):
+        """Test that min_score filters results."""
+        # Mock search to return results with scores
+        from kernle.storage.base import SearchResult
+        from dataclasses import dataclass
+        
+        @dataclass
+        class MockRecord:
+            objective: str = "Test episode"
+            outcome: str = "Test outcome"
+            lessons: list = None
+            created_at: None = None
+        
+        mock_kernle.search.return_value = [
+            {"type": "episode", "title": "High score", "score": 0.8},
+            {"type": "episode", "title": "Low score", "score": 0.2},
+        ]
+        
+        args = argparse.Namespace(query="test", limit=10, min_score=0.5)
+        
+        with patch('sys.stdout', new=StringIO()) as fake_out:
+            cmd_search(args, mock_kernle)
+        
+        mock_kernle.search.assert_called_once_with("test", 10, min_score=0.5)

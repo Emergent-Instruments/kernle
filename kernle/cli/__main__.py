@@ -34,6 +34,8 @@ from kernle.cli.commands import (
     cmd_raw,
     resolve_raw_id,
 )
+from kernle.cli.commands.agent import cmd_agent
+from kernle.cli.commands.import_cmd import cmd_import
 
 # Set up logging
 logging.basicConfig(level=logging.WARNING)
@@ -296,9 +298,15 @@ def cmd_extract(args, k: Kernle):
 def cmd_search(args, k: Kernle):
     """Search memory."""
     query = validate_input(args.query, "query", 500)
-    results = k.search(query, args.limit)
+    min_score = getattr(args, 'min_score', None)
+    
+    results = k.search(query, args.limit, min_score=min_score)
     if not results:
-        print(f"No results for '{args.query}'")
+        if min_score:
+            print(f"No results for '{args.query}' above {min_score:.0%} similarity")
+            print("  Try lowering --min-score or removing it")
+        else:
+            print(f"No results for '{args.query}'")
         return
 
     print(f"Found {len(results)} result(s) for '{args.query}':\n")
@@ -2171,6 +2179,9 @@ def main():
     p_search = subparsers.add_parser("search", help="Search memory")
     p_search.add_argument("query", help="Search query")
     p_search.add_argument("--limit", "-l", type=int, default=10)
+    p_search.add_argument("--min-score", "-m", type=float, 
+                          help="Minimum similarity score (0.0-1.0) to include in results")
+    p_search.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 
     # status
     subparsers.add_parser("status", help="Show memory status")
@@ -2670,6 +2681,28 @@ def main():
     keys_cycle.add_argument("--json", "-j", action="store_true",
                             help="Output as JSON")
 
+    # agent - agent management
+    p_agent = subparsers.add_parser("agent", help="Agent management (list, delete)")
+    agent_sub = p_agent.add_subparsers(dest="agent_action", required=True)
+    
+    agent_sub.add_parser("list", help="List all local agents")
+    
+    agent_delete = agent_sub.add_parser("delete", help="Delete an agent and all its data")
+    agent_delete.add_argument("name", help="Agent ID to delete")
+    agent_delete.add_argument("--force", "-f", action="store_true",
+                              help="Skip confirmation prompt")
+
+    # import - import from flat files
+    p_import = subparsers.add_parser("import", help="Import from markdown files")
+    p_import.add_argument("file", help="Path to markdown file to import")
+    p_import.add_argument("--dry-run", "-n", action="store_true",
+                          help="Preview what would be imported without making changes")
+    p_import.add_argument("--interactive", "-i", action="store_true",
+                          help="Confirm each item before importing")
+    p_import.add_argument("--layer", "-l",
+                          choices=["episode", "note", "belief", "value", "goal", "raw"],
+                          help="Force all items to a specific layer (overrides auto-detection)")
+
     # Pre-process arguments: handle `kernle raw "content"` by inserting "capture"
     # This is needed because argparse subparsers consume positional args before parent parser
     raw_subcommands = {"list", "show", "process", "capture", "review", "clean", "files", "sync", "promote", "triage"}
@@ -2762,6 +2795,10 @@ def main():
             cmd_auth(args, k)
         elif args.command == "mcp":
             cmd_mcp(args)
+        elif args.command == "agent":
+            cmd_agent(args, k)
+        elif args.command == "import":
+            cmd_import(args, k)
     except (ValueError, TypeError) as e:
         logger.error(f"Input validation error: {e}")
         sys.exit(1)

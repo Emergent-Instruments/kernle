@@ -1901,9 +1901,22 @@ class Kernle(
     # SEARCH
     # =========================================================================
 
-    def search(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
-        """Search across episodes, notes, and beliefs."""
-        results = self._storage.search(query, limit=limit)
+    def search(self, query: str, limit: int = 10, min_score: float = None) -> List[Dict[str, Any]]:
+        """Search across episodes, notes, and beliefs.
+        
+        Args:
+            query: Search query string
+            limit: Maximum results to return
+            min_score: Minimum similarity score (0.0-1.0) to include in results.
+                       If None, returns all results up to limit.
+        """
+        # Request more results if filtering by score
+        fetch_limit = limit * 3 if min_score else limit
+        results = self._storage.search(query, limit=fetch_limit)
+        
+        # Filter by minimum score if specified
+        if min_score is not None:
+            results = [r for r in results if r.score >= min_score]
 
         formatted = []
         for r in results:
