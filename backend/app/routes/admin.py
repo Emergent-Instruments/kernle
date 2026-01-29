@@ -9,7 +9,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel
 
 from ..auth import AdminAgent
-from ..database import MEMORY_TABLES, Database
+from ..database import MEMORY_TABLES, Database, get_primary_text_field
 from ..embeddings import create_embedding
 from ..logging_config import get_logger
 
@@ -73,25 +73,7 @@ class SystemStats(BaseModel):
 # Helper Functions
 # =============================================================================
 
-# MEMORY_TABLES imported from database.py (single source of truth)
-
-
-def _get_text_field(table: str) -> str:
-    """Get the primary text field for each table."""
-    fields = {
-        "episodes": "objective",
-        "beliefs": "statement",
-        "values": "statement",
-        "goals": "title",
-        "notes": "content",
-        "drives": "drive_type",
-        "relationships": "entity_name",
-        "raw_captures": "content",
-        "playbooks": "description",
-        "checkpoints": "summary",
-        "emotional_memories": "content",
-    }
-    return fields.get(table, "id")
+# MEMORY_TABLES and get_primary_text_field imported from database.py (single source of truth)
 
 
 async def _get_agent_memory_stats(db, agent_id: str) -> tuple[dict, dict]:
@@ -380,7 +362,7 @@ async def backfill_embeddings(
         if table not in MEMORY_TABLES:
             continue
 
-        text_field = _get_text_field(table)
+        text_field = get_primary_text_field(table)
 
         # Get memories without embeddings
         try:

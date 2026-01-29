@@ -6,7 +6,7 @@ import re
 from fastapi import APIRouter
 
 from ..auth import CurrentAgent
-from ..database import MEMORY_TABLES, Database
+from ..database import MEMORY_TABLES, Database, get_text_fields
 from ..embeddings import create_embedding
 from ..logging_config import get_logger
 from ..models import MemorySearchRequest, MemorySearchResponse, MemorySearchResult
@@ -134,7 +134,7 @@ async def _text_search(
     async def search_table(table_key: str) -> list[MemorySearchResult]:
         """Search a single table for matching records."""
         table_name = MEMORY_TABLES[table_key]
-        content_fields = _get_content_fields(table_key)
+        content_fields = get_text_fields(table_key)
 
         def _query():
             db_query = (
@@ -179,24 +179,6 @@ async def _text_search(
     results = [r for table_list in table_results for r in table_list]
     results.sort(key=lambda x: x.created_at or "", reverse=True)
     return results[:limit]
-
-
-def _get_content_fields(table_key: str) -> list[str]:
-    """Get the content fields to search for each table type."""
-    field_map = {
-        "episodes": ["objective", "outcome"],
-        "beliefs": ["statement"],
-        "values": ["statement", "name"],
-        "goals": ["title", "description"],
-        "notes": ["content"],
-        "drives": ["drive_type"],
-        "relationships": ["entity_name", "notes"],
-        "checkpoints": ["current_task"],
-        "raw_captures": ["content"],
-        "playbooks": ["name", "description"],
-        "emotional_memories": ["trigger", "response"],
-    }
-    return field_map.get(table_key, [])
 
 
 def _extract_content(record: dict, content_fields: list[str]) -> str:

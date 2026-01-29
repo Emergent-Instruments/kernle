@@ -5,6 +5,7 @@ from functools import lru_cache
 from openai import AsyncOpenAI
 
 from .config import get_settings
+from .database import get_text_fields
 from .logging_config import get_logger
 
 logger = get_logger("kernle.embeddings")
@@ -104,23 +105,8 @@ def extract_text_for_embedding(table: str, data: dict) -> str | None:
     Different memory types store text in different fields.
     Returns None if no suitable text found.
     """
-    # Map of table -> fields to extract (in priority order)
-    # Primary fields match actual schema columns
-    text_fields = {
-        "episodes": ["objective", "lesson", "summary"],
-        "beliefs": ["statement", "content"],
-        "values": ["statement", "content"],
-        "goals": ["title", "description", "content"],
-        "notes": ["content", "text"],
-        "raw_captures": ["content", "text"],
-        "relationships": ["entity_name", "description", "notes"],
-        "playbooks": ["description", "content", "steps"],
-        "emotional_memories": ["content", "description", "emotion"],
-        "checkpoints": ["summary", "state", "description"],
-        "drives": ["drive_type", "description", "content"],
-    }
-
-    fields = text_fields.get(table, ["content", "text", "description"])
+    # Use centralized config from database.py (single source of truth)
+    fields = get_text_fields(table) or ["content", "text", "description"]
 
     texts = []
     for field in fields:

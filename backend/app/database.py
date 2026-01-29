@@ -192,6 +192,94 @@ MEMORY_TABLES = {
 }
 
 
+# =============================================================================
+# Memory Table Configuration - Single Source of Truth
+# =============================================================================
+# Defines text field mappings for each memory table:
+# - text_fields: List of fields to use for embedding generation and search (in priority order)
+# - primary_text_field: Single field to use for display/admin purposes
+
+
+class MemoryTableConfig:
+    """Configuration for a memory table's text fields."""
+
+    def __init__(self, table_name: str, text_fields: list[str], primary_text_field: str):
+        self.table_name = table_name
+        self.text_fields = text_fields
+        self.primary_text_field = primary_text_field
+
+
+MEMORY_TABLE_CONFIG: dict[str, MemoryTableConfig] = {
+    "episodes": MemoryTableConfig(
+        table_name=EPISODES_TABLE,
+        text_fields=["objective", "outcome", "lesson", "summary"],
+        primary_text_field="objective",
+    ),
+    "beliefs": MemoryTableConfig(
+        table_name=BELIEFS_TABLE,
+        text_fields=["statement", "content"],
+        primary_text_field="statement",
+    ),
+    "values": MemoryTableConfig(
+        table_name=VALUES_TABLE,
+        text_fields=["statement", "name", "content"],
+        primary_text_field="statement",
+    ),
+    "goals": MemoryTableConfig(
+        table_name=GOALS_TABLE,
+        text_fields=["title", "description", "content"],
+        primary_text_field="title",
+    ),
+    "notes": MemoryTableConfig(
+        table_name=NOTES_TABLE,
+        text_fields=["content", "text"],
+        primary_text_field="content",
+    ),
+    "drives": MemoryTableConfig(
+        table_name=DRIVES_TABLE,
+        text_fields=["drive_type", "description", "content"],
+        primary_text_field="drive_type",
+    ),
+    "relationships": MemoryTableConfig(
+        table_name=RELATIONSHIPS_TABLE,
+        text_fields=["entity_name", "description", "notes"],
+        primary_text_field="entity_name",
+    ),
+    "checkpoints": MemoryTableConfig(
+        table_name=CHECKPOINTS_TABLE,
+        text_fields=["summary", "current_task", "state", "description"],
+        primary_text_field="summary",
+    ),
+    "raw_captures": MemoryTableConfig(
+        table_name=RAW_CAPTURES_TABLE,
+        text_fields=["content", "text"],
+        primary_text_field="content",
+    ),
+    "playbooks": MemoryTableConfig(
+        table_name=PLAYBOOKS_TABLE,
+        text_fields=["name", "description", "content", "steps"],
+        primary_text_field="description",
+    ),
+    "emotional_memories": MemoryTableConfig(
+        table_name=EMOTIONAL_MEMORIES_TABLE,
+        text_fields=["trigger", "response", "content", "description", "emotion"],
+        primary_text_field="trigger",
+    ),
+}
+
+
+def get_text_fields(table_key: str) -> list[str]:
+    """Get the text fields for embedding/search for a table."""
+    config = MEMORY_TABLE_CONFIG.get(table_key)
+    return config.text_fields if config else []
+
+
+def get_primary_text_field(table_key: str) -> str:
+    """Get the primary text field for display for a table."""
+    config = MEMORY_TABLE_CONFIG.get(table_key)
+    return config.primary_text_field if config else "id"
+
+
 async def upsert_memory(
     db: Client,
     agent_id: str,
@@ -289,7 +377,8 @@ async def get_changes_since(
             # Filter out forgotten memories for tables that support it
             if table_key in forgettable_tables:
                 # Exclude is_forgotten=true (include null, false, or missing)
-                query = query.neq("is_forgotten", True)
+                # PostgREST .neq() excludes NULL, so use .or_() for correct behavior
+                query = query.or_("is_forgotten.is.null,is_forgotten.eq.false")
             return query.limit(limit).execute()
 
         result = await asyncio.to_thread(_query)
@@ -562,9 +651,80 @@ async def increment_usage(db: Client, api_key_id: str, user_id: str) -> dict:
     }
 
 
+async def check_and_increment_quota(
+    db: Client, api_key_id: str, user_id: str, tier: str
+) -> tuple[bool, dict]:
+    """
+    Atomically check quota and increment usage in a single database operation.
+
+    This prevents race conditions where two concurrent requests could both pass
+    the quota check before either increments the counter.
+
+    Returns:
+        (allowed, info) where:
+        - allowed: bool - whether the request should proceed
+        - info: dict with current usage, limits, and reset times
+    """
+    import logging
+
+    limits = TIER_LIMITS.get(tier, TIER_LIMITS["free"])
+
+    # Unlimited tier always allowed - still increment for tracking
+    if limits["daily"] is None and limits["monthly"] is None:
+        usage = await increment_usage(db, api_key_id, user_id)
+        return True, {
+            "tier": tier,
+            "daily_limit": None,
+            "monthly_limit": None,
+            "daily_requests": usage.get("daily_requests", 0),
+            "monthly_requests": usage.get("monthly_requests", 0),
+        }
+
+    # Use atomic RPC that checks limits AND increments in one transaction
+    # This prevents TOCTOU race conditions
+    try:
+        result = db.rpc(
+            "check_and_increment_quota",
+            {
+                "p_api_key_id": api_key_id,
+                "p_user_id": user_id,
+                "p_daily_limit": limits["daily"],
+                "p_monthly_limit": limits["monthly"],
+            },
+        ).execute()
+
+        if result.data and len(result.data) > 0:
+            row = result.data[0]
+            info = {
+                "tier": tier,
+                "daily_limit": limits["daily"],
+                "monthly_limit": limits["monthly"],
+                "daily_requests": row["daily_requests"],
+                "monthly_requests": row["monthly_requests"],
+                "daily_reset_at": row.get("daily_reset_at"),
+                "monthly_reset_at": row.get("monthly_reset_at"),
+            }
+
+            if not row["allowed"]:
+                info["exceeded"] = row.get("exceeded", "daily")
+
+            return row["allowed"], info
+    except Exception as e:
+        # RPC not available - fall back to non-atomic check
+        logging.getLogger("kernle.database").warning(
+            f"check_and_increment_quota RPC failed, using fallback: {e}"
+        )
+
+    # Fallback to non-atomic check + increment (for backwards compatibility)
+    return await check_quota(db, api_key_id, user_id, tier)
+
+
 async def check_quota(db: Client, api_key_id: str, user_id: str, tier: str) -> tuple[bool, dict]:
     """
-    Check if user is within their quota limits.
+    Check if user is within their quota limits (non-atomic fallback).
+
+    WARNING: This function has a race condition between check and increment.
+    Use check_and_increment_quota for atomic behavior when possible.
 
     Returns:
         (allowed, info) where:
