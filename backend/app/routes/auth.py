@@ -75,8 +75,14 @@ async def exchange_supabase_token(
     and creates/returns a Kernle agent + token. Also sets httpOnly cookie.
     """
     try:
-        # Verify Supabase JWT using public keys from JWKS endpoint
-        # This is the correct approach for the new asymmetric key system
+        # Verify Supabase JWT - supports both HS256 (symmetric) and RS256 (asymmetric)
+        #
+        # IMPORTANT: Supabase can use either algorithm depending on project settings:
+        # - HS256: Uses supabase_jwt_secret (symmetric key from Supabase dashboard)
+        # - RS256: Uses JWKS endpoint for public key verification
+        #
+        # DO NOT remove HS256 support - this is a recurring issue that breaks OAuth login.
+        # See: Supabase dashboard > Settings > API > JWT Settings for your project's algorithm.
 
         import httpx
         from jose import JWTError, jwk, jwt
@@ -95,7 +101,8 @@ async def exchange_supabase_token(
             logger.info(f"OAuth: JWT kid={kid}, alg={alg}, iss={issuer}")
 
             # SECURITY: Validate algorithm to prevent algorithm confusion attacks
-            if alg != "RS256":
+            # Only allow HS256 (symmetric) or RS256 (asymmetric) - never 'none' or others
+            if alg not in ("HS256", "RS256"):
                 logger.error(f"OAuth: Unsupported algorithm: {alg}")
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
@@ -120,53 +127,74 @@ async def exchange_supabase_token(
                 detail="Invalid token format",
             )
 
-        # Fetch JWKS from our trusted Supabase instance only
-        jwks_url = f"{expected_issuer}/.well-known/jwks.json"
-
-        logger.info(f"OAuth: Fetching JWKS from {jwks_url}")
+        # Verify the JWT based on algorithm
         try:
-            async with httpx.AsyncClient() as client:
-                jwks_response = await client.get(jwks_url, timeout=10.0)
-                if jwks_response.status_code != 200:
-                    logger.error(f"OAuth: JWKS fetch failed: {jwks_response.status_code}")
+            if alg == "HS256":
+                # HS256: Symmetric verification using Supabase JWT secret
+                # This is the default for many Supabase projects
+                if not settings.supabase_jwt_secret:
+                    logger.error("OAuth: HS256 token but SUPABASE_JWT_SECRET not configured")
                     raise HTTPException(
                         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                        detail="Failed to fetch signing keys",
+                        detail="Server configuration error",
                     )
-                jwks = jwks_response.json()
-        except httpx.RequestError as e:
-            logger.error(f"OAuth: JWKS request failed: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Authentication service temporarily unavailable",
-            )
 
-        # Find the key matching our token's kid
-        signing_key = None
-        for key in jwks.get("keys", []):
-            if key.get("kid") == kid:
-                signing_key = key
-                break
+                payload = jwt.decode(
+                    token,
+                    settings.supabase_jwt_secret,
+                    algorithms=["HS256"],
+                    audience="authenticated",
+                    issuer=issuer,
+                )
+                logger.info("OAuth: Verified HS256 JWT using symmetric key")
 
-        if not signing_key:
-            logger.error(f"OAuth: No matching key found for kid={kid}")
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Token signing key not found",
-            )
+            else:
+                # RS256: Asymmetric verification using JWKS endpoint
+                jwks_url = f"{expected_issuer}/.well-known/jwks.json"
 
-        # Verify the JWT
-        try:
-            # Convert JWK to PEM for jose
-            public_key = jwk.construct(signing_key)
+                logger.info(f"OAuth: Fetching JWKS from {jwks_url}")
+                try:
+                    async with httpx.AsyncClient() as client:
+                        jwks_response = await client.get(jwks_url, timeout=10.0)
+                        if jwks_response.status_code != 200:
+                            logger.error(f"OAuth: JWKS fetch failed: {jwks_response.status_code}")
+                            raise HTTPException(
+                                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                detail="Failed to fetch signing keys",
+                            )
+                        jwks = jwks_response.json()
+                except httpx.RequestError as e:
+                    logger.error(f"OAuth: JWKS request failed: {e}")
+                    raise HTTPException(
+                        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                        detail="Authentication service temporarily unavailable",
+                    )
 
-            payload = jwt.decode(
-                token,
-                public_key,
-                algorithms=[alg],
-                audience="authenticated",
-                issuer=issuer,
-            )
+                # Find the key matching our token's kid
+                signing_key = None
+                for key in jwks.get("keys", []):
+                    if key.get("kid") == kid:
+                        signing_key = key
+                        break
+
+                if not signing_key:
+                    logger.error(f"OAuth: No matching key found for kid={kid}")
+                    raise HTTPException(
+                        status_code=status.HTTP_401_UNAUTHORIZED,
+                        detail="Token signing key not found",
+                    )
+
+                # Convert JWK to PEM for jose
+                public_key = jwk.construct(signing_key)
+
+                payload = jwt.decode(
+                    token,
+                    public_key,
+                    algorithms=["RS256"],
+                    audience="authenticated",
+                    issuer=issuer,
+                )
+                logger.info("OAuth: Verified RS256 JWT using JWKS public key")
 
             user_data = {
                 "id": payload.get("sub"),
