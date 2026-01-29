@@ -152,26 +152,37 @@ def generate_agent_secret() -> str:
 
 
 def create_access_token(
-    agent_id: str,
     settings: Settings,
     expires_delta: timedelta | None = None,
     user_id: str | None = None,
+    agent_id: str | None = None,
 ) -> str:
-    """Create a JWT access token for an agent."""
+    """Create a JWT access token.
+
+    For OAuth users: user_id is required, agent_id is optional
+    For agent auth: both may be provided
+    """
     if expires_delta:
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
 
+    # Use user_id as subject for user auth, fall back to agent_id for legacy
+    subject = user_id or agent_id
+    if not subject:
+        raise ValueError("Either user_id or agent_id must be provided")
+
     to_encode = {
-        "sub": agent_id,
+        "sub": subject,
         "exp": expire,
         "iat": datetime.now(timezone.utc),
         "type": "access",
     }
-    # Include user_id if provided (for namespacing)
+    # Include both if provided
     if user_id:
         to_encode["user_id"] = user_id
+    if agent_id:
+        to_encode["agent_id"] = agent_id
     return jwt.encode(to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
 
 
@@ -203,29 +214,33 @@ def decode_token(token: str, settings: Settings) -> dict:
 
 
 class AuthContext:
-    """Context from JWT token containing agent_id and user_id."""
+    """Authentication context - user-centric with optional agent.
+
+    For OAuth users: user_id is set, agent_id may be None
+    For API key auth: both user_id and agent_id are set
+    """
 
     def __init__(
         self,
-        agent_id: str,
-        user_id: str | None = None,
+        user_id: str,
         tier: str = "free",
-        api_key_id: str | None = None,
         is_admin: bool = False,
+        agent_id: str | None = None,
+        api_key_id: str | None = None,
     ):
-        self.agent_id = agent_id
         self.user_id = user_id
         self.tier = tier
-        self.api_key_id = api_key_id
         self.is_admin = is_admin
+        self.agent_id = agent_id  # Only set for API key auth or legacy
+        self.api_key_id = api_key_id
 
     def namespaced_agent_id(self, project_name: str | None = None) -> str:
         """Return full namespaced agent_id: {user_id}/{project_name}.
 
         If project_name contains '/', it's already namespaced - return as-is.
-        If no project_name given, returns the agent_id from token.
+        If no project_name given, returns the agent_id from token (if any).
         """
-        name = project_name or self.agent_id
+        name = project_name or self.agent_id or ""
         # Already namespaced?
         if "/" in name:
             return name
@@ -311,64 +326,89 @@ async def get_current_agent(
         # Usage increment is now atomic with quota check - no separate call needed
 
         return AuthContext(
-            agent_id=auth_result["agent_id"],
             user_id=user_id,
             tier=tier,
-            api_key_id=api_key_id,
             is_admin=is_admin,
+            agent_id=auth_result["agent_id"],
+            api_key_id=api_key_id,
         )
 
     # Otherwise, treat as JWT (no quota for JWT auth - used for web UI)
     payload = decode_token(token, settings)
-    agent_id = payload.get("sub")
-    if not agent_id:
+
+    # JWT subject is user_id for OAuth users, or agent_id for legacy tokens
+    subject = payload.get("sub")
+    if not subject:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token payload",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    user_id = payload.get("user_id")
 
-    # Get tier and is_admin from database for JWT auth (fail gracefully)
+    # Determine user_id and agent_id from payload
+    # New tokens: sub=user_id, user_id=user_id, agent_id may be present
+    # Legacy tokens: sub=agent_id, user_id may be present
+    user_id = payload.get("user_id")
+    agent_id = payload.get("agent_id")
+
+    # If subject starts with "usr_", it's a user_id (new format)
+    # If subject starts with "web_", it's a web user placeholder (transitional)
+    # Otherwise it's an agent_id (legacy format)
+    if subject.startswith("usr_"):
+        user_id = subject
+    elif subject.startswith("web_"):
+        # Transitional format - extract user_id from web_{user_id}
+        user_id = subject[4:]  # Remove "web_" prefix
+    elif not user_id:
+        # Legacy token with agent_id as subject - agent_id is the subject
+        agent_id = subject
+
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token - no user_id found",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Get tier and is_admin from users table (fail gracefully)
     tier = "free"
     is_admin = False
     try:
         from .database import get_supabase_client, get_user
 
         db = get_supabase_client(settings)
-        if user_id:
-            user = await get_user(db, user_id)
-            if user:
-                tier = user.get("tier", "free")
-                is_admin = user.get("is_admin", False)
+        user = await get_user(db, user_id)
+        if user:
+            tier = user.get("tier", "free")
+            is_admin = user.get("is_admin", False)
+        else:
+            logger.warning(f"User not found in database: {user_id}")
     except Exception as e:
         # Log but continue with defaults - don't block auth
         logger.warning(f"User lookup failed for {user_id}, defaulting to free/non-admin: {e}")
 
-    return AuthContext(agent_id=agent_id, user_id=user_id, tier=tier, is_admin=is_admin)
+    return AuthContext(user_id=user_id, tier=tier, is_admin=is_admin, agent_id=agent_id)
 
 
 # Type alias for dependency injection
 CurrentAgent = Annotated[AuthContext, Depends(get_current_agent)]
 
 
-async def require_admin(agent: CurrentAgent) -> AuthContext:
+async def require_admin(auth: CurrentAgent) -> AuthContext:
     """Require admin privileges for access.
 
     Use as a dependency on admin-only routes:
         admin: Annotated[AuthContext, Depends(require_admin)]
     """
-    if not agent.is_admin:
-        logger.warning(
-            f"Admin access denied: agent={agent.agent_id} user={agent.user_id} is_admin={agent.is_admin}"
-        )
+    if not auth.is_admin:
+        logger.warning(f"Admin access denied: user={auth.user_id} is_admin={auth.is_admin}")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required",
         )
 
-    logger.info(f"Admin access granted: agent={agent.agent_id} user={agent.user_id}")
-    return agent
+    logger.info(f"Admin access granted: user={auth.user_id}")
+    return auth
 
 
 # Type alias for admin dependency

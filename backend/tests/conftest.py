@@ -40,5 +40,5 @@ def auth_headers():
     from app.config import get_settings
 
     settings = get_settings()
-    token = create_access_token("test-agent", settings)
+    token = create_access_token(settings, user_id="usr_test123456")
     return {"Authorization": f"Bearer {token}"}

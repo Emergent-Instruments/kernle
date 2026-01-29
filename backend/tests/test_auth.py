@@ -43,42 +43,43 @@ class TestAuthUtilities:
     def test_create_and_decode_token(self):
         """Test JWT token creation and decoding."""
         settings = get_settings()
-        agent_id = "test-agent"
+        user_id = "usr_test123456"
 
-        token = create_access_token(agent_id, settings)
+        token = create_access_token(settings, user_id=user_id)
         assert isinstance(token, str)
 
         payload = decode_token(token, settings)
-        assert payload["sub"] == agent_id
+        assert payload["sub"] == user_id
         assert "exp" in payload
         assert "iat" in payload
 
-    def test_create_token_with_user_id(self):
-        """Test JWT token includes user_id when provided."""
+    def test_create_token_with_agent_id(self):
+        """Test JWT token includes agent_id when provided."""
         settings = get_settings()
         agent_id = "test-agent"
         user_id = "usr_abc123def456"
 
-        token = create_access_token(agent_id, settings, user_id=user_id)
+        token = create_access_token(settings, user_id=user_id, agent_id=agent_id)
         payload = decode_token(token, settings)
 
-        assert payload["sub"] == agent_id
+        assert payload["sub"] == user_id
         assert payload["user_id"] == user_id
+        assert payload["agent_id"] == agent_id
 
     def test_auth_context_namespacing(self):
         """Test AuthContext namespaces agent_id correctly."""
-        # With user_id
-        ctx = AuthContext(agent_id="claire", user_id="usr_abc123")
+        # With user_id and agent_id
+        ctx = AuthContext(user_id="usr_abc123", agent_id="claire")
         assert ctx.namespaced_agent_id() == "usr_abc123/claire"
         assert ctx.namespaced_agent_id("my-project") == "usr_abc123/my-project"
 
         # Already namespaced - should return as-is
         assert ctx.namespaced_agent_id("usr_other/project") == "usr_other/project"
 
-        # Without user_id (legacy)
-        ctx_legacy = AuthContext(agent_id="old-agent", user_id=None)
-        assert ctx_legacy.namespaced_agent_id() == "old-agent"
-        assert ctx_legacy.namespaced_agent_id("project") == "project"
+        # Without agent_id (web user)
+        ctx_web = AuthContext(user_id="usr_abc123", agent_id=None)
+        assert ctx_web.namespaced_agent_id() == "usr_abc123/"  # Empty agent_id
+        assert ctx_web.namespaced_agent_id("project") == "usr_abc123/project"
 
 
 class TestAuthEndpoints:

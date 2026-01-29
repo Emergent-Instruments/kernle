@@ -207,11 +207,9 @@ async def exchange_supabase_token(
             # User exists with this email - use their account
             # Users don't need agents to use the web UI - agents are for Kernle memory instances
             user_id = existing_user.get("user_id")
-            # Use a web-user placeholder for agent_id (no agent record created)
-            web_agent_id = f"web_{user_id}"
             logger.info(f"OAuth: Found existing user {user_id} - email {redact_email(email)}")
-            token = create_access_token(web_agent_id, settings, user_id=user_id)
-            log_auth_event("oauth_login", web_agent_id, True)
+            token = create_access_token(settings, user_id=user_id)
+            log_auth_event("oauth_login", user_id, True)
             set_auth_cookie(response, token, settings)
 
             return TokenResponse(
@@ -224,7 +222,7 @@ async def exchange_supabase_token(
         existing_agent = await get_agent(db, agent_id)
 
         if existing_agent:
-            # Agent exists with this OAuth ID - use the user_id but web agent for token
+            # Legacy agent exists with this OAuth ID - ensure they have a user record
             user_id = existing_agent.get("user_id")
             if not user_id:
                 # Legacy agent without user_id - create user for them
@@ -237,9 +235,9 @@ async def exchange_supabase_token(
                 except Exception as e:
                     logger.warning(f"OAuth: Failed to update legacy agent with user_id: {e}")
 
-            web_agent_id = f"web_{user_id}"
-            token = create_access_token(web_agent_id, settings, user_id=user_id)
-            log_auth_event("oauth_login", web_agent_id, True)
+            logger.info(f"OAuth: Found legacy agent, using user {user_id}")
+            token = create_access_token(settings, user_id=user_id)
+            log_auth_event("oauth_login", user_id, True)
             set_auth_cookie(response, token, settings)
 
             return TokenResponse(
@@ -255,7 +253,7 @@ async def exchange_supabase_token(
             existing_agent_by_email = await get_agent_by_email(db, email)
 
         if existing_agent_by_email:
-            # Found a legacy agent - ensure they have a user record
+            # Found a legacy agent by email - ensure they have a user record
             user_id = existing_agent_by_email.get("user_id")
             if not user_id:
                 # Create user for legacy agent
@@ -272,9 +270,8 @@ async def exchange_supabase_token(
             logger.info(
                 f"OAuth: Found legacy agent for email {redact_email(email)}, using user {user_id}"
             )
-            web_agent_id = f"web_{user_id}"
-            token = create_access_token(web_agent_id, settings, user_id=user_id)
-            log_auth_event("oauth_login_legacy", web_agent_id, True)
+            token = create_access_token(settings, user_id=user_id)
+            log_auth_event("oauth_login_legacy", user_id, True)
             set_auth_cookie(response, token, settings)
 
             return TokenResponse(
@@ -304,11 +301,8 @@ async def exchange_supabase_token(
 
         logger.info(f"OAuth: Created new user {user_id} for {redact_email(email)}")
 
-        # Use web-user placeholder for agent_id (no agent record created)
-        web_agent_id = f"web_{user_id}"
-        token = create_access_token(web_agent_id, settings, user_id=user_id)
-        log_auth_event("oauth_register", web_agent_id, True)
-        logger.info(f"OAuth: New user registered: {user_id} for {redact_email(email)}")
+        token = create_access_token(settings, user_id=user_id)
+        log_auth_event("oauth_register", user_id, True)
         set_auth_cookie(response, token, settings)
 
         return TokenResponse(
@@ -397,8 +391,8 @@ async def register_agent(
         # Don't fail registration if seed beliefs fail
         logger.warning(f"Failed to create seed beliefs: {e}")
 
-    # Generate token with user_id
-    token = create_access_token(register_request.agent_id, settings, user_id=user_id)
+    # Generate token with both user_id and agent_id
+    token = create_access_token(settings, user_id=user_id, agent_id=register_request.agent_id)
 
     log_auth_event("register", register_request.agent_id, True)
     logger.debug(f"Agent {register_request.agent_id} registered with user_id={user_id}")
@@ -439,7 +433,7 @@ async def get_token(
         )
 
     user_id = agent.get("user_id")
-    token = create_access_token(login_request.agent_id, settings, user_id=user_id)
+    token = create_access_token(settings, user_id=user_id, agent_id=login_request.agent_id)
 
     return TokenResponse(
         access_token=token,
@@ -449,46 +443,44 @@ async def get_token(
 
 
 @router.get("/me", response_model=AgentInfoWithUsage)
-async def get_current_agent_info(
+async def get_current_user_info(
     auth: CurrentAgent,
     db: Database,
 ):
     """
-    Get information about the currently authenticated agent, including tier and usage.
+    Get information about the currently authenticated user, including tier and usage.
+
+    Note: This returns user info from the users table. The response model includes
+    agent_id for backwards compatibility, but users may not have agents.
     """
-    agent = await get_agent(db, auth.agent_id)
-    if not agent:
+    # Get user info from users table (authoritative source)
+    user = await get_user(db, auth.user_id)
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Agent not found",
+            detail="User not found",
         )
 
-    # Get tier from users table (authoritative source)
-    tier = "free"
-    if auth.user_id:
-        user = await get_user(db, auth.user_id)
-        if user:
-            tier = user.get("tier", "free")
+    tier = user.get("tier", "free")
     limits_config = TIER_LIMITS.get(tier, TIER_LIMITS["free"])
 
-    # Get usage stats if user_id available
+    # Get usage stats
     usage_stats = None
-    if auth.user_id:
-        usage_data = await get_usage_for_user(db, auth.user_id)
-        if usage_data:
-            usage_stats = UsageStats(
-                daily_requests=usage_data.get("daily_requests", 0),
-                monthly_requests=usage_data.get("monthly_requests", 0),
-                daily_reset_at=usage_data.get("daily_reset_at"),
-                monthly_reset_at=usage_data.get("monthly_reset_at"),
-            )
+    usage_data = await get_usage_for_user(db, auth.user_id)
+    if usage_data:
+        usage_stats = UsageStats(
+            daily_requests=usage_data.get("daily_requests", 0),
+            monthly_requests=usage_data.get("monthly_requests", 0),
+            daily_reset_at=usage_data.get("daily_reset_at"),
+            monthly_reset_at=usage_data.get("monthly_reset_at"),
+        )
 
     return AgentInfoWithUsage(
-        agent_id=agent["agent_id"],
-        display_name=agent.get("display_name"),
-        created_at=agent["created_at"],
-        last_sync_at=agent.get("last_sync_at"),
-        user_id=agent.get("user_id"),
+        agent_id=auth.agent_id or auth.user_id,  # Use user_id if no agent
+        display_name=user.get("display_name"),
+        created_at=user.get("created_at"),
+        last_sync_at=None,  # Users don't sync
+        user_id=auth.user_id,
         tier=tier,
         usage=usage_stats,
         limits=UsageLimits(
@@ -508,25 +500,19 @@ async def get_usage_stats(
 
     Returns tier, limits, current usage, and remaining quota.
     """
-    agent = await get_agent(db, auth.agent_id)
-    if not agent:
+    # Get user info from users table (authoritative source)
+    user = await get_user(db, auth.user_id)
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Agent not found",
+            detail="User not found",
         )
 
-    # Get tier from users table (authoritative source)
-    tier = "free"
-    if auth.user_id:
-        user = await get_user(db, auth.user_id)
-        if user:
-            tier = user.get("tier", "free")
+    tier = user.get("tier", "free")
     limits_config = TIER_LIMITS.get(tier, TIER_LIMITS["free"])
 
     # Get usage stats
-    usage_data = None
-    if auth.user_id:
-        usage_data = await get_usage_for_user(db, auth.user_id)
+    usage_data = await get_usage_for_user(db, auth.user_id)
 
     daily_requests = usage_data.get("daily_requests", 0) if usage_data else 0
     monthly_requests = usage_data.get("monthly_requests", 0) if usage_data else 0
@@ -583,10 +569,10 @@ async def login_with_api_key(
     # Generate a fresh JWT token
     expires_delta = timedelta(minutes=settings.jwt_expire_minutes)
     token = create_access_token(
-        agent_id=auth.agent_id,
         settings=settings,
         expires_delta=expires_delta,
         user_id=auth.user_id,
+        agent_id=auth.agent_id,
     )
 
     token_expires = (datetime.now(timezone.utc) + expires_delta).isoformat()
