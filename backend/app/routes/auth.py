@@ -53,6 +53,21 @@ logger = get_logger("kernle.auth")
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+def redact_email(email: str | None) -> str:
+    """Redact email address for logging (GDPR/CCPA compliance).
+
+    Converts 'user@example.com' to 'u***@e***.com'
+    """
+    if not email or "@" not in email:
+        return "no-email"
+    local, domain = email.split("@", 1)
+    domain_parts = domain.rsplit(".", 1)
+    if len(domain_parts) == 2:
+        domain_name, tld = domain_parts
+        return f"{local[0]}***@{domain_name[0]}***.{tld}"
+    return f"{local[0]}***@***"
+
+
 class SupabaseTokenExchange(BaseModel):
     """Request to exchange a Supabase access token for a Kernle token."""
 
@@ -75,76 +90,95 @@ async def exchange_supabase_token(
     and creates/returns a Kernle agent + token. Also sets httpOnly cookie.
     """
     try:
-        # Verify Supabase token by calling Supabase Auth API directly
+        # Verify Supabase JWT using JWKS public key verification
+        # This approach fetches public keys from Supabase's well-known endpoint
+        # and verifies the JWT locally - NO API KEYS REQUIRED.
         #
-        # IMPORTANT: DO NOT try to verify the JWT locally by algorithm detection!
-        # Supabase uses different algorithms (HS256, RS256, ES256) depending on:
-        # - Project settings
-        # - CLI version (v2.71.1+ defaults to ES256)
-        # - Whether keys have been rotated
-        #
-        # The ONLY reliable way is to call Supabase's /auth/v1/user endpoint,
-        # which handles verification internally regardless of algorithm.
-        #
-        # This approach has been proven to work and should NOT be "optimized"
-        # by adding local JWT verification - it breaks every time.
+        # DO NOT change this to use Supabase API calls with API keys - those
+        # can be disabled/rotated and cause auth failures (as happened 2026-01-28).
 
         import httpx
+        from jose import JWTError, jwk, jwt
 
         token = token_request.access_token
 
-        # Get API key for Supabase request
-        api_key = (
-            settings.supabase_service_role_key
-            or settings.supabase_secret_key
-            or settings.supabase_anon_key
-            or settings.supabase_publishable_key
-        )
+        # Decode header to get the key ID (kid), algorithm, and issuer
+        try:
+            header = jwt.get_unverified_header(token)
+            claims = jwt.get_unverified_claims(token)
+            kid = header.get("kid")
+            alg = header.get("alg", "RS256")
+            issuer = claims.get("iss")
 
-        if not api_key:
-            logger.error("OAuth: No Supabase API key configured")
+            logger.info(f"OAuth: JWT kid={kid}, alg={alg}, iss={issuer}")
+        except Exception as e:
+            logger.error(f"OAuth: Failed to decode JWT header: {e}")
             raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Server configuration error",
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token format",
             )
 
-        # Call Supabase Auth API to verify token and get user info
-        # This works with ANY algorithm (HS256, RS256, ES256, etc.)
-        auth_url = f"{settings.supabase_url}/auth/v1/user"
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "apikey": api_key,
-        }
+        # Fetch JWKS from Supabase's well-known endpoint (no API key needed)
+        jwks_url = (
+            f"{issuer}/.well-known/jwks.json"
+            if issuer
+            else f"{settings.supabase_url}/auth/v1/.well-known/jwks.json"
+        )
 
-        logger.info("OAuth: Verifying token via Supabase Auth API")
+        logger.info(f"OAuth: Fetching JWKS from {jwks_url}")
         try:
             async with httpx.AsyncClient() as client:
-                auth_response = await client.get(auth_url, headers=headers, timeout=10.0)
-
-                if auth_response.status_code == 401:
-                    logger.error(f"OAuth: Token rejected by Supabase: {auth_response.text}")
-                    raise HTTPException(
-                        status_code=status.HTTP_401_UNAUTHORIZED,
-                        detail="Invalid or expired token",
-                    )
-
-                if auth_response.status_code != 200:
-                    logger.error(
-                        f"OAuth: Supabase API error: {auth_response.status_code} - {auth_response.text}"
-                    )
+                jwks_response = await client.get(jwks_url, timeout=10.0)
+                if jwks_response.status_code != 200:
+                    logger.error(f"OAuth: JWKS fetch failed: {jwks_response.status_code}")
                     raise HTTPException(
                         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                        detail="Authentication service error",
+                        detail="Failed to fetch signing keys",
                     )
-
-                user_data = auth_response.json()
-                logger.info(f"OAuth: Verified token for user: {user_data.get('email', 'no-email')}")
-
+                jwks_data = jwks_response.json()
         except httpx.RequestError as e:
-            logger.error(f"OAuth: HTTP request to Supabase failed: {e}")
+            logger.error(f"OAuth: JWKS request failed: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail="Authentication service temporarily unavailable",
+            )
+
+        # Find the key matching our token's kid
+        signing_key = None
+        for key in jwks_data.get("keys", []):
+            if key.get("kid") == kid:
+                signing_key = key
+                break
+
+        if not signing_key:
+            logger.error(f"OAuth: No matching key found for kid={kid}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token signing key not found",
+            )
+
+        # Verify the JWT using the public key from JWKS
+        try:
+            public_key = jwk.construct(signing_key)
+
+            payload = jwt.decode(
+                token,
+                public_key,
+                algorithms=[alg],
+                audience="authenticated",
+                issuer=issuer,
+            )
+
+            user_data = {
+                "id": payload.get("sub"),
+                "email": payload.get("email"),
+            }
+            logger.info(f"OAuth: Verified JWT for user: {redact_email(user_data.get('email'))}")
+        except JWTError as e:
+            logger.error(f"OAuth: JWT verification failed: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
             )
 
         email = user_data.get("email")
@@ -232,7 +266,7 @@ async def exchange_supabase_token(
 
         token = create_access_token(agent_id, settings, user_id=user_id)
         log_auth_event("oauth_register", agent_id, True)
-        logger.info(f"OAuth agent created: {agent_id} for {email}")
+        logger.info(f"OAuth agent created: {agent_id} for {redact_email(email)}")
         set_auth_cookie(response, token, settings)
 
         return TokenResponse(

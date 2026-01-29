@@ -84,29 +84,41 @@ Always run audits using specialist agents before considering work done:
 
 These are intentional design decisions that may look like bugs or security issues. Do NOT change them without explicit user approval.
 
-### Supabase OAuth: Use API Verification, NOT Local JWT Decode (backend/app/routes/auth.py)
+### Supabase OAuth: Use JWKS Public Key Verification (backend/app/routes/auth.py)
 
-**DO NOT** "optimize" the OAuth token exchange by adding local JWT verification. This breaks every time.
+**DO NOT** change the OAuth token exchange to use Supabase API calls with API keys.
 
-**Background:** Supabase JWTs can use different algorithms depending on project settings and CLI version:
-- **HS256** (symmetric): Older projects, requires JWT secret
-- **RS256** (asymmetric): Uses JWKS endpoint
-- **ES256** (asymmetric): New default since Supabase CLI v2.71.1+
+**Background:** The OAuth verification uses JWKS (JSON Web Key Set) public key verification:
+1. Fetches public keys from `{issuer}/.well-known/jwks.json` (no API key needed)
+2. Verifies the JWT using the matching public key
+3. Uses whatever algorithm the token specifies (RS256, ES256, etc.)
 
-**The ONLY reliable approach** is to call Supabase's `/auth/v1/user` endpoint directly:
+**This approach is correct because:**
+- No API keys required (avoids "Legacy API keys disabled" errors)
+- Works with any algorithm Supabase uses
+- Public JWKS endpoint is always available
+
+**DO NOT change to use Supabase API calls:**
 ```python
-# CORRECT - works with ANY algorithm
+# WRONG - requires API keys that can be disabled/rotated
 auth_url = f"{settings.supabase_url}/auth/v1/user"
-headers = {"Authorization": f"Bearer {token}", "apikey": api_key}
-response = await client.get(auth_url, headers=headers)
+headers = {"Authorization": f"Bearer {token}", "apikey": api_key}  # API key can break!
 ```
 
-**DO NOT do this:**
+**DO NOT add strict algorithm validation:**
 ```python
 # WRONG - breaks when Supabase changes algorithms
-alg = jwt.get_unverified_header(token).get("alg")
 if alg not in ("HS256", "RS256"):  # ES256 will fail!
     raise "Unsupported algorithm"
 ```
 
-This issue has been "fixed" multiple times by adding local JWT verification for "security" or "performance", breaking production each time. The Supabase API call is the canonical way to verify tokens.
+**The correct approach (current implementation):**
+```python
+# Fetch JWKS (no API key needed)
+jwks_url = f"{issuer}/.well-known/jwks.json"
+jwks_response = await client.get(jwks_url)
+# Verify with whatever algorithm the token uses
+payload = jwt.decode(token, public_key, algorithms=[alg])
+```
+
+This was broken on 2026-01-28 when Supabase disabled legacy API keys, proving that the API-based approach is fragile.
