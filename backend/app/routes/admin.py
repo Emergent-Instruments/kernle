@@ -364,6 +364,20 @@ async def backfill_embeddings(
     Processes up to `limit` memories across specified tables.
     Call multiple times to process large backlogs.
     """
+    # Verify agent exists before processing
+    agent_result = (
+        db.table("agents")
+        .select("agent_id")
+        .eq("agent_id", request.agent_id)
+        .limit(1)
+        .execute()
+    )
+    if not agent_result.data:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Agent {request.agent_id} not found"
+        )
+    
     tables = request.tables or MEMORY_TABLES
     processed = 0
     failed = 0
