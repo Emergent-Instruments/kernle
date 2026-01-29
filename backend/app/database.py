@@ -37,6 +37,7 @@ Database = Annotated[Client, Depends(get_db)]
 # Table Names
 # =============================================================================
 
+USERS_TABLE = "users"
 AGENTS_TABLE = "agents"
 API_KEYS_TABLE = "api_keys"
 API_KEY_USAGE_TABLE = "api_key_usage"
@@ -54,6 +55,58 @@ EMOTIONAL_MEMORIES_TABLE = "emotional_memories"
 
 
 # =============================================================================
+# User Operations
+# =============================================================================
+
+
+async def create_user(
+    db: Client,
+    user_id: str,
+    email: str | None = None,
+    display_name: str | None = None,
+    tier: str = "free",
+) -> dict:
+    """Create a new user."""
+    data = {
+        "user_id": user_id,
+        "email": email,
+        "display_name": display_name,
+        "tier": tier,
+        "is_admin": False,
+    }
+    result = db.table(USERS_TABLE).insert(data).execute()
+    return result.data[0] if result.data else None
+
+
+async def get_user(db: Client, user_id: str) -> dict | None:
+    """Get a user by user_id."""
+    result = db.table(USERS_TABLE).select("*").eq("user_id", user_id).execute()
+    return result.data[0] if result.data else None
+
+
+async def get_user_by_email(db: Client, email: str) -> dict | None:
+    """Get a user by email."""
+    result = db.table(USERS_TABLE).select("*").eq("email", email).limit(1).execute()
+    return result.data[0] if result.data else None
+
+
+async def update_user(db: Client, user_id: str, **kwargs) -> dict | None:
+    """Update user fields."""
+    if not kwargs:
+        return await get_user(db, user_id)
+    result = db.table(USERS_TABLE).update(kwargs).eq("user_id", user_id).execute()
+    return result.data[0] if result.data else None
+
+
+async def is_user_admin(db: Client, user_id: str) -> bool:
+    """Check if user has admin privileges."""
+    user = await get_user(db, user_id)
+    if user:
+        return user.get("is_admin", False)
+    return False
+
+
+# =============================================================================
 # Agent Operations
 # =============================================================================
 
@@ -64,15 +117,18 @@ async def create_agent(
     secret_hash: str,
     user_id: str,
     display_name: str | None = None,
-    email: str | None = None,
+    email: str | None = None,  # Deprecated: email is now on users table
 ) -> dict:
-    """Create a new agent in the database."""
+    """Create a new agent in the database.
+
+    Note: email parameter is deprecated. Email is now stored on the users table.
+    The parameter is kept for backwards compatibility but will be ignored.
+    """
     data = {
         "agent_id": agent_id,
         "secret_hash": secret_hash,
         "user_id": user_id,
         "display_name": display_name,
-        "email": email,
     }
     result = db.table(AGENTS_TABLE).insert(data).execute()
     return result.data[0] if result.data else None
@@ -514,7 +570,7 @@ async def verify_api_key_auth(db: Client, api_key: str) -> dict | None:
     """
     Verify an API key and return auth context if valid.
 
-    Returns dict with user_id, agent_id, tier, and api_key_id if valid, None otherwise.
+    Returns dict with user_id, agent_id, tier, is_admin, and api_key_id if valid, None otherwise.
     Updates last_used_at on successful auth.
     """
     from .auth import get_api_key_prefix, verify_api_key
@@ -529,17 +585,26 @@ async def verify_api_key_auth(db: Client, api_key: str) -> dict | None:
             # Found matching key - update last_used and return auth context
             await update_api_key_last_used(db, key_record["id"])
 
+            user_id = key_record["user_id"]
+
             # Get the agent for this user_id
-            agent = await get_agent_by_user_id(db, key_record["user_id"])
-            if agent:
-                return {
-                    "user_id": key_record["user_id"],
-                    "agent_id": agent["agent_id"],
-                    "tier": agent.get("tier", "free"),
-                    "api_key_id": str(key_record["id"]),
-                }
-            # Key valid but no agent found (shouldn't happen)
-            return None
+            agent = await get_agent_by_user_id(db, user_id)
+            if not agent:
+                # Key valid but no agent found (shouldn't happen)
+                return None
+
+            # Get tier and admin status from users table
+            user = await get_user(db, user_id)
+            tier = user.get("tier", "free") if user else "free"
+            is_admin = user.get("is_admin", False) if user else False
+
+            return {
+                "user_id": user_id,
+                "agent_id": agent["agent_id"],
+                "tier": tier,
+                "is_admin": is_admin,
+                "api_key_id": str(key_record["id"]),
+            }
 
     return None
 
@@ -794,8 +859,11 @@ async def check_quota(db: Client, api_key_id: str, user_id: str, tier: str) -> t
 
 
 async def get_agent_tier(db: Client, agent_id: str) -> str:
-    """Get the tier for an agent."""
+    """Get the tier for an agent (via the users table)."""
     agent = await get_agent(db, agent_id)
     if agent:
-        return agent.get("tier", "free")
+        # Get tier from users table using the agent's user_id
+        user = await get_user(db, agent["user_id"])
+        if user:
+            return user.get("tier", "free")
     return "free"

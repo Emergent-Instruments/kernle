@@ -23,12 +23,15 @@ from ..database import (
     create_agent,
     create_api_key,
     create_seed_beliefs,
+    create_user,
     deactivate_api_key,
     delete_api_key,
     get_agent,
     get_agent_by_email,
+    get_agent_by_user_id,
     get_api_key,
     get_usage_for_user,
+    get_user_by_email,
     list_api_keys,
 )
 from ..logging_config import get_logger, log_auth_event
@@ -192,20 +195,71 @@ async def exchange_supabase_token(
 
         # Use supabase user ID as agent_id (prefixed to avoid collisions)
         agent_id = f"oauth_{supabase_id[:12]}"
+        display_name = email.split("@")[0] if email else None
 
-        # First, check if there's an existing agent with the same email
+        # First, check if there's an existing user with the same email
         # This enables account merging across OAuth providers (Google, GitHub, etc.)
-        existing_by_email = None
+        existing_user = None
         if email:
-            existing_by_email = await get_agent_by_email(db, email)
+            existing_user = await get_user_by_email(db, email)
 
-        # Check if agent already exists by agent_id
-        existing = await get_agent(db, agent_id)
+        if existing_user:
+            # User exists with this email - use their account
+            user_id = existing_user.get("user_id")
+            # Find the agent for this user
+            existing_agent = await get_agent_by_user_id(db, user_id)
+            if existing_agent:
+                agent_id_to_use = existing_agent.get("agent_id")
+                logger.info(
+                    f"OAuth: Found existing user - email {redact_email(email)} with agent {agent_id_to_use}"
+                )
+                token = create_access_token(agent_id_to_use, settings, user_id=user_id)
+                log_auth_event("oauth_login", agent_id_to_use, True)
+                set_auth_cookie(response, token, settings)
 
-        if existing:
+                return TokenResponse(
+                    access_token=token,
+                    expires_in=settings.jwt_expire_minutes * 60,
+                    user_id=user_id,
+                )
+            else:
+                # User exists but no agent - create agent for them
+                logger.info(
+                    f"OAuth: User exists but no agent - creating agent for {redact_email(email)}"
+                )
+                secret_hash = hash_secret(generate_agent_secret())
+                agent = await create_agent(
+                    db,
+                    agent_id=agent_id,
+                    secret_hash=secret_hash,
+                    user_id=user_id,
+                    display_name=display_name,
+                )
+                if agent:
+                    # Plant seed beliefs
+                    try:
+                        beliefs_created = await create_seed_beliefs(db, agent_id)
+                        logger.info(f"OAuth: Created {beliefs_created} seed beliefs for {agent_id}")
+                    except Exception as e:
+                        logger.warning(f"OAuth: Failed to create seed beliefs: {e}")
+
+                    token = create_access_token(agent_id, settings, user_id=user_id)
+                    log_auth_event("oauth_login", agent_id, True)
+                    set_auth_cookie(response, token, settings)
+
+                    return TokenResponse(
+                        access_token=token,
+                        expires_in=settings.jwt_expire_minutes * 60,
+                        user_id=user_id,
+                    )
+
+        # Check if agent already exists by agent_id (legacy path for backwards compatibility)
+        existing_agent = await get_agent(db, agent_id)
+
+        if existing_agent:
             # Agent exists with this OAuth ID, use it
-            user_id = existing.get("user_id")
-            agent_id_to_use = existing.get("agent_id")
+            user_id = existing_agent.get("user_id")
+            agent_id_to_use = existing_agent.get("agent_id")
             token = create_access_token(agent_id_to_use, settings, user_id=user_id)
             log_auth_event("oauth_login", agent_id_to_use, True)
             set_auth_cookie(response, token, settings)
@@ -216,13 +270,18 @@ async def exchange_supabase_token(
                 user_id=user_id,
             )
 
-        if existing_by_email:
-            # Found an existing account with the same email from a different OAuth provider
+        # Also check for existing agent by email (legacy accounts that may not have users table entry)
+        existing_agent_by_email = None
+        if email:
+            existing_agent_by_email = await get_agent_by_email(db, email)
+
+        if existing_agent_by_email:
+            # Found an existing agent with the same email from a different OAuth provider
             # Merge by using the existing account's user_id
-            user_id = existing_by_email.get("user_id")
-            agent_id_to_use = existing_by_email.get("agent_id")
+            user_id = existing_agent_by_email.get("user_id")
+            agent_id_to_use = existing_agent_by_email.get("agent_id")
             logger.info(
-                f"OAuth: Merging account - email {email} already exists with agent {agent_id_to_use}"
+                f"OAuth: Merging account - email {redact_email(email)} already exists with agent {agent_id_to_use}"
             )
             token = create_access_token(agent_id_to_use, settings, user_id=user_id)
             log_auth_event("oauth_login_merged", agent_id_to_use, True)
@@ -234,19 +293,37 @@ async def exchange_supabase_token(
                 user_id=user_id,
             )
 
-        # Create new agent for OAuth user
+        # New user - create user record first, then agent
         user_id = generate_user_id()
+
+        # Create user in users table
+        user = await create_user(
+            db,
+            user_id=user_id,
+            email=email,
+            display_name=display_name,
+        )
+
+        if not user:
+            log_auth_event("oauth_register", agent_id, False, "failed to create user")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Failed to create user",
+            )
+
+        logger.info(f"OAuth: Created new user {user_id} for {redact_email(email)}")
+
         # OAuth users don't have a secret (they auth via Supabase)
         # Store a random hash that can never be matched
         secret_hash = hash_secret(generate_agent_secret())
 
+        # Create agent (no longer needs email - that's on the user)
         agent = await create_agent(
             db,
             agent_id=agent_id,
             secret_hash=secret_hash,
             user_id=user_id,
-            display_name=email.split("@")[0] if email else None,
-            email=email,
+            display_name=display_name,
         )
 
         if not agent:
@@ -316,14 +393,28 @@ async def register_agent(
     secret = generate_agent_secret()
     secret_hash = hash_secret(secret)
 
-    # Create agent
+    # Create user first in the users table
+    user = await create_user(
+        db,
+        user_id=user_id,
+        email=register_request.email,
+        display_name=register_request.display_name,
+    )
+
+    if not user:
+        log_auth_event("register", register_request.agent_id, False, "failed to create user")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to create user",
+        )
+
+    # Create agent (email now stored on user, not agent)
     agent = await create_agent(
         db,
         agent_id=register_request.agent_id,
         secret_hash=secret_hash,
         user_id=user_id,
         display_name=register_request.display_name,
-        email=register_request.email,
     )
 
     if not agent:

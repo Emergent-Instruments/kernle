@@ -211,11 +211,13 @@ class AuthContext:
         user_id: str | None = None,
         tier: str = "free",
         api_key_id: str | None = None,
+        is_admin: bool = False,
     ):
         self.agent_id = agent_id
         self.user_id = user_id
         self.tier = tier
         self.api_key_id = api_key_id
+        self.is_admin = is_admin
 
     def namespaced_agent_id(self, project_name: str | None = None) -> str:
         """Return full namespaced agent_id: {user_id}/{project_name}.
@@ -275,6 +277,7 @@ async def get_current_agent(
         tier = auth_result.get("tier", "free")
         api_key_id = auth_result.get("api_key_id")
         user_id = auth_result["user_id"]
+        is_admin = auth_result.get("is_admin", False)
 
         # Atomically check quota and increment usage (prevents race conditions)
         allowed, quota_info = await check_and_increment_quota_cached(db, api_key_id, user_id, tier)
@@ -312,6 +315,7 @@ async def get_current_agent(
             user_id=user_id,
             tier=tier,
             api_key_id=api_key_id,
+            is_admin=is_admin,
         )
 
     # Otherwise, treat as JWT (no quota for JWT auth - used for web UI)
@@ -344,14 +348,14 @@ CurrentAgent = Annotated[AuthContext, Depends(get_current_agent)]
 
 
 async def require_admin(agent: CurrentAgent) -> AuthContext:
-    """Require admin tier for access.
+    """Require admin privileges for access.
 
     Use as a dependency on admin-only routes:
         admin: Annotated[AuthContext, Depends(require_admin)]
     """
-    if agent.tier != "admin":
+    if not agent.is_admin:
         logger.warning(
-            f"Admin access denied: agent={agent.agent_id} user={agent.user_id} tier={agent.tier}"
+            f"Admin access denied: agent={agent.agent_id} user={agent.user_id} is_admin={agent.is_admin}"
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
