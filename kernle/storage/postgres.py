@@ -735,36 +735,24 @@ class SupabaseStorage:
             relationship.id = str(uuid.uuid4())
 
         now = self._now()
-
-        # Check if exists
-        try:
-            existing = self.client.table("agent_relationships").select("id, interaction_count").eq(
-                "agent_id", self.agent_id
-            ).eq("other_agent_id", relationship.entity_name).execute()
-        except Exception:
-            existing = type('obj', (object,), {'data': []})()
-
-        data = {
-            "agent_id": self.agent_id,
-            "other_agent_id": relationship.entity_name,
-            "trust_level": relationship.sentiment,
-            "interaction_count": relationship.interaction_count,
-            "last_interaction": relationship.last_interaction.isoformat() if relationship.last_interaction else now,
-            "notes": relationship.notes,
-            # Sync metadata
-            "local_updated_at": now,
-            "cloud_synced_at": now,
-            "version": relationship.version,
-        }
+        last_interaction = relationship.last_interaction.isoformat() if relationship.last_interaction else now
 
         try:
-            if existing.data:
-                relationship.id = existing.data[0]["id"]
-                data["interaction_count"] = existing.data[0].get("interaction_count", 0) + 1
-                self.client.table("agent_relationships").update(data).eq("id", relationship.id).execute()
-            else:
-                data["id"] = relationship.id
-                self.client.table("agent_relationships").insert(data).execute()
+            # Use atomic RPC function to increment interaction_count
+            # This prevents race conditions with concurrent relationship updates
+            result = self.client.rpc(
+                "increment_interaction_count",
+                {
+                    "p_agent_id": self.agent_id,
+                    "p_other_agent_id": relationship.entity_name,
+                    "p_trust_level": relationship.sentiment,
+                    "p_notes": relationship.notes,
+                    "p_last_interaction": last_interaction,
+                }
+            ).execute()
+            
+            if result.data and len(result.data) > 0:
+                relationship.id = str(result.data[0]["id"])
         except Exception as e:
             logger.warning(f"Failed to save relationship to agent_relationships table: {e}")
             # Fall back to saving as a note
