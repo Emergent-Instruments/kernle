@@ -61,6 +61,7 @@ ALLOWED_TABLES = frozenset(
         "relationships",
         "playbooks",
         "raw_entries",
+        "checkpoints",
         "memory_suggestions",
         "schema_version",
         "sync_queue",
