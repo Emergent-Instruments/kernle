@@ -263,13 +263,17 @@ Playbooks capture proven procedures, including failure modes and recovery steps.
 |-------|------|-------------|
 | `name` | TEXT | Playbook name |
 | `description` | TEXT | What it does |
-| `trigger_conditions` | JSON | When to use this |
-| `steps` | JSON | `[{action, details, adaptations}]` |
-| `failure_modes` | JSON | What can go wrong |
-| `recovery_steps` | JSON | How to recover |
+| `trigger_conditions` | JSON | When to use this (array of strings) |
+| `steps` | JSON | Ordered steps (strings or `{action, details, adaptations}` objects) |
+| `failure_modes` | JSON | What can go wrong (array of strings) |
+| `recovery_steps` | JSON | How to recover (array of strings) |
 | `mastery_level` | TEXT | `novice` / `competent` / `proficient` / `expert` |
 | `times_used` | INT | Usage count |
-| `success_rate` | FLOAT | Success percentage |
+| `success_rate` | FLOAT | Success percentage (0.0 to 1.0) |
+| `tags` | JSON | Categorization tags |
+| `confidence` | FLOAT | Meta-memory confidence (0.0 to 1.0, default 0.8) |
+| `last_used` | DATETIME | When the playbook was last executed |
+| `created_at` | DATETIME | When the playbook was created |
 
 **Usage**:
 ```bash

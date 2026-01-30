@@ -223,9 +223,44 @@ kernle -a claire checkpoint save "task" --no-sync
 3. Queue deduplicates by `(table, record_id)`
 4. Push to cloud when online
 5. Pull remote changes on `load()` if auto_sync enabled
-
-**Conflict Resolution**: Last-write-wins based on `local_updated_at`
 </Info>
+
+### Conflict Resolution
+
+Kernle uses a hybrid conflict resolution strategy:
+
+- **Scalar fields**: Last-write-wins based on `local_updated_at` timestamp
+- **Array fields**: Set union (merge) to preserve data from both sides
+
+This means when conflicts occur, you never lose tags, lessons, or other array data that was added on either device.
+
+#### Array Fields That Are Merged
+
+| Table | Merged Fields |
+|-------|---------------|
+| `episodes` | `lessons`, `tags`, `emotional_tags`, `source_episodes`, `derived_from`, `context_tags` |
+| `beliefs` | `source_episodes`, `derived_from`, `context_tags` |
+| `notes` | `tags`, `source_episodes`, `derived_from`, `context_tags` |
+| `drives` | `focus_areas`, `source_episodes`, `derived_from`, `context_tags` |
+| `agent_values` | `source_episodes`, `derived_from`, `context_tags` |
+| `relationships` | `source_episodes`, `derived_from`, `context_tags` |
+| `goals` | `source_episodes`, `derived_from`, `context_tags` |
+| `playbooks` | `trigger_conditions`, `failure_modes`, `recovery_steps`, `source_episodes`, `tags` |
+
+<Warning>
+**Array Size Limit**: Merged arrays are capped at 500 items to prevent resource exhaustion. If a merge exceeds this limit, the array is truncated with a warning logged.
+</Warning>
+
+#### How Merging Works
+
+**Example**: Local has `tags=["A", "B"]` and cloud has `tags=["B", "C"]`
+
+- If cloud timestamp is newer: Cloud wins for scalar fields, but merged `tags=["A", "B", "C"]`
+- If local timestamp is newer: Local wins for scalar fields, but merged `tags=["A", "B", "C"]`
+
+Conflicts are recorded with resolution types:
+- `cloud_wins_arrays_merged` - Cloud was newer, arrays merged from local
+- `local_wins_arrays_merged` - Local was newer, arrays merged from cloud
 
 ### Offline Mode
 

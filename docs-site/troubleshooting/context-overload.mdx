@@ -238,15 +238,33 @@ kernle -a your-agent load --budget 2000
 
 ### Memories Missing After Load
 
-With budget loading, lower-priority memories may not be loaded. To see what was excluded:
+With budget loading, lower-priority memories may not be loaded. To see what was excluded, use the `_meta` field in JSON output:
 
 ```bash
-# Load with JSON to see what's included
-kernle -a your-agent load --budget 4000 --json
-
-# Compare with unlimited load
-kernle -a your-agent load --budget 50000 --json
+# Load with JSON to see budget metrics
+kernle -a your-agent load --budget 4000 --json | jq '._meta'
 ```
+
+**Example output:**
+
+```json
+{
+  "budget_used": 3850,
+  "budget_total": 4000,
+  "excluded_count": 15
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `budget_used` | Tokens actually consumed |
+| `budget_total` | Budget you requested |
+| `excluded_count` | Number of memories that didn't fit |
+
+If `excluded_count` is high, consider:
+- Increasing the budget if your context window allows
+- Running forgetting to reduce low-salience memories
+- Using consolidation to compress episodes into beliefs
 
 ### Checkpoint Not Loading
 
@@ -268,11 +286,20 @@ k = Kernle(agent_id="my-agent")
 # Load with budget
 memory = k.load(budget=6000)
 
+# Check budget metrics
+meta = memory.get("_meta", {})
+print(f"Used {meta.get('budget_used', 0)} of {meta.get('budget_total', 0)} tokens")
+print(f"Excluded {meta.get('excluded_count', 0)} memories")
+
 # Load without truncation
 memory = k.load(budget=8000, truncate=False)
 
 # Custom truncation length
 memory = k.load(budget=8000, truncate=True, max_item_chars=300)
+
+# Disable access tracking (for internal operations)
+# This prevents the load from affecting salience decay
+memory = k.load(budget=6000, track_access=False)
 ```
 
 ---

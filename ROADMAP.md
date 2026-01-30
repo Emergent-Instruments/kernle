@@ -146,8 +146,8 @@ In `kernle/mcp/server.py` line ~183:
 ```python
 # BUG: validate_enum() doesn't accept 'required' parameter
 sanitized["drive_type"] = validate_enum(
-    arguments.get("drive_type"), "drive_type", 
-    ["existence", "growth", "curiosity", "connection", "reproduction"], 
+    arguments.get("drive_type"), "drive_type",
+    ["existence", "growth", "curiosity", "connection", "reproduction"],
     required=True  # <-- This breaks
 )
 ```
@@ -357,8 +357,8 @@ Kernle Cloud ──webhook──→ Gateway ──inject──→ Active Session
 | 5.6 Webhook Integration | Q2 2026 | 📋 Planned |
 | **Docs Site (Mintlify)** | Q1 2026 | ✅ Complete |
 
-**Test count: 771 passing** (as of January 28, 2026)  
-**Test coverage: 57%** overall  
+**Test count: 1292 passing** (as of January 30, 2026)
+**Test coverage: 57%** overall
 **Docs:** https://docs.kernle.ai
 
 ---
@@ -603,6 +603,81 @@ GET  /billing/invoices      - User's invoice history
 **Scope:** ~4-8 hours, touches most of `database.py` and route handlers.
 
 **Priority:** Low urgency at current scale, should address before significant traffic growth.
+
+---
+
+## Memory Stack Enhancements (Future)
+
+From the comprehensive memory stack audit (2026-01-30), these items are identified as future improvements. The critical issues have been addressed; these are optimizations to implement as usage patterns emerge.
+
+### High Priority Enhancements
+
+| Item | Description | Benefit |
+|------|-------------|---------|
+| **Query-aware loading** | Add optional `query` parameter to `load()` that uses semantic search to prioritize relevant memories | More relevant context for current task |
+| **Memory summarization** | When budget is exhausted, summarize excluded memories instead of just dropping them | Better use of limited context |
+| **Confidence propagation** | Implement `propagate_confidence()` to update derived memories when sources change | More accurate confidence scores |
+| **Recency weighting** | Add recency factor to cross-type priority scoring, not just within-type sorting | Balance importance with freshness |
+
+### Medium Priority Enhancements
+
+| Item | Description | Benefit |
+|------|-------------|---------|
+| **Search pagination** | Add cursor-based pagination to search results | Handle large result sets |
+| **Query embedding cache** | Cache computed embeddings to avoid recomputation | Reduce latency and API calls |
+| **Raw entry sync (consider)** | Evaluate syncing raw entries to cloud (currently intentionally local-only) | Cross-device raw capture |
+
+### Low Priority Enhancements
+
+| Item | Description | Benefit |
+|------|-------------|---------|
+| **LLM-based emotion detection** | Add optional LLM mode alongside keyword-based detection | More nuanced emotion tagging |
+| **Domain taxonomy** | Define standard domains for knowledge mapping | Better knowledge organization |
+
+### Already Addressed ✅
+
+These items from the audit were fixed in the 2026-01-30 session:
+
+- ✅ Memory pressure metrics (`_meta` in `load()` return)
+- ✅ Automatic access tracking (on `load()` and `search()`)
+- ✅ Batch access recording (`record_access_batch()`)
+- ✅ Atomic sync queue operations (INSERT OR REPLACE)
+- ✅ Array field merging (set union for tags, lessons, etc.)
+- ✅ Array size limits (MAX_SYNC_ARRAY_SIZE = 500)
+- ✅ Playbooks in Postgres (full CRUD + sync)
+- ✅ Forgetting operations in Postgres (forget, recover, protect, candidates)
+
+---
+
+## Completed (2026-01-30)
+
+### Memory Stack Audit Fixes
+
+**Context Management:**
+- `load()` now returns `_meta` with `budget_used`, `budget_total`, `excluded_count`
+- Agents can see when memories are being dropped due to budget constraints
+
+**Sync Improvements:**
+- Array fields (lessons, tags, focus_areas, etc.) now merge using set union
+- No more data loss from last-write-wins on arrays
+- MAX_SYNC_ARRAY_SIZE (500) prevents resource exhaustion
+
+**Access Tracking:**
+- Automatic `record_access()` on `load()` and `search()`
+- `track_access=False` parameter for internal operations
+- `record_access_batch()` for efficient bulk updates
+- Salience-based forgetting now reflects actual usage
+
+**Postgres Feature Parity:**
+- Playbooks: full CRUD operations + sync support
+- Forgetting: `forget_memory()`, `recover_memory()`, `protect_memory()`, `get_forgetting_candidates()`, `record_access()`
+
+**Security:**
+- Array merge size limits
+- Debug logging for invalid memory types
+- Documented race condition in Postgres record_access (minor impact)
+
+**Tests:** 85+ new tests added (1292 total passing)
 
 ---
 

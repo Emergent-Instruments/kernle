@@ -343,10 +343,13 @@ kernle -a <agent> playbook create NAME [options]
 | Option | Description |
 |--------|-------------|
 | `-d, --description` | What this playbook does |
+| `-s, --steps STEPS` | Comma-separated steps |
 | `--step STEP` | Add a step (repeatable) |
+| `--triggers TRIGGERS` | Comma-separated trigger conditions |
 | `--trigger TRIGGER` | Trigger condition (repeatable) |
 | `-f, --failure-mode` | What can go wrong (repeatable) |
 | `-r, --recovery` | Recovery step (repeatable) |
+| `-t, --tag TAG` | Add a tag (repeatable) |
 
 ```bash
 kernle -a claire playbook create "Debug API Issues" \
@@ -356,19 +359,40 @@ kernle -a claire playbook create "Debug API Issues" \
   --step "Test with curl" \
   --trigger "API returns 500" \
   --failure-mode "Logs not accessible" \
-  --recovery "Use backup logging endpoint"
+  --recovery "Use backup logging endpoint" \
+  --tag "debugging"
 ```
 
 ### List
 
 ```bash
-kernle -a <agent> playbook list [--tag TAG] [--limit LIMIT]
+kernle -a <agent> playbook list [--tag TAG] [--limit LIMIT] [--json]
 ```
 
-### Find (Semantic Search)
+| Option | Description |
+|--------|-------------|
+| `-t, --tag TAG` | Filter by tag (repeatable) |
+| `-l, --limit LIMIT` | Maximum entries (default: 20) |
+| `-j, --json` | Output as JSON |
+
+### Search
+
+Search playbooks by query (semantic search when embeddings available, text match fallback).
 
 ```bash
-kernle -a <agent> playbook find SITUATION
+kernle -a <agent> playbook search QUERY [--limit LIMIT] [--json]
+```
+
+```bash
+kernle -a claire playbook search "debugging production issues"
+```
+
+### Find
+
+Find the best matching playbook for a given situation.
+
+```bash
+kernle -a <agent> playbook find SITUATION [--json]
 ```
 
 ```bash
@@ -377,12 +401,21 @@ kernle -a claire playbook find "API returning 500 errors"
 
 ### Show
 
+Display detailed playbook information.
+
 ```bash
-kernle -a <agent> playbook show ID
+kernle -a <agent> playbook show ID [--json]
 ```
 
 ### Record Usage
 
+Record playbook execution outcome to update statistics.
+
 ```bash
 kernle -a <agent> playbook record ID [--success|--failure]
 ```
+
+| Option | Description |
+|--------|-------------|
+| `--success` | Record successful usage (default) |
+| `--failure` | Record failed usage |

@@ -421,7 +421,7 @@ class Kernle(
         - Relationships: 0.30 base, sorted by last_interaction
 
         Args:
-            budget: Token budget for memory (default: 8000, range: 100-100000)
+            budget: Token budget for memory (default: 8000, range: 100-50000)
             truncate: If True, truncate long items to fit more in budget
             max_item_chars: Max characters per item when truncating (default: 500)
             sync: Override auto_sync setting. If None, uses self.auto_sync.

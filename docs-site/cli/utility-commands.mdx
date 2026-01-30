@@ -9,7 +9,7 @@ Commands for managing memory state, searching, analysis, and maintenance.
 
 ## load
 
-Load and display working memory at session start.
+Load and display working memory at session start. Uses priority-based budget allocation to fit the most important memories within token limits.
 
 ```bash
 kernle -a <agent> load [--json] [--sync] [--no-sync] [--budget TOKENS] [--no-truncate]
@@ -17,15 +17,58 @@ kernle -a <agent> load [--json] [--sync] [--no-sync] [--budget TOKENS] [--no-tru
 
 | Option | Description |
 |--------|-------------|
-| `-j, --json` | Output as JSON |
+| `-j, --json` | Output as JSON (includes `_meta` with budget metrics) |
 | `-s, --sync` | Force sync (pull) before loading |
 | `--no-sync` | Skip sync even if auto-sync enabled |
-| `-b, --budget TOKENS` | Token budget to limit memory loading (e.g., 6000) |
+| `-b, --budget TOKENS` | Token budget for memory loading (100-50000, default: 8000) |
 | `--no-truncate` | Disable content truncation (may exceed budget) |
 
 <Tip>
-Use `--budget` to prevent context overflow. A budget of 6000 tokens is recommended for most sessions. See [Context Overload Recovery](/troubleshooting/context-overload) for details.
+Use `--budget` to prevent context overflow. A budget of 6000-8000 tokens is recommended for most sessions. See [Context Overload Recovery](/troubleshooting/context-overload) for details.
 </Tip>
+
+### Priority Ordering
+
+Memories are loaded by priority until the budget is exhausted:
+
+| Priority | Memory Type | Sorting |
+|----------|-------------|---------|
+| 1.00 | Checkpoint | Always loaded first |
+| 0.90 | Values | By priority (descending) |
+| 0.70 | Beliefs | By confidence (descending) |
+| 0.65 | Goals | By recency |
+| 0.60 | Drives | By intensity (descending) |
+| 0.40 | Episodes | By recency |
+| 0.35 | Notes | By recency |
+| 0.30 | Relationships | By last interaction |
+
+### Budget Metadata (`_meta`)
+
+When using `--json`, the response includes a `_meta` object with budget metrics:
+
+```json
+{
+  "_meta": {
+    "budget_used": 5200,
+    "budget_total": 8000,
+    "excluded_count": 12
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `budget_used` | Tokens consumed by loaded memories |
+| `budget_total` | Original budget requested |
+| `excluded_count` | Number of memories that could not fit |
+
+### Token Estimation
+
+Tokens are estimated at approximately 4 characters per token, with a 1.3x safety margin for JSON serialization overhead.
+
+### Access Tracking
+
+Loading memories automatically records access for salience-based forgetting. Frequently accessed memories maintain higher salience and are less likely to be forgotten.
 
 ```bash
 # Standard load
@@ -36,6 +79,9 @@ kernle -a claire load --sync
 
 # Load with token budget (recommended)
 kernle -a claire load --budget 6000
+
+# Get JSON with budget metrics
+kernle -a claire load --json --budget 8000
 ```
 
 ---
@@ -385,15 +431,32 @@ kernle -a <agent> meta learn [--limit LIMIT]
 
 ## forget
 
-Controlled forgetting operations.
+Controlled forgetting operations for memory maintenance. Kernle uses salience-based forgetting to help memories gracefully fade while preserving core identity.
+
+<Info>
+**Salience Formula**: Kernle calculates memory salience as:
+```
+salience = (confidence × reinforcement_weight) / (age_factor + 1)
+```
+where:
+- `reinforcement_weight = log(times_accessed + 1)`
+- `age_factor = days_since_last_access / half_life` (half_life = 30 days)
+
+Lower salience = more likely to be forgotten. Protected memories and memories above the threshold are never forgotten.
+</Info>
 
 ### forget candidates
 
-Show forgetting candidates.
+Show forgetting candidates (low-salience memories eligible for forgetting).
 
 ```bash
 kernle -a <agent> forget candidates [--threshold T] [--limit L]
 ```
+
+| Option | Description |
+|--------|-------------|
+| `-t, --threshold T` | Salience threshold (default: 0.3) |
+| `-l, --limit L` | Maximum candidates (default: 20) |
 
 ### forget run
 
@@ -403,25 +466,43 @@ Run forgetting cycle.
 kernle -a <agent> forget run [--dry-run] [--threshold T] [--limit L]
 ```
 
+| Option | Description |
+|--------|-------------|
+| `--dry-run` | Preview what would be forgotten without actually forgetting |
+| `-t, --threshold T` | Salience threshold (default: 0.3) |
+| `-l, --limit L` | Maximum memories to forget (default: 10) |
+
 ```bash
-# Preview
+# Preview what would be forgotten
 kernle -a claire forget run --dry-run
 
-# Actually forget
+# Actually forget low-salience memories
 kernle -a claire forget run --threshold 0.2 --limit 5
 ```
 
+<Warning>
+Forgetting is reversible via `forget recover`, but run with `--dry-run` first to review candidates.
+</Warning>
+
 ### forget protect
 
-Protect a memory from forgetting.
+Protect a memory from forgetting. Protected memories never decay and cannot be forgotten.
 
 ```bash
 kernle -a <agent> forget protect TYPE ID [--unprotect]
 ```
 
+| Option | Description |
+|--------|-------------|
+| `--unprotect` | Remove protection from the memory |
+
+<Note>
+Values and Drives are protected by default and excluded from forgetting candidates.
+</Note>
+
 ### forget recover
 
-Recover a forgotten memory.
+Recover a forgotten (tombstoned) memory. Forgotten memories are not deleted - they can always be recovered.
 
 ```bash
 kernle -a <agent> forget recover TYPE ID
@@ -429,10 +510,31 @@ kernle -a <agent> forget recover TYPE ID
 
 ### forget list
 
-List forgotten memories.
+List all forgotten (tombstoned) memories.
 
 ```bash
 kernle -a <agent> forget list [--limit L]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-l, --limit L` | Maximum results (default: 50) |
+
+### forget salience
+
+Check the salience score of a specific memory. Useful for understanding why a memory is or isn't a forgetting candidate.
+
+```bash
+kernle -a <agent> forget salience TYPE ID
+```
+
+Shows:
+- Current salience score with visual bar
+- Component breakdown (confidence, access count, protection status)
+- Status interpretation (critical/low/moderate/high salience)
+
+```bash
+kernle -a claire forget salience episode abc12345
 ```
 
 ---

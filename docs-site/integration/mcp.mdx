@@ -33,11 +33,64 @@ When connected, the MCP server exposes these tools:
 
 | Tool | Description |
 |------|-------------|
-| `memory_load` | Load working memory with token budget |
+| `memory_load` | Load working memory with priority-based budget allocation |
 | `memory_checkpoint_save` | Save checkpoint with task description |
 | `memory_checkpoint_load` | Load previous checkpoint |
-| `memory_checkpoint_clear` | Clear current checkpoint |
 | `memory_status` | Get memory statistics |
+| `memory_sync` | Trigger synchronization with cloud storage |
+
+#### memory_load Tool Details
+
+The `memory_load` tool uses priority-based budget allocation to load the most important memories within token limits.
+
+**Parameters:**
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `format` | string | `"text"` | Output format: `"text"` or `"json"` |
+| `budget` | integer | `8000` | Token budget (100-50000) |
+| `truncate` | boolean | `true` | Truncate long content to fit more items |
+
+**Priority Ordering:**
+
+Memories are loaded by priority until the budget is exhausted:
+
+1. **Checkpoint** (1.00) - Always loaded first for task continuity
+2. **Values** (0.90) - Sorted by priority descending
+3. **Beliefs** (0.70) - Sorted by confidence descending
+4. **Goals** (0.65) - Sorted by recency
+5. **Drives** (0.60) - Sorted by intensity descending
+6. **Episodes** (0.40) - Sorted by recency
+7. **Notes** (0.35) - Sorted by recency
+8. **Relationships** (0.30) - Sorted by last interaction
+
+**Response Metadata (`_meta`):**
+
+When using JSON format, the response includes budget metrics:
+
+```json
+{
+  "_meta": {
+    "budget_used": 5200,
+    "budget_total": 8000,
+    "excluded_count": 12
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `budget_used` | Tokens consumed by loaded memories |
+| `budget_total` | Original budget requested |
+| `excluded_count` | Number of memories that could not fit |
+
+**Token Estimation:**
+
+Tokens are estimated at approximately 4 characters per token, with a 1.3x safety margin for JSON serialization overhead.
+
+**Access Tracking:**
+
+Loading memories automatically records access for salience-based forgetting. This helps Kernle identify frequently-used memories that should be preserved.
 
 ### Memory Capture
 
@@ -49,33 +102,47 @@ When connected, the MCP server exposes these tools:
 | `memory_belief` | Add or update beliefs |
 | `memory_value` | Define core values |
 | `memory_goal` | Set and manage goals |
-| `memory_relationship` | Track relationships |
-| `memory_playbook_create` | Create procedural playbook |
-| `memory_playbook_execute` | Execute a playbook |
+| `memory_drive` | Set or update drives (motivations) |
 
-### Search & Analysis
+<Note>
+Playbooks are currently available via CLI only. MCP tools for playbook operations are planned for a future release.
+</Note>
+
+### Search & Query
 
 | Tool | Description |
 |------|-------------|
 | `memory_search` | Semantic search across all memory |
-| `memory_belief_contradictions` | Find contradicting beliefs |
-| `memory_consolidate` | Get consolidation prompt for reflection |
-| `memory_identity_synthesize` | Generate coherent self-model |
+| `memory_raw_search` | FTS5 keyword search on raw entries |
+| `memory_note_search` | Search notes by content and type |
+| `memory_when` | Query memories by time period (today, yesterday, this week) |
+| `memory_consolidate` | Get reflection scaffold with recent episodes and beliefs |
 
-### Emotional & Health
+### List Operations
 
 | Tool | Description |
 |------|-------------|
-| `memory_emotion_tag` | Tag episode with emotional context |
-| `memory_anxiety` | Check memory health and get recommendations |
+| `memory_belief_list` | List all active beliefs with confidence levels |
+| `memory_value_list` | List all core values ordered by priority |
+| `memory_goal_list` | List goals filtered by status |
+| `memory_drive_list` | List all drives with current intensities |
+
+### Update Operations
+
+| Tool | Description |
+|------|-------------|
+| `memory_episode_update` | Update an episode (add lessons, change outcome, add tags) |
+| `memory_goal_update` | Update a goal's status, priority, or description |
+| `memory_belief_update` | Update a belief's confidence or deactivate it |
 
 ### Suggestions
 
 | Tool | Description |
 |------|-------------|
-| `memory_suggestions_list` | List pending suggestions |
-| `memory_suggestions_approve` | Accept a suggestion |
-| `memory_suggestions_reject` | Decline a suggestion |
+| `memory_suggestions_list` | List pending memory suggestions |
+| `memory_suggestions_promote` | Approve and promote a suggestion to structured memory |
+| `memory_suggestions_reject` | Reject a suggestion |
+| `memory_suggestions_extract` | Extract suggestions from unprocessed raw entries |
 
 ## Client Configuration
 

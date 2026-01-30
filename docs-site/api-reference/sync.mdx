@@ -16,9 +16,30 @@ Kernle uses a **local-first** sync model:
 3. Push sends queued changes to cloud
 4. Pull retrieves remote changes
 
+### Conflict Resolution
+
+Kernle uses a hybrid approach for conflicts:
+
+- **Scalar fields** (title, content, confidence, etc.): Last-write-wins based on `local_updated_at` timestamp
+- **Array fields** (tags, lessons, etc.): Set union merge preserves items from both versions
+
 <Info>
-**Conflict Resolution**: Last-write-wins based on `local_updated_at` timestamp.
+**Why merge arrays?** Tags, lessons, and other array fields often accumulate independently on different devices. Merging ensures you never lose data that was added on one device while working offline on another.
 </Info>
+
+#### Merged Array Fields by Table
+
+| Table | Merged Fields |
+|-------|---------------|
+| `episodes` | `lessons`, `tags`, `emotional_tags`, `source_episodes`, `derived_from`, `context_tags` |
+| `beliefs` | `source_episodes`, `derived_from`, `context_tags` |
+| `notes` | `tags`, `source_episodes`, `derived_from`, `context_tags` |
+| `drives` | `focus_areas`, `source_episodes`, `derived_from`, `context_tags` |
+| `playbooks` | `trigger_conditions`, `failure_modes`, `recovery_steps`, `source_episodes`, `tags` |
+
+<Warning>
+Arrays are capped at **500 items** after merging to prevent resource exhaustion.
+</Warning>
 
 ---
 

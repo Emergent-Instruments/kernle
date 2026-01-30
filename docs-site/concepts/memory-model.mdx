@@ -163,4 +163,8 @@ kernle playbook find "situation description"
 4. Push to cloud when online
 5. Pull remote changes on `load()` if auto_sync enabled
 
-**Conflict Resolution**: Last-write-wins based on `local_updated_at`
+**Conflict Resolution**:
+- Scalar fields: Last-write-wins based on `local_updated_at`
+- Array fields (tags, lessons, etc.): Set union merge preserves data from both sides
+
+See [Sync Commands](/cli/sync-commands#conflict-resolution) for details on which fields are merged.
