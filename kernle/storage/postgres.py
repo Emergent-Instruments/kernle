@@ -710,16 +710,8 @@ class SupabaseStorage:
 
         now = self._now()
 
-        # Check if exists
-        existing = (
-            self.client.table("agent_drives")
-            .select("id")
-            .eq("agent_id", self.agent_id)
-            .eq("drive_type", drive.drive_type)
-            .execute()
-        )
-
         data = {
+            "id": drive.id,
             "agent_id": self.agent_id,
             "drive_type": drive.drive_type,
             "intensity": max(0.0, min(1.0, drive.intensity)),
@@ -731,12 +723,17 @@ class SupabaseStorage:
             "version": drive.version,
         }
 
-        if existing.data:
-            drive.id = existing.data[0]["id"]
-            self.client.table("agent_drives").update(data).eq("id", drive.id).execute()
-        else:
-            data["id"] = drive.id
-            self.client.table("agent_drives").insert(data).execute()
+        # Use upsert to avoid TOCTOU race condition
+        # ON CONFLICT on (agent_id, drive_type) unique constraint
+        result = (
+            self.client.table("agent_drives")
+            .upsert(data, on_conflict="agent_id,drive_type")
+            .execute()
+        )
+
+        # If upsert returned an existing row with different ID, update drive.id
+        if result.data and result.data[0].get("id"):
+            drive.id = result.data[0]["id"]
 
         return drive.id
 
