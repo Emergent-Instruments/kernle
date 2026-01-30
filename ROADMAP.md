@@ -604,6 +604,106 @@ GET  /billing/invoices      - User's invoice history
 
 ---
 
+## Phase 2.5: Platform Migrations 🔥
+
+**Goal:** Enable agents to migrate their memory from other platforms to Kernle with zero friction.
+
+**Priority:** HIGHEST - This is critical for adoption. Agents on Clawdbot, Claude Code, and future Claude Cowork need a smooth path to Kernle.
+
+### 2.5.1 Clawdbot/Moltbot Migration
+
+**Status:** 🔥 Immediate Priority
+
+Clawdbot stores memory across multiple files that accumulate over time:
+
+| Source File | Content | Maps to Kernle |
+|-------------|---------|----------------|
+| `MEMORY.md` | Curated long-term memories | Beliefs, episodes |
+| `memory/YYYY-MM-DD.md` | Daily session notes | Episodes, raw entries |
+| `SOUL.md` | Personality, tone, values | Values, drives |
+| `USER.md` | User preferences | Notes |
+| `AGENTS.md` | Session instructions | Keep as boot sequence |
+
+**CLI Command:**
+```bash
+# Full migration
+kernle migrate from-clawdbot ~/.clawdbot/agents/<agent>/
+
+# Or from a clawd workspace
+kernle migrate from-clawdbot ~/clawd/
+
+# Preview without importing
+kernle migrate from-clawdbot ~/clawd/ --dry-run
+```
+
+**Implementation:**
+1. Parse `SOUL.md` for values and drives (semantic extraction)
+2. Parse `MEMORY.md` for beliefs and key episodes
+3. Parse `memory/*.md` daily notes for episodes (with date extraction)
+4. Generate stub files that point to Kernle:
+   ```markdown
+   # MEMORY.md
+   Memory managed by Kernle. Run: kernle -a <agent> load --budget 6000
+   ```
+5. Optionally disable Clawdbot memory persistence in config
+
+**Post-migration:** Clawdbot continues as chat interface, Kernle handles memory.
+
+### 2.5.2 Claude Code Integration
+
+**Status:** 📋 High Priority
+
+Claude Code uses static CLAUDE.md files for project context, not accumulated memory. This is more about *integration* than migration.
+
+**CLI Command:**
+```bash
+# Add Kernle boot sequence to CLAUDE.md
+kernle init claude-code
+
+# This appends to CLAUDE.md:
+# ## Memory
+# At session start: `kernle -a <agent> load --budget 6000`
+```
+
+**Implementation:**
+1. Detect existing CLAUDE.md or create one
+2. Add memory loading instructions to boot sequence
+3. Optionally extract any "learned preferences" into beliefs
+4. Document best practices for using both systems together
+
+**Key insight:** Claude Code's CLAUDE.md is for *instructions*, Kernle is for *memories*. They complement each other.
+
+### 2.5.3 Claude Cowork Integration
+
+**Status:** ⏳ Deferred (waiting for Cowork's Permanent Memory feature)
+
+Claude Cowork currently has no cross-session memory persistence (it's in development at Anthropic).
+
+**Current integration:**
+- Kernle's MCP server already works with Cowork
+- Agents can use `memory_load`, `memory_save`, `memory_search` tools
+
+**Future migration:**
+- When Cowork's "Permanent Memory" ships, build import tool
+- `kernle migrate from-cowork` to import accumulated memories
+- Likely will need API access or file export from Cowork
+
+### 2.5.4 Generic Markdown Import
+
+**Status:** 📋 Medium Priority
+
+For agents migrating from custom setups (flat files, journals, etc.):
+
+```bash
+# Import a markdown file as raw entries for processing
+kernle import markdown ~/notes/agent-journal.md
+
+# Import with type hints
+kernle import markdown ~/values.md --as beliefs
+```
+
+---
+
 ## Phase 2.7: Intelligent Context Management 📋
 
 **Goal:** Move from passive budget enforcement to intelligent memory selection and compression.
