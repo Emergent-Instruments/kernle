@@ -22,10 +22,19 @@ repos:
       - id: black
         language_version: python3.11
 
+  # Comprehensive secrets detection with gitleaks
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks
+        args: ['--no-banner']
+
+  # Backup local secrets check (runs if gitleaks not installed)
   - repo: local
     hooks:
-      - id: check-secrets
-        name: Check for secrets
-        entry: bash -c 'git diff --cached --name-only | grep -v "\.pre-commit-config\.yaml" | xargs -r grep -l -E "(SUPABASE_KEY|sk-[a-zA-Z0-9]{20,}|password\s*=\s*[\"'\''][^\"'\'']+[\"'\''])" && exit 1 || exit 0'
+      - id: check-secrets-fallback
+        name: Check for secrets (fallback)
+        entry: bash -c "git diff --cached --name-only | grep -v '.pre-commit-config.yaml' | grep -v '/tests/' | grep -v '^tests/' | xargs -r grep -l -E '(sk-[a-zA-Z0-9]{20,}|sk-ant-|AIzaSy|sb_secret_)' && echo 'Potential secrets detected' && exit 1 || exit 0"
         language: system
         pass_filenames: false
+        stages: [commit]

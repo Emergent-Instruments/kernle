@@ -360,62 +360,57 @@ class TestMCPToolCalls:
         )
 
     @pytest.mark.asyncio
-    async def test_memory_note_all_types(self, patched_get_kernle):
+    @pytest.mark.parametrize(
+        "note_type,content,tags,extra_args,expected_speaker,expected_reason",
+        [
+            ("note", "This is a regular note", ["general"], {}, "", ""),
+            (
+                "decision",
+                "Use pytest for testing",
+                ["testing"],
+                {"reason": "Industry standard with good ecosystem"},
+                "",
+                "Industry standard with good ecosystem",
+            ),
+            ("insight", "Mocking enables isolated testing", ["testing", "insights"], {}, "", ""),
+            (
+                "quote",
+                "Code is poetry",
+                ["inspiration"],
+                {"speaker": "Someone Wise"},
+                "Someone Wise",
+                "",
+            ),
+        ],
+        ids=["note", "decision", "insight", "quote"],
+    )
+    async def test_memory_note_by_type(
+        self,
+        patched_get_kernle,
+        note_type,
+        content,
+        tags,
+        extra_args,
+        expected_speaker,
+        expected_reason,
+    ):
         """Test memory_note with different note types."""
-        note_types = [
-            {
-                "content": "This is a regular note",
-                "type": "note",
-                "tags": ["general"],
-                "expected_call": {"type": "note", "speaker": "", "reason": ""},
-            },
-            {
-                "content": "Use pytest for testing",
-                "type": "decision",
-                "reason": "Industry standard with good ecosystem",
-                "tags": ["testing"],
-                "expected_call": {
-                    "type": "decision",
-                    "speaker": "",
-                    "reason": "Industry standard with good ecosystem",
-                },
-            },
-            {
-                "content": "Mocking enables isolated testing",
-                "type": "insight",
-                "tags": ["testing", "insights"],
-                "expected_call": {"type": "insight", "speaker": "", "reason": ""},
-            },
-            {
-                "content": "Code is poetry",
-                "type": "quote",
-                "speaker": "Someone Wise",
-                "tags": ["inspiration"],
-                "expected_call": {"type": "quote", "speaker": "Someone Wise", "reason": ""},
-            },
-        ]
+        args = {"content": content, "type": note_type, "tags": tags, **extra_args}
+        result = await call_tool("memory_note", args)
 
-        for note_args in note_types:
-            # Reset mock before each iteration to verify individual calls
-            patched_get_kernle.note.reset_mock()
+        assert len(result) == 1
+        assert "Note saved:" in result[0].text
+        assert content[:50] in result[0].text
 
-            expected = note_args.pop("expected_call")
-            result = await call_tool("memory_note", note_args)
-
-            assert len(result) == 1
-            assert "Note saved:" in result[0].text
-            assert note_args["content"][:50] in result[0].text
-
-            # Verify the correct call was made for THIS iteration
-            patched_get_kernle.note.assert_called_once_with(
-                content=note_args["content"],
-                type=expected["type"],
-                speaker=expected["speaker"],
-                reason=expected["reason"],
-                tags=note_args["tags"],
-                context=None,
-                context_tags=None,
-            )
+        patched_get_kernle.note.assert_called_once_with(
+            content=content,
+            type=note_type,
+            speaker=expected_speaker,
+            reason=expected_reason,
+            tags=tags,
+            context=None,
+            context_tags=None,
+        )
 
     @pytest.mark.asyncio
     async def test_memory_note_minimal(self, patched_get_kernle):

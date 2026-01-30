@@ -1038,3 +1038,186 @@ class TestSearchMinScore:
             cmd_search(args, mock_kernle)
 
         mock_kernle.search.assert_called_once_with("test", 10, min_score=0.5)
+
+
+# ============================================================================
+# Integration Tests - Use real Kernle instance instead of mocks
+# ============================================================================
+
+
+class TestCLIIntegration:
+    """Integration tests that verify CLI commands work with real Kernle.
+
+    These tests use actual Kernle instances with SQLite storage to verify
+    end-to-end behavior, complementing the unit tests that use mocks.
+    """
+
+    def test_episode_integration(self, kernle_instance):
+        """Test episode command creates real episode in storage."""
+        kernle, storage = kernle_instance
+
+        # Note: CLI uses 'lesson' and 'tag' (singular) for append actions
+        args = argparse.Namespace(
+            objective="Integration test episode",
+            outcome="success",
+            lesson=["Lesson 1", "Lesson 2"],
+            tag=["integration", "test"],
+        )
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
+            cmd_episode(args, kernle)
+
+        output = fake_out.getvalue()
+        assert "Episode saved:" in output
+
+        # Verify episode was actually saved
+        episodes = storage.get_episodes()
+        assert len(episodes) >= 1
+        matching = [e for e in episodes if e.objective == "Integration test episode"]
+        assert len(matching) == 1
+        assert matching[0].outcome_type == "success"
+        assert "Lesson 1" in matching[0].lessons
+
+    def test_note_integration(self, kernle_instance):
+        """Test note command creates real note in storage."""
+        kernle, storage = kernle_instance
+
+        # Note: CLI uses 'tag' (singular) for append action, plus protect flag
+        args = argparse.Namespace(
+            content="Integration test note content",
+            type="decision",
+            reason="Testing the CLI integration",
+            speaker="",
+            tag=["test"],
+            protect=False,
+        )
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
+            cmd_note(args, kernle)
+
+        output = fake_out.getvalue()
+        assert "Note saved:" in output
+
+        # Verify note was actually saved
+        notes = storage.get_notes()
+        assert len(notes) >= 1
+        matching = [n for n in notes if "Integration test note" in n.content]
+        assert len(matching) == 1
+        assert matching[0].note_type == "decision"
+
+    def test_search_integration(self, kernle_instance):
+        """Test search command finds real data."""
+        kernle, storage = kernle_instance
+
+        # Create some searchable content
+        kernle.episode("Searchable integration objective", "success")
+        kernle.note("Searchable integration note")
+
+        args = argparse.Namespace(
+            query="Searchable integration",
+            limit=10,
+            min_score=None,
+            json=False,
+        )
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
+            cmd_search(args, kernle)
+
+        output = fake_out.getvalue()
+        # Should find the content we created
+        assert "Searchable" in output or "Found" in output or "episode" in output.lower()
+
+    def test_status_integration(self, kernle_instance):
+        """Test status command shows real counts."""
+        kernle, storage = kernle_instance
+
+        # Add some data
+        kernle.episode("Status test episode", "success")
+        kernle.note("Status test note")
+
+        args = argparse.Namespace()
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
+            cmd_status(args, kernle)
+
+        output = fake_out.getvalue()
+        # Status should show agent info
+        assert "test_agent" in output or "agent" in output.lower()
+
+    def test_checkpoint_save_and_load_integration(self, kernle_instance):
+        """Test checkpoint save and load with real storage."""
+        kernle, storage = kernle_instance
+
+        # Save a checkpoint - CLI uses 'task' not 'current_task'
+        save_args = argparse.Namespace(
+            checkpoint_action="save",
+            task="Integration test task",
+            pending=["item1", "item2"],
+            context="Test context for checkpoint",
+            progress=None,
+            next=None,
+            blocker=None,
+        )
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
+            cmd_checkpoint(save_args, kernle)
+
+        save_output = fake_out.getvalue()
+        assert "Checkpoint saved" in save_output or "saved" in save_output.lower()
+
+        # Load the checkpoint
+        load_args = argparse.Namespace(
+            checkpoint_action="load",
+            json=False,
+        )
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
+            cmd_checkpoint(load_args, kernle)
+
+        load_output = fake_out.getvalue()
+        # Should show the task we saved
+        assert "Integration test task" in load_output or "task" in load_output.lower()
+
+    def test_load_integration(self, kernle_instance):
+        """Test load command outputs formatted memory with real data."""
+        kernle, storage = kernle_instance
+
+        # Add some content to load
+        kernle.episode("Load test episode", "success", lessons=["Important lesson"])
+        kernle.note("Load test decision", type="decision", reason="Testing")
+
+        args = argparse.Namespace(json=False)
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
+            cmd_load(args, kernle)
+
+        output = fake_out.getvalue()
+        # Should have formatted memory header
+        assert "Working Memory" in output or "Memory" in output
+
+    def test_drive_integration(self, kernle_instance):
+        """Test drive command creates and loads drives."""
+        kernle, storage = kernle_instance
+
+        # Create a drive - CLI uses 'set' action with type, intensity, focus args
+        create_args = argparse.Namespace(
+            drive_action="set",
+            type="curiosity",
+            intensity=0.8,
+            focus=["testing", "integration"],
+        )
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
+            cmd_drive(create_args, kernle)
+
+        create_output = fake_out.getvalue()
+        assert "Drive" in create_output or "curiosity" in create_output.lower()
+
+        # List drives
+        list_args = argparse.Namespace(drive_action="list")
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
+            cmd_drive(list_args, kernle)
+
+        list_output = fake_out.getvalue()
+        assert "curiosity" in list_output.lower()

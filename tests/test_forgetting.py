@@ -7,10 +7,6 @@ decay over time, but are tombstoned (not deleted) for potential recovery.
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
-
-from kernle.core import Kernle
-from kernle.storage import SQLiteStorage
 from kernle.storage.base import Episode
 
 
@@ -484,28 +480,5 @@ class TestMultipleMemoryTypes:
         assert success
 
 
-# Fixtures
-
-
-@pytest.fixture
-def kernle_instance(temp_db_path, temp_checkpoint_dir):
-    """Create a Kernle instance with SQLite storage for testing."""
-    storage = SQLiteStorage(agent_id="test_agent", db_path=temp_db_path)
-    kernle = Kernle(
-        agent_id="test_agent",
-        storage=storage,
-        checkpoint_dir=temp_checkpoint_dir,
-    )
-    return kernle, storage
-
-
-@pytest.fixture
-def temp_db_path(tmp_path):
-    """Create a temporary database path."""
-    return tmp_path / "test_memories.db"
-
-
-@pytest.fixture
-def temp_checkpoint_dir(tmp_path):
-    """Create a temporary checkpoint directory."""
-    return tmp_path / "checkpoints"
+# Note: Fixtures (kernle_instance, temp_db_path, temp_checkpoint_dir) are
+# defined in conftest.py and shared across all test files.

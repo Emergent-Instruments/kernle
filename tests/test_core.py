@@ -470,37 +470,52 @@ class TestSearch:
     """Test search functionality."""
 
     def test_search_episodes(self, kernle_instance, populated_storage):
-        """Test searching episodes."""
+        """Test searching episodes returns relevant results."""
         kernle, _ = kernle_instance
         kernle._storage = populated_storage
 
         results = kernle.search("tests")
 
-        assert len(results) > 0
+        assert len(results) >= 1
+        # Verify we found the expected episode about unit tests
+        result_texts = [str(r.get("objective", r.get("content", ""))) for r in results]
+        assert any(
+            "test" in text.lower() for text in result_texts
+        ), f"Expected 'test' in results: {result_texts}"
 
     def test_search_notes(self, kernle_instance, populated_storage):
-        """Test searching notes."""
+        """Test searching notes returns relevant content."""
         kernle, _ = kernle_instance
         kernle._storage = populated_storage
 
         results = kernle.search("Decision")
 
-        assert len(results) > 0
+        assert len(results) >= 1
+        # Verify we found the decision note about pytest
+        result_texts = [str(r.get("content", "")) for r in results]
+        assert any(
+            "decision" in text.lower() or "pytest" in text.lower() for text in result_texts
+        ), f"Expected decision/pytest content in results: {result_texts}"
 
     def test_search_beliefs(self, kernle_instance, populated_storage):
-        """Test searching beliefs."""
+        """Test searching beliefs returns matching statements."""
         kernle, _ = kernle_instance
         kernle._storage = populated_storage
 
         results = kernle.search("testing")
 
-        assert len(results) > 0
+        assert len(results) >= 1
+        # Verify we found belief about testing leading to reliable software
+        result_texts = [str(r.get("statement", r.get("content", ""))) for r in results]
+        assert any(
+            "test" in text.lower() for text in result_texts
+        ), f"Expected 'test' in results: {result_texts}"
 
     def test_search_no_results(self, kernle_instance):
         """Test search with no matching results."""
         kernle, storage = kernle_instance
 
-        results = kernle.search("nonexistent query")
+        results = kernle.search("xyznonexistentquery123")
 
         assert len(results) == 0
 
@@ -512,21 +527,30 @@ class TestSearch:
         results_upper = kernle.search("TESTING")
         results_lower = kernle.search("testing")
 
-        # Both should return results
+        # Both should return results with same content
         assert len(results_upper) > 0
         assert len(results_lower) > 0
+        # Results should be equivalent (same items found)
+        upper_ids = {r.get("id") for r in results_upper}
+        lower_ids = {r.get("id") for r in results_lower}
+        assert upper_ids == lower_ids, "Case-insensitive search should return same results"
 
     def test_search_limit(self, kernle_instance):
-        """Test search result limit."""
+        """Test search result limit is respected."""
         kernle, storage = kernle_instance
 
-        # Create many items
+        # Create many items with unique searchable content
         for i in range(20):
-            kernle.episode(f"Test episode {i}", "success")
+            kernle.episode(f"Searchable test episode number {i}", "success")
 
-        results = kernle.search("episode", limit=5)
+        results = kernle.search("Searchable", limit=5)
 
-        assert len(results) <= 5
+        assert len(results) == 5, f"Expected exactly 5 results, got {len(results)}"
+        # Verify results are actually from our created episodes
+        # Search results use 'title' for display, which contains the objective
+        for result in results:
+            result_text = result.get("title", result.get("objective", result.get("content", "")))
+            assert "Searchable" in result_text, f"Result should contain 'Searchable': {result}"
 
 
 class TestStatus:
