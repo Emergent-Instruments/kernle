@@ -122,12 +122,19 @@ async def exchange_supabase_token(
                 detail="Invalid token format",
             )
 
-        # Fetch JWKS from Supabase's well-known endpoint (no API key needed)
-        jwks_url = (
-            f"{issuer}/.well-known/jwks.json"
-            if issuer
-            else f"{settings.supabase_url}/auth/v1/.well-known/jwks.json"
-        )
+        # SECURITY: Validate issuer BEFORE fetching JWKS to prevent SSRF/auth bypass
+        # Attacker could craft token with malicious issuer pointing to their JWKS
+        expected_issuer = f"{settings.supabase_url}/auth/v1"
+        if issuer and not issuer.startswith(settings.supabase_url):
+            logger.error(f"OAuth: Invalid issuer {issuer}, expected {expected_issuer}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token issuer",
+            )
+
+        # Use expected issuer for JWKS URL (not the unverified claim)
+        # This maintains JWKS-based verification while preventing issuer spoofing
+        jwks_url = f"{expected_issuer}/.well-known/jwks.json"
 
         logger.info(f"OAuth: Fetching JWKS from {jwks_url}")
         try:
@@ -165,12 +172,13 @@ async def exchange_supabase_token(
         try:
             public_key = jwk.construct(signing_key)
 
+            # Verify with expected issuer (not the unverified claim)
             payload = jwt.decode(
                 token,
                 public_key,
                 algorithms=[alg],
                 audience="authenticated",
-                issuer=issuer,
+                issuer=expected_issuer,
             )
 
             user_data = {

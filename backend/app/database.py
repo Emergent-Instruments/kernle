@@ -365,11 +365,13 @@ async def upsert_memory(
         if agent:
             agent_ref = agent.get("id")
 
+    from datetime import datetime, timezone
+
     record = {
         **data,
         "id": record_id,
         "agent_id": agent_id,
-        "cloud_synced_at": "now()",
+        "cloud_synced_at": datetime.now(timezone.utc).isoformat(),
     }
 
     # Include agent_ref if available (required after migration 008)
@@ -813,7 +815,14 @@ async def check_quota(db: Client, api_key_id: str, user_id: str, tier: str) -> t
     # Get current usage
     usage = await get_or_create_usage(db, api_key_id, user_id)
     if not usage:
-        return True, {}  # Allow if we can't get usage (fail open)
+        # SECURITY: Fail closed - deny request if we can't verify quota
+        # This prevents abuse if the usage table is temporarily unavailable
+        import logging
+
+        logging.getLogger("kernle.database").warning(
+            f"Quota check failed: could not get usage for user {user_id}"
+        )
+        return False, {"error": "Could not verify quota"}
 
     now = datetime.now(timezone.utc)
     from dateutil.parser import parse
