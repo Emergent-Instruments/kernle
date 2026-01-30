@@ -5,7 +5,7 @@ description: "Complete reference for the Kernle command-line interface"
 
 # CLI Overview
 
-The Kernle CLI provides 23 commands for managing agent memory.
+The Kernle CLI provides 28+ commands for managing agent memory.
 
 ## Global Options
 
@@ -78,8 +78,18 @@ If no agent ID is provided, Kernle will try to resolve one automatically from en
 |---------|-------------|
 | `anxiety` | Check memory health |
 | `forget` | Controlled forgetting |
+| `suggestions` | Review and manage suggestions |
 | `dump` | Export all memory (stdout) |
 | `export` | Export to file |
+
+### Setup & Admin
+
+| Command | Description |
+|---------|-------------|
+| `init` | Initialize agent and generate CLAUDE.md |
+| `agent` | List and delete agents |
+| `doctor` | Validate boot sequence compliance |
+| `stats` | Usage statistics and health checks |
 
 ### Cloud & Auth
 

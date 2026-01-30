@@ -12,24 +12,37 @@ Kernle supports nine distinct memory types, each serving a specific purpose in t
 **Purpose**: Zero-friction capture for later processing
 
 <Info>
-Raw entries are your scratchpad. Capture thoughts freely, process them later.
+Raw entries are your scratchpad. Capture thoughts freely, process them later. Raw entries support full-text search (FTS5) for fast keyword queries.
 </Info>
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `content` | TEXT | Free-form text |
-| `source` | TEXT | Origin: `manual`, `auto_capture`, `voice` |
+| `blob` | TEXT | Free-form text content (up to 1MB) |
+| `source` | TEXT | Origin: `manual`, `auto_capture`, `voice`, `stdin` |
 | `processed` | BOOL | Has been converted to structured memory |
 | `processed_into` | JSON | List of memory refs created (e.g., `["episode:abc123"]`) |
 | `tags` | JSON | Quick categorization tags |
+
+<Note>
+The raw layer uses blob storage optimized for unstructured content. Full-text search is enabled via FTS5 for fast keyword queries across all raw entries.
+</Note>
 
 **Usage**:
 ```bash
 # Capture quickly
 kernle raw "Noticed the API returns 500 under load"
 
+# Capture with tags
+kernle raw "Need to investigate caching" --tags "performance,todo"
+
+# Capture from stdin (pipe content)
+echo "Long notes from meeting..." | kernle raw --stdin
+
 # List unprocessed
 kernle raw list --unprocessed
+
+# Search raw entries (uses FTS5)
+kernle raw search "API performance"
 
 # Promote to episode
 kernle raw process <id> --type episode --objective "Investigated API errors"

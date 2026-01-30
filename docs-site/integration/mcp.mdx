@@ -29,20 +29,53 @@ This starts an MCP server using stdio transport. The server stays running and re
 
 When connected, the MCP server exposes these tools:
 
+### Core Memory Operations
+
 | Tool | Description |
 |------|-------------|
-| `memory_load` | Load working memory |
+| `memory_load` | Load working memory with token budget |
 | `memory_checkpoint_save` | Save checkpoint with task description |
 | `memory_checkpoint_load` | Load previous checkpoint |
-| `memory_episode` | Record an experience |
-| `memory_note` | Capture a note |
-| `memory_raw` | Quick capture |
-| `memory_search` | Search across memory |
-| `memory_status` | Get memory status |
-| `memory_anxiety` | Check memory health |
-| `memory_belief` | Manage beliefs |
-| `memory_value` | Manage values |
-| `memory_goal` | Manage goals |
+| `memory_checkpoint_clear` | Clear current checkpoint |
+| `memory_status` | Get memory statistics |
+
+### Memory Capture
+
+| Tool | Description |
+|------|-------------|
+| `memory_episode` | Record an experience with lessons |
+| `memory_note` | Capture a note (decision/insight/quote) |
+| `memory_raw` | Quick capture to raw layer |
+| `memory_belief` | Add or update beliefs |
+| `memory_value` | Define core values |
+| `memory_goal` | Set and manage goals |
+| `memory_relationship` | Track relationships |
+| `memory_playbook_create` | Create procedural playbook |
+| `memory_playbook_execute` | Execute a playbook |
+
+### Search & Analysis
+
+| Tool | Description |
+|------|-------------|
+| `memory_search` | Semantic search across all memory |
+| `memory_belief_contradictions` | Find contradicting beliefs |
+| `memory_consolidate` | Get consolidation prompt for reflection |
+| `memory_identity_synthesize` | Generate coherent self-model |
+
+### Emotional & Health
+
+| Tool | Description |
+|------|-------------|
+| `memory_emotion_tag` | Tag episode with emotional context |
+| `memory_anxiety` | Check memory health and get recommendations |
+
+### Suggestions
+
+| Tool | Description |
+|------|-------------|
+| `memory_suggestions_list` | List pending suggestions |
+| `memory_suggestions_approve` | Accept a suggestion |
+| `memory_suggestions_reject` | Decline a suggestion |
 
 ## Client Configuration
 

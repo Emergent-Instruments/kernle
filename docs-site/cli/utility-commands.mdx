@@ -500,6 +500,103 @@ kernle -a my-project init -y --env claude-code
 
 ---
 
+## suggestions
+
+Manage memory suggestions (auto-generated recommendations).
+
+### suggestions list
+
+```bash
+kernle -a <agent> suggestions list [--pending] [--approved] [--rejected] [--type TYPE] [--limit L]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--pending` | Show only pending suggestions |
+| `--approved` | Show only approved suggestions |
+| `--rejected` | Show only rejected suggestions |
+| `--type TYPE` | Filter by memory type |
+| `-l, --limit L` | Maximum results (default: 20) |
+
+### suggestions approve
+
+```bash
+kernle -a <agent> suggestions approve SUGGESTION_ID
+```
+
+### suggestions reject
+
+```bash
+kernle -a <agent> suggestions reject SUGGESTION_ID
+```
+
+---
+
+## agent
+
+Manage local agents.
+
+### agent list
+
+List all agents in `~/.kernle/`.
+
+```bash
+kernle agent list
+```
+
+### agent delete
+
+Delete an agent and all its data.
+
+```bash
+kernle agent delete NAME [--force]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--force` | Skip confirmation prompt |
+
+<Warning>
+This permanently deletes the agent's database records and directory. Cannot be undone.
+</Warning>
+
+---
+
+## doctor
+
+Validate boot sequence compliance and system health.
+
+```bash
+kernle -a <agent> doctor [--json]
+```
+
+Checks:
+- Memory system initialization
+- Storage accessibility
+- Required tables exist
+- Embedding provider availability
+- Sync credentials (if configured)
+
+---
+
+## stats
+
+Usage statistics and health check tracking.
+
+### stats health-checks
+
+Show health check compliance over time.
+
+```bash
+kernle -a <agent> stats health-checks [--days DAYS] [--json]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-d, --days DAYS` | Days to look back (default: 30) |
+
+---
+
 ## mcp
 
 Start MCP server (stdio transport).
