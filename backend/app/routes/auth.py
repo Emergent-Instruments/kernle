@@ -464,7 +464,7 @@ async def get_current_user_info(
             path="/",
             secure=True,
             httponly=True,
-            samesite="none",
+            samesite="strict",  # Must match the samesite used when setting the cookie
         )
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

@@ -92,7 +92,7 @@ class SuggestionsMixin:
         Returns:
             List of extracted suggestions
         """
-        content = raw_entry.content.lower()
+        content = (raw_entry.blob or raw_entry.content or "").lower()
         suggestions = []
 
         # Score each memory type
@@ -170,7 +170,7 @@ class SuggestionsMixin:
         Returns:
             MemorySuggestion or None
         """
-        content = raw_entry.content
+        content = raw_entry.blob or raw_entry.content or ""
 
         # Extract objective (first sentence or line)
         objective = self._extract_first_sentence(content)
@@ -213,7 +213,7 @@ class SuggestionsMixin:
         Returns:
             MemorySuggestion or None
         """
-        content = raw_entry.content
+        content = raw_entry.blob or raw_entry.content or ""
 
         # Extract the belief statement
         statement = self._extract_belief_statement(content)
@@ -252,7 +252,7 @@ class SuggestionsMixin:
         Returns:
             MemorySuggestion or None
         """
-        content = raw_entry.content.strip()
+        content = (raw_entry.blob or raw_entry.content or "").strip()
         if len(content) < 10:
             return None
 

@@ -106,17 +106,45 @@ class TestUsageEndpoints:
         assert response.status_code == 401
 
     def test_usage_with_auth(self, client, auth_headers):
-        """Test /auth/usage with valid auth."""
-        # Note: This test works with mock DB that may fail
-        # The endpoint should still return a response structure
-        try:
+        """Test /auth/usage with valid auth returns usage data."""
+        from unittest.mock import AsyncMock, patch
+
+        mock_user = {
+            "user_id": "usr_TEST_ONLY_000000",
+            "email": "test@example.com",
+            "tier": "free",
+        }
+        mock_usage = {
+            "daily_requests": 25,
+            "monthly_requests": 150,
+            "daily_reset_at": "2024-01-02T00:00:00Z",
+            "monthly_reset_at": "2024-02-01T00:00:00Z",
+        }
+
+        with (
+            patch("app.routes.auth.get_user", new_callable=AsyncMock) as mock_get_user,
+            patch("app.routes.auth.get_usage_for_user", new_callable=AsyncMock) as mock_get_usage,
+        ):
+            mock_get_user.return_value = mock_user
+            mock_get_usage.return_value = mock_usage
+
             response = client.get("/auth/usage", headers=auth_headers)
-            # If we get a response (not connection error), check structure
-            if response.status_code == 200:
-                data = response.json()
-                assert "tier" in data
-                assert "limits" in data
-                assert "usage" in data
-        except Exception:
-            # Connection errors to mock DB are expected in unit tests
-            pass
+
+            assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+            data = response.json()
+
+            # Verify response structure and values
+            assert data["tier"] == "free"
+            assert "limits" in data
+            assert data["limits"]["daily_limit"] == 100  # free tier limit
+            assert data["limits"]["monthly_limit"] == 1000  # free tier limit
+            assert "usage" in data
+            assert data["usage"]["daily_requests"] == 25
+            assert data["usage"]["monthly_requests"] == 150
+            # Verify remaining calculations
+            assert data["daily_remaining"] == 75  # 100 - 25
+            assert data["monthly_remaining"] == 850  # 1000 - 150
+
+            # Verify mocks were called
+            mock_get_user.assert_called_once()
+            mock_get_usage.assert_called_once()

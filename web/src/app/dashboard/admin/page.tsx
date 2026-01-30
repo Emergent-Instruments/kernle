@@ -1,25 +1,29 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Loader2, RefreshCw, Zap } from 'lucide-react';
-import { getSystemStats, listAgents, backfillEmbeddings, SystemStats, AgentSummary, BackfillResponse } from '@/lib/api';
+import { Loader2, RefreshCw, Zap, ShieldX } from 'lucide-react';
+import { getSystemStats, listAgents, backfillEmbeddings, SystemStats, AgentSummary, BackfillResponse, ApiError } from '@/lib/api';
 
 export default function AdminPage() {
+  const router = useRouter();
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [agents, setAgents] = useState<AgentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
   const [backfilling, setBackfilling] = useState<string | null>(null);
   const [lastBackfill, setLastBackfill] = useState<BackfillResponse | null>(null);
 
   const loadData = async () => {
     setLoading(true);
     setError(null);
+    setAccessDenied(false);
     try {
       const [statsData, agentsData] = await Promise.all([
         getSystemStats(),
@@ -28,6 +32,11 @@ export default function AdminPage() {
       setStats(statsData);
       setAgents(agentsData.agents);
     } catch (e) {
+      // Check for 403 Forbidden - user is not an admin
+      if (e instanceof ApiError && (e.status === 403 || e.status === 401)) {
+        setAccessDenied(true);
+        return;
+      }
       setError(e instanceof Error ? e.message : 'Failed to load data');
     } finally {
       setLoading(false);
@@ -57,6 +66,19 @@ export default function AdminPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
+    );
+  }
+
+  if (accessDenied) {
+    return (
+      <div className="flex flex-col items-center justify-center h-64 space-y-4">
+        <ShieldX className="h-16 w-16 text-red-500" />
+        <h2 className="text-2xl font-bold">Access Denied</h2>
+        <p className="text-muted-foreground">You do not have permission to access the admin dashboard.</p>
+        <Button onClick={() => router.push('/dashboard')}>
+          Return to Dashboard
+        </Button>
       </div>
     );
   }
@@ -155,8 +177,8 @@ export default function AdminPage() {
           </CardHeader>
           <CardContent>
             <div className="text-sm">
-              Agent: <strong>{lastBackfill.agent_id}</strong> | 
-              Processed: <strong>{lastBackfill.processed}</strong> | 
+              Agent: <strong>{lastBackfill.agent_id}</strong> |
+              Processed: <strong>{lastBackfill.processed}</strong> |
               Failed: <strong>{lastBackfill.failed}</strong>
               {Object.keys(lastBackfill.tables_updated).length > 0 && (
                 <span> | Tables: {Object.entries(lastBackfill.tables_updated).map(([t, n]) => `${t}(${n})`).join(', ')}</span>
@@ -189,8 +211,8 @@ export default function AdminPage() {
                 const totalEmbedded = Object.values(agent.embedding_coverage).reduce(
                   (a, b) => a + b.with_embedding, 0
                 );
-                const coveragePercent = totalMemories > 0 
-                  ? Math.round(totalEmbedded / totalMemories * 100) 
+                const coveragePercent = totalMemories > 0
+                  ? Math.round(totalEmbedded / totalMemories * 100)
                   : 100;
                 const needsBackfill = coveragePercent < 100 && totalMemories > 0;
 

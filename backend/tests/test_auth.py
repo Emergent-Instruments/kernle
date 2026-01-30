@@ -91,9 +91,43 @@ class TestAuthEndpoints:
         assert response.status_code == 401  # Unauthorized (no auth header)
 
     def test_me_with_auth(self, client, auth_headers):
-        """Test /auth/me with valid auth token."""
-        response = client.get("/auth/me", headers=auth_headers)
-        # Should pass auth (not 401/403) - may fail on DB lookup (500) but that's auth success
-        assert response.status_code != 401, "Auth should not fail with valid token"
-        assert response.status_code != 403, "Auth should not be forbidden with valid token"
-        # 200 = full success, 500 = auth passed but DB issue (acceptable for unit test)
+        """Test /auth/me with valid auth token returns user info."""
+        from unittest.mock import AsyncMock, patch
+
+        mock_user = {
+            "user_id": "usr_TEST_ONLY_000000",
+            "email": "test@example.com",
+            "display_name": "Test User",
+            "tier": "free",
+            "created_at": "2024-01-01T00:00:00Z",
+        }
+        mock_usage = {
+            "daily_requests": 10,
+            "monthly_requests": 50,
+            "daily_reset_at": None,
+            "monthly_reset_at": None,
+        }
+
+        with (
+            patch("app.routes.auth.get_user", new_callable=AsyncMock) as mock_get_user,
+            patch("app.routes.auth.get_usage_for_user", new_callable=AsyncMock) as mock_get_usage,
+        ):
+            mock_get_user.return_value = mock_user
+            mock_get_usage.return_value = mock_usage
+
+            response = client.get("/auth/me", headers=auth_headers)
+
+            assert response.status_code == 200, f"Expected 200, got {response.status_code}"
+            data = response.json()
+
+            # Verify the response structure
+            assert data["user_id"] == "usr_TEST_ONLY_000000"
+            assert data["tier"] == "free"
+            assert "limits" in data
+            assert "usage" in data
+            assert data["usage"]["daily_requests"] == 10
+            assert data["usage"]["monthly_requests"] == 50
+
+            # Verify mocks were called with correct arguments
+            mock_get_user.assert_called_once()
+            mock_get_usage.assert_called_once()

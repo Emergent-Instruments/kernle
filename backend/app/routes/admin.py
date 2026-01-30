@@ -5,7 +5,7 @@ These routes require admin authentication (special admin API key or role).
 
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Path, Query, status
 from pydantic import BaseModel
 
 from ..auth import AdminAgent
@@ -438,10 +438,12 @@ async def backfill_embeddings(
 
 @router.get("/agents/{agent_id}", response_model=AgentSummary)
 async def get_agent(
-    agent_id: str,
-    admin: AdminAgent,
-    db: Database,
-    user_id: str | None = Query(default=None, description="Filter by user_id (for multi-tenant)"),
+    agent_id: str = Path(..., min_length=1, max_length=64, pattern=r"^[a-z0-9_-]+$"),
+    admin: AdminAgent = None,
+    db: Database = None,
+    user_id: str | None = Query(
+        default=None, max_length=128, description="Filter by user_id (for multi-tenant)"
+    ),
 ):
     """Get detailed stats for a specific agent.
 

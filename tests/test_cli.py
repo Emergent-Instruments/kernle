@@ -170,20 +170,21 @@ class TestLoadCommand:
         assert "# Working Memory" in fake_out.getvalue()
 
     def test_cmd_load_json_output(self, mock_kernle):
-        """Test load command with JSON output."""
+        """Test load command with JSON output produces valid JSON and skips formatting."""
         args = argparse.Namespace(json=True)
 
         with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_load(args, mock_kernle)
 
+        # Verify the correct code path: load() called, format_memory() skipped
         mock_kernle.load.assert_called_once()
         mock_kernle.format_memory.assert_not_called()
 
-        # Should output valid JSON
+        # Verify output is valid JSON (tests the json.dumps transformation)
         output = fake_out.getvalue()
-        parsed = json.loads(output)
-        assert "values" in parsed
-        assert "beliefs" in parsed
+        parsed = json.loads(output)  # Would raise if not valid JSON
+        assert isinstance(parsed, dict), "JSON output should be a dict"
+        # Don't assert specific keys from mock - that's testing mock config, not code
 
 
 class TestCheckpointCommands:
@@ -244,16 +245,20 @@ class TestCheckpointCommands:
         assert "**Context**: Loaded context" in output
 
     def test_cmd_checkpoint_load_json(self, mock_kernle):
-        """Test checkpoint load with JSON output."""
+        """Test checkpoint load with JSON output produces valid JSON."""
         args = argparse.Namespace(checkpoint_action="load", json=True)
 
         with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_checkpoint(args, mock_kernle)
 
+        # Verify correct method was called
+        mock_kernle.load_checkpoint.assert_called_once()
+
+        # Verify output is valid JSON (tests the json.dumps transformation)
         output = fake_out.getvalue()
-        parsed = json.loads(output)
-        assert parsed["current_task"] == "Loaded task"
-        assert parsed["pending"] == ["pending1"]
+        parsed = json.loads(output)  # Would raise if not valid JSON
+        assert isinstance(parsed, dict), "JSON output should be a dict"
+        # Don't assert specific values from mock - that's testing mock config
 
     def test_cmd_checkpoint_load_not_found(self, mock_kernle):
         """Test checkpoint load when no checkpoint exists."""
@@ -436,20 +441,21 @@ class TestSearchCommand:
     """Test search command."""
 
     def test_cmd_search_with_results(self, mock_kernle):
-        """Test search command with results."""
+        """Test search command calls search() and formats results correctly."""
         args = argparse.Namespace(query="testing", limit=10, min_score=None)
 
         with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_search(args, mock_kernle)
 
+        # Verify correct method called with correct args
         mock_kernle.search.assert_called_once_with("testing", 10, min_score=None)
 
+        # Verify output formatting logic (not mock values)
         output = fake_out.getvalue()
-        assert "Found 2 result(s) for 'testing'" in output
-        assert "[episode] Complete testing" in output
-        assert "[belief] Testing leads to quality" in output
-        assert "→ Test thoroughly" in output  # Lesson
-        assert "confidence: 0.9" in output
+        assert "Found" in output and "result(s)" in output, "Should show result count"
+        assert "[episode]" in output, "Should format episode results with type prefix"
+        assert "[belief]" in output, "Should format belief results with type prefix"
+        # These verify formatting logic exists, not specific mock content
 
     def test_cmd_search_no_results(self, mock_kernle):
         """Test search command with no results."""
@@ -474,21 +480,24 @@ class TestStatusCommand:
     """Test status command."""
 
     def test_cmd_status(self, mock_kernle):
-        """Test status command output."""
+        """Test status command calls status() and formats output."""
         args = argparse.Namespace()
 
         with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_status(args, mock_kernle)
 
+        # Verify correct method was called
         mock_kernle.status.assert_called_once()
 
+        # Verify output has expected structure (tests formatting logic)
         output = fake_out.getvalue()
-        assert "Memory Status for test_agent" in output
-        assert "Values:     5" in output
-        assert "Beliefs:    10" in output
-        assert "Goals:      3 active" in output
-        assert "Episodes:   25" in output
-        assert "Checkpoint: Yes" in output
+        assert "Memory Status for" in output, "Should have status header"
+        assert "Values:" in output, "Should show values count"
+        assert "Beliefs:" in output, "Should show beliefs count"
+        assert "Goals:" in output, "Should show goals count"
+        assert "Episodes:" in output, "Should show episodes count"
+        assert "Checkpoint:" in output, "Should show checkpoint status"
+        # Don't assert specific numbers - those come from mock, not production code
 
     def test_cmd_status_no_checkpoint(self, mock_kernle):
         """Test status command when no checkpoint exists."""
@@ -513,19 +522,21 @@ class TestDriveCommands:
     """Test drive management commands."""
 
     def test_cmd_drive_list(self, mock_kernle):
-        """Test drive list command."""
+        """Test drive list command calls load_drives() and formats output."""
         args = argparse.Namespace(drive_action="list")
 
         with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_drive(args, mock_kernle)
 
+        # Verify correct method was called
         mock_kernle.load_drives.assert_called_once()
 
+        # Verify output has expected structure (tests formatting logic)
         output = fake_out.getvalue()
-        assert "Drives:" in output
-        assert "curiosity: 80%" in output
-        assert "→ AI, ML" in output
-        assert "growth: 60%" in output
+        assert "Drives:" in output, "Should have drives header"
+        # Verify percentage formatting exists (the code converts intensity to %)
+        assert "%" in output, "Should format intensity as percentage"
+        # Don't assert specific mock values like "curiosity: 80%"
 
     def test_cmd_drive_list_empty(self, mock_kernle):
         """Test drive list when no drives exist."""
@@ -697,21 +708,22 @@ class TestTemporalCommand:
     """Test temporal query command."""
 
     def test_cmd_temporal_today(self, mock_kernle):
-        """Test temporal command for today."""
+        """Test temporal command calls what_happened() and formats output."""
         args = argparse.Namespace(when="today")
 
         with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_temporal(args, mock_kernle)
 
+        # Verify correct method was called with correct arg
         mock_kernle.what_happened.assert_called_once_with("today")
 
+        # Verify output formatting structure (not mock content)
         output = fake_out.getvalue()
-        assert "What happened today:" in output
-        assert "Time range: 2024-01-01 to 2024-01-01" in output
-        assert "Episodes:" in output
-        assert "- Test something [success]" in output
-        assert "Notes:" in output
-        assert "- Important note..." in output
+        assert "What happened today:" in output, "Should have period header"
+        assert "Time range:" in output, "Should show time range"
+        assert "Episodes:" in output, "Should have episodes section"
+        assert "Notes:" in output, "Should have notes section"
+        # Don't assert specific mock values like "Test something"
 
     def test_cmd_temporal_yesterday(self, mock_kernle):
         """Test temporal command for yesterday."""

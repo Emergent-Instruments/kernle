@@ -4,6 +4,8 @@ import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from kernle.storage.sqlite import validate_table_name
+
 if TYPE_CHECKING:
     import argparse
 
@@ -206,6 +208,7 @@ def _delete_agent(args: "argparse.Namespace", k: "Kernle") -> None:
             ]
             for table in tables:
                 try:
+                    validate_table_name(table)  # Security: validate before SQL use
                     cursor = conn.execute(f"DELETE FROM {table} WHERE agent_id = ?", (agent_id,))
                     if cursor.rowcount > 0:
                         deleted_tables.append(f"{table}: {cursor.rowcount}")

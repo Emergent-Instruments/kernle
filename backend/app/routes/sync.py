@@ -133,11 +133,16 @@ async def push_changes(
                 log_sync_operation(log_prefix, op.operation, op.table, op.record_id, True)
             synced += 1
         except ValueError as e:
+            # Log full error server-side for debugging
+            logger.warning(
+                f"Validation error during {op.operation} on {op.table}/{op.record_id}: {e}"
+            )
             log_sync_operation(log_prefix, op.operation, op.table, op.record_id, False, str(e))
+            # Return generic message to client to avoid leaking internal details
             conflicts.append(
                 {
                     "record_id": op.record_id,
-                    "error": str(e),
+                    "error": "Validation error: invalid operation data",
                 }
             )
         except Exception as e:

@@ -1083,8 +1083,9 @@ class Kernle(
             existing_tags = existing.tags or []
             existing.tags = list(set(existing_tags + tags))
 
-        existing.version += 1
-        self._storage.save_episode(existing)
+        # Use atomic update with optimistic concurrency control
+        # This prevents race conditions where concurrent updates could overwrite each other
+        self._storage.update_episode_atomic(existing)
         return True
 
     # =========================================================================
@@ -1341,11 +1342,11 @@ class Kernle(
 
         if as_type == "episode":
             # Extract or use provided objective/outcome
-            objective = kwargs.get("objective") or entry.content[:100]
+            # Use blob (preferred) or content (deprecated) for backwards compatibility
+            content = entry.blob or entry.content or ""
+            objective = kwargs.get("objective") or content[:100]
             outcome = kwargs.get("outcome", "completed")
-            lessons = kwargs.get("lessons") or (
-                [entry.content] if len(entry.content) > 100 else None
-            )
+            lessons = kwargs.get("lessons") or ([content] if len(content) > 100 else None)
             tags = kwargs.get("tags") or entry.tags or []
             if "raw" not in tags:
                 tags.append("raw")
@@ -1987,6 +1988,7 @@ class Kernle(
             description = self._validate_string_input(description, "description", 1000)
             existing.description = description
 
+        # TODO: Add update_goal_atomic for optimistic concurrency control
         existing.version += 1
         self._storage.save_goal(existing)
         return True
@@ -2022,8 +2024,8 @@ class Kernle(
             if not is_active:
                 existing.deleted = True
 
-        existing.version += 1
-        self._storage.save_belief(existing)
+        # Use atomic update with optimistic concurrency control
+        self._storage.update_belief_atomic(existing)
         return True
 
     # =========================================================================
@@ -2842,9 +2844,9 @@ class Kernle(
 
         existing.last_verified = datetime.now(timezone.utc)
         existing.verification_count += 1
-        existing.version += 1
 
-        self._storage.save_belief(existing)
+        # Use atomic update with optimistic concurrency control
+        self._storage.update_belief_atomic(existing)
         return True
 
     def supersede_belief(
@@ -2925,8 +2927,8 @@ class Kernle(
             }
         )
         old_belief.confidence_history = history[-20:]
-        old_belief.version += 1
-        self._storage.save_belief(old_belief)
+        # Use atomic update with optimistic concurrency control
+        self._storage.update_belief_atomic(old_belief)
 
         return new_id
 
@@ -3390,6 +3392,7 @@ class Kernle(
             existing.intensity = max(0.0, min(1.0, intensity))
             existing.focus_areas = focus_areas or []
             existing.updated_at = now
+            # TODO: Add update_drive_atomic for optimistic concurrency control
             existing.version += 1
             if context is not None:
                 existing.context = context
@@ -3421,6 +3424,7 @@ class Kernle(
             new_intensity = max(0.1, existing.intensity - amount)
             existing.intensity = new_intensity
             existing.updated_at = datetime.now(timezone.utc)
+            # TODO: Add update_drive_atomic for optimistic concurrency control
             existing.version += 1
             self._storage.save_drive(existing)
             return True

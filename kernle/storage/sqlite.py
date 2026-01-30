@@ -31,6 +31,7 @@ from .base import (
     SyncConflict,
     SyncResult,
     Value,
+    VersionConflictError,
     parse_datetime,
     utc_now,
 )
@@ -1701,6 +1702,133 @@ class SQLiteStorage:
 
         return episode.id
 
+    def update_episode_atomic(
+        self, episode: Episode, expected_version: Optional[int] = None
+    ) -> bool:
+        """Update an episode with optimistic concurrency control.
+
+        This method performs an atomic update that:
+        1. Checks if the current version matches expected_version
+        2. Increments the version atomically
+        3. Updates all other fields
+
+        Args:
+            episode: The episode with updated fields
+            expected_version: The version we expect the record to have.
+                             If None, uses episode.version.
+
+        Returns:
+            True if update succeeded
+
+        Raises:
+            VersionConflictError: If the record's version doesn't match expected
+        """
+        if expected_version is None:
+            expected_version = episode.version
+
+        now = self._now()
+
+        with self._connect() as conn:
+            # First check current version to provide better error message
+            current = conn.execute(
+                "SELECT version FROM episodes WHERE id = ? AND agent_id = ?",
+                (episode.id, self.agent_id),
+            ).fetchone()
+
+            if not current:
+                return False  # Record doesn't exist
+
+            current_version = current["version"]
+            if current_version != expected_version:
+                raise VersionConflictError(
+                    "episodes", episode.id, expected_version, current_version
+                )
+
+            # Atomic update with version increment
+            cursor = conn.execute(
+                """
+                UPDATE episodes SET
+                    objective = ?,
+                    outcome = ?,
+                    outcome_type = ?,
+                    lessons = ?,
+                    tags = ?,
+                    emotional_valence = ?,
+                    emotional_arousal = ?,
+                    emotional_tags = ?,
+                    confidence = ?,
+                    source_type = ?,
+                    source_episodes = ?,
+                    derived_from = ?,
+                    last_verified = ?,
+                    verification_count = ?,
+                    confidence_history = ?,
+                    times_accessed = ?,
+                    last_accessed = ?,
+                    is_protected = ?,
+                    is_forgotten = ?,
+                    forgotten_at = ?,
+                    forgotten_reason = ?,
+                    context = ?,
+                    context_tags = ?,
+                    local_updated_at = ?,
+                    version = version + 1
+                WHERE id = ? AND agent_id = ? AND version = ?
+                """,
+                (
+                    episode.objective,
+                    episode.outcome,
+                    episode.outcome_type,
+                    self._to_json(episode.lessons),
+                    self._to_json(episode.tags),
+                    episode.emotional_valence,
+                    episode.emotional_arousal,
+                    self._to_json(episode.emotional_tags),
+                    episode.confidence,
+                    episode.source_type,
+                    self._to_json(episode.source_episodes),
+                    self._to_json(episode.derived_from),
+                    episode.last_verified.isoformat() if episode.last_verified else None,
+                    episode.verification_count,
+                    self._to_json(episode.confidence_history),
+                    episode.times_accessed,
+                    episode.last_accessed.isoformat() if episode.last_accessed else None,
+                    1 if episode.is_protected else 0,
+                    1 if episode.is_forgotten else 0,
+                    episode.forgotten_at.isoformat() if episode.forgotten_at else None,
+                    episode.forgotten_reason,
+                    episode.context,
+                    self._to_json(episode.context_tags),
+                    now,
+                    episode.id,
+                    self.agent_id,
+                    expected_version,
+                ),
+            )
+
+            if cursor.rowcount == 0:
+                # Version changed between check and update (rare but possible)
+                conn.rollback()
+                new_current = conn.execute(
+                    "SELECT version FROM episodes WHERE id = ? AND agent_id = ?",
+                    (episode.id, self.agent_id),
+                ).fetchone()
+                actual = new_current["version"] if new_current else -1
+                raise VersionConflictError("episodes", episode.id, expected_version, actual)
+
+            # Queue for sync
+            episode.version = expected_version + 1
+            episode_data = self._to_json(self._record_to_dict(episode))
+            self._queue_sync(conn, "episodes", episode.id, "upsert", data=episode_data)
+
+            # Update embedding
+            content = self._get_searchable_content("episode", episode)
+            self._save_embedding(conn, "episodes", episode.id, content)
+
+            conn.commit()
+
+        return True
+
     def save_episodes_batch(self, episodes: List[Episode]) -> List[str]:
         """Save multiple episodes in a single transaction."""
         if not episodes:
@@ -2008,6 +2136,111 @@ class SQLiteStorage:
         self._sync_beliefs_to_file()
 
         return belief.id
+
+    def update_belief_atomic(self, belief: Belief, expected_version: Optional[int] = None) -> bool:
+        """Update a belief with optimistic concurrency control.
+
+        Args:
+            belief: The belief with updated fields
+            expected_version: The version we expect the record to have.
+                             If None, uses belief.version.
+
+        Returns:
+            True if update succeeded
+
+        Raises:
+            VersionConflictError: If the record's version doesn't match expected
+        """
+        if expected_version is None:
+            expected_version = belief.version
+
+        now = self._now()
+
+        with self._connect() as conn:
+            # Check current version
+            current = conn.execute(
+                "SELECT version FROM beliefs WHERE id = ? AND agent_id = ?",
+                (belief.id, self.agent_id),
+            ).fetchone()
+
+            if not current:
+                return False
+
+            current_version = current["version"]
+            if current_version != expected_version:
+                raise VersionConflictError("beliefs", belief.id, expected_version, current_version)
+
+            # Atomic update with version increment
+            cursor = conn.execute(
+                """
+                UPDATE beliefs SET
+                    statement = ?,
+                    belief_type = ?,
+                    confidence = ?,
+                    source_type = ?,
+                    source_episodes = ?,
+                    derived_from = ?,
+                    last_verified = ?,
+                    verification_count = ?,
+                    confidence_history = ?,
+                    supersedes = ?,
+                    superseded_by = ?,
+                    times_reinforced = ?,
+                    is_active = ?,
+                    context = ?,
+                    context_tags = ?,
+                    local_updated_at = ?,
+                    deleted = ?,
+                    version = version + 1
+                WHERE id = ? AND agent_id = ? AND version = ?
+                """,
+                (
+                    belief.statement,
+                    belief.belief_type,
+                    belief.confidence,
+                    belief.source_type,
+                    self._to_json(belief.source_episodes),
+                    self._to_json(belief.derived_from),
+                    belief.last_verified.isoformat() if belief.last_verified else None,
+                    belief.verification_count,
+                    self._to_json(belief.confidence_history),
+                    belief.supersedes,
+                    belief.superseded_by,
+                    belief.times_reinforced,
+                    1 if belief.is_active else 0,
+                    belief.context,
+                    self._to_json(belief.context_tags),
+                    now,
+                    1 if belief.deleted else 0,
+                    belief.id,
+                    self.agent_id,
+                    expected_version,
+                ),
+            )
+
+            if cursor.rowcount == 0:
+                conn.rollback()
+                new_current = conn.execute(
+                    "SELECT version FROM beliefs WHERE id = ? AND agent_id = ?",
+                    (belief.id, self.agent_id),
+                ).fetchone()
+                actual = new_current["version"] if new_current else -1
+                raise VersionConflictError("beliefs", belief.id, expected_version, actual)
+
+            # Queue for sync
+            belief.version = expected_version + 1
+            belief_data = self._to_json(self._record_to_dict(belief))
+            self._queue_sync(conn, "beliefs", belief.id, "upsert", data=belief_data)
+
+            # Update embedding
+            self._save_embedding(conn, "beliefs", belief.id, belief.statement)
+
+            conn.commit()
+
+        # Sync to flat file
+        self._sync_beliefs_to_file()
+
+        return True
 
     def save_beliefs_batch(self, beliefs: List[Belief]) -> List[str]:
         """Save multiple beliefs in a single transaction."""
@@ -4489,6 +4722,7 @@ class SQLiteStorage:
                     continue
 
                 table, converter = table_map[memory_type]
+                validate_table_name(table)  # Security: validate before SQL use
                 query = f"""
                     SELECT * FROM {table}
                     WHERE agent_id = ? AND deleted = 0
@@ -5178,11 +5412,13 @@ class SQLiteStorage:
 
     def _mark_synced(self, conn: sqlite3.Connection, table: str, record_id: str):
         """Mark a record as synced with the cloud."""
+        validate_table_name(table)  # Security: validate before SQL use
         now = self._now()
         conn.execute(f"UPDATE {table} SET cloud_synced_at = ? WHERE id = ?", (now, record_id))
 
     def _get_record_for_push(self, table: str, record_id: str) -> Optional[Any]:
         """Get a record by table and ID for pushing to cloud."""
+        validate_table_name(table)  # Security: validate before SQL use
         with self._connect() as conn:
             row = conn.execute(
                 f"SELECT * FROM {table} WHERE id = ? AND agent_id = ?", (record_id, self.agent_id)

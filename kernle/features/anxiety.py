@@ -92,7 +92,8 @@ class AnxietyMixin:
 
         for entry in raw_entries:
             try:
-                ts = entry.get("timestamp", "")
+                # Use captured_at (preferred) or timestamp (deprecated) for backwards compatibility
+                ts = entry.get("captured_at") or entry.get("timestamp", "")
                 if ts:
                     entry_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
                     age = now - entry_time

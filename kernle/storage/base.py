@@ -12,6 +12,25 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
+
+class VersionConflictError(Exception):
+    """Raised when a record's version doesn't match the expected version.
+
+    This indicates a concurrent modification - another process updated the
+    record between when we read it and when we tried to save our changes.
+    """
+
+    def __init__(self, table: str, record_id: str, expected_version: int, actual_version: int):
+        self.table = table
+        self.record_id = record_id
+        self.expected_version = expected_version
+        self.actual_version = actual_version
+        super().__init__(
+            f"Version conflict on {table}/{record_id}: "
+            f"expected version {expected_version}, found {actual_version}"
+        )
+
+
 # === Shared Utility Functions ===
 
 
