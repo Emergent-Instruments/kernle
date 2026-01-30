@@ -24,7 +24,7 @@ class TestServerSideReembedding:
         from app.config import get_settings
 
         settings = get_settings()
-        token = create_access_token("test-agent", settings)
+        token = create_access_token(settings, user_id="usr_test123456", agent_id="test-agent")
         return {"Authorization": f"Bearer {token}"}
 
     @patch("app.routes.sync.upsert_memory", new_callable=AsyncMock)
@@ -196,7 +196,7 @@ class TestPullStripsEmbeddings:
         from app.config import get_settings
 
         settings = get_settings()
-        token = create_access_token("test-agent", settings)
+        token = create_access_token(settings, user_id="usr_test123456", agent_id="test-agent")
         return {"Authorization": f"Bearer {token}"}
 
     @patch("app.routes.sync.get_changes_since", new_callable=AsyncMock)

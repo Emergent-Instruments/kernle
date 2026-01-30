@@ -120,7 +120,23 @@ class TestAPIKeyEndpoints:
 
     def test_list_keys_with_auth(self, client, auth_headers):
         """Test listing keys with valid auth."""
-        response = client.get("/auth/keys", headers=auth_headers)
+        from unittest.mock import AsyncMock, patch
+
+        mock_keys = [
+            {
+                "id": "key-1",
+                "name": "Test Key",
+                "key_prefix": "knl_sk_abc12",
+                "created_at": "2024-01-01T00:00:00Z",
+                "last_used_at": None,
+                "is_active": True,
+            }
+        ]
+
+        with patch("app.routes.auth.list_api_keys", new_callable=AsyncMock) as mock_list:
+            mock_list.return_value = mock_keys
+            response = client.get("/auth/keys", headers=auth_headers)
+
         # Auth should pass (not 401/403)
         assert response.status_code not in [401, 403], "Auth should pass with valid token"
         # 200 = success, 400 = missing user_id (test token limitation), 500 = unacceptable
@@ -128,11 +144,23 @@ class TestAPIKeyEndpoints:
 
     def test_create_key_with_auth(self, client, auth_headers):
         """Test creating key with valid auth."""
-        response = client.post(
-            "/auth/keys",
-            headers=auth_headers,
-            json={"name": "Test Key"},
-        )
+        from unittest.mock import AsyncMock, patch
+
+        mock_key_record = {
+            "id": "key-123",
+            "name": "Test Key",
+            "key_prefix": "knl_sk_abc12",
+            "created_at": "2024-01-01T00:00:00Z",
+        }
+
+        with patch("app.routes.auth.create_api_key", new_callable=AsyncMock) as mock_create:
+            mock_create.return_value = mock_key_record
+            response = client.post(
+                "/auth/keys",
+                headers=auth_headers,
+                json={"name": "Test Key"},
+            )
+
         # Auth should pass (not 401/403)
         assert response.status_code not in [401, 403], "Auth should pass with valid token"
         # 500 is never acceptable - indicates a bug
