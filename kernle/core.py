@@ -368,12 +368,23 @@ class Kernle(
             logger.error(f"Invalid checkpoint directory: {e}")
             raise ValueError(f"Invalid checkpoint directory: {e}")
 
-    def _validate_string_input(self, value: str, field_name: str, max_length: int = 1000) -> str:
-        """Validate and sanitize string inputs."""
+    def _validate_string_input(
+        self, value: str, field_name: str, max_length: Optional[int] = 1000
+    ) -> str:
+        """Validate and sanitize string inputs.
+
+        Args:
+            value: String to validate
+            field_name: Name of the field (for error messages)
+            max_length: Maximum length, or None to skip length check
+
+        Returns:
+            Sanitized string
+        """
         if not isinstance(value, str):
             raise TypeError(f"{field_name} must be a string")
 
-        if len(value) > max_length:
+        if max_length is not None and len(value) > max_length:
             raise ValueError(f"{field_name} too long (max {max_length} characters)")
 
         # Basic sanitization - remove null bytes and control characters
@@ -1167,25 +1178,54 @@ class Kernle(
 
     def raw(
         self,
-        content: str,
+        blob: Optional[str] = None,
+        source: str = "unknown",
+        # DEPRECATED parameters
+        content: Optional[str] = None,
         tags: Optional[List[str]] = None,
-        source: str = "manual",
     ) -> str:
-        """Quick capture of unstructured thought for later processing.
+        """Quick capture of unstructured brain dump for later processing.
+
+        The raw layer is designed for zero-friction capture. Dump whatever you
+        want into the blob field; the system only tracks housekeeping metadata.
 
         Args:
-            content: Free-form text to capture
-            tags: Optional quick tags for categorization
-            source: Source of the entry (manual, auto_capture, voice, etc.)
+            blob: The raw brain dump content (no validation, no length limits).
+            source: Auto-populated source identifier (cli|mcp|sdk|import|unknown).
+
+        Deprecated Args:
+            content: Use blob instead. Will be removed in future version.
+            tags: Include tags in blob text instead. Will be removed in future version.
 
         Returns:
             Raw entry ID
         """
-        content = self._validate_string_input(content, "content", 5000)
-        if tags:
-            tags = [self._validate_string_input(t, "tag", 100) for t in tags]
+        import warnings
 
-        return self._storage.save_raw(content, source, tags)
+        # Handle deprecated parameters
+        if content is not None:
+            warnings.warn(
+                "The 'content' parameter is deprecated. Use 'blob' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if blob is None:
+                blob = content
+
+        if tags is not None:
+            warnings.warn(
+                "The 'tags' parameter is deprecated. Include tags in blob text instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+        if blob is None:
+            raise ValueError("blob parameter is required")
+
+        # Basic validation - no length limit, but sanitize control chars
+        blob = self._validate_string_input(blob, "blob", max_length=None)
+
+        return self._storage.save_raw(blob=blob, source=source, tags=tags)
 
     def list_raw(self, processed: Optional[bool] = None, limit: int = 100) -> List[Dict[str, Any]]:
         """List raw entries, optionally filtered by processed state.
@@ -1195,18 +1235,21 @@ class Kernle(
             limit: Maximum entries to return
 
         Returns:
-            List of raw entry dicts
+            List of raw entry dicts with blob as primary content field
         """
         entries = self._storage.list_raw(processed=processed, limit=limit)
         return [
             {
                 "id": e.id,
-                "content": e.content,
-                "timestamp": e.timestamp.isoformat() if e.timestamp else None,
+                "blob": e.blob,  # Primary content field
+                "captured_at": e.captured_at.isoformat() if e.captured_at else None,
                 "source": e.source,
                 "processed": e.processed,
                 "processed_into": e.processed_into,
-                "tags": e.tags,
+                # Legacy fields for backward compatibility
+                "content": e.blob,  # Alias for blob
+                "timestamp": e.captured_at.isoformat() if e.captured_at else None,  # Alias
+                "tags": e.tags,  # Deprecated but included for compatibility
             }
             for e in entries
         ]
@@ -1218,20 +1261,53 @@ class Kernle(
             raw_id: ID of the raw entry
 
         Returns:
-            Raw entry dict or None if not found
+            Raw entry dict with blob as primary content field, or None if not found
         """
         entry = self._storage.get_raw(raw_id)
         if entry:
             return {
                 "id": entry.id,
-                "content": entry.content,
-                "timestamp": entry.timestamp.isoformat() if entry.timestamp else None,
+                "blob": entry.blob,  # Primary content field
+                "captured_at": entry.captured_at.isoformat() if entry.captured_at else None,
                 "source": entry.source,
                 "processed": entry.processed,
                 "processed_into": entry.processed_into,
-                "tags": entry.tags,
+                # Legacy fields for backward compatibility
+                "content": entry.blob,  # Alias for blob
+                "timestamp": entry.captured_at.isoformat() if entry.captured_at else None,
+                "tags": entry.tags,  # Deprecated
             }
         return None
+
+    def search_raw(self, query: str, limit: int = 50) -> List[Dict[str, Any]]:
+        """Search raw entries using keyword search (FTS5).
+
+        This is a safety net for when backlogs accumulate. For semantic search
+        across all memory types, use the regular search() method instead.
+
+        Args:
+            query: FTS5 search query (supports AND, OR, NOT, phrases in quotes)
+            limit: Maximum number of results
+
+        Returns:
+            List of matching raw entry dicts, ordered by relevance.
+        """
+        entries = self._storage.search_raw_fts(query, limit=limit)
+        return [
+            {
+                "id": e.id,
+                "blob": e.blob,
+                "captured_at": e.captured_at.isoformat() if e.captured_at else None,
+                "source": e.source,
+                "processed": e.processed,
+                "processed_into": e.processed_into,
+                # Legacy fields
+                "content": e.blob,
+                "timestamp": e.captured_at.isoformat() if e.captured_at else None,
+                "tags": e.tags,
+            }
+            for e in entries
+        ]
 
     def process_raw(
         self,

@@ -113,24 +113,51 @@ class ConfidenceChange:
 
 @dataclass
 class RawEntry:
-    """A raw memory entry - unstructured capture for later processing."""
+    """A raw memory entry - unstructured blob capture for later processing.
+
+    The raw layer is designed for zero-friction brain dumps. The agent dumps
+    whatever they want into the blob field; the system only tracks housekeeping
+    metadata like when it was captured and whether it's been processed.
+
+    Note: For backward compatibility, blob/captured_at can be None if the legacy
+    content/timestamp fields are provided. New code should always use blob/captured_at.
+    """
 
     id: str
     agent_id: str
-    content: str
-    timestamp: datetime
-    source: str = "manual"
+    # Primary fields (new schema)
+    blob: Optional[str] = None  # The unstructured brain dump - no validation, no length limits
+    captured_at: Optional[datetime] = None  # When the entry was captured
+    source: str = "unknown"  # Auto-populated: cli|mcp|sdk|import|unknown
     processed: bool = False
-    processed_into: Optional[List[str]] = None
-    tags: Optional[List[str]] = None
-    # Standard meta-memory fields
-    confidence: float = 1.0
-    source_type: str = "direct_experience"
+    processed_into: Optional[List[str]] = None  # Audit trail: ["episode:abc", "note:xyz"]
     # Sync fields
     local_updated_at: Optional[datetime] = None
     cloud_synced_at: Optional[datetime] = None
     version: int = 1
     deleted: bool = False
+
+    # DEPRECATED fields - kept for backward compatibility during migration
+    # These will be removed in a future version
+    content: Optional[str] = None  # Use blob instead
+    timestamp: Optional[datetime] = None  # Use captured_at instead
+    tags: Optional[List[str]] = None  # Include in blob text instead
+    confidence: float = 1.0  # Not meaningful for raw dumps
+    source_type: str = "direct_experience"  # Meta-memory concept, not for raw
+
+    def __post_init__(self):
+        """Handle backward compatibility for blob/captured_at."""
+        # If blob is not set but content is, use content as blob
+        if self.blob is None and self.content is not None:
+            self.blob = self.content
+        # If captured_at is not set but timestamp is, use timestamp as captured_at
+        if self.captured_at is None and self.timestamp is not None:
+            self.captured_at = self.timestamp
+        # For backward compatibility, also populate legacy fields from new fields
+        if self.content is None and self.blob is not None:
+            self.content = self.blob
+        if self.timestamp is None and self.captured_at is not None:
+            self.timestamp = self.captured_at
 
 
 @dataclass

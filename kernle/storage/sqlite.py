@@ -413,19 +413,22 @@ CREATE INDEX IF NOT EXISTS idx_playbooks_mastery ON playbooks(mastery_level);
 CREATE INDEX IF NOT EXISTS idx_playbooks_times_used ON playbooks(times_used);
 CREATE INDEX IF NOT EXISTS idx_playbooks_confidence ON playbooks(confidence);
 
--- Raw entries (unstructured capture for later processing)
+-- Raw entries (unstructured blob capture for later processing)
+-- The blob field is the primary storage - unvalidated, high limit brain dumps
 CREATE TABLE IF NOT EXISTS raw_entries (
     id TEXT PRIMARY KEY,
     agent_id TEXT NOT NULL,
-    content TEXT NOT NULL,
-    timestamp TEXT NOT NULL,
-    source TEXT DEFAULT 'manual',
+    blob TEXT NOT NULL,  -- Unstructured brain dump (primary field)
+    captured_at TEXT NOT NULL,  -- When captured (was: timestamp)
+    source TEXT DEFAULT 'unknown',  -- Auto-populated: cli|mcp|sdk|import|unknown
     processed INTEGER DEFAULT 0,
     processed_into TEXT,  -- JSON array of memory refs (type:id)
-    tags TEXT,  -- JSON array
-    -- Meta-memory fields
-    confidence REAL DEFAULT 1.0,
-    source_type TEXT DEFAULT 'direct_experience',
+    -- DEPRECATED columns (kept for migration, will be removed)
+    content TEXT,  -- Use blob instead
+    timestamp TEXT,  -- Use captured_at instead
+    tags TEXT,  -- Include in blob text instead
+    confidence REAL DEFAULT 1.0,  -- Not meaningful for raw
+    source_type TEXT DEFAULT 'direct_experience',  -- Meta-memory, not for raw
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -434,7 +437,13 @@ CREATE TABLE IF NOT EXISTS raw_entries (
 );
 CREATE INDEX IF NOT EXISTS idx_raw_agent ON raw_entries(agent_id);
 CREATE INDEX IF NOT EXISTS idx_raw_processed ON raw_entries(agent_id, processed);
-CREATE INDEX IF NOT EXISTS idx_raw_timestamp ON raw_entries(agent_id, timestamp);
+CREATE INDEX IF NOT EXISTS idx_raw_captured_at ON raw_entries(agent_id, captured_at);
+-- Partial index for anxiety system queries (unprocessed entries)
+CREATE INDEX IF NOT EXISTS idx_raw_unprocessed ON raw_entries(captured_at)
+    WHERE processed = 0 AND deleted = 0;
+
+-- FTS5 virtual table for raw blob keyword search (safety net for backlogs)
+-- Note: FTS5 table is created separately in _ensure_fts5_tables() due to SQLite version differences
 
 -- Memory suggestions (auto-extracted suggestions awaiting review)
 CREATE TABLE IF NOT EXISTS memory_suggestions (
@@ -1043,6 +1052,9 @@ class SQLiteStorage:
                     if "already exists" not in str(e):
                         logger.warning(f"Could not create vector table: {e}")
 
+            # Create FTS5 table for raw blob keyword search
+            self._ensure_raw_fts5(conn)
+
             conn.commit()
 
         # Set secure file permissions (owner read/write only)
@@ -1055,6 +1067,46 @@ class SQLiteStorage:
                 os.chmod(self._agent_dir, 0o700)
         except OSError as e:
             logger.warning(f"Could not set secure permissions: {e}")
+
+    def _ensure_raw_fts5(self, conn: sqlite3.Connection):
+        """Create FTS5 virtual table for raw blob keyword search.
+
+        FTS5 provides fast keyword search on raw blobs as a safety net
+        when backlogs accumulate. This is separate from semantic search.
+        """
+        try:
+            # Check if FTS5 table already exists
+            result = conn.execute("""
+                SELECT name FROM sqlite_master
+                WHERE type='table' AND name='raw_fts'
+            """).fetchone()
+
+            if result is None:
+                # Create FTS5 content table (external content mode)
+                # This links to raw_entries.blob without duplicating data
+                conn.execute("""
+                    CREATE VIRTUAL TABLE raw_fts USING fts5(
+                        blob,
+                        content=raw_entries,
+                        content_rowid=rowid
+                    )
+                """)
+                logger.info("Created raw_fts FTS5 table for keyword search")
+
+                # Populate FTS index from existing data
+                conn.execute("INSERT INTO raw_fts(raw_fts) VALUES('rebuild')")
+                logger.info("Rebuilt raw_fts index")
+
+        except sqlite3.OperationalError as e:
+            # FTS5 might not be available in all SQLite builds
+            if "no such module: fts5" in str(e).lower():
+                logger.warning("FTS5 not available in this SQLite build - keyword search disabled")
+            elif "already exists" in str(e).lower():
+                pass  # Table already exists, that's fine
+            else:
+                logger.warning(f"Could not create FTS5 table: {e}")
+        except Exception as e:
+            logger.warning(f"FTS5 setup failed: {e}")
 
     def _migrate_schema(self, conn: sqlite3.Connection):
         """Run schema migrations for existing databases.
@@ -1317,6 +1369,61 @@ class SQLiteStorage:
                 migrations.append(f"ALTER TABLE {table} ADD COLUMN context TEXT")
             if "context_tags" not in cols:
                 migrations.append(f"ALTER TABLE {table} ADD COLUMN context_tags TEXT")
+
+        # === Raw entries blob migration ===
+        # Migrate from structured content/tags to blob-based storage
+        raw_cols = get_columns("raw_entries")
+        if "raw_entries" in table_names:
+            # Add blob column if it doesn't exist
+            if "blob" not in raw_cols:
+                migrations.append("ALTER TABLE raw_entries ADD COLUMN blob TEXT")
+            # Add captured_at column if it doesn't exist
+            if "captured_at" not in raw_cols:
+                migrations.append("ALTER TABLE raw_entries ADD COLUMN captured_at TEXT")
+
+            # Migrate data from content/tags to blob with natural language format
+            # Only run if blob column exists but has NULL values and content has data
+            if "blob" in raw_cols or "blob" not in raw_cols:
+                # This will run after the ALTER TABLE above
+                try:
+                    # Check if migration is needed (blob is NULL but content exists)
+                    needs_migration = conn.execute("""
+                        SELECT COUNT(*) FROM raw_entries
+                        WHERE (blob IS NULL OR blob = '') AND content IS NOT NULL AND content != ''
+                    """).fetchone()[0]
+
+                    if needs_migration > 0:
+                        # Migrate content + tags to blob in natural language format
+                        conn.execute("""
+                            UPDATE raw_entries SET blob =
+                                content ||
+                                CASE WHEN source IS NOT NULL AND source != 'manual' AND source != '' AND source != 'unknown'
+                                     THEN ' (from ' || source || ')' ELSE '' END ||
+                                CASE WHEN tags IS NOT NULL AND tags != '[]' AND tags != 'null' AND tags != ''
+                                     THEN ' [tags: ' ||
+                                          REPLACE(REPLACE(REPLACE(tags, '["', ''), '"]', ''), '","', ', ') ||
+                                          ']'
+                                     ELSE '' END
+                            WHERE (blob IS NULL OR blob = '') AND content IS NOT NULL
+                        """)
+                        # Copy timestamp to captured_at
+                        conn.execute("""
+                            UPDATE raw_entries SET captured_at = timestamp
+                            WHERE captured_at IS NULL AND timestamp IS NOT NULL
+                        """)
+                        # Normalize source to enum values
+                        conn.execute("""
+                            UPDATE raw_entries SET source =
+                                CASE
+                                    WHEN source IN ('cli', 'mcp', 'sdk', 'import') THEN source
+                                    WHEN source = 'manual' THEN 'cli'
+                                    WHEN source LIKE '%auto%' THEN 'sdk'
+                                    ELSE 'unknown'
+                                END
+                        """)
+                        logger.info(f"Migrated {needs_migration} raw entries to blob format")
+                except Exception as e:
+                    logger.warning(f"Raw blob migration check failed: {e}")
 
         # Create health_check_events table if it doesn't exist
         if "health_check_events" not in table_names:
@@ -3040,66 +3147,179 @@ class SQLiteStorage:
     # === Raw Entries ===
 
     def save_raw(
-        self, content: str, source: str = "manual", tags: Optional[List[str]] = None
+        self,
+        blob: Optional[str] = None,
+        source: str = "unknown",
+        # DEPRECATED parameters - kept for backward compatibility
+        content: Optional[str] = None,
+        tags: Optional[List[str]] = None,
     ) -> str:
         """Save a raw entry for later processing.
 
-        Writes to both:
-        1. Flat markdown file (human-readable, greppable, git-friendly)
-        2. SQLite database (for indexing and search)
+        The raw layer is designed for zero-friction brain dumps. The agent dumps
+        whatever they want into the blob field; the system only tracks housekeeping
+        metadata.
+
+        Args:
+            blob: The raw brain dump content (primary parameter).
+            source: Auto-populated source identifier (cli|mcp|sdk|import|unknown).
+
+        Deprecated Args:
+            content: Use blob instead. Will be removed in future version.
+            tags: Include tags in blob text instead. Will be removed in future version.
+
+        Returns:
+            The raw entry ID.
         """
+        import warnings
+
+        # Handle deprecated parameters
+        if content is not None:
+            warnings.warn(
+                "The 'content' parameter is deprecated. Use 'blob' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            if blob is None:
+                blob = content
+
+        if tags is not None:
+            warnings.warn(
+                "The 'tags' parameter is deprecated. Include tags in blob text instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+        if blob is None:
+            raise ValueError("blob parameter is required")
+
+        # Normalize source to valid enum values
+        valid_sources = {"cli", "mcp", "sdk", "import", "unknown"}
+        if source == "manual":
+            source = "cli"
+        elif source not in valid_sources:
+            if "auto" in source.lower():
+                source = "sdk"
+            else:
+                source = "unknown"
+
+        # Size warnings (don't reject, let anxiety system handle)
+        blob_size = len(blob.encode("utf-8"))
+        if blob_size > 50 * 1024 * 1024:  # 50MB - reject
+            raise ValueError(
+                f"Raw entry too large ({blob_size / 1024 / 1024:.1f}MB). "
+                "Consider breaking into smaller chunks or processing immediately."
+            )
+        elif blob_size > 10 * 1024 * 1024:  # 10MB
+            logger.warning(f"Extremely large raw entry ({blob_size / 1024 / 1024:.1f}MB)")
+        elif blob_size > 1 * 1024 * 1024:  # 1MB
+            logger.warning(f"Very large raw entry ({blob_size / 1024:.0f}KB) - consider processing")
+        elif blob_size > 100 * 1024:  # 100KB
+            logger.info(f"Large raw entry ({blob_size / 1024:.0f}KB)")
+
         raw_id = str(uuid.uuid4())
         now = self._now()
 
-        # 1. Write to flat file first (source of truth)
-        self._append_raw_to_file(raw_id, content, now, source, tags)
+        # 1. Write to flat file (blob acts as flat file content)
+        self._append_raw_to_file(raw_id, blob, now, source, tags)
 
-        # 2. Index in SQLite
+        # 2. Index in SQLite with both blob and legacy columns for compatibility
         with self._connect() as conn:
             conn.execute(
                 """
                 INSERT INTO raw_entries
-                (id, agent_id, content, timestamp, source, processed, processed_into, tags,
-                 confidence, source_type, local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (id, agent_id, blob, captured_at, source, processed, processed_into,
+                 content, timestamp, tags, confidence, source_type,
+                 local_updated_at, cloud_synced_at, version, deleted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     raw_id,
                     self.agent_id,
-                    content,
-                    now,
+                    blob,  # Primary blob field
+                    now,  # captured_at
                     source,
                     0,  # processed = False
                     None,  # processed_into
-                    self._to_json(tags),
-                    1.0,  # confidence
-                    "direct_experience",
+                    blob,  # Legacy content field (same as blob for new entries)
+                    now,  # Legacy timestamp field (same as captured_at)
+                    self._to_json(tags),  # Legacy tags field
+                    1.0,  # confidence (deprecated)
+                    "direct_experience",  # source_type (deprecated)
                     now,
                     None,
                     1,
                     0,
                 ),
             )
-            # Queue for sync with record data
-            raw_data = self._to_json(
-                {
-                    "id": raw_id,
-                    "agent_id": self.agent_id,
-                    "content": content,
-                    "timestamp": now,
-                    "source": source,
-                    "processed": False,
-                    "tags": tags,
-                }
-            )
-            self._queue_sync(conn, "raw_entries", raw_id, "upsert", data=raw_data)
 
-            # Save embedding for search
-            self._save_embedding(conn, "raw_entries", raw_id, content)
+            # Update FTS index for keyword search
+            self._update_raw_fts(conn, raw_id, blob)
+
+            # Queue for sync (if raw sync is enabled - off by default)
+            if self._should_sync_raw():
+                raw_data = self._to_json(
+                    {
+                        "id": raw_id,
+                        "agent_id": self.agent_id,
+                        "blob": blob,
+                        "captured_at": now,
+                        "source": source,
+                        "processed": False,
+                    }
+                )
+                self._queue_sync(conn, "raw_entries", raw_id, "upsert", data=raw_data)
+
+            # Save embedding for search (on blob content)
+            self._save_embedding(conn, "raw_entries", raw_id, blob)
 
             conn.commit()
 
         return raw_id
+
+    def _should_sync_raw(self) -> bool:
+        """Check if raw entries should be synced to cloud.
+
+        Raw sync is OFF by default for security (raw blobs often contain
+        accidental secrets). Users must explicitly enable it.
+        """
+        import os
+
+        # Check environment variable
+        raw_sync_env = os.environ.get("KERNLE_RAW_SYNC", "").lower()
+        if raw_sync_env in ("true", "1", "yes", "on"):
+            return True
+        if raw_sync_env in ("false", "0", "no", "off"):
+            return False
+
+        # Check config file
+        config_path = Path.home() / ".kernle" / "config.json"
+        if config_path.exists():
+            try:
+                with open(config_path) as f:
+                    config = json.load(f)
+                    return config.get("sync", {}).get("raw", False)
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        # Default: OFF for security
+        return False
+
+    def _update_raw_fts(self, conn: sqlite3.Connection, raw_id: str, blob: str):
+        """Update FTS5 index for a raw entry."""
+        try:
+            # Get rowid for the entry
+            result = conn.execute(
+                "SELECT rowid FROM raw_entries WHERE id = ?", (raw_id,)
+            ).fetchone()
+            if result:
+                rowid = result[0]
+                # Insert into FTS index
+                conn.execute("INSERT INTO raw_fts(rowid, blob) VALUES (?, ?)", (rowid, blob))
+        except sqlite3.OperationalError as e:
+            # FTS5 might not be available
+            if "no such table" not in str(e).lower():
+                logger.debug(f"FTS update failed: {e}")
 
     def _append_raw_to_file(
         self,
@@ -3318,13 +3538,70 @@ class SQLiteStorage:
             query += " AND processed = ?"
             params.append(1 if processed else 0)
 
-        query += " ORDER BY timestamp DESC LIMIT ?"
+        # Use COALESCE to handle both new (captured_at) and legacy (timestamp) schemas
+        query += " ORDER BY COALESCE(captured_at, timestamp) DESC LIMIT ?"
         params.append(limit)
 
         with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
 
         return [self._row_to_raw_entry(row) for row in rows]
+
+    def search_raw_fts(self, query: str, limit: int = 50) -> List[RawEntry]:
+        """Search raw entries using FTS5 keyword search.
+
+        This is a safety net for when backlogs accumulate. For semantic search,
+        use the regular search() method instead.
+
+        Args:
+            query: FTS5 search query (supports AND, OR, NOT, phrases in quotes)
+            limit: Maximum number of results
+
+        Returns:
+            List of matching RawEntry objects, ordered by relevance.
+        """
+        with self._connect() as conn:
+            try:
+                # FTS5 MATCH query with relevance ranking
+                rows = conn.execute(
+                    """
+                    SELECT r.* FROM raw_entries r
+                    JOIN raw_fts f ON r.rowid = f.rowid
+                    WHERE r.agent_id = ? AND r.deleted = 0
+                    AND raw_fts MATCH ?
+                    ORDER BY rank
+                    LIMIT ?
+                    """,
+                    (self.agent_id, query, limit),
+                ).fetchall()
+                return [self._row_to_raw_entry(row) for row in rows]
+            except sqlite3.OperationalError as e:
+                # FTS5 not available, fall back to LIKE search
+                if "no such table" in str(e).lower() or "fts5" in str(e).lower():
+                    logger.debug("FTS5 not available, using LIKE fallback")
+                    # Escape LIKE pattern special characters to prevent pattern injection
+                    escaped_query = self._escape_like_pattern(query)
+                    # Use COALESCE to search both blob and content fields
+                    rows = conn.execute(
+                        """
+                        SELECT * FROM raw_entries
+                        WHERE agent_id = ? AND deleted = 0
+                        AND (COALESCE(blob, content, '') LIKE ? ESCAPE '\\')
+                        ORDER BY COALESCE(captured_at, timestamp) DESC
+                        LIMIT ?
+                        """,
+                        (self.agent_id, f"%{escaped_query}%", limit),
+                    ).fetchall()
+                    return [self._row_to_raw_entry(row) for row in rows]
+                raise
+
+    def _escape_like_pattern(self, pattern: str) -> str:
+        """Escape LIKE pattern special characters to prevent pattern injection.
+
+        LIKE pattern metacharacters (%, _, [) can be exploited to alter search
+        behavior unexpectedly or cause performance issues.
+        """
+        return pattern.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
     def mark_raw_processed(self, raw_id: str, processed_into: List[str]) -> bool:
         """Mark a raw entry as processed into other memories."""
@@ -3370,22 +3647,37 @@ class SQLiteStorage:
         return False
 
     def _row_to_raw_entry(self, row: sqlite3.Row) -> RawEntry:
-        """Convert a row to a RawEntry."""
+        """Convert a row to a RawEntry.
+
+        Handles both new (blob/captured_at) and legacy (content/timestamp) schemas.
+        """
+        # Get blob - prefer blob field, fall back to content for legacy data
+        blob = self._safe_get(row, "blob", None) or self._safe_get(row, "content", "")
+
+        # Get captured_at - prefer captured_at, fall back to timestamp for legacy data
+        captured_at_str = self._safe_get(row, "captured_at", None) or self._safe_get(
+            row, "timestamp", None
+        )
+        captured_at = self._parse_datetime(captured_at_str)
+
         return RawEntry(
             id=row["id"],
             agent_id=row["agent_id"],
-            content=row["content"],
-            timestamp=self._parse_datetime(row["timestamp"]),
+            blob=blob,
+            captured_at=captured_at,
             source=row["source"],
             processed=bool(row["processed"]),
             processed_into=self._from_json(row["processed_into"]),
-            tags=self._from_json(row["tags"]),
-            confidence=self._safe_get(row, "confidence", 1.0),
-            source_type=self._safe_get(row, "source_type", "direct_experience"),
             local_updated_at=self._parse_datetime(row["local_updated_at"]),
             cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
             version=row["version"],
             deleted=bool(row["deleted"]),
+            # Legacy fields (deprecated)
+            content=self._safe_get(row, "content", None),
+            timestamp=self._parse_datetime(self._safe_get(row, "timestamp", None)),
+            tags=self._from_json(self._safe_get(row, "tags", None)),
+            confidence=self._safe_get(row, "confidence", 1.0),
+            source_type=self._safe_get(row, "source_type", "direct_experience"),
         )
 
     # === Memory Suggestions ===

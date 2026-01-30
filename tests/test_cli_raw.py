@@ -191,9 +191,9 @@ class TestCmdRawCapture:
 
         cmd_raw(args, k)
 
-        # Verify content came from stdin
+        # Verify content came from stdin (new API uses keyword arguments)
         call_args = k.raw.call_args
-        assert "content from stdin" in call_args[0][0]
+        assert "content from stdin" in call_args.kwargs.get("blob", "")
         captured = capsys.readouterr()
         assert "✓ Raw entry captured" in captured.out
 

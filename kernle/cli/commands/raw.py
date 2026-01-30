@@ -60,12 +60,14 @@ def cmd_raw(args, k: "Kernle"):
                     print("✗ Content is required (use --stdin to read from stdin)")
                 return
 
-        content = validate_input(content, "content", 10000)  # Allow larger content for auto-capture
+        # Note: blob has no length limit - let the storage layer handle size warnings
+        blob = content  # Use the content as the blob
         tags = [validate_input(t, "tag", 100) for t in (args.tags.split(",") if args.tags else [])]
         tags = [t.strip() for t in tags if t.strip()]
         source = getattr(args, "source", None) or "cli"
 
-        raw_id = k.raw(content, tags=tags if tags else None, source=source)
+        # Deprecation: tags parameter is deprecated, include in blob text instead
+        raw_id = k.raw(blob=blob, source=source, tags=tags if tags else None)
 
         # Quiet mode: minimal output for hook usage
         if quiet:
@@ -99,13 +101,17 @@ def cmd_raw(args, k: "Kernle"):
             print("=" * 50)
             for e in entries:
                 status = "✓" if e["processed"] else "○"
-                timestamp = e["timestamp"][:16] if e["timestamp"] else "unknown"
-                content_preview = e["content"][:60].replace("\n", " ")
-                if len(e["content"]) > 60:
-                    content_preview += "..."
-                print(f"\n{status} [{e['id'][:8]}] {timestamp}")
-                print(f"  {content_preview}")
-                if e["tags"]:
+                # Use captured_at (new) with timestamp (legacy) as fallback
+                captured = e.get("captured_at") or e.get("timestamp") or ""
+                captured_str = captured[:16] if captured else "unknown"
+                # Use blob (new) with content (legacy) as fallback
+                blob = e.get("blob") or e.get("content") or ""
+                blob_preview = blob[:60].replace("\n", " ")
+                if len(blob) > 60:
+                    blob_preview += "..."
+                print(f"\n{status} [{e['id'][:8]}] {captured_str}")
+                print(f"  {blob_preview}")
+                if e.get("tags"):
                     print(f"  Tags: {', '.join(e['tags'])}")
                 if e["processed"] and e["processed_into"]:
                     print(f"  → {', '.join(e['processed_into'])}")
@@ -126,16 +132,18 @@ def cmd_raw(args, k: "Kernle"):
             print(json.dumps(entry, indent=2, default=str))
         else:
             status = "✓ Processed" if entry["processed"] else "○ Unprocessed"
+            captured = entry.get("captured_at") or entry.get("timestamp") or "unknown"
+            blob = entry.get("blob") or entry.get("content") or ""
             print(f"Raw Entry: {entry['id']}")
             print(f"Status: {status}")
-            print(f"Timestamp: {entry['timestamp']}")
+            print(f"Captured: {captured}")
             print(f"Source: {entry['source']}")
-            if entry["tags"]:
-                print(f"Tags: {', '.join(entry['tags'])}")
+            if entry.get("tags"):
+                print(f"Tags: {', '.join(entry['tags'])} (deprecated)")
             print()
             print("Content:")
             print("-" * 40)
-            print(entry["content"])
+            print(blob)
             print("-" * 40)
             if entry["processed_into"]:
                 print(f"\nProcessed into: {', '.join(entry['processed_into'])}")
@@ -185,16 +193,18 @@ def cmd_raw(args, k: "Kernle"):
         print("=" * 60)
 
         for i, e in enumerate(entries, 1):
-            timestamp = e["timestamp"][:16] if e["timestamp"] else "unknown"
-            print(f"\n[{i}/{len(entries)}] {timestamp} - ID: {e['id'][:8]}")
+            captured = e.get("captured_at") or e.get("timestamp") or ""
+            captured_str = captured[:16] if captured else "unknown"
+            blob = e.get("blob") or e.get("content") or ""
+            print(f"\n[{i}/{len(entries)}] {captured_str} - ID: {e['id'][:8]}")
             print("-" * 40)
-            print(e["content"])
+            print(blob)
             print("-" * 40)
-            if e["tags"]:
-                print(f"Tags: {', '.join(e['tags'])}")
+            if e.get("tags"):
+                print(f"Tags: {', '.join(e['tags'])} (deprecated)")
 
-            # Provide promotion suggestions based on content
-            content_lower = e["content"].lower()
+            # Provide promotion suggestions based on blob content
+            content_lower = blob.lower()
             suggestions = []
             if any(
                 word in content_lower for word in ["learned", "lesson", "realized", "discovered"]
@@ -250,15 +260,17 @@ def cmd_raw(args, k: "Kernle"):
 
         def is_junk(entry):
             """Detect likely junk entries."""
-            content = entry.get("content", "").strip().lower()
+            # Use blob (new) with content (legacy) as fallback
+            blob = entry.get("blob") or entry.get("content", "")
+            blob = blob.strip().lower()
             # Very short content
-            if len(content) < 10:
+            if len(blob) < 10:
                 return True
             # Exact match to junk keywords
-            if content in junk_keywords:
+            if blob in junk_keywords:
                 return True
             # Starts with test-like patterns
-            if content.startswith(("test ", "testing ")):
+            if blob.startswith(("test ", "testing ")):
                 return True
             return False
 
@@ -274,7 +286,8 @@ def cmd_raw(args, k: "Kernle"):
             # Check age for stale entries
             if not junk_mode:
                 try:
-                    ts = entry.get("timestamp", "")
+                    # Use captured_at (new) with timestamp (legacy) as fallback
+                    ts = entry.get("captured_at") or entry.get("timestamp", "")
                     if ts:
                         entry_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
                         if entry_time < cutoff:
@@ -292,11 +305,13 @@ def cmd_raw(args, k: "Kernle"):
         print(f"Found {len(target_entries)} entries ({label}):\n")
 
         for entry in target_entries[:15]:  # Show max 15
-            timestamp = entry["timestamp"][:10] if entry["timestamp"] else "unknown"
-            content_preview = entry["content"][:50].replace("\n", " ")
-            if len(entry["content"]) > 50:
-                content_preview += "..."
-            print(f"  [{entry['id'][:8]}] {timestamp}: {content_preview}")
+            captured = entry.get("captured_at") or entry.get("timestamp") or ""
+            captured_str = captured[:10] if captured else "unknown"
+            blob = entry.get("blob") or entry.get("content") or ""
+            blob_preview = blob[:50].replace("\n", " ")
+            if len(blob) > 50:
+                blob_preview += "..."
+            print(f"  [{entry['id'][:8]}] {captured_str}: {blob_preview}")
 
         if len(target_entries) > 15:
             print(f"  ... and {len(target_entries) - 15} more")
@@ -333,18 +348,19 @@ def cmd_raw(args, k: "Kernle"):
             return
 
         target_type = args.type
-        content = entry["content"]
+        # Use blob (new) with content (legacy) as fallback
+        blob = entry.get("blob") or entry.get("content") or ""
 
         if target_type == "episode":
-            objective = args.objective or content[:100]
+            objective = args.objective or blob[:100]
             outcome = args.outcome or "Promoted from raw capture"
             result_id = k.episode(objective=objective, outcome=outcome, tags=["promoted"])
             print(f"✓ Promoted to episode: {result_id[:8]}...")
         elif target_type == "note":
-            result_id = k.note(content=content, type="note", tags=["promoted"])
+            result_id = k.note(content=blob, type="note", tags=["promoted"])
             print(f"✓ Promoted to note: {result_id[:8]}...")
         elif target_type == "belief":
-            result_id = k.belief(statement=content, confidence=0.7)
+            result_id = k.belief(statement=blob, confidence=0.7)
             print(f"✓ Promoted to belief: {result_id[:8]}...")
 
         # Mark as processed
@@ -367,15 +383,17 @@ def cmd_raw(args, k: "Kernle"):
         print()
 
         for entry in entries:
-            content = entry["content"]
-            timestamp = entry["timestamp"][:16] if entry["timestamp"] else "unknown"
+            # Use blob (new) with content (legacy) as fallback
+            blob = entry.get("blob") or entry.get("content") or ""
+            captured = entry.get("captured_at") or entry.get("timestamp") or ""
+            captured_str = captured[:16] if captured else "unknown"
 
             # Auto-suggest based on content analysis
             suggestion = "S"  # default skip
-            content_lower = content.lower()
+            content_lower = blob.lower()
 
             # Junk detection
-            if len(content.strip()) < 10 or content_lower in ["test", "list", "show", "help"]:
+            if len(blob.strip()) < 10 or content_lower in ["test", "list", "show", "help"]:
                 suggestion = "D"
             # Session summaries / work logs → Episode
             elif any(
@@ -403,8 +421,8 @@ def cmd_raw(args, k: "Kernle"):
                 "S": "Skip",
             }
 
-            print(f"[{entry['id'][:8]}] {timestamp}")
-            print(f"  {content[:200]}{'...' if len(content) > 200 else ''}")
+            print(f"[{entry['id'][:8]}] {captured_str}")
+            print(f"  {blob[:200]}{'...' if len(blob) > 200 else ''}")
             print(f"  → Suggested: {suggestion_labels[suggestion]}")
             print()
             print(f"  To act: kernle raw promote {entry['id'][:8]} --type <episode|note|belief>")

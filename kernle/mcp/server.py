@@ -471,6 +471,19 @@ def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         elif name == "memory_suggestions_extract":
             sanitized["limit"] = int(validate_number(arguments.get("limit"), "limit", 1, 200, 50))
 
+        elif name == "memory_raw":
+            # Blob has no length limit - raw capture is intentionally permissive
+            # Still sanitize to remove null bytes and control characters
+            sanitized["blob"] = sanitize_string(
+                arguments.get("blob"), "blob", max_length=1_000_000, required=True
+            )
+
+        elif name == "memory_raw_search":
+            sanitized["query"] = sanitize_string(
+                arguments.get("query"), "query", max_length=1000, required=True
+            )
+            sanitized["limit"] = int(validate_number(arguments.get("limit"), "limit", 1, 500, 50))
+
         else:
             raise ValueError(f"Unknown tool: {name}")
 
@@ -838,8 +851,41 @@ TOOLS = [
         },
     ),
     Tool(
+        name="memory_raw",
+        description="Capture raw brain dump to memory. Zero-friction capture - dump whatever you want without structure or validation. The blob can contain thoughts, code snippets, context, emotions - anything. Process it later.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "blob": {
+                    "type": "string",
+                    "description": "Raw brain dump content - no structure, no validation, no length limits",
+                },
+            },
+            "required": ["blob"],
+        },
+    ),
+    Tool(
+        name="memory_raw_search",
+        description="Search raw entries using keyword search (FTS5). Safety net for when raw entry backlogs accumulate.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "FTS5 search query (supports AND, OR, NOT, phrases in quotes)",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum results (default: 50)",
+                    "default": 50,
+                },
+            },
+            "required": ["query"],
+        },
+    ),
+    Tool(
         name="memory_auto_capture",
-        description="Automatically capture text to raw memory layer. Useful for hook-based auto-capture at session end or after significant events.",
+        description="(DEPRECATED: Use memory_raw instead) Capture text to raw memory layer with optional suggestion extraction.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -1401,15 +1447,72 @@ Goals:      {status["goals"]} active
 Episodes:   {status["episodes"]}
 Checkpoint: {"Yes" if status["checkpoint"] else "No"}"""
 
+        elif name == "memory_raw":
+            # New simplified raw capture - just blob, source is auto-detected as "mcp"
+            blob = sanitized_args["blob"]
+            capture_id = k.raw(blob=blob, source="mcp")
+            result = json.dumps(
+                {
+                    "captured": True,
+                    "id": capture_id[:8],
+                    "full_id": capture_id,
+                    "source": "mcp",
+                },
+                indent=2,
+            )
+
+        elif name == "memory_raw_search":
+            # FTS5 keyword search on raw entries
+            query = sanitized_args["query"]
+            limit = sanitized_args.get("limit", 50)
+            entries = k.search_raw(query, limit=limit)
+
+            if not entries:
+                result = json.dumps({"results": [], "query": query, "total": 0}, indent=2)
+            else:
+                results = []
+                for e in entries:
+                    results.append(
+                        {
+                            "id": e["id"][:8],
+                            "blob_preview": (
+                                e["blob"][:200] + "..." if len(e["blob"]) > 200 else e["blob"]
+                            ),
+                            "captured_at": e.get("captured_at"),
+                            "source": e.get("source"),
+                            "processed": e.get("processed"),
+                        }
+                    )
+                result = json.dumps(
+                    {
+                        "results": results,
+                        "query": query,
+                        "total": len(results),
+                    },
+                    indent=2,
+                )
+
         elif name == "memory_auto_capture":
             source = sanitized_args.get("source", "auto")
+            # Normalize source to valid enum values
+            if source not in {"cli", "mcp", "sdk", "import", "unknown"}:
+                if "auto" in source.lower():
+                    source = "mcp"  # MCP tool is auto-capture
+                else:
+                    source = "mcp"
             extract_suggestions = sanitized_args.get("extract_suggestions", False)
 
-            # Capture to raw layer with source tracking
+            # Get the blob content (was 'text', mapping to new 'blob' parameter)
+            blob = sanitized_args["text"]
+            if sanitized_args.get("context"):
+                # Append context to blob if provided
+                blob = f"{blob}\n\n[Context: {sanitized_args['context']}]"
+
+            # Capture to raw layer using new blob parameter
+            # Note: tags parameter is deprecated but kept for backward compatibility
             capture_id = k.raw(
-                content=sanitized_args["text"],
+                blob=blob,
                 source=source,
-                tags=["auto-capture"] if source == "auto" else [f"auto-capture:{source}"],
             )
 
             if extract_suggestions:

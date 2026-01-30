@@ -51,7 +51,8 @@ class TestRawEntryDataclass:
             timestamp=datetime.now(timezone.utc),
         )
 
-        assert entry.source == "manual"
+        # Source default changed from "manual" to "unknown" in raw layer refactor
+        assert entry.source == "unknown"
         assert entry.processed is False
         assert entry.processed_into is None
         assert entry.tags is None
@@ -59,6 +60,9 @@ class TestRawEntryDataclass:
         assert entry.source_type == "direct_experience"
         assert entry.version == 1
         assert entry.deleted is False
+        # Verify backward compat: content/timestamp populate blob/captured_at
+        assert entry.blob == "Test content"
+        assert entry.captured_at is not None
 
     def test_raw_entry_full(self):
         """Test RawEntry with all fields."""
@@ -102,11 +106,21 @@ class TestSQLiteStorageRaw:
         assert entry.tags == ["dev", "idea"]
 
     def test_save_raw_with_source(self, storage):
-        """Test save_raw with custom source."""
+        """Test save_raw with custom source (valid enum value)."""
+        # Note: source is now normalized to valid enum values: cli, mcp, sdk, import, unknown
+        # "voice" is not a valid enum value, so use "cli" instead
+        raw_id = storage.save_raw("Test content", source="cli")
+        entry = storage.get_raw(raw_id)
+
+        assert entry.source == "cli"
+
+    def test_save_raw_with_invalid_source(self, storage):
+        """Test save_raw normalizes invalid source to unknown."""
         raw_id = storage.save_raw("Test content", source="voice")
         entry = storage.get_raw(raw_id)
 
-        assert entry.source == "voice"
+        # Invalid source values are normalized to "unknown"
+        assert entry.source == "unknown"
 
     def test_get_raw_not_found(self, storage):
         """Test get_raw returns None for non-existent entry."""
@@ -195,11 +209,12 @@ class TestKernleRaw:
         assert entry["tags"] == ["dev", "idea"]
 
     def test_raw_with_source(self, kernle):
-        """Test raw() with custom source."""
-        raw_id = kernle.raw("Voice note", source="voice")
+        """Test raw() with custom source (valid enum value)."""
+        # Note: source is normalized to valid enum values: cli, mcp, sdk, import, unknown
+        raw_id = kernle.raw("SDK note", source="sdk")
 
         entry = kernle.get_raw(raw_id)
-        assert entry["source"] == "voice"
+        assert entry["source"] == "sdk"
 
     def test_list_raw_returns_dicts(self, kernle):
         """Test list_raw returns list of dicts."""
@@ -423,12 +438,15 @@ class TestCLIRaw:
         """Test raw capture command."""
         import argparse
 
-        from kernle.cli.__main__ import cmd_raw
+        from kernle.cli.commands.raw import cmd_raw
 
         args = argparse.Namespace(
             raw_action=None,
             content="Quick thought",
             tags="dev,idea",
+            source=None,
+            quiet=False,
+            stdin=False,
         )
 
         with patch("sys.stdout"):
@@ -436,9 +454,10 @@ class TestCLIRaw:
 
         mock_kernle.raw.assert_called_once()
         call_args = mock_kernle.raw.call_args
-        assert call_args[0][0] == "Quick thought"
-        assert "dev" in call_args[1]["tags"]
-        assert "idea" in call_args[1]["tags"]
+        # New API uses keyword arguments: blob=..., source=..., tags=...
+        assert call_args.kwargs.get("blob") == "Quick thought"
+        assert "dev" in call_args.kwargs.get("tags", [])
+        assert "idea" in call_args.kwargs.get("tags", [])
 
     def test_cmd_raw_list(self, mock_kernle):
         """Test raw list command."""
