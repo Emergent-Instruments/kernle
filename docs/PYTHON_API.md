@@ -113,41 +113,46 @@ k = Kernle(
 
 ### Memory Loading
 
-#### `load(token_budget=8000, max_item_chars=500, truncate=True, include_checkpoint=True)`
+#### `load(budget=8000, truncate=True, max_item_chars=500, sync=None, track_access=True)`
 
 Load memories within a token budget. This is the primary method for retrieving your agent's memories efficiently.
 
 **Parameters:**
-- `token_budget` (int): Maximum tokens to use (default: 8000, max: 50000, min: 100)
-- `max_item_chars` (int): Maximum characters per memory item before truncation (default: 500)
+- `budget` (int): Maximum tokens to use (default: 8000, max: 50000, min: 100)
 - `truncate` (bool): Whether to truncate long items (default: True)
-- `include_checkpoint` (bool): Whether to load the most recent checkpoint (default: True)
+- `max_item_chars` (int): Maximum characters per memory item before truncation (default: 500)
+- `sync` (bool, optional): Force sync before loading. If None, uses auto-sync setting.
+- `track_access` (bool): Whether to record access for salience tracking (default: True). Set to False for internal operations.
 
-**Returns:** Dict with memory data organized by type
+**Returns:** Dict with memory data organized by type, plus `_meta` with budget information
 
 **Example:**
 
 ```python
 # Load memories within an 8000 token budget
-memory = k.load(token_budget=8000)
+memory = k.load(budget=8000)
 
 # Access different memory types
 print(f"Values: {len(memory['values'])}")
 print(f"Beliefs: {len(memory['beliefs'])}")
 print(f"Goals: {len(memory['goals'])}")
 
-# Load with larger budget and no truncation
-memory = k.load(token_budget=20000, truncate=False)
+# Check budget usage via _meta
+meta = memory.get('_meta', {})
+print(f"Budget used: {meta.get('budget_used')}/{meta.get('budget_total')}")
+print(f"Memories excluded: {meta.get('excluded_count')}")
 
-# Just get checkpoint if needed
-memory = k.load(token_budget=1000, include_checkpoint=True)
-checkpoint = memory.get('checkpoint')
+# Load with larger budget and no truncation
+memory = k.load(budget=20000, truncate=False)
+
+# Load without tracking access (for internal operations)
+memory = k.load(budget=6000, track_access=False)
 ```
 
 **Memory Structure:**
 ```python
 {
-    "checkpoint": {...},  # Most recent checkpoint (if include_checkpoint=True)
+    "checkpoint": {...},  # Most recent checkpoint
     "values": [...],      # Core principles and priorities
     "beliefs": [...],     # Facts and knowledge
     "goals": [...],       # Active goals
@@ -155,16 +160,18 @@ checkpoint = memory.get('checkpoint')
     "episodes": [...],    # Recent experiences
     "notes": [...],       # Quick notes and observations
     "relationships": [...],  # Social connections
-    "token_usage": 7234,  # Actual tokens used
-    "budget_remaining": 766,
-    "has_more": {         # Whether more memories exist
-        "values": False,
-        "beliefs": True,
-        "goals": False,
-        ...
+    "_meta": {            # Budget and selection metadata
+        "budget_used": 5234,      # Tokens actually consumed
+        "budget_total": 8000,     # Original budget requested
+        "excluded_count": 47      # Memories that couldn't fit
     }
 }
 ```
+
+**Note:** When `excluded_count` is high, consider:
+- Increasing your budget
+- Running `k.consolidate()` to compress episodes into beliefs
+- Using `k.forget_candidates()` to identify low-salience memories
 
 ---
 

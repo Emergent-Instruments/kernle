@@ -140,19 +140,13 @@ GET  /memories/search   - Search own memories (cloud-side)
 
 ## Current Blockers
 
-### Bug: `memory_drive` validation
+*No current blockers.*
 
-In `kernle/mcp/server.py` line ~183:
-```python
-# BUG: validate_enum() doesn't accept 'required' parameter
-sanitized["drive_type"] = validate_enum(
-    arguments.get("drive_type"), "drive_type",
-    ["existence", "growth", "curiosity", "connection", "reproduction"],
-    required=True  # <-- This breaks
-)
-```
+### ~~Bug: `memory_drive` validation~~ ✅ FIXED
 
-**Fix**: Remove `required=True`, validate_enum already raises for None when no default.
+~~In `kernle/mcp/server.py` line ~183: `required=True` parameter not supported.~~
+
+**Status:** Fixed - now uses `default=None` which properly validates the enum.
 
 ---
 

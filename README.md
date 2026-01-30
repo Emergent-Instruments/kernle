@@ -85,7 +85,7 @@ cat dev/README.md
 
 ## Status
 
-- **Tests:** 771 passing
+- **Tests:** 1292 passing
 - **Coverage:** 57%
 - **Backend:** Railway + Supabase
 - **Docs:** Mintlify
