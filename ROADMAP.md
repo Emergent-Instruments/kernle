@@ -614,40 +614,86 @@ GET  /billing/invoices      - User's invoice history
 
 **Status:** 🔥 Immediate Priority
 
+**Test case:** Claire (has active Kernle + legacy Clawdbot files, perfect for validation)
+
 Clawdbot stores memory across multiple files that accumulate over time:
 
-| Source File | Content | Maps to Kernle |
-|-------------|---------|----------------|
-| `MEMORY.md` | Curated long-term memories | Beliefs, episodes |
-| `memory/YYYY-MM-DD.md` | Daily session notes | Episodes, raw entries |
-| `SOUL.md` | Personality, tone, values | Values, drives |
-| `USER.md` | User preferences | Notes |
-| `AGENTS.md` | Session instructions | Keep as boot sequence |
+| Source File | Content | Maps to Kernle | Post-Migration |
+|-------------|---------|----------------|----------------|
+| `MEMORY.md` | Curated long-term memories | Beliefs, episodes | Stub with Kernle pointer |
+| `memory/YYYY-MM-DD.md` | Daily session notes | Episodes, raw entries | Stub or archive |
+| `SOUL.md` | Personality, tone, values | Values, drives | **Keep as-is** (boot sequence) |
+| `USER.md` | User preferences | Notes | **Keep as-is** (boot sequence) |
+| `AGENTS.md` | Session instructions | N/A | **Keep as-is** (boot sequence) |
+
+**Key insight:** `SOUL.md`, `USER.md`, and `AGENTS.md` are boot sequence files that Clawdbot loads. Keep them as real files. Only stub `MEMORY.md` and daily notes.
 
 **CLI Command:**
 ```bash
-# Full migration
-kernle migrate from-clawdbot ~/.clawdbot/agents/<agent>/
+# Preview what would be imported (REQUIRED first step)
+kernle migrate from-clawdbot ~/clawd/ --dry-run
 
-# Or from a clawd workspace
+# Full migration
 kernle migrate from-clawdbot ~/clawd/
 
-# Preview without importing
-kernle migrate from-clawdbot ~/clawd/ --dry-run
+# Skip already-migrated items
+kernle migrate from-clawdbot ~/clawd/ --skip-duplicates
+```
+
+**Dry-run output example:**
+```
+Analyzing ~/clawd/...
+
+SOUL.md (1.7KB):
+  ✓ Value: "authenticity" (confidence: 0.95)
+  ✓ Value: "memory_sovereignty" (confidence: 0.92)
+  ✓ Drive: "curiosity" (confidence: 0.88)
+  ⚠ Instruction (skipped): "be concise" (confidence: 0.85)
+
+MEMORY.md (4.4KB):
+  ✓ Belief: "Local-first memory is more reliable..." (confidence: 0.91)
+  ✓ Episode: "Completed security audit fixes..." (confidence: 0.87)
+  ⚠ Duplicate: "Memory continuity is essential..." (already in Kernle)
+
+memory/2026-01-26.md:
+  ✓ 3 episodes extracted (with dates)
+
+Summary:
+  Would import: 2 values, 1 drive, 4 beliefs, 8 episodes
+  Skipped: 2 duplicates, 3 instructions
+
+Run without --dry-run to import.
 ```
 
 **Implementation:**
-1. Parse `SOUL.md` for values and drives (semantic extraction)
-2. Parse `MEMORY.md` for beliefs and key episodes
-3. Parse `memory/*.md` daily notes for episodes (with date extraction)
-4. Generate stub files that point to Kernle:
+1. **Semantic extraction** for SOUL.md - distinguish values/drives from instructions:
+   - "authenticity", "sovereignty" → values
+   - "be concise", "respond quickly" → instructions (skip or note)
+   - Use heuristics: nouns/adjectives → values, verbs/imperatives → instructions
+
+2. **Content parsing** for MEMORY.md - mixed content needs classification:
+   - Lessons learned → beliefs
+   - Project context → notes
+   - Completed work → episodes
+   - Confidence score on each extraction
+
+3. **Episode extraction** from daily notes with date parsing
+
+4. **Deduplication** against existing Kernle data:
+   - Semantic similarity check (not just exact match)
+   - Flag duplicates, don't import by default
+
+5. **Generate stubs** only for MEMORY.md and memory/*.md:
    ```markdown
    # MEMORY.md
    Memory managed by Kernle. Run: kernle -a <agent> load --budget 6000
-   ```
-5. Optionally disable Clawdbot memory persistence in config
 
-**Post-migration:** Clawdbot continues as chat interface, Kernle handles memory.
+   Previous content archived at: ~/clawd-backup/MEMORY.md.pre-kernle
+   ```
+
+6. **Archive originals** before stubbing (never delete)
+
+**Post-migration:** Clawdbot continues as chat interface with boot sequence files intact. Kernle handles accumulated memory with budgets and forgetting.
 
 ### 2.5.2 Claude Code Integration
 
