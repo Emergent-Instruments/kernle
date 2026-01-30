@@ -301,7 +301,7 @@ class ClawdbotImporter:
                     ImportItem(
                         type="note",
                         content=f"Identity - {key}: {value}",
-                        note_type="identity",
+                        note_type="note",
                         source="IDENTITY.md",
                     )
                 )
@@ -454,13 +454,13 @@ class ClawdbotImporter:
             if key_lower == "name":
                 items.append(
                     ImportItem(
-                        type="note", content=f"My name is {value}", note_type="identity", source="MEMORY.md"
+                        type="note", content=f"My name is {value}", note_type="note", source="MEMORY.md"
                     )
                 )
             elif key_lower in ("nature", "creature", "what i am"):
                 items.append(
                     ImportItem(
-                        type="note", content=f"Nature: {value}", note_type="identity", source="MEMORY.md"
+                        type="note", content=f"Nature: {value}", note_type="note", source="MEMORY.md"
                     )
                 )
             elif key_lower == "philosophy":
@@ -514,7 +514,7 @@ class ClawdbotImporter:
                         ImportItem(
                             type="note",
                             content=bullet,
-                            note_type="technical",
+                            note_type="note",
                             source=f"MEMORY.md: {subheader}",
                         )
                     )
@@ -527,7 +527,7 @@ class ClawdbotImporter:
                     ImportItem(
                         type="note",
                         content=bullet,
-                        note_type="technical",
+                        note_type="insight",  # Technical learnings are insights
                         source="MEMORY.md: Learnings",
                     )
                 )
@@ -693,7 +693,7 @@ def _import_clawdbot_item(item: ImportItem, k: "Kernle") -> Optional[str]:
             objective=item.objective,
             outcome=item.outcome or item.objective,
             lessons=lessons,
-            outcome_type=item.metadata.get("outcome_type"),
+            # outcome_type not supported in Kernle API
         )
     elif t == "note":
         return k.note(content=item.content, type=item.note_type)
