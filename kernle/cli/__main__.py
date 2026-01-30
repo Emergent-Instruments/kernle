@@ -1729,7 +1729,15 @@ def prompt_backend_url(current_url: str = None) -> str:
     print(f"Backend URL [{default}]: ", end="", flush=True)
     try:
         url = input().strip()
-        return url if url else default
+        result = url if url else default
+        # SECURITY: Warn if not using HTTPS (credentials would be sent in cleartext)
+        if result and not result.startswith("https://"):
+            if result.startswith("http://localhost") or result.startswith("http://127.0.0.1"):
+                pass  # Allow localhost for development
+            else:
+                print("⚠️  WARNING: Using non-HTTPS URL. Credentials will be sent in cleartext!")
+                print("   This is insecure for production use. Press Ctrl+C to abort.")
+        return result
     except (EOFError, KeyboardInterrupt):
         print("\nAborted.")
         sys.exit(1)
@@ -1869,9 +1877,11 @@ def cmd_auth(args, k: Kernle = None):
 
         # Prompt for API key if not provided
         if not api_key:
-            print("API Key: ", end="", flush=True)
+            import getpass
+
             try:
-                api_key = input().strip()
+                # SECURITY: Use getpass to hide input (prevents shoulder-surfing/log capture)
+                api_key = getpass.getpass("API Key: ").strip()
                 if not api_key:
                     print("✗ API Key is required")
                     sys.exit(1)
@@ -1896,11 +1906,12 @@ def cmd_auth(args, k: Kernle = None):
                 token_expires = result.get("token_expires")
 
                 # Update credentials
+                # Note: Use "auth_token" to match what storage layer expects
                 credentials = {
                     "user_id": user_id,
                     "api_key": api_key,
                     "backend_url": backend_url,
-                    "token": token,
+                    "auth_token": token,  # Storage expects "auth_token", not "token"
                     "token_expires": token_expires,
                 }
                 save_credentials(credentials)

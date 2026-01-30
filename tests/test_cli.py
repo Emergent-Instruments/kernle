@@ -906,12 +906,12 @@ class TestErrorHandling:
 
     def test_command_execution_error(self, mock_kernle):
         """Test handling of command execution errors."""
-        mock_kernle.search.side_effect = Exception("Database connection failed")
+        mock_kernle.search.side_effect = RuntimeError("Database connection failed")
 
         args = argparse.Namespace(query="test", limit=10)
 
-        # The CLI should handle this gracefully or let it bubble up
-        with pytest.raises(Exception):
+        # The CLI should propagate the specific error from the search operation
+        with pytest.raises(RuntimeError, match="Database connection failed"):
             cmd_search(args, mock_kernle)
 
     def test_json_output_error_handling(self, mock_kernle):

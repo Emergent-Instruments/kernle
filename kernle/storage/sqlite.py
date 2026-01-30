@@ -748,7 +748,8 @@ class SQLiteStorage:
                 with open(credentials_path) as f:
                     creds = json.load(f)
                     backend_url = creds.get("backend_url")
-                    auth_token = creds.get("auth_token")
+                    # Accept both "auth_token" (preferred) and "token" (legacy) for compatibility
+                    auth_token = creds.get("auth_token") or creds.get("token")
             except (json.JSONDecodeError, OSError):
                 pass
 
