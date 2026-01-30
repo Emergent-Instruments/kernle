@@ -148,7 +148,11 @@ async def get_agent_by_email(db: Client, email: str) -> dict | None:
 
 async def update_agent_last_sync(db: Client, agent_id: str) -> None:
     """Update the agent's last sync timestamp."""
-    db.table(AGENTS_TABLE).update({"last_sync_at": "now()"}).eq("agent_id", agent_id).execute()
+    from datetime import datetime, timezone
+
+    db.table(AGENTS_TABLE).update({"last_sync_at": datetime.now(timezone.utc).isoformat()}).eq(
+        "agent_id", agent_id
+    ).execute()
 
 
 # =============================================================================
@@ -531,7 +535,11 @@ async def deactivate_api_key(db: Client, key_id: str, user_id: str) -> bool:
 
 async def update_api_key_last_used(db: Client, key_id: str) -> None:
     """Update the last_used_at timestamp for an API key."""
-    db.table(API_KEYS_TABLE).update({"last_used_at": "now()"}).eq("id", key_id).execute()
+    from datetime import datetime, timezone
+
+    db.table(API_KEYS_TABLE).update({"last_used_at": datetime.now(timezone.utc).isoformat()}).eq(
+        "id", key_id
+    ).execute()
 
 
 async def get_active_api_keys_by_prefix(db: Client, prefix: str) -> list[dict]:

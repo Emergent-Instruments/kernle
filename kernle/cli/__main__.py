@@ -1743,6 +1743,23 @@ def prompt_backend_url(current_url: str = None) -> str:
         sys.exit(1)
 
 
+def warn_non_https_url(url: str, source: str = None) -> None:
+    """Warn if using non-HTTPS URL (credentials would be sent in cleartext).
+
+    Args:
+        url: The backend URL to check
+        source: Where the URL came from (e.g., "args", "env", "credentials") for context
+    """
+    if not url or url.startswith("https://"):
+        return
+    # Allow localhost for development
+    if url.startswith("http://localhost") or url.startswith("http://127.0.0.1"):
+        return
+    source_msg = f" (from {source})" if source else ""
+    print(f"⚠️  WARNING: Using non-HTTPS URL{source_msg}. Credentials will be sent in cleartext!")
+    print("   This is insecure for production use.")
+
+
 def cmd_auth(args, k: Kernle = None):
     """Handle auth subcommands."""
     from datetime import datetime, timezone
@@ -1769,6 +1786,10 @@ def cmd_auth(args, k: Kernle = None):
             backend_url = prompt_backend_url()
 
         backend_url = backend_url.rstrip("/")
+
+        # SECURITY: Warn about non-HTTPS URLs (credentials sent in cleartext)
+        url_source = "args" if args.backend_url else ("credentials" if existing else None)
+        warn_non_https_url(backend_url, url_source)
 
         print(f"Registering with {backend_url}...")
         print()
@@ -1807,11 +1828,12 @@ def cmd_auth(args, k: Kernle = None):
                     sys.exit(1)
 
                 # Save credentials
+                # Note: Use "auth_token" to match what storage layer expects
                 credentials = {
                     "user_id": user_id,
                     "api_key": api_key,
                     "backend_url": backend_url,
-                    "token": token,
+                    "auth_token": token,  # Storage expects "auth_token", not "token"
                     "token_expires": token_expires,
                 }
                 save_credentials(credentials)
@@ -1874,6 +1896,10 @@ def cmd_auth(args, k: Kernle = None):
             backend_url = prompt_backend_url()
 
         backend_url = backend_url.rstrip("/")
+
+        # SECURITY: Warn about non-HTTPS URLs (credentials sent in cleartext)
+        url_source = "args" if args.backend_url else ("credentials" if existing else None)
+        warn_non_https_url(backend_url, url_source)
 
         # Prompt for API key if not provided
         if not api_key:
@@ -1971,7 +1997,8 @@ def cmd_auth(args, k: Kernle = None):
         user_id = credentials.get("user_id")
         api_key = credentials.get("api_key")
         backend_url = credentials.get("backend_url")
-        token = credentials.get("token")
+        # Support both "auth_token" (preferred) and "token" (legacy) for backwards compatibility
+        token = credentials.get("auth_token") or credentials.get("token")
         token_expires = credentials.get("token_expires")
 
         # Check if token is expired

@@ -124,8 +124,10 @@ async def exchange_supabase_token(
 
         # SECURITY: Validate issuer BEFORE fetching JWKS to prevent SSRF/auth bypass
         # Attacker could craft token with malicious issuer pointing to their JWKS
+        # Use STRICT EQUALITY - startswith() is vulnerable to prefix attacks like:
+        # supabase.co.evil.com would pass startswith("https://supabase.co")
         expected_issuer = f"{settings.supabase_url}/auth/v1"
-        if issuer and not issuer.startswith(settings.supabase_url):
+        if issuer != expected_issuer:
             logger.error(f"OAuth: Invalid issuer {issuer}, expected {expected_issuer}")
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
