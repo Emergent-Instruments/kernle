@@ -975,3 +975,82 @@ def _import_item(item: Dict[str, Any], k: "Kernle") -> None:
         )
     elif t == "raw":
         k.raw(content=item["content"], source=item.get("source", "import"), tags=item.get("tags"))
+
+
+def cmd_migrate(args: "argparse.Namespace", k: "Kernle") -> None:
+    """Migrate from other platforms to Kernle.
+
+    Currently supports:
+    - from-clawdbot: Migrate from Clawdbot/Moltbot workspaces
+    """
+    action = getattr(args, "migrate_action", None)
+
+    if action == "from-clawdbot":
+        _migrate_from_clawdbot(args, k)
+    else:
+        print(f"Unknown migrate action: {action}")
+        print("Available actions: from-clawdbot")
+
+
+def _migrate_from_clawdbot(args: "argparse.Namespace", k: "Kernle") -> None:
+    """Migrate from a Clawdbot workspace."""
+    from kernle.importers.clawdbot import ClawdbotImporter
+
+    workspace = Path(args.workspace).expanduser().resolve()
+    dry_run = getattr(args, "dry_run", False)
+    interactive = getattr(args, "interactive", False)
+    skip_duplicates = getattr(args, "skip_duplicates", True)
+
+    if not workspace.exists():
+        print(f"Error: Workspace not found: {workspace}")
+        return
+
+    print(f"Analyzing Clawdbot workspace: {workspace}\n")
+
+    # Create importer with deduplication if skip_duplicates enabled
+    existing_k = k if skip_duplicates else None
+    importer = ClawdbotImporter(str(workspace), existing_kernle=existing_k)
+
+    # Analyze the workspace
+    plan = importer.analyze()
+
+    # Show summary
+    print(plan.summary())
+
+    if plan.total_items == 0:
+        print("\nNothing to migrate.")
+        return
+
+    if dry_run:
+        print("\n=== DRY RUN (no changes made) ===")
+        print("\nTo actually migrate, run without --dry-run")
+        return
+
+    # Confirm before proceeding
+    if not interactive:
+        print(f"\nAbout to import {plan.total_items} items.")
+        response = input("Proceed? [y/N]: ").strip().lower()
+        if response != "y":
+            print("Migration cancelled.")
+            return
+
+    # Execute migration
+    print("\nMigrating...")
+    stats = importer.import_to(k, dry_run=False, interactive=interactive)
+
+    print(f"\n✓ Migrated {stats['imported']} items")
+    if stats["by_type"]:
+        for t, count in sorted(stats["by_type"].items()):
+            print(f"  {t}: {count}")
+
+    if stats["errors"]:
+        print(f"\n⚠ {len(stats['errors'])} errors:")
+        for err in stats["errors"][:5]:
+            print(f"  - {err}")
+
+    # Suggest stub files
+    print("\n--- Post-migration suggestions ---")
+    print("1. Consider replacing flat files with stubs:")
+    print(f"   echo '# Memory managed by Kernle. Run: kernle -a {k._agent_id} load' > {workspace}/MEMORY.md")
+    print(f"\n2. Keep SOUL.md and AGENTS.md as-is (they're boot instructions)")
+    print(f"\n3. Archive daily notes: mv {workspace}/memory {workspace}/memory-archived")

@@ -37,7 +37,7 @@ from kernle.cli.commands import (
     cmd_suggestions,
 )
 from kernle.cli.commands.agent import cmd_agent
-from kernle.cli.commands.import_cmd import cmd_import
+from kernle.cli.commands.import_cmd import cmd_import, cmd_migrate
 from kernle.utils import resolve_agent_id
 
 # Set up logging
@@ -3315,6 +3315,47 @@ def main():
         help="Import all items even if they already exist",
     )
 
+    # migrate - migrate from other platforms (Clawdbot, etc.)
+    p_migrate = subparsers.add_parser(
+        "migrate", help="Migrate memory from other platforms"
+    )
+    migrate_sub = p_migrate.add_subparsers(dest="migrate_action", required=True)
+
+    # migrate from-clawdbot
+    migrate_clawdbot = migrate_sub.add_parser(
+        "from-clawdbot", help="Migrate from Clawdbot/Moltbot workspace"
+    )
+    migrate_clawdbot.add_argument(
+        "workspace",
+        help="Path to Clawdbot workspace (e.g., ~/clawd or ~/.clawdbot/agents/main)",
+    )
+    migrate_clawdbot.add_argument(
+        "--dry-run",
+        "-n",
+        action="store_true",
+        help="Preview what would be migrated without making changes",
+    )
+    migrate_clawdbot.add_argument(
+        "--interactive",
+        "-i",
+        action="store_true",
+        help="Confirm each item before importing",
+    )
+    migrate_clawdbot.add_argument(
+        "--skip-duplicates",
+        "-s",
+        action="store_true",
+        default=True,
+        dest="skip_duplicates",
+        help="Skip items already in Kernle (default: enabled)",
+    )
+    migrate_clawdbot.add_argument(
+        "--no-skip-duplicates",
+        action="store_false",
+        dest="skip_duplicates",
+        help="Import all items even if they already exist",
+    )
+
     # Pre-process arguments: handle `kernle raw "content"` by inserting "capture"
     # This is needed because argparse subparsers consume positional args before parent parser
     raw_subcommands = {
@@ -3432,6 +3473,8 @@ def main():
             cmd_agent(args, k)
         elif args.command == "import":
             cmd_import(args, k)
+        elif args.command == "migrate":
+            cmd_migrate(args, k)
     except (ValueError, TypeError) as e:
         logger.error(f"Input validation error: {e}")
         sys.exit(1)
