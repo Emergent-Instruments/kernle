@@ -97,6 +97,7 @@
     {
       "group": "Troubleshooting",
       "pages": [
+        "troubleshooting/upgrading",
         "troubleshooting/context-overload"
       ]
     },

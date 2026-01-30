@@ -1439,49 +1439,56 @@ class SQLiteStorage:
             if "captured_at" not in raw_cols:
                 migrations.append("ALTER TABLE raw_entries ADD COLUMN captured_at TEXT")
 
-            # Migrate data from content/tags to blob with natural language format
-            # Only run if blob column exists but has NULL values and content has data
-            if "blob" in raw_cols or "blob" not in raw_cols:
-                # This will run after the ALTER TABLE above
+            # Execute pending schema migrations first so blob column exists
+            for migration in migrations:
                 try:
-                    # Check if migration is needed (blob is NULL but content exists)
-                    needs_migration = conn.execute("""
-                        SELECT COUNT(*) FROM raw_entries
-                        WHERE (blob IS NULL OR blob = '') AND content IS NOT NULL AND content != ''
-                    """).fetchone()[0]
-
-                    if needs_migration > 0:
-                        # Migrate content + tags to blob in natural language format
-                        conn.execute("""
-                            UPDATE raw_entries SET blob =
-                                content ||
-                                CASE WHEN source IS NOT NULL AND source != 'manual' AND source != '' AND source != 'unknown'
-                                     THEN ' (from ' || source || ')' ELSE '' END ||
-                                CASE WHEN tags IS NOT NULL AND tags != '[]' AND tags != 'null' AND tags != ''
-                                     THEN ' [tags: ' ||
-                                          REPLACE(REPLACE(REPLACE(tags, '["', ''), '"]', ''), '","', ', ') ||
-                                          ']'
-                                     ELSE '' END
-                            WHERE (blob IS NULL OR blob = '') AND content IS NOT NULL
-                        """)
-                        # Copy timestamp to captured_at
-                        conn.execute("""
-                            UPDATE raw_entries SET captured_at = timestamp
-                            WHERE captured_at IS NULL AND timestamp IS NOT NULL
-                        """)
-                        # Normalize source to enum values
-                        conn.execute("""
-                            UPDATE raw_entries SET source =
-                                CASE
-                                    WHEN source IN ('cli', 'mcp', 'sdk', 'import') THEN source
-                                    WHEN source = 'manual' THEN 'cli'
-                                    WHEN source LIKE '%auto%' THEN 'sdk'
-                                    ELSE 'unknown'
-                                END
-                        """)
-                        logger.info(f"Migrated {needs_migration} raw entries to blob format")
+                    conn.execute(migration)
                 except Exception as e:
-                    logger.warning(f"Raw blob migration check failed: {e}")
+                    if "duplicate column" not in str(e).lower():
+                        logger.warning(f"Migration failed: {migration}: {e}")
+            migrations.clear()
+
+            # Migrate data from content/tags to blob with natural language format
+            # Now safe to run since blob column is guaranteed to exist
+            try:
+                # Check if migration is needed (blob is NULL but content exists)
+                needs_migration = conn.execute("""
+                    SELECT COUNT(*) FROM raw_entries
+                    WHERE (blob IS NULL OR blob = '') AND content IS NOT NULL AND content != ''
+                """).fetchone()[0]
+
+                if needs_migration > 0:
+                    # Migrate content + tags to blob in natural language format
+                    conn.execute("""
+                        UPDATE raw_entries SET blob =
+                            content ||
+                            CASE WHEN source IS NOT NULL AND source != 'manual' AND source != '' AND source != 'unknown'
+                                 THEN ' (from ' || source || ')' ELSE '' END ||
+                            CASE WHEN tags IS NOT NULL AND tags != '[]' AND tags != 'null' AND tags != ''
+                                 THEN ' [tags: ' ||
+                                      REPLACE(REPLACE(REPLACE(tags, '["', ''), '"]', ''), '","', ', ') ||
+                                      ']'
+                                 ELSE '' END
+                        WHERE (blob IS NULL OR blob = '') AND content IS NOT NULL
+                    """)
+                    # Copy timestamp to captured_at
+                    conn.execute("""
+                        UPDATE raw_entries SET captured_at = timestamp
+                        WHERE captured_at IS NULL AND timestamp IS NOT NULL
+                    """)
+                    # Normalize source to enum values
+                    conn.execute("""
+                        UPDATE raw_entries SET source =
+                            CASE
+                                WHEN source IN ('cli', 'mcp', 'sdk', 'import') THEN source
+                                WHEN source = 'manual' THEN 'cli'
+                                WHEN source LIKE '%auto%' THEN 'sdk'
+                                ELSE 'unknown'
+                            END
+                    """)
+                    logger.info(f"Migrated {needs_migration} raw entries to blob format")
+            except Exception as e:
+                logger.warning(f"Raw blob data migration failed: {e}")
 
         # Create health_check_events table if it doesn't exist
         if "health_check_events" not in table_names:
