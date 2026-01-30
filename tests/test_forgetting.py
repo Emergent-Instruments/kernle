@@ -412,6 +412,154 @@ class TestAccessTracking:
         assert not success
 
 
+class TestAutomaticAccessTracking:
+    """Test that load() and search() automatically track access for salience."""
+
+    def test_load_tracks_access_by_default(self, kernle_instance):
+        """load() should record access for all loaded memories."""
+        kernle, storage = kernle_instance
+
+        # Create some memories
+        ep_id = kernle.episode(objective="Test episode", outcome="success")
+        _belief_id = kernle.belief(statement="Test belief")
+        _note_id = kernle.note(content="Test note")
+
+        # Verify initial access counts are 0
+        ep = storage.get_episode(ep_id)
+        assert ep.times_accessed == 0 or ep.times_accessed is None
+
+        # Load working memory (should track access)
+        kernle.load()
+
+        # Verify access was tracked
+        ep = storage.get_episode(ep_id)
+        assert ep.times_accessed >= 1
+        assert ep.last_accessed is not None
+
+    def test_load_respects_track_access_false(self, kernle_instance):
+        """load(track_access=False) should not record access."""
+        kernle, storage = kernle_instance
+
+        # Create an episode
+        ep_id = kernle.episode(objective="No tracking episode", outcome="success")
+
+        # Verify initial access count
+        ep = storage.get_episode(ep_id)
+        initial_access = ep.times_accessed or 0
+
+        # Load without tracking
+        kernle.load(track_access=False)
+
+        # Access count should remain the same
+        ep = storage.get_episode(ep_id)
+        assert (ep.times_accessed or 0) == initial_access
+
+    def test_search_tracks_access_by_default(self, kernle_instance):
+        """search() should record access for returned results."""
+        kernle, storage = kernle_instance
+
+        # Create an episode with searchable content
+        ep_id = kernle.episode(
+            objective="Testing automatic access tracking feature",
+            outcome="success",
+        )
+
+        # Verify initial access count
+        ep = storage.get_episode(ep_id)
+        initial_access = ep.times_accessed or 0
+
+        # Search (should track access)
+        kernle.search("automatic access tracking")
+
+        # Verify access was tracked
+        ep = storage.get_episode(ep_id)
+        assert (ep.times_accessed or 0) > initial_access
+
+    def test_search_respects_track_access_false(self, kernle_instance):
+        """search(track_access=False) should not record access."""
+        kernle, storage = kernle_instance
+
+        # Create an episode
+        ep_id = kernle.episode(
+            objective="No tracking search test",
+            outcome="success",
+        )
+
+        # Verify initial access count
+        ep = storage.get_episode(ep_id)
+        initial_access = ep.times_accessed or 0
+
+        # Search without tracking
+        kernle.search("No tracking search", track_access=False)
+
+        # Access count should remain the same
+        ep = storage.get_episode(ep_id)
+        assert (ep.times_accessed or 0) == initial_access
+
+    def test_record_access_batch(self, kernle_instance):
+        """Batch access recording should update multiple memories efficiently."""
+        kernle, storage = kernle_instance
+
+        # Create multiple episodes
+        ep_ids = [kernle.episode(objective=f"Batch test {i}", outcome="success") for i in range(3)]
+
+        # Record batch access
+        accesses = [("episode", ep_id) for ep_id in ep_ids]
+        count = storage.record_access_batch(accesses)
+
+        # Should have updated all episodes
+        assert count == 3
+
+        # Verify each episode was updated
+        for ep_id in ep_ids:
+            ep = storage.get_episode(ep_id)
+            assert ep.times_accessed >= 1
+            assert ep.last_accessed is not None
+
+    def test_record_access_batch_mixed_types(self, kernle_instance):
+        """Batch access recording should work with mixed memory types."""
+        kernle, storage = kernle_instance
+
+        # Create different memory types
+        ep_id = kernle.episode(objective="Mixed batch test", outcome="success")
+        belief_id = kernle.belief(statement="Mixed batch belief")
+        note_id = kernle.note(content="Mixed batch note")
+
+        # Record batch access
+        accesses = [
+            ("episode", ep_id),
+            ("belief", belief_id),
+            ("note", note_id),
+        ]
+        count = storage.record_access_batch(accesses)
+
+        # Should have updated all memories
+        assert count == 3
+
+    def test_record_access_batch_empty(self, kernle_instance):
+        """Batch access recording with empty list should return 0."""
+        _, storage = kernle_instance
+
+        count = storage.record_access_batch([])
+        assert count == 0
+
+    def test_record_access_batch_invalid_type(self, kernle_instance):
+        """Batch access recording should skip invalid memory types."""
+        kernle, storage = kernle_instance
+
+        ep_id = kernle.episode(objective="Valid episode", outcome="success")
+
+        # Mix valid and invalid types
+        accesses = [
+            ("episode", ep_id),
+            ("invalid_type", "some-id"),
+        ]
+        count = storage.record_access_batch(accesses)
+
+        # Should only count the valid one
+        assert count == 1
+
+
 class TestGetForgottenMemories:
     """Test listing forgotten memories."""
 

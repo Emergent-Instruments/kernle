@@ -49,6 +49,61 @@ logger = logging.getLogger(__name__)
 # Schema version for migrations
 SCHEMA_VERSION = 12  # Bumped for memory suggestions table
 
+# Maximum size for merged arrays during sync to prevent resource exhaustion
+MAX_SYNC_ARRAY_SIZE = 500
+
+# Array fields that should be merged (set union) during sync rather than overwritten
+# These are fields where both local and cloud additions should be preserved
+SYNC_ARRAY_FIELDS: Dict[str, List[str]] = {
+    "episodes": [
+        "lessons",
+        "tags",
+        "emotional_tags",
+        "source_episodes",
+        "derived_from",
+        "context_tags",
+    ],
+    "beliefs": [
+        "source_episodes",
+        "derived_from",
+        "context_tags",
+    ],
+    "notes": [
+        "tags",
+        "source_episodes",
+        "derived_from",
+        "context_tags",
+    ],
+    "drives": [
+        "focus_areas",
+        "source_episodes",
+        "derived_from",
+        "context_tags",
+    ],
+    "agent_values": [
+        "source_episodes",
+        "derived_from",
+        "context_tags",
+    ],
+    "relationships": [
+        "source_episodes",
+        "derived_from",
+        "context_tags",
+    ],
+    "goals": [
+        "source_episodes",
+        "derived_from",
+        "context_tags",
+    ],
+    "playbooks": [
+        "trigger_conditions",
+        "failure_modes",
+        "recovery_steps",
+        "source_episodes",
+        "tags",
+    ],
+}
+
 # Allowed table names for SQL queries (security: prevents SQL injection via table names)
 ALLOWED_TABLES = frozenset(
     {
@@ -4791,6 +4846,67 @@ class SQLiteStorage:
             conn.commit()
             return cursor.rowcount > 0
 
+    def record_access_batch(self, accesses: List[tuple[str, str]]) -> int:
+        """Record multiple memory accesses in a single transaction.
+
+        This is more efficient than calling record_access() for each item
+        because it uses a single database connection and transaction.
+
+        Args:
+            accesses: List of (memory_type, memory_id) tuples
+
+        Returns:
+            Number of memories successfully updated
+        """
+        if not accesses:
+            return 0
+
+        table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "agent_values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+        }
+
+        # Group by table for efficient batch updates
+        by_table: Dict[str, List[str]] = {}
+        for memory_type, memory_id in accesses:
+            table = table_map.get(memory_type)
+            if table:
+                if table not in by_table:
+                    by_table[table] = []
+                by_table[table].append(memory_id)
+
+        if not by_table:
+            return 0
+
+        now = self._now()
+        total_updated = 0
+
+        with self._connect() as conn:
+            for table, ids in by_table.items():
+                # Validate table name for safety
+                validate_table_name(table)
+
+                # Update all IDs in this table at once
+                placeholders = ",".join("?" * len(ids))
+                cursor = conn.execute(
+                    f"""UPDATE {table}
+                       SET times_accessed = COALESCE(times_accessed, 0) + 1,
+                           last_accessed = ?,
+                           local_updated_at = ?
+                       WHERE id IN ({placeholders}) AND agent_id = ?""",
+                    (now, now, *ids, self.agent_id),
+                )
+                total_updated += cursor.rowcount
+
+            conn.commit()
+
+        return total_updated
+
     def forget_memory(
         self,
         memory_type: str,
@@ -5467,6 +5583,8 @@ class SQLiteStorage:
                 self.cloud_storage.save_drive(record)
             elif table == "relationships":
                 self.cloud_storage.save_relationship(record)
+            elif table == "playbooks":
+                self.cloud_storage.save_playbook(record)
             else:
                 logger.warning(f"Unknown table for push: {table}")
                 return False
@@ -5572,6 +5690,7 @@ class SQLiteStorage:
             ("goals", self.cloud_storage.get_goals, self._merge_goal),
             ("drives", self.cloud_storage.get_drives, self._merge_drive),
             ("relationships", self.cloud_storage.get_relationships, self._merge_relationship),
+            ("playbooks", self.cloud_storage.list_playbooks, self._merge_playbook),
         ]
 
         for table, getter, merger in tables_and_getters:
@@ -5672,6 +5791,13 @@ class SQLiteStorage:
             "relationships", cloud_record, local, lambda: self.save_relationship(cloud_record)
         )
 
+    def _merge_playbook(self, cloud_record: Playbook) -> tuple[int, Optional[SyncConflict]]:
+        """Merge a cloud playbook with local. Returns (pulled, conflict_or_none)."""
+        local = self.get_playbook(cloud_record.id)
+        return self._merge_generic(
+            "playbooks", cloud_record, local, lambda: self.save_playbook(cloud_record)
+        )
+
     def _merge_record(
         self, table: str, cloud_record: Any, get_local
     ) -> tuple[int, Optional[SyncConflict]]:
@@ -5681,13 +5807,98 @@ class SQLiteStorage:
             table, cloud_record, local, lambda: self._save_from_cloud(table, cloud_record)
         )
 
+    def _merge_array_fields(self, table: str, winner: Any, loser: Any) -> Any:
+        """Merge array fields from loser into winner using set union.
+
+        This preserves array items from both records rather than losing data
+        when one record wins via last-write-wins. For example, if local has
+        tags=["A", "B"] and cloud has tags=["C"], the merged result will be
+        tags=["A", "B", "C"].
+
+        Args:
+            table: The table name (used to look up which fields to merge)
+            winner: The record that won timestamp comparison (will be modified)
+            loser: The record that lost (arrays will be merged from here)
+
+        Returns:
+            The winner record with merged array fields
+        """
+        from dataclasses import replace
+
+        array_fields = SYNC_ARRAY_FIELDS.get(table, [])
+        if not array_fields:
+            return winner
+
+        updates = {}
+        for field_name in array_fields:
+            if not hasattr(winner, field_name) or not hasattr(loser, field_name):
+                continue
+
+            winner_val = getattr(winner, field_name)
+            loser_val = getattr(loser, field_name)
+
+            # Skip if both are None/empty or loser has nothing to add
+            if not loser_val:
+                continue
+            if not winner_val:
+                # Winner has nothing, use loser's array
+                updates[field_name] = list(loser_val)
+                continue
+
+            # Both have values - merge using set union
+            # Handle both string arrays and dict arrays (like steps in playbooks)
+            try:
+                if winner_val and isinstance(winner_val[0], dict):
+                    # For dict arrays (like playbook steps), use JSON for dedup
+                    seen = set()
+                    merged = []
+                    for item in winner_val:
+                        key = json.dumps(item, sort_keys=True)
+                        if key not in seen:
+                            seen.add(key)
+                            merged.append(item)
+                    for item in loser_val:
+                        key = json.dumps(item, sort_keys=True)
+                        if key not in seen:
+                            seen.add(key)
+                            merged.append(item)
+                    # Enforce size limit to prevent resource exhaustion
+                    if len(merged) > MAX_SYNC_ARRAY_SIZE:
+                        logger.warning(
+                            f"Array field {field_name} exceeded max size ({len(merged)} > {MAX_SYNC_ARRAY_SIZE}), truncating"
+                        )
+                        merged = merged[:MAX_SYNC_ARRAY_SIZE]
+                    updates[field_name] = merged
+                else:
+                    # For string arrays, use simple set union
+                    merged = list(set(winner_val) | set(loser_val))
+                    # Enforce size limit to prevent resource exhaustion
+                    if len(merged) > MAX_SYNC_ARRAY_SIZE:
+                        logger.warning(
+                            f"Array field {field_name} exceeded max size ({len(merged)} > {MAX_SYNC_ARRAY_SIZE}), truncating"
+                        )
+                        merged = merged[:MAX_SYNC_ARRAY_SIZE]
+                    updates[field_name] = merged
+            except (TypeError, KeyError):
+                # If anything goes wrong, just keep winner's value
+                logger.warning(f"Failed to merge array field {field_name}, keeping winner's value")
+                continue
+
+        if updates:
+            # Create a new record with merged fields
+            return replace(winner, **updates)
+        return winner
+
     def _merge_generic(
         self, table: str, cloud_record: Any, local_record: Optional[Any], save_fn
     ) -> tuple[int, Optional[SyncConflict]]:
-        """Generic merge logic with last-write-wins.
+        """Generic merge logic with last-write-wins for scalar fields, set union for arrays.
 
         Returns (pulled_count, conflict_or_none).
         If a conflict occurred, returns a SyncConflict with details.
+
+        Array fields (like tags, lessons, focus_areas) are merged using set union
+        rather than last-write-wins to preserve data from both sides.
         """
         if local_record is None:
             # No local record - just save the cloud version
@@ -5703,18 +5914,24 @@ class SQLiteStorage:
                 conn.commit()
             return (1, None)
 
-        # Both exist - use last-write-wins
+        # Both exist - use last-write-wins for scalar fields, merge arrays
         cloud_time = cloud_record.cloud_synced_at or cloud_record.local_updated_at
         local_time = local_record.local_updated_at
 
         if cloud_time and local_time:
             if cloud_time > local_time:
-                # Cloud is newer - overwrite local
-                # Create conflict record before overwriting
+                # Cloud is newer - cloud wins for scalar fields
+                # But merge array fields from local into cloud
+                merged_record = self._merge_array_fields(table, cloud_record, local_record)
+
+                # Create conflict record before overwriting (uses original records for history)
                 conflict = self._create_conflict(
-                    table, cloud_record.id, local_record, cloud_record, "cloud_wins"
+                    table, cloud_record.id, local_record, cloud_record, "cloud_wins_arrays_merged"
                 )
-                save_fn()
+
+                # Save the merged record
+                self._save_from_cloud(table, merged_record)
+
                 with self._connect() as conn:
                     self._mark_synced(conn, table, cloud_record.id)
                     conn.execute(
@@ -5726,13 +5943,20 @@ class SQLiteStorage:
                 self.save_sync_conflict(conflict)
                 return (1, conflict)  # Pulled with conflict
             else:
-                # Local is newer - keep local, it will be pushed
+                # Local is newer - local wins for scalar fields
+                # But merge array fields from cloud into local
+                merged_record = self._merge_array_fields(table, local_record, cloud_record)
+
+                # If arrays were merged, save the updated local record
+                if merged_record is not local_record:
+                    self._save_from_cloud(table, merged_record)
+
                 conflict = self._create_conflict(
-                    table, cloud_record.id, local_record, cloud_record, "local_wins"
+                    table, cloud_record.id, local_record, cloud_record, "local_wins_arrays_merged"
                 )
                 # Save conflict to history
                 self.save_sync_conflict(conflict)
-                return (0, conflict)  # Conflict, but local wins
+                return (0, conflict)  # Conflict, but local wins (with merged arrays)
         elif cloud_time:
             # Only cloud has timestamp - use cloud
             save_fn()

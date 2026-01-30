@@ -12,14 +12,13 @@ The Supabase/Postgres schema differs from SQLite in several ways:
 1. TABLE NAMES:
    - SQLite: episodes, beliefs, values, goals, notes, drives, relationships, playbooks, raw_entries
    - Postgres: agent_episodes, agent_beliefs, agent_values, agent_goals, memories (for notes),
-               agent_drives, agent_relationships
+               agent_drives, agent_relationships, playbooks
 
 2. NOTES TABLE:
    - SQLite: Dedicated 'notes' table with note_type, speaker, reason fields
    - Postgres: Uses 'memories' table with source='curated', metadata JSON for note fields
 
 3. MISSING TABLES IN POSTGRES:
-   - playbooks: No procedural memory support yet (SQLite has full support)
    - raw_entries: No raw entry processing support yet
 
 4. COLUMN DIFFERENCES:
@@ -30,16 +29,14 @@ The Supabase/Postgres schema differs from SQLite in several ways:
 
 5. FORGETTING FIELDS:
    - SQLite: Full support (times_accessed, last_accessed, is_protected, is_forgotten, etc.)
-   - Postgres: Fields may exist but forgetting operations not implemented
+   - Postgres: Full support implemented
 
 6. FEATURES NOT YET SUPPORTED IN POSTGRES:
-   - Playbook storage (procedural memory)
    - Raw entry processing
-   - Forgetting/tombstoning operations
-   - Memory access tracking
 
 Use SQLiteStorage for full functionality. SupabaseStorage is suitable for
-cloud sync of core memories (episodes, beliefs, values, goals, notes, drives, relationships).
+cloud sync of core memories (episodes, beliefs, values, goals, notes, drives, relationships,
+playbooks) and supports forgetting/tombstoning operations.
 """
 
 import logging
@@ -1405,45 +1402,179 @@ class SupabaseStorage:
 
         return results[:limit]
 
-    # === Playbooks (Procedural Memory) - NOT YET SUPPORTED ===
+    # === Playbooks (Procedural Memory) ===
 
-    def save_playbook(self, playbook: "Playbook") -> str:
+    def save_playbook(self, playbook: Playbook) -> str:
         """Save a playbook. Returns the playbook ID."""
-        raise NotImplementedError(
-            "SupabaseStorage does not yet support save_playbook. "
-            "Use SQLiteStorage for full functionality."
+        if not playbook.id:
+            playbook.id = str(uuid.uuid4())
+
+        now = self._now()
+
+        # Map to Supabase schema (playbooks table)
+        data = {
+            "id": playbook.id,
+            "agent_id": self.agent_id,
+            "name": playbook.name,
+            "description": playbook.description,
+            "trigger_conditions": playbook.trigger_conditions or [],
+            "steps": playbook.steps or [],
+            "failure_modes": playbook.failure_modes or [],
+            "recovery_steps": playbook.recovery_steps,
+            "mastery_level": playbook.mastery_level or "novice",
+            "times_used": playbook.times_used or 0,
+            "success_rate": playbook.success_rate or 0.0,
+            "source_episodes": playbook.source_episodes,
+            "tags": playbook.tags or [],
+            "confidence": playbook.confidence or 0.8,
+            "last_used": playbook.last_used.isoformat() if playbook.last_used else None,
+            # Sync metadata
+            "local_updated_at": now,
+            "cloud_synced_at": now,
+            "version": playbook.version or 1,
+            "deleted": playbook.deleted or False,
+        }
+
+        self.client.table("playbooks").upsert(data).execute()
+        return playbook.id
+
+    def get_playbook(self, playbook_id: str) -> Optional[Playbook]:
+        """Get a specific playbook by ID."""
+        result = (
+            self.client.table("playbooks")
+            .select("*")
+            .eq("id", playbook_id)
+            .eq("agent_id", self.agent_id)
+            .eq("deleted", False)
+            .execute()
         )
 
-    def get_playbook(self, playbook_id: str) -> Optional["Playbook"]:
-        """Get a specific playbook by ID."""
-        raise NotImplementedError(
-            "SupabaseStorage does not yet support get_playbook. "
-            "Use SQLiteStorage for full functionality."
-        )
+        if result.data:
+            return self._row_to_playbook(result.data[0])
+        return None
 
     def list_playbooks(
         self,
         tags: Optional[List[str]] = None,
         limit: int = 100,
-    ) -> List["Playbook"]:
+    ) -> List[Playbook]:
         """Get playbooks, optionally filtered by tags."""
-        raise NotImplementedError(
-            "SupabaseStorage does not yet support list_playbooks. "
-            "Use SQLiteStorage for full functionality."
+        result = (
+            self.client.table("playbooks")
+            .select("*")
+            .eq("agent_id", self.agent_id)
+            .eq("deleted", False)
+            .order("times_used", desc=True)
+            .order("created_at", desc=True)
+            .limit(limit)
+            .execute()
         )
 
-    def search_playbooks(self, query: str, limit: int = 10) -> List["Playbook"]:
-        """Search playbooks by name, description, or triggers."""
-        raise NotImplementedError(
-            "SupabaseStorage does not yet support search_playbooks. "
-            "Use SQLiteStorage for full functionality."
+        playbooks = [self._row_to_playbook(row) for row in result.data]
+
+        # Filter by tags if provided
+        if tags:
+            tags_set = set(tags)
+            playbooks = [p for p in playbooks if p.tags and tags_set.intersection(p.tags)]
+
+        return playbooks
+
+    def search_playbooks(self, query: str, limit: int = 10) -> List[Playbook]:
+        """Search playbooks by name, description, or triggers using text search."""
+        # Supabase doesn't have a simple LIKE filter, so we fetch and filter in-memory
+        result = (
+            self.client.table("playbooks")
+            .select("*")
+            .eq("agent_id", self.agent_id)
+            .eq("deleted", False)
+            .order("times_used", desc=True)
+            .limit(limit * 5)  # Fetch more to filter
+            .execute()
         )
+
+        playbooks = []
+        query_lower = query.lower()
+        for row in result.data:
+            # Check if query matches name, description, or trigger_conditions
+            name = (row.get("name") or "").lower()
+            description = (row.get("description") or "").lower()
+            triggers = row.get("trigger_conditions") or []
+            triggers_str = " ".join(str(t).lower() for t in triggers)
+
+            if query_lower in name or query_lower in description or query_lower in triggers_str:
+                playbooks.append(self._row_to_playbook(row))
+                if len(playbooks) >= limit:
+                    break
+
+        return playbooks
 
     def update_playbook_usage(self, playbook_id: str, success: bool) -> bool:
         """Update playbook usage statistics."""
-        raise NotImplementedError(
-            "SupabaseStorage does not yet support update_playbook_usage. "
-            "Use SQLiteStorage for full functionality."
+        playbook = self.get_playbook(playbook_id)
+        if not playbook:
+            return False
+
+        now = self._now()
+
+        # Calculate new success rate
+        new_times_used = playbook.times_used + 1
+        if playbook.times_used == 0:
+            new_success_rate = 1.0 if success else 0.0
+        else:
+            # Running average
+            total_successes = playbook.success_rate * playbook.times_used
+            total_successes += 1.0 if success else 0.0
+            new_success_rate = total_successes / new_times_used
+
+        # Update mastery level based on usage and success rate
+        new_mastery = playbook.mastery_level
+        if new_times_used >= 20 and new_success_rate >= 0.9:
+            new_mastery = "expert"
+        elif new_times_used >= 10 and new_success_rate >= 0.8:
+            new_mastery = "proficient"
+        elif new_times_used >= 5 and new_success_rate >= 0.7:
+            new_mastery = "competent"
+
+        try:
+            self.client.table("playbooks").update(
+                {
+                    "times_used": new_times_used,
+                    "success_rate": new_success_rate,
+                    "mastery_level": new_mastery,
+                    "last_used": now,
+                    "local_updated_at": now,
+                    "version": (playbook.version or 1) + 1,
+                }
+            ).eq("id", playbook_id).eq("agent_id", self.agent_id).execute()
+
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update playbook usage: {e}")
+            return False
+
+    def _row_to_playbook(self, row: Dict[str, Any]) -> Playbook:
+        """Convert a Supabase row to a Playbook."""
+        return Playbook(
+            id=row["id"],
+            agent_id=row.get("agent_id", self.agent_id),
+            name=row.get("name", ""),
+            description=row.get("description", ""),
+            trigger_conditions=row.get("trigger_conditions") or [],
+            steps=row.get("steps") or [],
+            failure_modes=row.get("failure_modes") or [],
+            recovery_steps=row.get("recovery_steps"),
+            mastery_level=row.get("mastery_level", "novice"),
+            times_used=row.get("times_used", 0) or 0,
+            success_rate=row.get("success_rate", 0.0) or 0.0,
+            source_episodes=row.get("source_episodes"),
+            tags=row.get("tags"),
+            confidence=row.get("confidence", 0.8) or 0.8,
+            last_used=self._parse_datetime(row.get("last_used")),
+            created_at=self._parse_datetime(row.get("created_at")),
+            local_updated_at=self._parse_datetime(row.get("local_updated_at")),
+            cloud_synced_at=self._parse_datetime(row.get("cloud_synced_at")),
+            version=row.get("version", 1) or 1,
+            deleted=bool(row.get("deleted", False)),
         )
 
     # === Raw Entries - NOT YET SUPPORTED ===
@@ -1478,14 +1609,102 @@ class SupabaseStorage:
             "Use SQLiteStorage for full functionality."
         )
 
-    # === Forgetting - NOT YET SUPPORTED ===
+    # === Forgetting Operations ===
 
     def record_access(self, memory_type: str, memory_id: str) -> bool:
-        """Record that a memory was accessed (for salience tracking)."""
-        raise NotImplementedError(
-            "SupabaseStorage does not yet support record_access. "
-            "Use SQLiteStorage for full functionality."
-        )
+        """Record that a memory was accessed (for salience tracking).
+
+        Increments times_accessed and updates last_accessed timestamp.
+
+        Note: This uses read-then-write which is not atomic. Under high concurrency,
+        some increments may be lost. This is acceptable for access tracking where
+        approximate counts are sufficient for salience calculation. For production
+        systems with high concurrency, consider using a PostgreSQL RPC function
+        with atomic increment.
+
+        Args:
+            memory_type: Type of memory (episode, belief, value, goal, note, drive, relationship)
+            memory_id: ID of the memory
+
+        Returns:
+            True if updated, False if memory not found or invalid type
+        """
+        table_map = {
+            "episode": "agent_episodes",
+            "belief": "agent_beliefs",
+            "value": "agent_values",
+            "goal": "agent_goals",
+            "note": "memories",
+            "drive": "agent_drives",
+            "relationship": "agent_relationships",
+        }
+
+        table = table_map.get(memory_type)
+        if not table:
+            logger.debug(f"Invalid memory_type for record_access: {memory_type}")
+            return False
+
+        now = self._now()
+
+        try:
+            # First get current access count
+            if memory_type == "note":
+                result = (
+                    self.client.table(table)
+                    .select("times_accessed")
+                    .eq("id", memory_id)
+                    .eq("owner_id", self.agent_id)
+                    .execute()
+                )
+            else:
+                result = (
+                    self.client.table(table)
+                    .select("times_accessed")
+                    .eq("id", memory_id)
+                    .eq("agent_id", self.agent_id)
+                    .execute()
+                )
+
+            if not result.data:
+                return False
+
+            current_count = result.data[0].get("times_accessed") or 0
+
+            # Update with incremented count
+            update_data = {
+                "times_accessed": current_count + 1,
+                "last_accessed": now,
+                "local_updated_at": now,
+            }
+
+            if memory_type == "note":
+                self.client.table(table).update(update_data).eq("id", memory_id).eq(
+                    "owner_id", self.agent_id
+                ).execute()
+            else:
+                self.client.table(table).update(update_data).eq("id", memory_id).eq(
+                    "agent_id", self.agent_id
+                ).execute()
+
+            return True
+        except Exception as e:
+            logger.warning(f"Could not record access for {memory_type}:{memory_id}: {e}")
+            return False
+
+    def record_access_batch(self, accesses: List[tuple[str, str]]) -> int:
+        """Record multiple memory accesses in a single operation.
+
+        Args:
+            accesses: List of (memory_type, memory_id) tuples
+
+        Returns:
+            Number of successfully updated records
+        """
+        updated = 0
+        for memory_type, memory_id in accesses:
+            if self.record_access(memory_type, memory_id):
+                updated += 1
+        return updated
 
     def forget_memory(
         self,
@@ -1493,44 +1712,390 @@ class SupabaseStorage:
         memory_id: str,
         reason: Optional[str] = None,
     ) -> bool:
-        """Tombstone a memory (mark as forgotten, don't delete)."""
-        raise NotImplementedError(
-            "SupabaseStorage does not yet support forget_memory. "
-            "Use SQLiteStorage for full functionality."
-        )
+        """Tombstone a memory (mark as forgotten, don't delete).
+
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            reason: Optional reason for forgetting
+
+        Returns:
+            True if forgotten, False if not found, already forgotten, or protected
+        """
+        table_map = {
+            "episode": "agent_episodes",
+            "belief": "agent_beliefs",
+            "value": "agent_values",
+            "goal": "agent_goals",
+            "note": "memories",
+            "drive": "agent_drives",
+            "relationship": "agent_relationships",
+        }
+
+        table = table_map.get(memory_type)
+        if not table:
+            return False
+
+        now = self._now()
+
+        try:
+            # Check if memory exists and is not protected or already forgotten
+            if memory_type == "note":
+                result = (
+                    self.client.table(table)
+                    .select("is_protected, is_forgotten")
+                    .eq("id", memory_id)
+                    .eq("owner_id", self.agent_id)
+                    .execute()
+                )
+            else:
+                result = (
+                    self.client.table(table)
+                    .select("is_protected, is_forgotten")
+                    .eq("id", memory_id)
+                    .eq("agent_id", self.agent_id)
+                    .execute()
+                )
+
+            if not result.data:
+                return False
+
+            row = result.data[0]
+            if row.get("is_protected"):
+                logger.debug(f"Cannot forget protected memory {memory_type}:{memory_id}")
+                return False
+            if row.get("is_forgotten"):
+                return False  # Already forgotten
+
+            # Mark as forgotten
+            update_data = {
+                "is_forgotten": True,
+                "forgotten_at": now,
+                "forgotten_reason": reason,
+                "local_updated_at": now,
+            }
+
+            if memory_type == "note":
+                self.client.table(table).update(update_data).eq("id", memory_id).eq(
+                    "owner_id", self.agent_id
+                ).execute()
+            else:
+                self.client.table(table).update(update_data).eq("id", memory_id).eq(
+                    "agent_id", self.agent_id
+                ).execute()
+
+            return True
+        except Exception as e:
+            logger.warning(f"Could not forget {memory_type}:{memory_id}: {e}")
+            return False
 
     def recover_memory(self, memory_type: str, memory_id: str) -> bool:
-        """Recover a forgotten memory."""
-        raise NotImplementedError(
-            "SupabaseStorage does not yet support recover_memory. "
-            "Use SQLiteStorage for full functionality."
-        )
+        """Recover a forgotten memory.
+
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+
+        Returns:
+            True if recovered, False if not found or not forgotten
+        """
+        table_map = {
+            "episode": "agent_episodes",
+            "belief": "agent_beliefs",
+            "value": "agent_values",
+            "goal": "agent_goals",
+            "note": "memories",
+            "drive": "agent_drives",
+            "relationship": "agent_relationships",
+        }
+
+        table = table_map.get(memory_type)
+        if not table:
+            return False
+
+        now = self._now()
+
+        try:
+            # Check if memory is forgotten
+            if memory_type == "note":
+                result = (
+                    self.client.table(table)
+                    .select("is_forgotten")
+                    .eq("id", memory_id)
+                    .eq("owner_id", self.agent_id)
+                    .execute()
+                )
+            else:
+                result = (
+                    self.client.table(table)
+                    .select("is_forgotten")
+                    .eq("id", memory_id)
+                    .eq("agent_id", self.agent_id)
+                    .execute()
+                )
+
+            if not result.data or not result.data[0].get("is_forgotten"):
+                return False
+
+            # Clear forgotten status
+            update_data = {
+                "is_forgotten": False,
+                "forgotten_at": None,
+                "forgotten_reason": None,
+                "local_updated_at": now,
+            }
+
+            if memory_type == "note":
+                self.client.table(table).update(update_data).eq("id", memory_id).eq(
+                    "owner_id", self.agent_id
+                ).execute()
+            else:
+                self.client.table(table).update(update_data).eq("id", memory_id).eq(
+                    "agent_id", self.agent_id
+                ).execute()
+
+            return True
+        except Exception as e:
+            logger.warning(f"Could not recover {memory_type}:{memory_id}: {e}")
+            return False
 
     def protect_memory(self, memory_type: str, memory_id: str, protected: bool = True) -> bool:
-        """Mark a memory as protected from forgetting."""
-        raise NotImplementedError(
-            "SupabaseStorage does not yet support protect_memory. "
-            "Use SQLiteStorage for full functionality."
-        )
+        """Mark a memory as protected from forgetting.
+
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            protected: True to protect, False to unprotect
+
+        Returns:
+            True if updated, False if memory not found
+        """
+        table_map = {
+            "episode": "agent_episodes",
+            "belief": "agent_beliefs",
+            "value": "agent_values",
+            "goal": "agent_goals",
+            "note": "memories",
+            "drive": "agent_drives",
+            "relationship": "agent_relationships",
+        }
+
+        table = table_map.get(memory_type)
+        if not table:
+            return False
+
+        now = self._now()
+
+        try:
+            update_data = {
+                "is_protected": protected,
+                "local_updated_at": now,
+            }
+
+            if memory_type == "note":
+                result = (
+                    self.client.table(table)
+                    .update(update_data)
+                    .eq("id", memory_id)
+                    .eq("owner_id", self.agent_id)
+                    .execute()
+                )
+            else:
+                result = (
+                    self.client.table(table)
+                    .update(update_data)
+                    .eq("id", memory_id)
+                    .eq("agent_id", self.agent_id)
+                    .execute()
+                )
+
+            return len(result.data) > 0
+        except Exception as e:
+            logger.warning(f"Could not protect {memory_type}:{memory_id}: {e}")
+            return False
 
     def get_forgetting_candidates(
         self,
         memory_types: Optional[List[str]] = None,
         limit: int = 100,
     ) -> List[SearchResult]:
-        """Get memories that are candidates for forgetting."""
-        raise NotImplementedError(
-            "SupabaseStorage does not yet support get_forgetting_candidates. "
-            "Use SQLiteStorage for full functionality."
-        )
+        """Get memories that are candidates for forgetting.
+
+        Returns memories that are:
+        - Not protected
+        - Not already forgotten
+        - Sorted by computed salience (lowest first)
+
+        Salience formula:
+        salience = (confidence × reinforcement_weight) / (age_factor + 1)
+        where:
+            reinforcement_weight = log(times_accessed + 1)
+            age_factor = days_since_last_access / half_life (30 days)
+
+        Args:
+            memory_types: Filter by memory type
+            limit: Maximum results
+
+        Returns:
+            List of candidate memories with computed salience scores
+        """
+        import math
+
+        results = []
+        types = memory_types or ["episode", "belief", "goal", "note", "relationship"]
+        # Exclude values and drives by default since they're protected by default
+
+        table_map = {
+            "episode": ("agent_episodes", self._row_to_episode),
+            "belief": ("agent_beliefs", self._row_to_belief),
+            "value": ("agent_values", self._row_to_value),
+            "goal": ("agent_goals", self._row_to_goal),
+            "note": ("memories", self._row_to_note),
+            "drive": ("agent_drives", self._row_to_drive),
+            "relationship": ("agent_relationships", self._row_to_relationship),
+        }
+
+        now = datetime.now(timezone.utc)
+        half_life = 30.0  # days
+
+        for memory_type in types:
+            if memory_type not in table_map:
+                continue
+
+            table, converter = table_map[memory_type]
+
+            try:
+                # Query for non-protected, non-forgotten memories
+                if memory_type == "note":
+                    query = (
+                        self.client.table(table)
+                        .select("*")
+                        .eq("owner_id", self.agent_id)
+                        .eq("source", "curated")
+                    )
+                else:
+                    query = self.client.table(table).select("*").eq("agent_id", self.agent_id)
+
+                # Filter out protected and forgotten
+                # Note: Supabase doesn't support complex boolean queries easily,
+                # so we filter in Python
+                result = query.limit(limit * 2).execute()
+
+                for row in result.data:
+                    # Skip protected or already forgotten
+                    if row.get("is_protected") or row.get("is_forgotten"):
+                        continue
+
+                    record = converter(row)
+
+                    # Calculate salience
+                    confidence = row.get("confidence") or 0.8
+                    times_accessed = row.get("times_accessed") or 0
+
+                    # Get last access time
+                    last_accessed_str = row.get("last_accessed")
+                    if last_accessed_str:
+                        last_accessed = self._parse_datetime(last_accessed_str)
+                    else:
+                        # Use created_at if never accessed
+                        created_at_str = row.get("created_at")
+                        last_accessed = self._parse_datetime(created_at_str)
+
+                    # Calculate age factor
+                    if last_accessed:
+                        days_since = (now - last_accessed).total_seconds() / 86400
+                    else:
+                        days_since = 365  # Very old if unknown
+
+                    age_factor = days_since / half_life
+                    reinforcement_weight = math.log(times_accessed + 1)
+
+                    # Salience calculation
+                    salience = (confidence * (reinforcement_weight + 0.1)) / (age_factor + 1)
+
+                    results.append(
+                        SearchResult(record=record, record_type=memory_type, score=salience)
+                    )
+            except Exception as e:
+                logger.debug(f"Could not get forgetting candidates from {table}: {e}")
+
+        # Sort by salience (lowest first = best candidates for forgetting)
+        results.sort(key=lambda x: x.score)
+        return results[:limit]
 
     def get_forgotten_memories(
         self,
         memory_types: Optional[List[str]] = None,
         limit: int = 100,
     ) -> List[SearchResult]:
-        """Get all forgotten (tombstoned) memories."""
-        raise NotImplementedError(
-            "SupabaseStorage does not yet support get_forgotten_memories. "
-            "Use SQLiteStorage for full functionality."
-        )
+        """Get all forgotten (tombstoned) memories.
+
+        Args:
+            memory_types: Filter by memory type
+            limit: Maximum results
+
+        Returns:
+            List of forgotten memories
+        """
+        results = []
+        types = memory_types or [
+            "episode",
+            "belief",
+            "value",
+            "goal",
+            "note",
+            "drive",
+            "relationship",
+        ]
+
+        table_map = {
+            "episode": ("agent_episodes", self._row_to_episode),
+            "belief": ("agent_beliefs", self._row_to_belief),
+            "value": ("agent_values", self._row_to_value),
+            "goal": ("agent_goals", self._row_to_goal),
+            "note": ("memories", self._row_to_note),
+            "drive": ("agent_drives", self._row_to_drive),
+            "relationship": ("agent_relationships", self._row_to_relationship),
+        }
+
+        for memory_type in types:
+            if memory_type not in table_map:
+                continue
+
+            table, converter = table_map[memory_type]
+
+            try:
+                if memory_type == "note":
+                    query = (
+                        self.client.table(table)
+                        .select("*")
+                        .eq("owner_id", self.agent_id)
+                        .eq("source", "curated")
+                        .eq("is_forgotten", True)
+                        .order("forgotten_at", desc=True)
+                        .limit(limit)
+                    )
+                else:
+                    query = (
+                        self.client.table(table)
+                        .select("*")
+                        .eq("agent_id", self.agent_id)
+                        .eq("is_forgotten", True)
+                        .order("forgotten_at", desc=True)
+                        .limit(limit)
+                    )
+
+                result = query.execute()
+
+                for row in result.data:
+                    results.append(
+                        SearchResult(
+                            record=converter(row),
+                            record_type=memory_type,
+                            score=0.0,  # Forgotten memories have 0 active salience
+                        )
+                    )
+            except Exception as e:
+                logger.debug(f"Could not get forgotten memories from {table}: {e}")
+
+        return results[:limit]

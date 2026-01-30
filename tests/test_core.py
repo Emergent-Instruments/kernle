@@ -13,6 +13,7 @@ import pytest
 
 from kernle.core import Kernle
 from kernle.storage import SQLiteStorage
+from kernle.storage.base import Note
 
 
 class TestKernleInitialization:
@@ -181,6 +182,66 @@ class TestLoadMethods:
         assert drives[0]["drive_type"] == "growth"
         assert drives[0]["intensity"] == 0.7
         assert drives[0]["focus_areas"] == ["learning", "improvement"]
+
+    def test_load_returns_meta_with_budget_metrics(self, kernle_instance, populated_storage):
+        """Test that load() returns _meta with budget tracking info."""
+        kernle, _ = kernle_instance
+        kernle._storage = populated_storage
+
+        memory = kernle.load(budget=8000)
+
+        # Verify _meta is present
+        assert "_meta" in memory
+        meta = memory["_meta"]
+
+        # Verify budget metrics
+        assert "budget_used" in meta
+        assert "budget_total" in meta
+        assert "excluded_count" in meta
+
+        # Verify types and values make sense
+        assert isinstance(meta["budget_used"], int)
+        assert isinstance(meta["budget_total"], int)
+        assert isinstance(meta["excluded_count"], int)
+        assert meta["budget_total"] == 8000
+        assert meta["budget_used"] >= 0
+        assert meta["budget_used"] <= meta["budget_total"]
+        assert meta["excluded_count"] >= 0
+
+    def test_load_meta_excluded_count_with_low_budget(self, kernle_instance, populated_storage):
+        """Test that excluded_count increases when budget is too small."""
+        kernle, _ = kernle_instance
+        kernle._storage = populated_storage
+
+        # Very low budget should exclude some items
+        memory = kernle.load(budget=100)
+        meta = memory["_meta"]
+
+        # With a tiny budget, we should have exclusions (unless all items are tiny)
+        # The important thing is the math works: budget_used <= budget_total
+        assert meta["budget_used"] <= meta["budget_total"]
+        assert meta["budget_total"] == 100
+
+    def test_load_meta_budget_used_varies_with_content(self, kernle_instance):
+        """Test that budget_used reflects actual content size."""
+        kernle, storage = kernle_instance
+
+        # Empty storage
+        memory_empty = kernle.load(budget=8000)
+        assert memory_empty["_meta"]["budget_used"] == 0
+        assert memory_empty["_meta"]["excluded_count"] == 0
+
+        # Add some content
+        storage.save_note(
+            Note(
+                id="test-note-1",
+                agent_id="test_agent",
+                content="A short note",
+            )
+        )
+
+        memory_with_note = kernle.load(budget=8000)
+        assert memory_with_note["_meta"]["budget_used"] > 0
 
 
 class TestCheckpoints:

@@ -402,6 +402,7 @@ class Kernle(
         truncate: bool = True,
         max_item_chars: int = DEFAULT_MAX_ITEM_CHARS,
         sync: Optional[bool] = None,
+        track_access: bool = True,
     ) -> Dict[str, Any]:
         """Load working memory context with budget-aware selection.
 
@@ -424,6 +425,9 @@ class Kernle(
             truncate: If True, truncate long items to fit more in budget
             max_item_chars: Max characters per item when truncating (default: 500)
             sync: Override auto_sync setting. If None, uses self.auto_sync.
+            track_access: If True (default), record access for salience tracking.
+                Set to False for internal operations (like sync) that should not
+                affect salience decay.
 
         Returns:
             Dict containing all memory layers
@@ -501,6 +505,10 @@ class Kernle(
             # Sort by priority descending
             candidates.sort(key=lambda x: x[0], reverse=True)
 
+            # Track total candidates for metadata
+            total_candidates = len(candidates)
+            selected_count = 0
+
             # Fill budget with highest priority items
             selected = {
                 "values": [],
@@ -556,6 +564,7 @@ class Kernle(
                         selected["relationships"].append(record)
 
                     remaining_budget -= tokens
+                    selected_count += 1
 
                 # Stop if budget exhausted
                 if remaining_budget <= 0:
@@ -675,7 +684,33 @@ class Kernle(
                         reverse=True,
                     )
                 ],
+                "_meta": {
+                    "budget_used": budget - remaining_budget,
+                    "budget_total": budget,
+                    "excluded_count": total_candidates - selected_count,
+                },
             }
+
+            # Track access for all loaded memories (for salience-based forgetting)
+            if track_access:
+                accesses = []
+                for v in selected["values"]:
+                    accesses.append(("value", v.id))
+                for b in selected["beliefs"]:
+                    accesses.append(("belief", b.id))
+                for g in selected["goals"]:
+                    accesses.append(("goal", g.id))
+                for d in selected["drives"]:
+                    accesses.append(("drive", d.id))
+                for e in selected["episodes"]:
+                    accesses.append(("episode", e.id))
+                for n in selected["notes"]:
+                    accesses.append(("note", n.id))
+                for r in selected["relationships"]:
+                    accesses.append(("relationship", r.id))
+
+                if accesses:
+                    self._storage.record_access_batch(accesses)
 
             # Log the load operation (batched path)
             log_load(
@@ -689,6 +724,8 @@ class Kernle(
             return batched_result
 
         # Fallback to individual queries (for backends without load_all)
+        # Note: This path doesn't do budget-aware selection, so we report
+        # the budget as fully used and no exclusions (legacy behavior)
         result = {
             "checkpoint": self.load_checkpoint(),
             "values": self.load_values(),
@@ -699,6 +736,11 @@ class Kernle(
             "recent_work": self.load_recent_work(),
             "recent_notes": self.load_recent_notes(),
             "relationships": self.load_relationships(),
+            "_meta": {
+                "budget_used": budget,
+                "budget_total": budget,
+                "excluded_count": 0,
+            },
         }
 
         # Log the load operation
@@ -3173,7 +3215,9 @@ class Kernle(
     # SEARCH
     # =========================================================================
 
-    def search(self, query: str, limit: int = 10, min_score: float = None) -> List[Dict[str, Any]]:
+    def search(
+        self, query: str, limit: int = 10, min_score: float = None, track_access: bool = True
+    ) -> List[Dict[str, Any]]:
         """Search across episodes, notes, and beliefs.
 
         Args:
@@ -3181,6 +3225,7 @@ class Kernle(
             limit: Maximum results to return
             min_score: Minimum similarity score (0.0-1.0) to include in results.
                        If None, returns all results up to limit.
+            track_access: If True (default), record access for salience tracking.
         """
         # Request more results if filtering by score
         fetch_limit = limit * 3 if min_score else limit
@@ -3189,6 +3234,11 @@ class Kernle(
         # Filter by minimum score if specified
         if min_score is not None:
             results = [r for r in results if r.score >= min_score]
+
+        # Track access for returned results
+        if track_access and results:
+            accesses = [(r.record_type, r.record.id) for r in results[:limit]]
+            self._storage.record_access_batch(accesses)
 
         formatted = []
         for r in results:

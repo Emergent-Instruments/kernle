@@ -1,8 +1,8 @@
 # Kernle Architecture Audit Report
 
-**Date**: January 27, 2025  
-**Auditor**: Architecture Review Subagent  
-**Version**: 0.1.0  
+**Date**: January 27, 2025
+**Auditor**: Architecture Review Subagent
+**Version**: 0.1.0
 **Scope**: Storage abstraction, sync engine, MCP server, memory model, extensibility, performance
 
 ---
@@ -105,12 +105,13 @@ lessons: Optional[List[str]] = None  # vs default []
 - Queue-based change tracking (`sync_queue` table)
 - Connectivity caching to avoid repeated checks
 - Last-write-wins conflict resolution is simple and predictable
-- Deduplication in `_queue_sync` (removes existing before inserting)
+- Atomic deduplication in `_queue_sync` using `INSERT ON CONFLICT DO UPDATE`
 
 **Concerns:**
 
-#### 🟠 Race Condition: Queue deduplication
+#### ✅ ~~Race Condition: Queue deduplication~~ (FIXED)
 
+**Original Issue:**
 ```python
 def _queue_sync(self, conn, table, record_id, operation, payload=None):
     # DELETE then INSERT is not atomic
@@ -118,9 +119,17 @@ def _queue_sync(self, conn, table, record_id, operation, payload=None):
     conn.execute("INSERT INTO sync_queue ...", ...)
 ```
 
-If two operations on the same record happen concurrently, the second DELETE might remove the first INSERT before it's synced.
+**Fix Applied:** The `_queue_sync` method now uses atomic UPSERT with `INSERT ... ON CONFLICT DO UPDATE`:
+```python
+conn.execute(
+    """INSERT INTO sync_queue ...
+       ON CONFLICT(table_name, record_id) WHERE synced = 0
+       DO UPDATE SET operation = excluded.operation, ...""",
+    ...
+)
+```
 
-**Recommendation**: Use `INSERT OR REPLACE` or wrap in explicit transaction with proper isolation.
+This ensures deduplication is atomic and prevents race conditions between concurrent writes.
 
 #### 🟠 Race Condition: Merge during sync
 
@@ -220,7 +229,7 @@ Most tools follow consistent patterns, but:
 #### 🔶 Return format inconsistency
 
 Some tools return IDs truncated (`{id[:8]}...`), others return full responses. Standardize on:
-- Success: `{"id": "...", "type": "...", ...}` 
+- Success: `{"id": "...", "type": "...", ...}`
 - Error: Clear error message
 
 #### 🔶 Validation duplication
@@ -313,7 +322,7 @@ Excellent implementation of forgetting with:
 
 **This is too many touchpoints!**
 
-**Recommendation**: 
+**Recommendation**:
 - Generate schema from dataclass definitions
 - Use generic CRUD for new types
 - Consider event-driven architecture for cross-cutting concerns

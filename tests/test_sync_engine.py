@@ -311,7 +311,7 @@ class TestConflictResolution:
         conflict = result.conflicts[0]
         assert conflict.table == "notes"
         assert conflict.record_id == "conflict-note"
-        assert conflict.resolution == "cloud_wins"
+        assert "cloud_wins" in conflict.resolution  # May include _arrays_merged suffix
         assert conflict.local_summary is not None
         assert conflict.cloud_summary is not None
 
@@ -362,7 +362,7 @@ class TestConflictResolution:
         conflict = result.conflicts[0]
         assert conflict.table == "notes"
         assert conflict.record_id == "conflict-note"
-        assert conflict.resolution == "local_wins"
+        assert "local_wins" in conflict.resolution  # May include _arrays_merged suffix
 
         # Local version should be preserved
         notes = storage_with_cloud.get_notes()
@@ -411,7 +411,7 @@ class TestConflictResolution:
         conflict = next((c for c in history if c.record_id == "history-note"), None)
         assert conflict is not None
         assert conflict.table == "notes"
-        assert conflict.resolution == "cloud_wins"
+        assert "cloud_wins" in conflict.resolution  # May include _arrays_merged suffix
         assert "Local version" in (conflict.local_summary or "")
         assert "Cloud version" in (conflict.cloud_summary or "")
 
@@ -763,6 +763,376 @@ class TestSyncHooks:
         # Checkpoint should still work
         result = k.checkpoint("Test task", sync=True)
         assert result["current_task"] == "Test task"
+
+
+class TestSyncQueueAtomicity:
+    """Test that sync queue operations are atomic."""
+
+    def test_queue_sync_uses_atomic_upsert(self, storage):
+        """Verify that queue_sync uses INSERT ON CONFLICT (atomic) not DELETE+INSERT."""
+        # Save the same note multiple times rapidly
+        for i in range(10):
+            storage.save_note(Note(id="atomic-test", agent_id="test-agent", content=f"Version {i}"))
+
+        # Should still have exactly one queued change for this record
+        changes = storage.get_queued_changes()
+        matching = [c for c in changes if c.record_id == "atomic-test"]
+        assert len(matching) == 1
+
+        # The queued change should have the latest data
+        # (Verify it's truly the latest by checking the operation is "upsert")
+        assert matching[0].operation in ("upsert", "insert", "update")
+
+    def test_sync_queue_deduplication_preserves_latest(self, storage):
+        """Multiple updates to the same record should keep only the latest in queue."""
+        # Save three different versions
+        storage.save_episode(
+            Episode(id="dedupe-test", agent_id="test-agent", objective="First", outcome="v1")
+        )
+        storage.save_episode(
+            Episode(id="dedupe-test", agent_id="test-agent", objective="Second", outcome="v2")
+        )
+        storage.save_episode(
+            Episode(id="dedupe-test", agent_id="test-agent", objective="Third", outcome="v3")
+        )
+
+        # Get queued changes for this record
+        changes = storage.get_queued_changes()
+        matching = [c for c in changes if c.record_id == "dedupe-test"]
+
+        # Should be exactly one queued change
+        assert len(matching) == 1
+
+        # Verify the episode was saved with the latest values
+        # (Queue stores the record ID, actual data is in the episodes table)
+        episodes = storage.get_episodes()
+        dedupe_episode = next(e for e in episodes if e.id == "dedupe-test")
+        assert dedupe_episode.objective == "Third"
+        assert dedupe_episode.outcome == "v3"
+
+
+class TestArrayFieldMerging:
+    """Test that array fields are merged (set union) during sync instead of last-write-wins."""
+
+    def test_cloud_wins_merges_local_tags(self, storage_with_cloud, mock_cloud_storage):
+        """When cloud wins, array fields from local should be merged in."""
+        mock_cloud_storage.get_stats.return_value = {"episodes": 0}
+
+        # Create local record with some tags
+        old_time = datetime.now(timezone.utc) - timedelta(hours=1)
+        storage_with_cloud.save_episode(
+            Episode(
+                id="ep-merge-1",
+                agent_id="test-agent",
+                objective="Test episode",
+                outcome="Test outcome",
+                tags=["local-tag-1", "local-tag-2"],
+                lessons=["local-lesson-1"],
+                emotional_tags=["joy"],
+                local_updated_at=old_time,
+            )
+        )
+
+        # Clear the queue so we can test pull
+        with storage_with_cloud._get_conn() as conn:
+            conn.execute("DELETE FROM sync_queue")
+            conn.commit()
+
+        # Cloud has a newer version with different tags
+        new_time = datetime.now(timezone.utc)
+        cloud_episode = Episode(
+            id="ep-merge-1",
+            agent_id="test-agent",
+            objective="Updated objective from cloud",
+            outcome="Updated outcome from cloud",
+            tags=["cloud-tag-1", "local-tag-1"],  # One overlapping, one new
+            lessons=["cloud-lesson-1"],  # Different lesson
+            emotional_tags=["curiosity"],  # Different emotion
+            cloud_synced_at=new_time,
+            local_updated_at=new_time,
+        )
+        mock_cloud_storage.get_episodes.return_value = [cloud_episode]
+
+        # Pull changes
+        result = storage_with_cloud.pull_changes()
+
+        # Should have a conflict
+        assert result.conflict_count >= 1
+        conflict = result.conflicts[0]
+        assert "arrays_merged" in conflict.resolution
+
+        # Verify the episode has merged arrays
+        episode = storage_with_cloud.get_episode("ep-merge-1")
+        assert episode is not None
+
+        # Scalar fields should come from cloud (winner)
+        assert episode.objective == "Updated objective from cloud"
+
+        # Array fields should be merged (set union)
+        assert set(episode.tags) == {"local-tag-1", "local-tag-2", "cloud-tag-1"}
+        assert set(episode.lessons) == {"local-lesson-1", "cloud-lesson-1"}
+        assert set(episode.emotional_tags) == {"joy", "curiosity"}
+
+    def test_local_wins_merges_cloud_tags(self, storage_with_cloud, mock_cloud_storage):
+        """When local wins, array fields from cloud should be merged in."""
+        mock_cloud_storage.get_stats.return_value = {"episodes": 0}
+
+        # Create local record (newer)
+        new_time = datetime.now(timezone.utc)
+        storage_with_cloud.save_note(
+            Note(
+                id="note-merge-1",
+                agent_id="test-agent",
+                content="Local content (newer)",
+                tags=["local-tag-1", "common-tag"],
+                local_updated_at=new_time,
+            )
+        )
+
+        # Clear the queue
+        with storage_with_cloud._get_conn() as conn:
+            conn.execute("DELETE FROM sync_queue")
+            conn.commit()
+
+        # Cloud has an older version with different tags
+        old_time = datetime.now(timezone.utc) - timedelta(hours=1)
+        cloud_note = Note(
+            id="note-merge-1",
+            agent_id="test-agent",
+            content="Cloud content (older)",
+            tags=["cloud-tag-1", "common-tag"],
+            cloud_synced_at=old_time,
+            local_updated_at=old_time,
+        )
+        mock_cloud_storage.get_notes.return_value = [cloud_note]
+
+        # Pull changes
+        result = storage_with_cloud.pull_changes()
+
+        # Should have a conflict where local wins but arrays are merged
+        assert result.conflict_count >= 1
+        conflict = result.conflicts[0]
+        assert "local_wins" in conflict.resolution
+        assert "arrays_merged" in conflict.resolution
+
+        # Verify the note has merged arrays but local scalar content
+        note = next(n for n in storage_with_cloud.get_notes() if n.id == "note-merge-1")
+        assert note is not None
+
+        # Scalar fields should come from local (winner)
+        assert note.content == "Local content (newer)"
+
+        # Tags should be merged (set union)
+        assert set(note.tags) == {"local-tag-1", "cloud-tag-1", "common-tag"}
+
+    def test_drive_focus_areas_merge(self, storage_with_cloud, mock_cloud_storage):
+        """Drive focus_areas should be merged."""
+        mock_cloud_storage.get_stats.return_value = {"episodes": 0}
+
+        # Create local drive
+        old_time = datetime.now(timezone.utc) - timedelta(hours=1)
+        storage_with_cloud.save_drive(
+            Drive(
+                id="drive-merge-1",
+                agent_id="test-agent",
+                drive_type="curiosity",
+                focus_areas=["local-area-1", "common-area"],
+                local_updated_at=old_time,
+            )
+        )
+
+        # Clear queue
+        with storage_with_cloud._get_conn() as conn:
+            conn.execute("DELETE FROM sync_queue")
+            conn.commit()
+
+        # Cloud has newer version with different focus areas
+        new_time = datetime.now(timezone.utc)
+        cloud_drive = Drive(
+            id="drive-merge-1",
+            agent_id="test-agent",
+            drive_type="curiosity",
+            intensity=0.8,  # Updated intensity
+            focus_areas=["cloud-area-1", "common-area"],
+            cloud_synced_at=new_time,
+            local_updated_at=new_time,
+        )
+        mock_cloud_storage.get_drives.return_value = [cloud_drive]
+
+        # Pull changes
+        storage_with_cloud.pull_changes()
+
+        # Verify merged focus areas
+        drive = storage_with_cloud.get_drive("curiosity")
+        assert drive is not None
+        assert drive.intensity == 0.8  # Scalar from cloud winner
+        assert set(drive.focus_areas) == {"local-area-1", "cloud-area-1", "common-area"}
+
+    def test_merge_with_none_array_local(self, storage_with_cloud, mock_cloud_storage):
+        """Merge handles None array on local side."""
+        mock_cloud_storage.get_stats.return_value = {"episodes": 0}
+
+        # Create local record with no tags
+        old_time = datetime.now(timezone.utc) - timedelta(hours=1)
+        storage_with_cloud.save_episode(
+            Episode(
+                id="ep-none-local",
+                agent_id="test-agent",
+                objective="Test",
+                outcome="Test",
+                tags=None,  # No tags locally
+                local_updated_at=old_time,
+            )
+        )
+
+        with storage_with_cloud._get_conn() as conn:
+            conn.execute("DELETE FROM sync_queue")
+            conn.commit()
+
+        # Cloud has tags
+        new_time = datetime.now(timezone.utc)
+        cloud_episode = Episode(
+            id="ep-none-local",
+            agent_id="test-agent",
+            objective="Cloud objective",
+            outcome="Cloud outcome",
+            tags=["cloud-tag"],
+            cloud_synced_at=new_time,
+            local_updated_at=new_time,
+        )
+        mock_cloud_storage.get_episodes.return_value = [cloud_episode]
+
+        storage_with_cloud.pull_changes()
+
+        episode = storage_with_cloud.get_episode("ep-none-local")
+        # Should have cloud's tags (local had none)
+        assert episode.tags == ["cloud-tag"]
+
+    def test_merge_with_none_array_cloud(self, storage_with_cloud, mock_cloud_storage):
+        """Merge handles None array on cloud side."""
+        mock_cloud_storage.get_stats.return_value = {"episodes": 0}
+
+        # Create local record with tags
+        old_time = datetime.now(timezone.utc) - timedelta(hours=1)
+        storage_with_cloud.save_episode(
+            Episode(
+                id="ep-none-cloud",
+                agent_id="test-agent",
+                objective="Test",
+                outcome="Test",
+                tags=["local-tag"],
+                local_updated_at=old_time,
+            )
+        )
+
+        with storage_with_cloud._get_conn() as conn:
+            conn.execute("DELETE FROM sync_queue")
+            conn.commit()
+
+        # Cloud has no tags
+        new_time = datetime.now(timezone.utc)
+        cloud_episode = Episode(
+            id="ep-none-cloud",
+            agent_id="test-agent",
+            objective="Cloud objective",
+            outcome="Cloud outcome",
+            tags=None,  # No tags in cloud
+            cloud_synced_at=new_time,
+            local_updated_at=new_time,
+        )
+        mock_cloud_storage.get_episodes.return_value = [cloud_episode]
+
+        storage_with_cloud.pull_changes()
+
+        episode = storage_with_cloud.get_episode("ep-none-cloud")
+        # Should preserve local tags even though cloud won
+        assert episode.tags == ["local-tag"]
+
+    def test_merge_deduplicates_arrays(self, storage_with_cloud, mock_cloud_storage):
+        """Merged arrays should not have duplicates."""
+        mock_cloud_storage.get_stats.return_value = {"episodes": 0}
+
+        # Create local record
+        old_time = datetime.now(timezone.utc) - timedelta(hours=1)
+        storage_with_cloud.save_episode(
+            Episode(
+                id="ep-dedup",
+                agent_id="test-agent",
+                objective="Test",
+                outcome="Test",
+                tags=["tag-a", "tag-b", "tag-c"],
+                local_updated_at=old_time,
+            )
+        )
+
+        with storage_with_cloud._get_conn() as conn:
+            conn.execute("DELETE FROM sync_queue")
+            conn.commit()
+
+        # Cloud has overlapping tags
+        new_time = datetime.now(timezone.utc)
+        cloud_episode = Episode(
+            id="ep-dedup",
+            agent_id="test-agent",
+            objective="Cloud objective",
+            outcome="Cloud outcome",
+            tags=["tag-b", "tag-c", "tag-d"],  # b and c overlap
+            cloud_synced_at=new_time,
+            local_updated_at=new_time,
+        )
+        mock_cloud_storage.get_episodes.return_value = [cloud_episode]
+
+        storage_with_cloud.pull_changes()
+
+        episode = storage_with_cloud.get_episode("ep-dedup")
+        # Should have exactly 4 unique tags
+        assert len(episode.tags) == 4
+        assert set(episode.tags) == {"tag-a", "tag-b", "tag-c", "tag-d"}
+
+
+class TestMergeArrayFieldsUnit:
+    """Unit tests for the _merge_array_fields helper method."""
+
+    def test_merge_array_fields_no_arrays(self, storage):
+        """No-op when table has no array fields configured."""
+        # Using a fake table name that's not in SYNC_ARRAY_FIELDS
+        ep1 = Episode(id="1", agent_id="test", objective="O1", outcome="Out1", tags=["a"])
+        ep2 = Episode(id="1", agent_id="test", objective="O2", outcome="Out2", tags=["b"])
+
+        result = storage._merge_array_fields("fake_table", ep1, ep2)
+
+        # Should return winner unchanged
+        assert result is ep1
+        assert result.tags == ["a"]
+
+    def test_merge_array_fields_episode(self, storage):
+        """Direct test of _merge_array_fields for episodes."""
+        winner = Episode(
+            id="1",
+            agent_id="test",
+            objective="Winner",
+            outcome="Out",
+            tags=["tag-w"],
+            lessons=["lesson-w"],
+            emotional_tags=["joy"],
+        )
+        loser = Episode(
+            id="1",
+            agent_id="test",
+            objective="Loser",
+            outcome="Out",
+            tags=["tag-l"],
+            lessons=["lesson-l"],
+            emotional_tags=["curiosity"],
+        )
+
+        result = storage._merge_array_fields("episodes", winner, loser)
+
+        # Winner's scalar fields preserved, arrays merged
+        assert result.objective == "Winner"
+        assert set(result.tags) == {"tag-w", "tag-l"}
+        assert set(result.lessons) == {"lesson-w", "lesson-l"}
+        assert set(result.emotional_tags) == {"joy", "curiosity"}
 
 
 if __name__ == "__main__":

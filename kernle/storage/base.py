@@ -1146,6 +1146,26 @@ class Storage(Protocol):
         """
         ...
 
+    def record_access_batch(self, accesses: List[tuple[str, str]]) -> int:
+        """Record multiple memory accesses in a single operation.
+
+        This is an optimization for bulk access tracking, such as when
+        loading working memory or returning search results.
+
+        Args:
+            accesses: List of (memory_type, memory_id) tuples
+
+        Returns:
+            Number of memories successfully updated
+        """
+        # Default implementation: call record_access for each item
+        # Storage backends can override for better performance
+        count = 0
+        for memory_type, memory_id in accesses:
+            if self.record_access(memory_type, memory_id):
+                count += 1
+        return count
+
     @abstractmethod
     def forget_memory(
         self,
