@@ -271,15 +271,25 @@ class MetaMemoryMixin:
     ) -> Dict[str, Any]:
         """Propagate confidence changes to derived memories.
 
-        When a source memory's confidence changes, this updates
-        derived memories accordingly.
+        **STATUS: STUB - Not yet implemented.**
+
+        This method is planned but not yet functional. It currently returns
+        the source memory's confidence but does not actually propagate changes
+        to derived memories. The `derived_from` field tracking is in place;
+        the propagation logic will be implemented in a future release.
+
+        When implemented, this will:
+        1. Find all memories where `derived_from` contains the source reference
+        2. Update their confidence based on the source's change
+        3. Cascade updates to further derivations
 
         Args:
             memory_type: Type of source memory
             memory_id: ID of source memory
 
         Returns:
-            Result dict with number of updated memories
+            Result dict with source confidence info. Note: `updated` is always 0
+            until this feature is implemented.
         """
         record = self._storage.get_memory(memory_type, memory_id)
         if not record:
@@ -288,15 +298,17 @@ class MetaMemoryMixin:
         source_confidence = getattr(record, "confidence", 0.8)
         source_ref = f"{memory_type}:{memory_id}"
 
-        # Find memories derived from this one
-        # This is a simplified implementation - would need to query all tables
+        # TODO: Implement actual propagation
+        # - Query all memory tables for records where derived_from contains source_ref
+        # - Update confidence based on propagation rules (min? weighted average?)
+        # - Handle cascading updates
         updated = 0
 
-        # For now, return the source confidence info
         return {
             "source_confidence": source_confidence,
             "source_ref": source_ref,
             "updated": updated,
+            "note": "Propagation not yet implemented - see roadmap",
         }
 
     def set_memory_source(

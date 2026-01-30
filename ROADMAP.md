@@ -340,6 +340,10 @@ Kernle Cloud ──webhook──→ Gateway ──inject──→ Active Session
 | 2.4 Usage Tracking & Tiers | Q1 2026 | ✅ Complete |
 | 2.5 Admin Dashboard & Payments | Q1 2026 | 📋 Next |
 | 2.6 Web Dashboard (Next.js) | Q2 2026 | 📋 Planned |
+| **2.7 Intelligent Context Management** | Q2 2026 | 📋 High Priority |
+| 2.7.1 Query-aware loading | Q2 2026 | 📋 Planned |
+| 2.7.2 Memory summarization | Q2 2026 | 📋 Planned |
+| 2.7.3 Confidence propagation | Q2 2026 | 📋 Planned (stub exists) |
 | 3.x Cross-agent | Q3 2026 | Not started |
 | 4.x Premium | Q4 2026 | Not started |
 | **5.0 SI Communication Design** | Q1 2026 | ✅ Complete |
@@ -600,31 +604,107 @@ GET  /billing/invoices      - User's invoice history
 
 ---
 
-## Memory Stack Enhancements (Future)
+## Phase 2.7: Intelligent Context Management 📋
 
-From the comprehensive memory stack audit (2026-01-30), these items are identified as future improvements. The critical issues have been addressed; these are optimizations to implement as usage patterns emerge.
+**Goal:** Move from passive budget enforcement to intelligent memory selection and compression.
 
-### High Priority Enhancements
+These three features represent the next major evolution of the memory stack. They address the core challenge: when memory exceeds context budget, the current system drops memories silently. These features make context management *intelligent*.
+
+### 2.7.1 Query-Aware Loading
+
+**Status:** 📋 High Priority
+
+Load memories relevant to the current task, not just by static priority.
+
+```python
+# Current behavior - loads by priority (values > beliefs > goals > ...)
+memory = k.load(budget=6000)
+
+# Proposed - prioritizes memories relevant to current task
+memory = k.load(budget=6000, query="debugging authentication issues")
+```
+
+**Implementation:**
+- Add optional `query` parameter to `load()`
+- Use semantic search to score memories by relevance
+- Boost priority scores for relevant items
+- Fall back to static priority when no query provided
+
+**Benefit:** Dramatically more relevant context for the task at hand.
+
+### 2.7.2 Memory Summarization
+
+**Status:** 📋 High Priority
+
+When budget is exhausted, summarize excluded memories instead of dropping them.
+
+```python
+# Current: excluded memories are lost to context
+# Proposed return structure:
+{
+    "values": [...],
+    "beliefs": [...],
+    "_meta": {
+        "budget_used": 5800,
+        "excluded_count": 47,
+        "excluded_summary": "47 older memories excluded: 23 episodes about debugging, 15 notes on API design, 9 beliefs about testing..."
+    }
+}
+```
+
+**Implementation:**
+- Generate summaries of excluded memories by category
+- Use LLM or template-based summarization
+- Include summary in `_meta` for agent awareness
+- Consider periodic consolidation of old episodes into belief summaries
+
+**Benefit:** No memory is truly "lost" - context always includes awareness of what exists.
+
+### 2.7.3 Confidence Propagation
+
+**Status:** 📋 High Priority (Stub exists)
+
+When source memories change, update derived memories automatically.
+
+```python
+# Episode confidence drops (source was wrong)
+k.update_confidence("episode", ep_id, 0.3)
+
+# Beliefs derived from that episode should update
+k.propagate_confidence("episode", ep_id)
+# -> Finds beliefs where derived_from contains ep_id
+# -> Adjusts their confidence based on source change
+```
+
+**Current state:** `propagate_confidence()` exists but returns `updated=0`. The `derived_from` tracking is in place; propagation logic needs implementation.
+
+**Implementation:**
+- Query all memory tables for `derived_from` matches
+- Define propagation rules (min of sources? weighted average?)
+- Handle cascading updates (A → B → C)
+- Add optional auto-propagation on confidence changes
+
+**Benefit:** Derived knowledge stays accurate when sources are corrected.
+
+---
+
+## Memory Stack Enhancements (Lower Priority)
+
+Additional improvements identified in the 2026-01-30 audit:
+
+### Medium Priority
 
 | Item | Description | Benefit |
 |------|-------------|---------|
-| **Query-aware loading** | Add optional `query` parameter to `load()` that uses semantic search to prioritize relevant memories | More relevant context for current task |
-| **Memory summarization** | When budget is exhausted, summarize excluded memories instead of just dropping them | Better use of limited context |
-| **Confidence propagation** | Implement `propagate_confidence()` to update derived memories when sources change | More accurate confidence scores |
-| **Recency weighting** | Add recency factor to cross-type priority scoring, not just within-type sorting | Balance importance with freshness |
-
-### Medium Priority Enhancements
-
-| Item | Description | Benefit |
-|------|-------------|---------|
+| **Recency weighting** | Add recency factor to cross-type priority scoring | Balance importance with freshness |
 | **Search pagination** | Add cursor-based pagination to search results | Handle large result sets |
 | **Query embedding cache** | Cache computed embeddings to avoid recomputation | Reduce latency and API calls |
-| **Raw entry sync (consider)** | Evaluate syncing raw entries to cloud (currently intentionally local-only) | Cross-device raw capture |
 
-### Low Priority Enhancements
+### Low Priority
 
 | Item | Description | Benefit |
 |------|-------------|---------|
+| **Raw entry sync** | Evaluate syncing raw entries (currently intentionally local-only for privacy) | Cross-device raw capture |
 | **LLM-based emotion detection** | Add optional LLM mode alongside keyword-based detection | More nuanced emotion tagging |
 | **Domain taxonomy** | Define standard domains for knowledge mapping | Better knowledge organization |
 
