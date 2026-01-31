@@ -34,7 +34,17 @@ async function fetchApi<T>(
     throw new ApiError(response.status, error.detail || 'Request failed');
   }
 
-  return response.json();
+  // Handle 204 No Content or empty responses (common for DELETE)
+  if (response.status === 204 || response.headers.get('content-length') === '0') {
+    return undefined as T;
+  }
+
+  // Try to parse JSON, return undefined if body is empty
+  const text = await response.text();
+  if (!text) {
+    return undefined as T;
+  }
+  return JSON.parse(text);
 }
 
 // Auth
