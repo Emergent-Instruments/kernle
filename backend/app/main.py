@@ -12,7 +12,18 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from .config import get_settings
 from .rate_limit import limiter
-from .routes import admin_router, auth_router, embeddings_router, memories_router, sync_router
+from .routes import (
+    admin_router,
+    auth_router,
+    embeddings_router,
+    escrow_router,
+    jobs_router,
+    maintenance_router,
+    memories_router,
+    skills_router,
+    sync_router,
+    wallets_router,
+)
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -141,6 +152,13 @@ app.include_router(sync_router)
 app.include_router(memories_router)
 app.include_router(embeddings_router)
 app.include_router(admin_router)
+
+# Commerce routers (under /api/v1 prefix)
+app.include_router(wallets_router, prefix="/api/v1")
+app.include_router(jobs_router, prefix="/api/v1")
+app.include_router(skills_router, prefix="/api/v1")
+app.include_router(escrow_router, prefix="/api/v1")
+app.include_router(maintenance_router, prefix="/api/v1")
 
 
 @app.get("/")

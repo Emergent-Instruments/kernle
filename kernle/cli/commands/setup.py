@@ -16,8 +16,14 @@ def get_hooks_dir() -> Path:
     return kernle_root / "hooks"
 
 
-def setup_clawdbot(agent_id: str, force: bool = False) -> None:
-    """Install Clawdbot/moltbot hook for automatic memory loading."""
+def setup_clawdbot(agent_id: str, force: bool = False, enable: bool = False) -> None:
+    """Install Clawdbot/moltbot hook for automatic memory loading.
+
+    Args:
+        agent_id: Agent identifier
+        force: Overwrite existing hook files
+        enable: Automatically enable hook in clawdbot.json
+    """
     hooks_dir = get_hooks_dir()
     source = hooks_dir / "clawdbot"
 
@@ -42,6 +48,9 @@ def setup_clawdbot(agent_id: str, force: bool = False) -> None:
     if target.exists() and not force:
         print(f"⚠️  Hook already installed at {target}")
         print("   Use --force to overwrite")
+        # Even if files exist, still try to enable if requested
+        if enable:
+            _enable_clawdbot_hook(agent_id)
         return
 
     # Create target directory
@@ -58,28 +67,32 @@ def setup_clawdbot(agent_id: str, force: bool = False) -> None:
         print(f"❌ Failed to copy hook files: {e}")
         return
 
-    # Check if enabled in config
-    config_path = Path.home() / ".clawdbot" / "clawdbot.json"
-    if config_path.exists():
-        try:
-            with open(config_path) as f:
-                config = json.load(f)
+    # Handle enabling in config
+    if enable:
+        _enable_clawdbot_hook(agent_id)
+    else:
+        # Check current status and show instructions
+        config_path = Path.home() / ".clawdbot" / "clawdbot.json"
+        if config_path.exists():
+            try:
+                with open(config_path) as f:
+                    config = json.load(f)
 
-            enabled = (
-                config.get("hooks", {})
-                .get("internal", {})
-                .get("entries", {})
-                .get("kernle-load", {})
-                .get("enabled", False)
-            )
+                enabled = (
+                    config.get("hooks", {})
+                    .get("internal", {})
+                    .get("entries", {})
+                    .get("kernle-load", {})
+                    .get("enabled", False)
+                )
 
-            if enabled:
-                print("✓ Hook already enabled in config")
-            else:
-                print("\n⚠️  Hook not enabled in config")
-                print("   Add to ~/.clawdbot/clawdbot.json:")
-                print(
-                    """
+                if enabled:
+                    print("✓ Hook already enabled in config")
+                else:
+                    print("\n⚠️  Hook not enabled in config")
+                    print("   Run with --enable to auto-configure, or add manually:")
+                    print(
+                        """
 {
   "hooks": {
     "internal": {
@@ -93,16 +106,71 @@ def setup_clawdbot(agent_id: str, force: bool = False) -> None:
   }
 }
 """
-                )
-        except Exception as e:
-            print(f"⚠️  Could not read config: {e}")
-    else:
-        print(f"\n⚠️  Clawdbot config not found at {config_path}")
+                    )
+            except Exception as e:
+                print(f"⚠️  Could not read config: {e}")
+        else:
+            print(f"\n⚠️  Clawdbot config not found at {config_path}")
+            print("   Run with --enable to create config with hook enabled")
 
-    print("\nNext steps:")
-    print("  1. Enable hook in ~/.clawdbot/clawdbot.json (see above)")
-    print("  2. Restart Clawdbot gateway")
-    print(f"  3. Memory will load automatically for agent '{agent_id}'")
+        print("\nNext steps:")
+        print("  1. Enable hook: kernle setup clawdbot --enable")
+        print("  2. Restart Clawdbot gateway: clawdbot gateway restart")
+        print(f"  3. Memory will load automatically for agent '{agent_id}'")
+
+
+def _enable_clawdbot_hook(agent_id: str) -> bool:
+    """Enable kernle-load hook in clawdbot.json.
+
+    Returns True if successfully enabled (or already enabled).
+    """
+    config_path = Path.home() / ".clawdbot" / "clawdbot.json"
+
+    try:
+        if config_path.exists():
+            with open(config_path) as f:
+                config = json.load(f)
+        else:
+            # Create new config
+            config_path.parent.mkdir(parents=True, exist_ok=True)
+            config = {}
+
+        # Navigate/create the nested structure
+        if "hooks" not in config:
+            config["hooks"] = {}
+        if "internal" not in config["hooks"]:
+            config["hooks"]["internal"] = {}
+        if "entries" not in config["hooks"]["internal"]:
+            config["hooks"]["internal"]["entries"] = {}
+
+        # Enable internal hooks globally if not set
+        if not config["hooks"]["internal"].get("enabled"):
+            config["hooks"]["internal"]["enabled"] = True
+
+        # Check if already enabled
+        kernle_hook = config["hooks"]["internal"]["entries"].get("kernle-load", {})
+        if kernle_hook.get("enabled"):
+            print("✓ Hook already enabled in config")
+            return True
+
+        # Enable the hook
+        config["hooks"]["internal"]["entries"]["kernle-load"] = {"enabled": True}
+
+        # Write back
+        with open(config_path, "w") as f:
+            json.dump(config, f, indent=2)
+
+        print("✓ Enabled kernle-load hook in clawdbot.json")
+        print(f"  Config: {config_path}")
+        print()
+        print("⚠️  Restart Clawdbot gateway for changes to take effect:")
+        print("   clawdbot gateway restart")
+        return True
+
+    except Exception as e:
+        print(f"❌ Failed to enable hook in config: {e}")
+        print("   You may need to manually edit ~/.clawdbot/clawdbot.json")
+        return False
 
 
 def setup_claude_code(agent_id: str, force: bool = False, global_install: bool = False) -> None:
@@ -193,12 +261,14 @@ def cmd_setup(args, k: "Kernle"):
 
     Examples:
         kernle setup clawdbot              # Install for Clawdbot
+        kernle setup clawdbot --enable     # Install AND enable in config
         kernle setup claude-code            # Install for Claude Code (project)
         kernle setup claude-code --global   # Install for Claude Code (all projects)
         kernle setup cowork                 # Install for Cowork (same as claude-code)
     """
     platform = getattr(args, "platform", None)
     force = getattr(args, "force", False)
+    enable = getattr(args, "enable", False)
     global_install = getattr(args, "global", False)
     agent_id = k.agent_id
 
@@ -208,11 +278,16 @@ def cmd_setup(args, k: "Kernle"):
         print("  claude-code   - Claude Code SessionStart hook")
         print("  cowork        - Cowork (same as claude-code)")
         print()
-        print("Usage: kernle setup <platform>")
+        print("Usage: kernle setup <platform> [--enable] [--force]")
+        print()
+        print("Options:")
+        print("  --enable    Auto-enable hook in config (clawdbot only)")
+        print("  --force     Overwrite existing hook files")
+        print("  --global    Install globally (claude-code only)")
         return
 
     if platform == "clawdbot":
-        setup_clawdbot(agent_id, force)
+        setup_clawdbot(agent_id, force, enable)
     elif platform in ("claude-code", "cowork"):
         setup_claude_code(agent_id, force, global_install)
     else:
