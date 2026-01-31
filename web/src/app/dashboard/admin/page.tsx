@@ -15,6 +15,39 @@ import { HealthStatus } from '@/components/admin/HealthStatus';
 import { MemoryDistribution } from '@/components/admin/MemoryDistribution';
 import { UsageStats } from '@/components/admin/UsageStats';
 
+function CircularProgress({ value, size }: { value: number; size: number }) {
+  const strokeWidth = 4;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (value / 100) * circumference;
+
+  return (
+    <svg width={size} height={size} className="-rotate-90">
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        className="text-muted"
+      />
+      <circle
+        cx={size / 2}
+        cy={size / 2}
+        r={radius}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeDasharray={circumference}
+        strokeDashoffset={offset}
+        strokeLinecap="round"
+        className="text-primary transition-all duration-500"
+      />
+    </svg>
+  );
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const { stats, isConnected, isLoading, error, accessDenied } = useRealtimeStats({
@@ -111,8 +144,10 @@ export default function AdminPage() {
               <CardTitle className="text-sm font-medium">Embedding Coverage</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{systemStats.embedding_coverage_percent}%</div>
-              <Progress value={systemStats.embedding_coverage_percent} className="mt-2" />
+              <div className="flex items-center gap-3">
+                <CircularProgress value={systemStats.embedding_coverage_percent} size={48} />
+                <div className="text-2xl font-bold">{systemStats.embedding_coverage_percent}%</div>
+              </div>
             </CardContent>
           </Card>
         </div>
