@@ -123,3 +123,9 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* Admin dashboard animations */
+@keyframes flowRight {
+  from { left: -4px; }
+  to { left: calc(100% + 4px); }
+}
