@@ -8,6 +8,7 @@ from ..auth import CurrentAgent
 from ..database import (
     Database,
     delete_memory,
+    ensure_agent_exists,
     get_agent_by_user_and_name,
     get_changes_since,
     update_agent_last_sync,
@@ -69,12 +70,14 @@ async def push_changes(
     log_prefix = f"{auth.user_id}/{agent_id}" if auth.user_id else agent_id
     logger.info(f"PUSH | {log_prefix} | {len(sync_request.operations)} operations")
 
-    # Look up agent UUID for FK (multi-tenant: use user_id + agent_id)
+    # Look up or auto-create agent for FK (multi-tenant: use user_id + agent_id)
     agent_ref = None
     if auth.user_id:
-        agent = await get_agent_by_user_and_name(db, auth.user_id, agent_id)
+        # Auto-provision agent if it doesn't exist (e.g., after migration or first sync)
+        agent = await ensure_agent_exists(db, auth.user_id, agent_id)
         if agent:
             agent_ref = agent.get("id")
+            logger.info(f"PUSH | {log_prefix} | using agent_ref={agent_ref}")
 
     synced = 0
     conflicts = []

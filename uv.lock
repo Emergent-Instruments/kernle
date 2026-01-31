@@ -628,7 +628,7 @@ wheels = [
 
 [[package]]
 name = "kernle"
-version = "0.1.0"
+version = "0.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "python-dotenv" },
@@ -646,6 +646,7 @@ cloud = [
 ]
 dev = [
     { name = "black" },
+    { name = "mcp" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-cov" },
@@ -662,6 +663,7 @@ mcp = [
 requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.0" },
     { name = "kernle", extras = ["local", "cloud", "mcp"], marker = "extra == 'all'" },
+    { name = "mcp", marker = "extra == 'dev'", specifier = ">=1.0.0" },
     { name = "mcp", marker = "extra == 'mcp'", specifier = ">=1.0.0" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.21" },
