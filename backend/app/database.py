@@ -134,6 +134,32 @@ async def create_agent(
     return result.data[0] if result.data else None
 
 
+async def ensure_agent_exists(
+    db: Client,
+    user_id: str,
+    agent_id: str,
+) -> dict:
+    """Get or create an agent for a user (auto-provision during sync).
+
+    Used when an authenticated user syncs with an agent name that doesn't
+    exist yet. Creates the agent without a secret (auth via user's API key).
+    """
+    # Check if exists
+    agent = await get_agent_by_user_and_name(db, user_id, agent_id)
+    if agent:
+        return agent
+
+    # Create with empty secret (user authenticates via API key, not agent secret)
+    data = {
+        "agent_id": agent_id,
+        "secret_hash": "",  # No direct agent auth, user uses API key
+        "user_id": user_id,
+        "display_name": agent_id,
+    }
+    result = db.table(AGENTS_TABLE).insert(data).execute()
+    return result.data[0] if result.data else None
+
+
 async def get_agent(db: Client, agent_id: str) -> dict | None:
     """Get an agent by ID."""
     result = db.table(AGENTS_TABLE).select("*").eq("agent_id", agent_id).execute()
