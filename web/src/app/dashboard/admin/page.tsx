@@ -1,73 +1,46 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
-import { Loader2, RefreshCw, Zap, ShieldX } from 'lucide-react';
-import { getSystemStats, listAgents, backfillEmbeddings, SystemStats, AgentSummary, BackfillResponse, ApiError } from '@/lib/api';
+import { Loader2, Zap, ShieldX } from 'lucide-react';
+import { backfillEmbeddings, BackfillResponse } from '@/lib/api';
+import { useRealtimeStats } from '@/hooks/useRealtimeStats';
+import { AdminDashboardSkeleton } from '@/components/admin/AdminSkeleton';
+import { HealthStatus } from '@/components/admin/HealthStatus';
+import { MemoryDistribution } from '@/components/admin/MemoryDistribution';
+import { UsageStats } from '@/components/admin/UsageStats';
 
 export default function AdminPage() {
   const router = useRouter();
-  const [stats, setStats] = useState<SystemStats | null>(null);
-  const [agents, setAgents] = useState<AgentSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [accessDenied, setAccessDenied] = useState(false);
+  const { stats, isConnected, isLoading, error, accessDenied } = useRealtimeStats({
+    pollingInterval: 5000,
+  });
   const [backfilling, setBackfilling] = useState<string | null>(null);
   const [lastBackfill, setLastBackfill] = useState<BackfillResponse | null>(null);
-
-  const loadData = async () => {
-    setLoading(true);
-    setError(null);
-    setAccessDenied(false);
-    try {
-      const [statsData, agentsData] = await Promise.all([
-        getSystemStats(),
-        listAgents(50, 0),
-      ]);
-      setStats(statsData);
-      setAgents(agentsData.agents);
-    } catch (e) {
-      // Check for 403 Forbidden - user is not an admin
-      if (e instanceof ApiError && (e.status === 403 || e.status === 401)) {
-        setAccessDenied(true);
-        return;
-      }
-      setError(e instanceof Error ? e.message : 'Failed to load data');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadData();
-  }, []);
+  const [backfillError, setBackfillError] = useState<string | null>(null);
 
   const handleBackfill = async (agentId: string) => {
     setBackfilling(agentId);
     setLastBackfill(null);
+    setBackfillError(null);
     try {
       const result = await backfillEmbeddings(agentId, 100);
       setLastBackfill(result);
-      // Reload data to show updated stats
-      await loadData();
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Backfill failed');
+      setBackfillError(e instanceof Error ? e.message : 'Backfill failed');
     } finally {
       setBackfilling(null);
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 className="h-8 w-8 animate-spin" />
-      </div>
-    );
+  // Show skeleton during initial load
+  if (isLoading && !stats.systemStats) {
+    return <AdminDashboardSkeleton />;
   }
 
   if (accessDenied) {
@@ -83,14 +56,16 @@ export default function AdminPage() {
     );
   }
 
-  if (error) {
+  if (error && !stats.systemStats) {
     return (
       <div className="space-y-4">
         <div className="text-red-500">Error: {error}</div>
-        <Button onClick={loadData}>Retry</Button>
+        <Button onClick={() => window.location.reload()}>Retry</Button>
       </div>
     );
   }
+
+  const { systemStats, healthStats, agents } = stats;
 
   return (
     <div className="space-y-8">
@@ -99,21 +74,20 @@ export default function AdminPage() {
           <h2 className="text-3xl font-bold">Admin Dashboard</h2>
           <p className="text-muted-foreground">System overview and management</p>
         </div>
-        <Button variant="outline" onClick={loadData}>
-          <RefreshCw className="h-4 w-4 mr-2" />
-          Refresh
-        </Button>
+        <Badge variant={isConnected ? 'default' : 'secondary'} className="text-xs">
+          {isConnected ? 'Live' : 'Reconnecting...'}
+        </Badge>
       </div>
 
       {/* System Stats */}
-      {stats && (
+      {systemStats && (
         <div className="grid gap-4 md:grid-cols-4">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium">Total Agents</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.total_agents}</div>
+              <div className="text-2xl font-bold">{systemStats.total_agents}</div>
             </CardContent>
           </Card>
           <Card>
@@ -121,7 +95,7 @@ export default function AdminPage() {
               <CardTitle className="text-sm font-medium">Total Memories</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.total_memories.toLocaleString()}</div>
+              <div className="text-2xl font-bold">{systemStats.total_memories.toLocaleString()}</div>
             </CardContent>
           </Card>
           <Card>
@@ -129,7 +103,7 @@ export default function AdminPage() {
               <CardTitle className="text-sm font-medium">With Embeddings</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.memories_with_embeddings.toLocaleString()}</div>
+              <div className="text-2xl font-bold">{systemStats.memories_with_embeddings.toLocaleString()}</div>
             </CardContent>
           </Card>
           <Card>
@@ -137,15 +111,30 @@ export default function AdminPage() {
               <CardTitle className="text-sm font-medium">Embedding Coverage</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{stats.embedding_coverage_percent}%</div>
-              <Progress value={stats.embedding_coverage_percent} className="mt-2" />
+              <div className="text-2xl font-bold">{systemStats.embedding_coverage_percent}%</div>
+              <Progress value={systemStats.embedding_coverage_percent} className="mt-2" />
             </CardContent>
           </Card>
         </div>
       )}
 
+      {/* System Health */}
+      {healthStats && (
+        <HealthStatus healthStats={healthStats} isConnected={isConnected} />
+      )}
+
+      {/* Memory Distribution */}
+      {healthStats && (
+        <MemoryDistribution healthStats={healthStats} />
+      )}
+
+      {/* Confidence Distribution */}
+      {healthStats && (
+        <UsageStats healthStats={healthStats} />
+      )}
+
       {/* Embedding Coverage by Table */}
-      {stats && (
+      {systemStats && (
         <Card>
           <CardHeader>
             <CardTitle>Embedding Coverage by Table</CardTitle>
@@ -153,7 +142,7 @@ export default function AdminPage() {
           </CardHeader>
           <CardContent>
             <div className="grid gap-4 md:grid-cols-3">
-              {Object.entries(stats.by_table).map(([table, data]) => (
+              {Object.entries(systemStats.by_table).map(([table, data]) => (
                 <div key={table} className="space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="font-medium">{table}</span>
@@ -184,6 +173,18 @@ export default function AdminPage() {
                 <span> | Tables: {Object.entries(lastBackfill.tables_updated).map(([t, n]) => `${t}(${n})`).join(', ')}</span>
               )}
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Backfill Error */}
+      {backfillError && (
+        <Card className="border-red-500">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm text-red-500">Backfill Error</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-sm text-red-500">{backfillError}</div>
           </CardContent>
         </Card>
       )}
@@ -250,7 +251,7 @@ export default function AdminPage() {
                         </Button>
                       )}
                       {!needsBackfill && (
-                        <span className="text-sm text-green-600">✓ Complete</span>
+                        <span className="text-sm text-green-600">Complete</span>
                       )}
                     </TableCell>
                   </TableRow>
