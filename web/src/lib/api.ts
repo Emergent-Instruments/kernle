@@ -112,16 +112,27 @@ export interface CreateKeyResponse {
   created_at: string;
 }
 
+// Backend cycle response wraps the new key
+interface CycleKeyResponse {
+  old_key_id: string;
+  new_key: CreateKeyResponse;
+}
+
 export async function listApiKeys(): Promise<ApiKey[]> {
   const response = await fetchApi<{ keys: ApiKey[] }>('/auth/keys');
   return response.keys;
 }
 
 export async function createApiKey(name?: string): Promise<CreateKeyResponse> {
-  return fetchApi<CreateKeyResponse>('/auth/keys', {
+  const response = await fetchApi<CreateKeyResponse>('/auth/keys', {
     method: 'POST',
     body: JSON.stringify({ name: name || null }),
   });
+  // Log for debugging if key is missing
+  if (!response.key) {
+    console.error('API key response missing key field:', response);
+  }
+  return response;
 }
 
 export async function revokeApiKey(keyId: string): Promise<void> {
@@ -131,9 +142,11 @@ export async function revokeApiKey(keyId: string): Promise<void> {
 }
 
 export async function cycleApiKey(keyId: string): Promise<CreateKeyResponse> {
-  return fetchApi<CreateKeyResponse>(`/auth/keys/${keyId}/cycle`, {
+  const response = await fetchApi<CycleKeyResponse>(`/auth/keys/${keyId}/cycle`, {
     method: 'POST',
   });
+  // Backend returns { old_key_id, new_key: {...} }
+  return response.new_key;
 }
 
 // Admin
