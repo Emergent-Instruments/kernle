@@ -38,6 +38,7 @@ from kernle.cli.commands import (
 )
 from kernle.cli.commands.agent import cmd_agent
 from kernle.cli.commands.import_cmd import cmd_import, cmd_migrate
+from kernle.cli.commands.setup import cmd_setup
 from kernle.utils import resolve_agent_id
 
 # Set up logging
@@ -3356,6 +3357,27 @@ def main():
         help="Import all items even if they already exist",
     )
 
+    # setup - install platform hooks for automatic memory loading
+    p_setup = subparsers.add_parser(
+        "setup", help="Install platform hooks for automatic memory loading"
+    )
+    p_setup.add_argument(
+        "platform",
+        nargs="?",
+        choices=["clawdbot", "claude-code", "cowork"],
+        help="Platform to install hooks for (clawdbot, claude-code, cowork)",
+    )
+    p_setup.add_argument(
+        "--force", "-f", action="store_true", help="Overwrite existing hook installation"
+    )
+    p_setup.add_argument(
+        "--global",
+        "-g",
+        action="store_true",
+        dest="global",
+        help="Install globally (Claude Code/Cowork only)",
+    )
+
     # Pre-process arguments: handle `kernle raw "content"` by inserting "capture"
     # This is needed because argparse subparsers consume positional args before parent parser
     raw_subcommands = {
@@ -3475,6 +3497,8 @@ def main():
             cmd_import(args, k)
         elif args.command == "migrate":
             cmd_migrate(args, k)
+        elif args.command == "setup":
+            cmd_setup(args, k)
     except (ValueError, TypeError) as e:
         logger.error(f"Input validation error: {e}")
         sys.exit(1)

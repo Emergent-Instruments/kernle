@@ -1,0 +1,113 @@
+/**
+ * kernle-load hook: Automatically inject Kernle memory into session context
+ *
+ * Installation: Run `kernle setup clawdbot` or manually copy to:
+ * - Bundled: <moltbot>/src/hooks/bundled/kernle-load/
+ * - User hooks: ~/.config/moltbot/hooks/kernle-load/
+ */
+
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
+import type { HookHandler } from "../../hooks.js";
+
+const execAsync = promisify(exec);
+
+interface AgentBootstrapContext {
+  workspaceDir?: string;
+  sessionKey?: string;
+  sessionId?: string;
+  bootstrapFiles?: Array<{ path: string; content: string; virtual?: boolean }>;
+  config?: any;
+}
+
+/**
+ * Extract agent ID from session key (e.g., "agent:claire:main" -> "claire")
+ */
+function extractAgentId(sessionKey: string | undefined, workspaceDir: string | undefined): string {
+  if (sessionKey) {
+    const parts = sessionKey.split(":");
+    if (parts.length >= 2 && parts[0] === "agent") {
+      return parts[1];
+    }
+  }
+
+  // Fallback: use workspace directory name
+  if (workspaceDir) {
+    const dirName = workspaceDir.split("/").filter(Boolean).pop();
+    if (dirName && dirName !== "clawd" && dirName !== "workspace") {
+      return dirName;
+    }
+  }
+
+  return "main";
+}
+
+/**
+ * Execute kernle load and return output
+ */
+async function loadKernleMemory(agentId: string): Promise<string | null> {
+  try {
+    const { stdout } = await execAsync(`kernle -a ${agentId} load`, {
+      timeout: 5000, // 5 second timeout
+      maxBuffer: 1024 * 1024, // 1MB max output
+    });
+
+    return stdout.trim();
+  } catch (error: any) {
+    // Kernle not installed, agent doesn't exist, or command failed
+    const stderr = error.stderr || error.message || "";
+
+    // Only log if it's not a "not found" error
+    if (!stderr.includes("command not found") && !stderr.includes("No agent found")) {
+      console.warn(`[kernle-load] Failed to load memory for agent '${agentId}':`, stderr);
+    }
+
+    return null;
+  }
+}
+
+/**
+ * Hook handler: inject Kernle memory into bootstrap files
+ */
+const kernleLoadHook: HookHandler = async (event) => {
+  // Only handle agent bootstrap events
+  if (event.type !== "agent" || event.action !== "bootstrap") {
+    return;
+  }
+
+  const context = event.context as AgentBootstrapContext;
+
+  // Ensure we have bootstrap files array
+  if (!context.bootstrapFiles) {
+    return;
+  }
+
+  const { workspaceDir, sessionKey } = context;
+  const agentId = extractAgentId(sessionKey, workspaceDir);
+
+  // Load Kernle memory
+  const memoryContent = await loadKernleMemory(agentId);
+
+  if (!memoryContent) {
+    // Kernle not available or no memory for this agent - continue without it
+    return;
+  }
+
+  // Check if KERNLE.md already exists (avoid duplicates)
+  const hasKernle = context.bootstrapFiles.some(
+    (file) => file.path === "KERNLE.md" || file.path.endsWith("/KERNLE.md")
+  );
+
+  if (hasKernle) {
+    return; // Already loaded
+  }
+
+  // Inject as virtual bootstrap file
+  context.bootstrapFiles.push({
+    path: "KERNLE.md",
+    content: memoryContent,
+    virtual: true,
+  });
+};
+
+export default kernleLoadHook;

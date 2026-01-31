@@ -31,11 +31,33 @@ kernle -a my-agent raw "Quick thought to process later"
 kernle -a my-agent checkpoint save "End of session"
 ```
 
-## Integration
+## Automatic Memory Loading
 
-**Claude Code / CLAUDE.md:**
+**Make memory loading automatic** instead of relying on manual commands:
+
 ```bash
-kernle -a my-agent init  # Generates CLAUDE.md section
+# Clawdbot - Install hook for automatic loading
+kernle -a my-agent setup clawdbot
+
+# Claude Code - Install SessionStart hook (project-level)
+kernle -a my-agent setup claude-code
+
+# Claude Code - Install globally for all projects
+kernle -a my-agent setup claude-code --global
+
+# Cowork - Same as Claude Code
+kernle -a my-agent setup cowork
+```
+
+After setup, memory loads automatically at every session start. No more forgetting to run `kernle load`!
+
+See `hooks/` directory for manual installation or `kernle setup --help` for details.
+
+## Other Integrations
+
+**Manual CLAUDE.md setup:**
+```bash
+kernle -a my-agent init  # Generates CLAUDE.md section with manual load instructions
 ```
 
 **MCP Server:**
@@ -43,7 +65,7 @@ kernle -a my-agent init  # Generates CLAUDE.md section
 claude mcp add kernle -- kernle mcp -a my-agent
 ```
 
-**Clawdbot:**
+**Clawdbot skill:**
 ```bash
 ln -s ~/kernle/skill ~/.clawdbot/skills/kernle
 ```
