@@ -179,3 +179,21 @@ export async function backfillEmbeddings(agentId: string, limit = 100): Promise<
     body: JSON.stringify({ agent_id: agentId, limit }),
   });
 }
+
+// Health Stats
+export interface HealthStats {
+  database_status: string;
+  api_status: string;
+  memory_distribution: Record<string, number>;
+  pending_syncs: number;
+  avg_sync_lag_seconds: number;
+  confidence_distribution: Record<string, number>;
+  total_memories: number;
+  active_memories: number;
+  forgotten_memories: number;
+  protected_memories: number;
+}
+
+export async function getHealthStats(): Promise<HealthStats> {
+  return fetchApi<HealthStats>('/admin/health-stats');
+}
