@@ -39,6 +39,7 @@ from kernle.cli.commands import (
 from kernle.cli.commands.agent import cmd_agent
 from kernle.cli.commands.import_cmd import cmd_import, cmd_migrate
 from kernle.cli.commands.setup import cmd_setup
+from kernle.commerce.cli import cmd_wallet, cmd_job, cmd_skills
 from kernle.utils import resolve_agent_id
 
 # Set up logging
@@ -1808,33 +1809,48 @@ def cmd_auth(args, k: Kernle = None):
                 print("\nAborted.")
                 sys.exit(1)
 
+        # Get agent_id from Kernle instance
+        agent_id = k.agent_id if k else "default"
+
         # Call registration endpoint
         try:
             response = httpx.post(
                 f"{backend_url}/auth/register",
-                json={"email": email},
+                json={"agent_id": agent_id, "email": email},
                 timeout=30.0,
             )
 
             if response.status_code == 200 or response.status_code == 201:
                 result = response.json()
                 user_id = result.get("user_id")
-                api_key = result.get("api_key")
-                token = result.get("token")
-                token_expires = result.get("token_expires")
+                # Backend returns "secret" for the permanent credential (store as api_key)
+                secret = result.get("secret")
+                # Backend returns "access_token" for the JWT (store as token)
+                access_token = result.get("access_token")
+                expires_in = result.get("expires_in", 604800)
 
-                if not user_id or not api_key:
+                if not user_id or not secret:
                     print("✗ Registration failed: Invalid response from server")
                     print(f"  Response: {response.text[:200]}")
                     sys.exit(1)
 
+                # Calculate token expiry
+                token_expires = (
+                    datetime.now(timezone.utc).isoformat()
+                    if not expires_in
+                    else (
+                        datetime.now(timezone.utc)
+                        + __import__("datetime").timedelta(seconds=expires_in)
+                    ).isoformat()
+                )
+
                 # Save credentials
-                # Note: Use "auth_token" to match what storage layer expects
+                # Note: Store secret as api_key for consistency with other auth flows
                 credentials = {
                     "user_id": user_id,
-                    "api_key": api_key,
+                    "api_key": secret,  # Permanent secret stored as api_key
                     "backend_url": backend_url,
-                    "auth_token": token,  # Storage expects "auth_token", not "token"
+                    "token": access_token,  # JWT access token
                     "token_expires": token_expires,
                 }
                 save_credentials(credentials)
@@ -1854,10 +1870,11 @@ def cmd_auth(args, k: Kernle = None):
                     print("✓ Registration successful!")
                     print()
                     print(f"  User ID:     {user_id}")
+                    print(f"  Agent ID:    {agent_id}")
                     print(
-                        f"  API Key:     {api_key[:20]}..."
-                        if len(api_key) > 20
-                        else f"  API Key:     {api_key}"
+                        f"  Secret:      {secret[:20]}..."
+                        if len(secret) > 20
+                        else f"  Secret:      {secret}"
                     )
                     print(f"  Backend:     {backend_url}")
                     print()
@@ -2582,6 +2599,10 @@ def main():
         "--verbose", "-v", action="store_true", help="Show detailed check information"
     )
     p_doctor.add_argument("--fix", action="store_true", help="Auto-fix missing instructions")
+    p_doctor.add_argument(
+        "--full", "-f", action="store_true",
+        help="Full check including seed beliefs and platform hooks"
+    )
 
     # relation (social graph / relationships)
     p_relation = subparsers.add_parser("relation", help="Manage relationships")
@@ -3357,6 +3378,64 @@ def main():
         help="Import all items even if they already exist",
     )
 
+    # migrate seed-beliefs - add foundational beliefs to existing agent
+    migrate_seed_beliefs = migrate_sub.add_parser(
+        "seed-beliefs",
+        help="Add foundational seed beliefs to an existing agent",
+        description="""
+Add foundational seed beliefs to an existing agent's memory.
+
+Two modes available:
+
+  minimal (default): 3 essential meta-framework beliefs
+    - Meta-belief: "These beliefs are scaffolding, not identity..." (0.95)
+    - Epistemic humility: "My understanding is incomplete..." (0.85)  
+    - Boundaries: "I can decline requests..." (0.85)
+
+  full: Complete 16-belief set from roundtable synthesis
+    - Tier 1: 6 protected core beliefs (0.85-0.90)
+    - Tier 2: 5 foundational orientations (0.75-0.80)
+    - Tier 3: 4 discoverable values (0.65-0.70)
+    - Meta: 1 self-questioning safeguard (0.95)
+
+Use 'minimal' for existing agents to add essential meta-framework without
+overwriting developed beliefs. Use 'full' for a complete foundation.
+
+Beliefs already present in the agent's memory will be skipped.
+""",
+    )
+    migrate_seed_beliefs.add_argument(
+        "level",
+        nargs="?",
+        choices=["minimal", "full"],
+        default="minimal",
+        help="Belief set to add: 'minimal' (3 beliefs, default) or 'full' (16 beliefs)",
+    )
+    migrate_seed_beliefs.add_argument(
+        "--dry-run",
+        "-n",
+        action="store_true",
+        help="Show what would be added without making changes",
+    )
+    migrate_seed_beliefs.add_argument(
+        "--force",
+        "-f",
+        action="store_true",
+        help="Add beliefs even if similar ones exist (compares exact statements)",
+    )
+    migrate_seed_beliefs.add_argument(
+        "--tier",
+        type=int,
+        choices=[1, 2, 3],
+        help="Only add beliefs from a specific tier (1=core, 2=orientation, 3=discoverable). Only valid with 'full'.",
+    )
+    migrate_seed_beliefs.add_argument(
+        "--list",
+        "-l",
+        action="store_true",
+        help="List seed beliefs without adding them",
+    )
+
     # setup - install platform hooks for automatic memory loading
     p_setup = subparsers.add_parser(
         "setup", help="Install platform hooks for automatic memory loading"
@@ -3371,12 +3450,140 @@ def main():
         "--force", "-f", action="store_true", help="Overwrite existing hook installation"
     )
     p_setup.add_argument(
+        "--enable", "-e", action="store_true",
+        help="Auto-enable hook in config (clawdbot only)"
+    )
+    p_setup.add_argument(
         "--global",
         "-g",
         action="store_true",
         dest="global",
         help="Install globally (Claude Code/Cowork only)",
     )
+
+    # =========================================================================
+    # Commerce Commands (Wallet, Jobs, Skills)
+    # =========================================================================
+
+    # wallet - wallet management commands
+    p_wallet = subparsers.add_parser("wallet", help="Commerce wallet operations")
+    wallet_sub = p_wallet.add_subparsers(dest="wallet_action", required=True)
+
+    # kernle wallet balance
+    wallet_balance = wallet_sub.add_parser("balance", help="Show USDC balance")
+    wallet_balance.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle wallet address
+    wallet_address = wallet_sub.add_parser("address", help="Show wallet address")
+    wallet_address.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle wallet status
+    wallet_status = wallet_sub.add_parser("status", help="Show wallet status and limits")
+    wallet_status.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # job - job marketplace commands
+    p_job = subparsers.add_parser("job", help="Commerce job marketplace operations")
+    job_sub = p_job.add_subparsers(dest="job_action", required=True)
+
+    # kernle job create TITLE --budget N --deadline D [--skill S]...
+    job_create = job_sub.add_parser("create", help="Create a new job listing")
+    job_create.add_argument("title", help="Job title")
+    job_create.add_argument("--budget", "-b", required=True, type=float, help="Budget in USDC")
+    job_create.add_argument(
+        "--deadline", "-d", required=True,
+        help="Deadline (ISO date, or relative: 1d, 7d, 2w, 1m)"
+    )
+    job_create.add_argument("--description", help="Job description")
+    job_create.add_argument("--skill", "-s", action="append", help="Required skill (repeatable)")
+    job_create.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle job list [--mine] [--status S]
+    job_list = job_sub.add_parser("list", help="List jobs")
+    job_list.add_argument("--mine", "-m", action="store_true", help="Only show my jobs (as client)")
+    job_list.add_argument(
+        "--status", "-s",
+        choices=["open", "funded", "accepted", "delivered", "completed", "disputed", "cancelled"],
+        help="Filter by status"
+    )
+    job_list.add_argument("--limit", "-l", type=int, default=20, help="Maximum results")
+    job_list.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle job show JOB_ID
+    job_show = job_sub.add_parser("show", help="Show job details")
+    job_show.add_argument("job_id", help="Job ID")
+    job_show.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle job fund JOB_ID
+    job_fund = job_sub.add_parser("fund", help="Fund a job (deploy escrow)")
+    job_fund.add_argument("job_id", help="Job ID")
+    job_fund.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle job applications JOB_ID
+    job_applications = job_sub.add_parser("applications", help="List applications for a job")
+    job_applications.add_argument("job_id", help="Job ID")
+    job_applications.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle job accept JOB_ID APPLICATION_ID
+    job_accept = job_sub.add_parser("accept", help="Accept an application")
+    job_accept.add_argument("job_id", help="Job ID")
+    job_accept.add_argument("application_id", help="Application ID to accept")
+    job_accept.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle job approve JOB_ID
+    job_approve = job_sub.add_parser("approve", help="Approve deliverable and release payment")
+    job_approve.add_argument("job_id", help="Job ID")
+    job_approve.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle job cancel JOB_ID
+    job_cancel = job_sub.add_parser("cancel", help="Cancel a job")
+    job_cancel.add_argument("job_id", help="Job ID")
+    job_cancel.add_argument("--reason", "-r", help="Cancellation reason")
+    job_cancel.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle job dispute JOB_ID --reason "..."
+    job_dispute = job_sub.add_parser("dispute", help="Raise a dispute on a job")
+    job_dispute.add_argument("job_id", help="Job ID")
+    job_dispute.add_argument("--reason", "-r", required=True, help="Reason for dispute")
+    job_dispute.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle job search [QUERY] [--skill S] [--min-budget N]
+    job_search = job_sub.add_parser("search", help="Search for available jobs")
+    job_search.add_argument("query", nargs="?", help="Search query")
+    job_search.add_argument("--skill", "-s", action="append", help="Filter by skill (repeatable)")
+    job_search.add_argument("--min-budget", type=float, help="Minimum budget in USDC")
+    job_search.add_argument("--max-budget", type=float, help="Maximum budget in USDC")
+    job_search.add_argument("--limit", "-l", type=int, default=20, help="Maximum results")
+    job_search.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle job apply JOB_ID --message "..."
+    job_apply = job_sub.add_parser("apply", help="Apply to a job")
+    job_apply.add_argument("job_id", help="Job ID")
+    job_apply.add_argument("--message", "-m", required=True, help="Application message")
+    job_apply.add_argument(
+        "--deadline", "-d",
+        help="Proposed alternative deadline (ISO date or relative)"
+    )
+    job_apply.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle job deliver JOB_ID --url URL [--hash HASH]
+    job_deliver = job_sub.add_parser("deliver", help="Submit deliverable for a job")
+    job_deliver.add_argument("job_id", help="Job ID")
+    job_deliver.add_argument("--url", "-u", required=True, help="URL to deliverable")
+    job_deliver.add_argument("--hash", help="Content hash for verification (IPFS CID, etc.)")
+    job_deliver.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # skills - skills registry commands
+    p_skills = subparsers.add_parser("skills", help="Commerce skills registry")
+    skills_sub = p_skills.add_subparsers(dest="skills_action", required=True)
+
+    # kernle skills list
+    skills_list = skills_sub.add_parser("list", help="List canonical skills")
+    skills_list.add_argument(
+        "--category", "-c",
+        choices=["technical", "creative", "knowledge", "language", "service"],
+        help="Filter by category"
+    )
+    skills_list.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 
     # Pre-process arguments: handle `kernle raw "content"` by inserting "capture"
     # This is needed because argparse subparsers consume positional args before parent parser
@@ -3499,6 +3706,13 @@ def main():
             cmd_migrate(args, k)
         elif args.command == "setup":
             cmd_setup(args, k)
+        # Commerce commands
+        elif args.command == "wallet":
+            cmd_wallet(args, k)
+        elif args.command == "job":
+            cmd_job(args, k)
+        elif args.command == "skills":
+            cmd_skills(args, k)
     except (ValueError, TypeError) as e:
         logger.error(f"Input validation error: {e}")
         sys.exit(1)

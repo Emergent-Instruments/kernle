@@ -1,8 +1,9 @@
 """
-Kernle MCP Server - Memory operations for Claude Code and other MCP clients.
+Kernle MCP Server - Memory and Commerce operations for Claude Code and other MCP clients.
 
-This exposes Kernle's memory operations as MCP tools, enabling AI agents
-to manage their stratified memory through the Model Context Protocol.
+This exposes Kernle's memory operations and commerce capabilities as MCP tools,
+enabling AI agents to manage their stratified memory and participate in
+economic activities through the Model Context Protocol.
 
 Security Features:
 - Comprehensive input validation and sanitization
@@ -29,6 +30,22 @@ from mcp.types import (
 
 from kernle.core import Kernle
 
+# Commerce tools (optional - may not be installed)
+try:
+    from kernle.commerce.mcp import (
+        get_commerce_tools,
+        call_commerce_tool,
+        set_commerce_agent_id,
+        TOOL_HANDLERS as COMMERCE_TOOL_HANDLERS,
+    )
+    COMMERCE_AVAILABLE = True
+except ImportError:
+    COMMERCE_AVAILABLE = False
+    get_commerce_tools = lambda: []  # noqa: E731
+    call_commerce_tool = None
+    set_commerce_agent_id = lambda x: None  # noqa: E731
+    COMMERCE_TOOL_HANDLERS = {}
+
 logger = logging.getLogger(__name__)
 
 # Initialize MCP server
@@ -46,6 +63,9 @@ def set_agent_id(agent_id: str) -> None:
     # Clear cached instance so next get_kernle uses new agent_id
     if hasattr(get_kernle, "_instance"):
         delattr(get_kernle, "_instance")
+    # Also set commerce agent ID if available
+    if COMMERCE_AVAILABLE:
+        set_commerce_agent_id(agent_id)
 
 
 def get_kernle() -> Kernle:
@@ -1204,13 +1224,20 @@ TOOLS = [
 
 @mcp.list_tools()
 async def list_tools() -> list[Tool]:
-    """List available memory tools."""
-    return TOOLS
+    """List available memory and commerce tools."""
+    all_tools = list(TOOLS)
+    if COMMERCE_AVAILABLE:
+        all_tools.extend(get_commerce_tools())
+    return all_tools
 
 
 @mcp.call_tool()
 async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     """Handle tool calls with comprehensive validation and error handling."""
+    # Check if this is a commerce tool
+    if COMMERCE_AVAILABLE and name in COMMERCE_TOOL_HANDLERS:
+        return await call_commerce_tool(name, arguments)
+    
     try:
         # Validate and sanitize all inputs
         sanitized_args = validate_tool_input(name, arguments)
