@@ -113,7 +113,8 @@ export interface CreateKeyResponse {
 }
 
 export async function listApiKeys(): Promise<ApiKey[]> {
-  return fetchApi<ApiKey[]>('/auth/keys');
+  const response = await fetchApi<{ keys: ApiKey[] }>('/auth/keys');
+  return response.keys;
 }
 
 export async function createApiKey(name?: string): Promise<CreateKeyResponse> {
