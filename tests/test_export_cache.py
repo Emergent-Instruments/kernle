@@ -6,17 +6,20 @@ from pathlib import Path
 import pytest
 
 from kernle import Kernle
+from kernle.storage import SQLiteStorage
 
 
 @pytest.fixture
 def k(tmp_path):
-    """Create a Kernle instance with temp DB."""
-    os.environ["KERNLE_DB_PATH"] = str(tmp_path / "test.db")
-    os.environ["KERNLE_CHECKPOINT_DIR"] = str(tmp_path / "checkpoints")
-    instance = Kernle(agent_id="test-export")
+    """Create a Kernle instance with isolated temp DB."""
+    db_path = tmp_path / "test_export.db"
+    checkpoint_dir = tmp_path / "checkpoints"
+    checkpoint_dir.mkdir()
+
+    storage = SQLiteStorage(agent_id="test-export", db_path=db_path)
+    instance = Kernle(agent_id="test-export", storage=storage, checkpoint_dir=checkpoint_dir)
     yield instance
-    os.environ.pop("KERNLE_DB_PATH", None)
-    os.environ.pop("KERNLE_CHECKPOINT_DIR", None)
+    storage.close()
 
 
 class TestExportCache:
@@ -44,8 +47,8 @@ class TestExportCache:
             k.belief(f"Belief number {i}", confidence=0.9 - i * 0.01)
 
         content = k.export_cache(max_beliefs=3)
-        # Should have exactly 3 beliefs
-        belief_lines = [l for l in content.split("\n") if l.startswith("- [")]
+        # Count belief lines specifically (format: "- [NN%] ...")
+        belief_lines = [l for l in content.split("\n") if l.startswith("- [") and "%]" in l]
         assert len(belief_lines) == 3
 
     def test_values_included(self, k):
@@ -96,6 +99,37 @@ class TestExportCache:
         content = k.export_cache()
         assert "Sean" in content
         assert "person" in content
+
+    def test_min_confidence_clamped(self, k):
+        """min_confidence is clamped to 0.0-1.0 range."""
+        k.belief("High conf", confidence=0.9)
+        k.belief("Low conf", confidence=0.3)
+
+        # min_confidence > 1.0 should be clamped to 1.0 (nothing passes)
+        content = k.export_cache(min_confidence=5.0)
+        assert "High conf" not in content
+
+        # min_confidence < 0.0 should be clamped to 0.0 (everything passes)
+        content = k.export_cache(min_confidence=-1.0)
+        assert "High conf" in content
+        assert "Low conf" in content
+
+    def test_max_beliefs_clamped(self, k):
+        """max_beliefs is clamped to 1-1000 range."""
+        k.belief("Only belief", confidence=0.9)
+
+        # max_beliefs=0 should be clamped to 1
+        content = k.export_cache(max_beliefs=0)
+        assert "Only belief" in content
+
+    def test_relationship_notes_truncation(self, k):
+        """Long relationship notes get truncated with ellipsis."""
+        long_notes = "A" * 200
+        k.relationship("Someone", trust_level=0.5, notes=long_notes, entity_type="person")
+        content = k.export_cache()
+        # Should be truncated with ...
+        assert "A" * 80 + "..." in content
+        assert "A" * 81 not in content
 
     def test_idempotent(self, k):
         """Running export twice produces same output (excluding timestamp)."""
