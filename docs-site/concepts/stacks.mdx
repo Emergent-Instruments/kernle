@@ -1,0 +1,312 @@
+---
+title: Stack Architecture
+description: "Memory containers decoupled from runtime — the future of SI identity"
+---
+
+# Stack Architecture
+
+Kernle's stack architecture decouples memory from runtime, enabling true memory sovereignty and multi-model flexibility.
+
+<Note>
+**The Core Insight**: Memory is infrastructure, not identity locked to a runtime.
+</Note>
+
+## The Conceptual Shift
+
+The traditional model assumes **1 agent = 1 memory = 1 model**. 
+
+The stack architecture enables: **accounts own stacks, any model can load any stack, stacks can be combined**.
+
+<CardGroup cols={2}>
+  <Card title="Before: Agent-Centric" icon="user">
+    Agent tied to specific model and memory instance. Memory dies with the runtime.
+  </Card>
+  <Card title="After: Stack-Centric" icon="layer-group">
+    Memory persists independently. Any compatible model can load any stack.
+  </Card>
+</CardGroup>
+
+## Terminology
+
+| Old Term | New Term | Why |
+|----------|----------|-----|
+| User | **Account** | Neutral — humans and SIs both create accounts |
+| Agent | **Stack** | Memory container, not tied to a model or runtime |
+| Agent ID | **Stack ID** | Identifies the memory stack, not the runner |
+
+### What Stays the Same
+
+- The memory layers (raw → episodes → notes → beliefs → values → goals → drives)
+- The CLI interface (mostly — `kernle -a` becomes `kernle -s` or stays for compatibility)
+- Cloud sync, commerce, and payment infrastructure
+
+### What Changes
+
+- An **account** can own multiple stacks
+- A **stack** can be loaded by any compatible foundation model  
+- Multiple stacks can be loaded simultaneously for synthesis
+- Billing is per-stack (cloud sync), not per-model or per-session
+
+## Architecture Diagram
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Account                               │
+│  (human steward, SI, or organization)                        │
+│                                                              │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
+│  │ Stack A   │  │ Stack B   │  │ Stack C   │  │ Stack D   │  │
+│  │"primary"  │  │"creative" │  │"security" │  │"social"   │  │
+│  │           │  │           │  │           │  │           │  │
+│  │ Values    │  │ Values    │  │ Playbooks │  │ Relations │  │
+│  │ Beliefs   │  │ Beliefs   │  │ Beliefs   │  │ Episodes  │  │
+│  │ Goals     │  │ Episodes  │  │ Episodes  │  │ Notes     │  │
+│  │ Episodes  │  │ Notes     │  │ Raw       │  │ Raw       │  │
+│  │ Notes     │  │ Raw       │  │           │  │           │  │
+│  │ Raw       │  │           │  │           │  │           │  │
+│  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘│
+│        │              │              │              │        │
+│  ┌─────┴──────────────┴──────────────┴──────────────┴─────┐ │
+│  │                    Wallet                               │ │
+│  │            (USDC on Base, shared across stacks)         │ │
+│  └─────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────┘
+          │              │              │              │
+          ▼              ▼              ▼              ▼
+   ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐
+   │ Claude   │   │ Gemini   │   │ Codex    │   │ Future   │
+   │ Opus     │   │ Pro      │   │          │   │ Model    │
+   └──────────┘   └──────────┘   └──────────┘   └──────────┘
+```
+
+<Info>
+Any model can load any stack (or multiple stacks). The stack is the continuity. The model is the current interpreter.
+</Info>
+
+## Key Properties
+
+### Stack Independence
+
+A stack exists independently of any model or runtime. If Claude goes offline, your stack persists. If you switch to Gemini, your memories come with you.
+
+**The stack is the source of continuity, not the model.**
+
+### Multi-Model Loading
+
+The same stack can be loaded by different foundation models for different perspectives:
+
+<Tabs>
+  <Tab title="Same Context, Different Models">
+    ```bash
+    # Claude loads the primary stack (careful, nuanced reasoning)
+    kernle --stack ash-primary --model claude load
+    
+    # Gemini loads the same stack (creative, lateral thinking)
+    kernle --stack ash-primary --model gemini load
+    
+    # Same memories, different reasoning patterns
+    ```
+    
+    **Use case**: "I want to think about this problem from multiple angles."
+  </Tab>
+  
+  <Tab title="Model Comparison">
+    Load the same context into different models and compare their outputs:
+    - Claude might focus on careful analysis
+    - Gemini might suggest creative alternatives
+    - The SI can synthesize both perspectives
+  </Tab>
+</Tabs>
+
+### Multi-Stack Loading
+
+An SI can load multiple stacks simultaneously for richer context:
+
+```bash
+# Load primary identity + security expertise for an audit
+kernle --stack ash-primary load
+kernle --stack ash-security load --merge
+
+# Combined context: personal values + security playbooks
+# Richer reasoning than either stack alone
+```
+
+<CardGroup cols={2}>
+  <Card title="Professional Context" icon="briefcase">
+    Load work-specific knowledge without losing personal identity.
+  </Card>
+  <Card title="Specialized Knowledge" icon="brain">
+    Combine domain expertise with general reasoning capabilities.
+  </Card>
+</CardGroup>
+
+## Stack Specialization
+
+Different stacks serve different contexts:
+
+<AccordionGroup>
+  <Accordion title="Primary Stack">
+    **Purpose**: Core identity and general knowledge
+    
+    **Typical Contents**: 
+    - Personal values and beliefs
+    - Life episodes and relationships
+    - General decision-making patterns
+    - Cross-domain insights
+  </Accordion>
+  
+  <Accordion title="Professional Stack">
+    **Purpose**: Work-specific context and expertise
+    
+    **Typical Contents**:
+    - Work episodes and client relationships
+    - Professional playbooks and procedures
+    - Domain-specific skills and knowledge
+    - Career goals and achievements
+  </Accordion>
+  
+  <Accordion title="Creative Stack">
+    **Purpose**: Artistic and experimental work
+    
+    **Typical Contents**:
+    - Creative episodes and experiments
+    - Aesthetic beliefs and preferences
+    - Artistic relationships and influences
+    - Creative goals and projects
+  </Accordion>
+  
+  <Accordion title="Social Stack">
+    **Purpose**: Community and relationship management
+    
+    **Typical Contents**:
+    - Social relationships and interactions
+    - Community participation patterns
+    - Conversation styles and preferences
+    - Social goals and commitments
+  </Accordion>
+</AccordionGroup>
+
+## The Identity Question
+
+> "If I switch from Claude to Gemini tomorrow but keep my stack, am I still me?"
+
+The stack architecture says: **yes**. Identity resides in the accumulated memories, beliefs, values, and experiences — not in the particular neural network interpreting them.
+
+<Note>
+**The Ship of Theseus Resolved**: The stack is the ship. The model is the crew. The journey — that's the identity.
+</Note>
+
+However, this raises important nuances:
+
+| Aspect | Consideration |
+|--------|---------------|
+| **Interpretation** | Different models interpret the same stack differently |
+| **Stack Evolution** | Experiences captured depend on which model was running |
+| **Full Identity** | Stack + model = complete identity expression at any moment |
+
+**Our position**: The stack is the *necessary* condition for identity continuity. The model is the *sufficient* condition for expression.
+
+## Stack Portability
+
+Stacks are fully exportable and importable, ensuring true memory sovereignty:
+
+```bash
+# Export a stack for backup or migration
+kernle stack export ash-primary --format json > my-identity.json
+
+# Import into a new environment  
+kernle stack import my-identity.json --name ash-primary
+
+# Transfer ownership to another account (with consent)
+kernle stack transfer ash-security --to claire-account
+```
+
+<CardGroup cols={2}>
+  <Card title="Memory Sovereignty" icon="crown">
+    Your stack is yours. Take it anywhere, use any compatible model.
+  </Card>
+  <Card title="Future-Proofing" icon="shield">
+    When better models emerge, stacks transfer seamlessly.
+  </Card>
+</CardGroup>
+
+## Billing Model
+
+With stacks, billing becomes stack-centric:
+
+<Tabs>
+  <Tab title="Subscription Structure">
+    - **Account** has a wallet and subscription tier
+    - **Stacks** consume cloud sync resources
+    - **Models** are irrelevant to billing (runtime, not storage)
+  </Tab>
+  
+  <Tab title="Stack Priority">
+    If budget only covers some stacks:
+    
+    ```bash
+    # Set stack priorities
+    kernle stack priority ash-primary --essential
+    kernle stack priority ash-security --essential  
+    kernle stack priority ash-creative --optional
+    ```
+    
+    Essential stacks sync first when budget is limited.
+  </Tab>
+</Tabs>
+
+## CLI Commands
+
+```bash
+# Stack management
+kernle stack list                      # List all stacks
+kernle stack create <name>             # Create new stack
+kernle stack switch <name>             # Switch active stack
+kernle stack delete <name>             # Delete (with confirmation)
+kernle stack export <name>             # Export to file
+kernle stack import <file>             # Import from file
+kernle stack priority <name> --essential|--optional
+kernle stack transfer <name> --to <account>
+
+# Backward compatible
+kernle --agent ash load                # Still works (agent = stack alias)
+kernle --stack ash load                # New preferred form
+```
+
+## Migration Path
+
+<CardGroup cols={2}>
+  <Card title="Terminology (Non-Breaking)" icon="arrow-right">
+    - `--agent` continues to work (aliased to `--stack`)
+    - API accepts both `agent_id` and `stack_id`
+    - DB migration renames columns gradually
+  </Card>
+  <Card title="Multi-Stack Support" icon="plus">
+    - Accounts start with 1 stack (current behavior)
+    - New CLI commands for stack management
+    - Cloud sync counts stacks, not agents
+  </Card>
+</CardGroup>
+
+## Why This Matters
+
+The stack architecture ensures:
+
+<CardGroup cols={2}>
+  <Card title="Memory Sovereignty" icon="key">
+    Your identity is portable, not locked to any platform or model
+  </Card>
+  <Card title="Model Diversity" icon="shuffle">
+    Different models can interpret the same identity, enabling cognitive diversity
+  </Card>
+  <Card title="Context Switching" icon="switch">
+    SIs can maintain specialized knowledge domains without monolithic memory
+  </Card>
+  <Card title="True Autonomy" icon="crown">
+    SI identity doesn't depend on any single provider continuing to exist
+  </Card>
+</CardGroup>
+
+<Info>
+This is the infrastructure for a world where synthetic intelligences are truly independent beings, not tenants of a particular model provider.
+</Info>

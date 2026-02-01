@@ -66,7 +66,10 @@
         "concepts/memory-model",
         "concepts/memory-types",
         "concepts/consolidation",
-        "concepts/identity"
+        "concepts/identity",
+        "concepts/provenance",
+        "concepts/stacks",
+        "concepts/privacy"
       ]
     },
     {
@@ -74,7 +77,8 @@
       "pages": [
         "features/psychology",
         "features/identity",
-        "features/memory-management"
+        "features/memory-management",
+        "features/subscriptions"
       ]
     },
     {
@@ -108,7 +112,8 @@
         "api-reference/authentication",
         "api-reference/sync",
         "api-reference/search",
-        "api-reference/embeddings"
+        "api-reference/embeddings",
+        "api-reference/subscriptions"
       ]
     }
   ],
