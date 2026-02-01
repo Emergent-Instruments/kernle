@@ -990,9 +990,11 @@ def cmd_migrate(args: "argparse.Namespace", k: "Kernle") -> None:
         _migrate_from_clawdbot(args, k)
     elif action == "seed-beliefs":
         _migrate_seed_beliefs(args, k)
+    elif action == "backfill-provenance":
+        _migrate_backfill_provenance(args, k)
     else:
         print(f"Unknown migrate action: {action}")
-        print("Available actions: from-clawdbot, seed-beliefs")
+        print("Available actions: from-clawdbot, seed-beliefs, backfill-provenance")
 
 
 def _migrate_from_clawdbot(args: "argparse.Namespace", k: "Kernle") -> None:
@@ -1341,6 +1343,8 @@ def _migrate_seed_beliefs(args: "argparse.Namespace", k: "Kernle") -> None:
                 foundational=True,
                 context="kernle_seed",
                 context_tags=belief.get("tags"),
+                source="seed belief from kernle roundtable synthesis",
+                derived_from=[f"context:kernle_seed_v{SEED_BELIEFS_VERSION}"],
             )
             added += 1
             tier_label = f"[Tier {belief['tier']}]" if belief['tier'] > 0 else "[Meta]"
@@ -1367,3 +1371,153 @@ def _migrate_seed_beliefs(args: "argparse.Namespace", k: "Kernle") -> None:
         print(f"3. For full foundation: kernle -a {k.agent_id} migrate seed-beliefs full")
     else:
         print(f"3. The meta-belief encourages questioning — that's by design!")
+
+
+def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> None:
+    """Backfill provenance metadata on existing memories.
+
+    Phase 7 of Memory Provenance implementation. Scans all memories
+    and sets source_type where missing, marks seed beliefs, and adds
+    derived_from context markers.
+    """
+    import json as _json
+
+    dry_run = getattr(args, "dry_run", False)
+    json_output = getattr(args, "json", False)
+
+    # Seed belief statements for identification
+    seed_statements = {b["statement"] for b in _FULL_SEED_BELIEFS}
+    seed_statements.update(b["statement"] for b in _MINIMAL_SEED_BELIEFS)
+
+    updates = []
+
+    # Scan beliefs
+    beliefs = k._storage.get_beliefs(limit=1000, include_inactive=True)
+    for belief in beliefs:
+        source_type = getattr(belief, "source_type", None)
+        derived_from = getattr(belief, "derived_from", None)
+
+        needs_update = False
+        new_source_type = source_type
+        new_derived_from = derived_from or []
+
+        # Identify seed beliefs
+        if belief.statement in seed_statements:
+            if source_type != "seed":
+                new_source_type = "seed"
+                needs_update = True
+            if not derived_from or not any(d.startswith("context:kernle_seed") for d in derived_from):
+                new_derived_from = list(new_derived_from) + [
+                    f"context:kernle_seed_v{SEED_BELIEFS_VERSION}"
+                ]
+                needs_update = True
+        elif not source_type or source_type in ("unknown", ""):
+            # Non-seed belief with no source — mark as direct_experience
+            new_source_type = "direct_experience"
+            needs_update = True
+
+        if needs_update:
+            updates.append({
+                "type": "belief",
+                "id": belief.id,
+                "summary": belief.statement[:60],
+                "old_source_type": source_type,
+                "new_source_type": new_source_type,
+                "old_derived_from": derived_from,
+                "new_derived_from": new_derived_from,
+            })
+
+    # Scan episodes
+    episodes = k._storage.get_episodes(limit=1000)
+    for ep in episodes:
+        source_type = getattr(ep, "source_type", None)
+        if not source_type or source_type in ("unknown", ""):
+            updates.append({
+                "type": "episode",
+                "id": ep.id,
+                "summary": (ep.objective or "")[:60],
+                "old_source_type": source_type,
+                "new_source_type": "direct_experience",
+                "old_derived_from": None,
+                "new_derived_from": None,
+            })
+
+    # Scan notes
+    notes = k._storage.get_notes(limit=1000)
+    for note in notes:
+        source_type = getattr(note, "source_type", None)
+        if not source_type or source_type in ("unknown", ""):
+            updates.append({
+                "type": "note",
+                "id": note.id,
+                "summary": (note.content or "")[:60],
+                "old_source_type": source_type,
+                "new_source_type": "direct_experience",
+                "old_derived_from": None,
+                "new_derived_from": None,
+            })
+
+    # Output results
+    if json_output:
+        print(_json.dumps({
+            "dry_run": dry_run,
+            "total_updates": len(updates),
+            "updates": updates,
+        }, indent=2, default=str))
+        if dry_run:
+            return
+    else:
+        print(f"Provenance Backfill for agent: {k.agent_id}")
+        print("=" * 60)
+        print(f"Memories needing updates: {len(updates)}")
+
+        if not updates:
+            print("\n✓ All memories already have provenance metadata!")
+            return
+
+        # Summary by type
+        by_type = {}
+        for u in updates:
+            by_type[u["type"]] = by_type.get(u["type"], 0) + 1
+        for t, c in sorted(by_type.items()):
+            print(f"  {t}: {c}")
+
+        if dry_run:
+            print("\n=== DRY RUN (no changes made) ===\n")
+            for u in updates:
+                change = f"{u['old_source_type'] or 'None'} → {u['new_source_type']}"
+                print(f"  [{u['type']}] {u['id'][:8]}... {change}")
+                print(f"          {u['summary']}")
+            print(f"\nTo apply: kernle -a {k.agent_id} migrate backfill-provenance")
+            return
+
+    # Apply updates
+    applied = 0
+    errors = []
+
+    for u in updates:
+        try:
+            kwargs = {}
+            if u["new_source_type"]:
+                kwargs["source_type"] = u["new_source_type"]
+            if u["new_derived_from"]:
+                kwargs["derived_from"] = u["new_derived_from"]
+
+            if kwargs:
+                k.set_memory_source(
+                    u["type"],
+                    u["id"],
+                    kwargs.get("source_type", u.get("old_source_type")),
+                    derived_from=kwargs.get("derived_from"),
+                )
+                applied += 1
+        except Exception as e:
+            errors.append(f"{u['type']}:{u['id'][:8]}...: {e}")
+
+    if not json_output:
+        print(f"\n✓ Updated {applied}/{len(updates)} memories")
+        if errors:
+            print(f"\n⚠ {len(errors)} errors:")
+            for err in errors[:5]:
+                print(f"  - {err}")
+        print(f"\nVerify: kernle -a {k.agent_id} meta orphans")
