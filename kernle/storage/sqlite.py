@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 13  # Add source_entity column for entity-neutral provenance
+SCHEMA_VERSION = 14  # Phase 8a: Add privacy fields (subject_ids, access_grants, consent_grants)
 
 # Maximum size for merged arrays during sync to prevent resource exhaustion
 MAX_SYNC_ARRAY_SIZE = 500
@@ -183,6 +183,10 @@ CREATE TABLE IF NOT EXISTS episodes (
     context TEXT,
     context_tags TEXT,
     source_entity TEXT,
+    -- Privacy fields (Phase 8a)
+    subject_ids TEXT,       -- JSON array of entity IDs this memory is about
+    access_grants TEXT,     -- JSON array of entity IDs who can see this (empty = private)
+    consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
