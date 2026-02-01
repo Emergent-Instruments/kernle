@@ -2830,6 +2830,8 @@ def main():
 
     belief_reinforce = belief_sub.add_parser("reinforce", help="Manually reinforce a belief")
     belief_reinforce.add_argument("id", help="Belief ID")
+    belief_reinforce.add_argument("--evidence", help="Evidence source (e.g., 'episode:abc123', 'raw:def456')")
+    belief_reinforce.add_argument("--reason", help="Human-readable reason for reinforcement")
 
     belief_supersede = belief_sub.add_parser("supersede", help="Replace a belief with a new one")
     belief_supersede.add_argument("old_id", help="ID of belief to supersede")

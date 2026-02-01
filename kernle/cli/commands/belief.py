@@ -119,9 +119,13 @@ def cmd_belief(args, k: "Kernle"):
 
     elif args.belief_action == "reinforce":
         belief_id = validate_input(args.id, "belief_id", 100)
+        evidence = getattr(args, "evidence", None)
+        reason = getattr(args, "reason", None)
 
-        if k.reinforce_belief(belief_id):
+        if k.reinforce_belief(belief_id, evidence_source=evidence, reason=reason):
             print(f"✓ Belief {belief_id[:8]}... reinforced")
+            if evidence:
+                print(f"  Evidence: {evidence}")
         else:
             print(f"✗ Belief {belief_id[:8]}... not found")
 

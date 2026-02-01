@@ -304,7 +304,7 @@ class TestCmdBeliefReinforce:
 
         cmd_belief(args, k)
 
-        k.reinforce_belief.assert_called_with("b123")
+        k.reinforce_belief.assert_called_with("b123", evidence_source=None, reason=None)
         captured = capsys.readouterr()
         assert "✓" in captured.out
         assert "reinforced" in captured.out

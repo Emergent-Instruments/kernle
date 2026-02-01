@@ -2876,13 +2876,20 @@ class Kernle(
 
         return {"detected": False, "word1": "", "word2": ""}
 
-    def reinforce_belief(self, belief_id: str) -> bool:
+    def reinforce_belief(
+        self,
+        belief_id: str,
+        evidence_source: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> bool:
         """Increase reinforcement count when a belief is confirmed.
 
         Also slightly increases confidence (with diminishing returns).
 
         Args:
             belief_id: ID of the belief to reinforce
+            evidence_source: What triggered this reinforcement (e.g., "episode:abc123")
+            reason: Human-readable reason for reinforcement
 
         Returns:
             True if reinforced, False if belief not found
@@ -2914,16 +2921,24 @@ class Kernle(
         existing.confidence = min(0.99, existing.confidence + room_to_grow * confidence_boost)
 
         # Update confidence history with accurate old/new values
+        history_entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "old": round(old_confidence, 3),
+            "new": round(existing.confidence, 3),
+            "reason": reason or f"Reinforced (count: {existing.times_reinforced})",
+        }
+        if evidence_source:
+            history_entry["evidence_source"] = evidence_source
+
         history = existing.confidence_history or []
-        history.append(
-            {
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "old": round(old_confidence, 3),
-                "new": round(existing.confidence, 3),
-                "reason": f"Reinforced (count: {existing.times_reinforced})",
-            }
-        )
+        history.append(history_entry)
         existing.confidence_history = history[-20:]  # Keep last 20 entries
+
+        # Track supporting evidence in source_episodes
+        if evidence_source and evidence_source.startswith("episode:"):
+            existing.source_episodes = existing.source_episodes or []
+            if evidence_source not in existing.source_episodes:
+                existing.source_episodes.append(evidence_source)
 
         existing.last_verified = datetime.now(timezone.utc)
         existing.verification_count += 1
@@ -3128,13 +3143,18 @@ class Kernle(
                     is_supporting = True
 
             if is_supporting:
-                # Reinforce the belief
-                self.reinforce_belief(belief.id)
+                # Reinforce the belief with episode as evidence
+                self.reinforce_belief(
+                    belief.id,
+                    evidence_source=f"episode:{episode_id}",
+                    reason=f"Confirmed by episode: {episode.objective[:50]}",
+                )
                 result["reinforced"].append(
                     {
                         "belief_id": belief.id,
                         "statement": belief.statement,
                         "overlap": list(overlap),
+                        "evidence_source": f"episode:{episode_id}",
                     }
                 )
 
