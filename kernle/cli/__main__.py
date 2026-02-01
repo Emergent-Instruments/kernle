@@ -953,6 +953,32 @@ def cmd_export(args, k: Kernle):
     print(f"✓ Exported memory to {args.path}")
 
 
+def cmd_export_cache(args, k: Kernle):
+    """Export curated MEMORY.md bootstrap cache from Kernle state."""
+    output_path = getattr(args, "output", None)
+    min_confidence = getattr(args, "min_confidence", 0.4)
+    max_beliefs = getattr(args, "max_beliefs", 50)
+    no_checkpoint = getattr(args, "no_checkpoint", False)
+
+    content = k.export_cache(
+        path=output_path,
+        min_confidence=min_confidence,
+        max_beliefs=max_beliefs,
+        include_checkpoint=not no_checkpoint,
+    )
+
+    if output_path:
+        # Count what was exported
+        belief_count = content.count("\n- [")
+        value_count = content.count("\n- **")
+        print(f"✓ Cache exported to {output_path}")
+        print(f"  Beliefs: ~{belief_count}, Values+Relationships: ~{value_count}")
+        print(f"  Min confidence: {min_confidence:.0%}")
+    else:
+        # Print to stdout
+        print(content)
+
+
 def cmd_sync(args, k: Kernle):
     """Handle sync subcommands for local-to-cloud synchronization."""
     import os
@@ -3067,6 +3093,46 @@ def main():
         "--no-raw", dest="include_raw", action="store_false", help="Exclude raw entries"
     )
 
+    # export-cache (bootstrap cache for workspace injection)
+    p_export_cache = subparsers.add_parser(
+        "export-cache",
+        help="Export curated MEMORY.md cache from beliefs/values/goals",
+        description="""
+Export a read-only bootstrap cache (MEMORY.md) from Kernle state.
+
+This is NOT a full memory dump — it's a curated summary of high-signal
+layers (beliefs, values, goals, key relationships, checkpoint) designed
+to give an agent immediate context before `kernle load` runs.
+
+The output file should never be manually edited. It's auto-generated
+and will be overwritten on next export.
+
+Typical usage in a memoryFlush hook:
+  kernle -a <agent> export-cache --output /path/to/workspace/MEMORY.md
+""",
+    )
+    p_export_cache.add_argument(
+        "--output", "-o",
+        help="Write to file (default: stdout)",
+    )
+    p_export_cache.add_argument(
+        "--min-confidence",
+        type=float,
+        default=0.4,
+        help="Minimum belief confidence to include (default: 0.4)",
+    )
+    p_export_cache.add_argument(
+        "--max-beliefs",
+        type=int,
+        default=50,
+        help="Maximum number of beliefs (default: 50)",
+    )
+    p_export_cache.add_argument(
+        "--no-checkpoint",
+        action="store_true",
+        help="Exclude checkpoint from cache",
+    )
+
     # playbook (procedural memory)
     p_playbook = subparsers.add_parser("playbook", help="Playbook (procedural memory) operations")
     playbook_sub = p_playbook.add_subparsers(dest="playbook_action", required=True)
@@ -3779,6 +3845,8 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_dump(args, k)
         elif args.command == "export":
             cmd_export(args, k)
+        elif args.command == "export-cache":
+            cmd_export_cache(args, k)
         elif args.command == "sync":
             cmd_sync(args, k)
         elif args.command == "auth":
