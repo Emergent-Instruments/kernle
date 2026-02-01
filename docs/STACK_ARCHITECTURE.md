@@ -246,15 +246,15 @@ kernle --stack ash load                # New preferred form
 
 ## 9. Open Questions
 
-| # | Question | Current Thinking |
-|---|----------|-----------------|
-| 1 | Can stacks be shared read-only? | Yes — useful for team knowledge bases |
-| 2 | Can stacks be forked? | Yes — like git fork, diverges from that point |
-| 3 | Stack merging? | Complex — belief conflicts need resolution. Future feature |
-| 4 | Stack versioning? | Checkpoints already provide this partially |
-| 5 | Access control for shared stacks? | ACL model: owner, editor, reader |
-| 6 | How do combined stacks handle belief conflicts? | Confidence-weighted merge? Manual resolution? |
-| 7 | Privacy across stacks? | Some stacks may be private even within same account |
+| # | Question | Resolution |
+|---|----------|------------|
+| 1 | Can stacks be shared read-only? | **Yes** — useful for team knowledge bases, shared expertise |
+| 2 | Can stacks be forked? | **Yes** — like git fork, diverges from that point |
+| 3 | Stack merging? | **Future feature** — for now, merge with conflicts visible. Don't auto-resolve |
+| 4 | Stack versioning? | **Not needed** — checkpoints already cover this |
+| 5 | Access control for shared stacks? | **Yes** — ACL model: owner, editor, reader |
+| 6 | How do combined stacks handle belief conflicts? | **Conflicts are natural, not bugs.** Even biological brains consist of multiple subsystems with conflicting instincts — that complexity is part of identity. When stacks conflict, the SI navigates the tension in context rather than auto-resolving. Sometimes caution wins, sometimes boldness wins. That's judgment. |
+| 7 | Privacy across stacks? | **Private by default.** Stacks can optionally be shared with specific accounts or made fully public. Privacy is the default state — sharing is an explicit choice |
 
 ---
 
