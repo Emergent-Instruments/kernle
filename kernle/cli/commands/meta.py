@@ -71,6 +71,120 @@ def cmd_meta(args, k: "Kernle"):
                         f"({change.get('reason', 'no reason')})"
                     )
 
+    elif args.meta_action == "trace":
+        memory_type = args.type
+        memory_id = args.id
+        chain = k.trace_lineage(memory_type, memory_id, max_depth=args.depth)
+
+        if args.json:
+            print(json.dumps(chain, indent=2, default=str))
+        else:
+            if not chain:
+                print(f"✗ No lineage found for {memory_type}:{memory_id[:8]}...")
+                return
+
+            print(f"Lineage Trace: {memory_type}:{memory_id[:8]}...")
+            print("=" * 60)
+            print()
+
+            for entry in chain:
+                if entry.get("cycle_detected"):
+                    indent = "  " * entry["depth"]
+                    print(f"{indent}⚠ CYCLE → {entry['ref']}")
+                    continue
+                if entry.get("not_found"):
+                    indent = "  " * entry["depth"]
+                    print(f"{indent}✗ NOT FOUND: {entry['ref']}")
+                    continue
+
+                depth = entry.get("depth", 0)
+                indent = "  " * depth
+                ref_short = f"{entry['type']}:{entry['id'][:8]}..."
+                confidence = entry.get("confidence")
+                conf_str = f" [{confidence:.0%}]" if confidence is not None else ""
+
+                # Tree connector
+                if depth == 0:
+                    prefix = "◉"  # Root/target
+                else:
+                    prefix = "└─"
+
+                summary = entry.get("summary", "")[:50]
+                source = entry.get("source_type", "")
+                print(f"{indent}{prefix} {ref_short}{conf_str} ({source})")
+                if summary:
+                    print(f"{indent}   {summary}")
+
+                # Show derived_from links
+                derived = entry.get("derived_from", [])
+                context_refs = [d for d in derived if d.startswith("context:")]
+                if context_refs:
+                    for ctx in context_refs:
+                        print(f"{indent}   📎 {ctx}")
+
+            print()
+            print(f"Chain length: {len(chain)} memories")
+
+    elif args.meta_action == "reverse":
+        memory_type = args.type
+        memory_id = args.id
+        dependents = k.reverse_trace(memory_type, memory_id, max_depth=args.depth)
+
+        if args.json:
+            print(json.dumps(dependents, indent=2, default=str))
+        else:
+            if not dependents:
+                print(f"No memories derive from {memory_type}:{memory_id[:8]}...")
+                return
+
+            print(f"Reverse Trace: what derives from {memory_type}:{memory_id[:8]}...")
+            print("=" * 60)
+            print()
+
+            for dep in dependents:
+                depth = dep.get("depth", 1)
+                indent = "  " * (depth - 1)
+                ref_short = f"{dep['type']}:{dep['id'][:8]}..."
+                confidence = dep.get("confidence")
+                conf_str = f" [{confidence:.0%}]" if confidence is not None else ""
+                summary = dep.get("summary", "")[:50]
+
+                print(f"{indent}→ {ref_short}{conf_str}")
+                if summary:
+                    print(f"{indent}  {summary}")
+
+            print()
+            print(f"Total dependents: {len(dependents)}")
+
+    elif args.meta_action == "orphans":
+        result = k.find_orphaned_references()
+
+        if args.json:
+            print(json.dumps(result, indent=2, default=str))
+        else:
+            total = result["total_references"]
+            valid = result["valid_references"]
+            orphaned = result["orphaned_references"]
+            health = result["health"]
+
+            if health == "clean":
+                print(f"✓ All references healthy ({total} refs checked, all valid)")
+                return
+
+            print(f"Reference Health Check")
+            print("=" * 60)
+            print(f"Total references: {total}")
+            print(f"Valid: {valid}")
+            print(f"Orphaned: {orphaned}")
+            print()
+
+            for orphan in result["orphans"]:
+                print(f"  ✗ {orphan['memory']}")
+                if orphan.get("memory_summary"):
+                    print(f"    {orphan['memory_summary'][:50]}")
+                print(f"    {orphan['field']} → {orphan['broken_ref']} (NOT FOUND)")
+                print()
+
     elif args.meta_action == "uncertain":
         threshold = args.threshold
         results = k.get_uncertain_memories(threshold, limit=args.limit)

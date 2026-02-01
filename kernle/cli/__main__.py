@@ -2792,6 +2792,26 @@ def main():
     meta_source.add_argument("--episodes", action="append", help="Supporting episode IDs")
     meta_source.add_argument("--derived", action="append", help="Derived from (type:id format)")
 
+    # Provenance inspection subcommands (Phase 6)
+    meta_trace = meta_sub.add_parser("trace", help="Walk full derivation chain (root → target)")
+    meta_trace.add_argument(
+        "type", choices=["episode", "belief", "value", "goal", "note", "raw"], help="Memory type"
+    )
+    meta_trace.add_argument("id", help="Memory ID")
+    meta_trace.add_argument("--depth", "-d", type=int, default=20, help="Max traversal depth")
+    meta_trace.add_argument("--json", "-j", action="store_true")
+
+    meta_reverse = meta_sub.add_parser("reverse", help="Find memories derived FROM this one")
+    meta_reverse.add_argument(
+        "type", choices=["episode", "belief", "value", "goal", "note", "raw"], help="Memory type"
+    )
+    meta_reverse.add_argument("id", help="Memory ID")
+    meta_reverse.add_argument("--depth", "-d", type=int, default=10, help="Max traversal depth")
+    meta_reverse.add_argument("--json", "-j", action="store_true")
+
+    meta_orphans = meta_sub.add_parser("orphans", help="Detect dangling/broken references")
+    meta_orphans.add_argument("--json", "-j", action="store_true")
+
     # Meta-cognition subcommands (awareness of what I know/don't know)
     meta_knowledge = meta_sub.add_parser("knowledge", help="Show knowledge map across domains")
     meta_knowledge.add_argument("--json", "-j", action="store_true")
