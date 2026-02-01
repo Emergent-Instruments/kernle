@@ -78,7 +78,11 @@ class DowngradeRequest(BaseModel):
 class PaymentConfirmRequest(BaseModel):
     """Confirm an on-chain payment."""
     payment_id: str = Field(..., description="Payment ID returned by /upgrade")
-    tx_hash: str = Field(..., description="On-chain transaction hash")
+    tx_hash: str = Field(
+        ...,
+        description="On-chain transaction hash (0x + 64 hex chars)",
+        pattern=r"^0x[0-9a-fA-F]{64}$",
+    )
 
 
 # -- Response models ---------------------------------------------------------

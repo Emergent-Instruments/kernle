@@ -42,7 +42,24 @@ SUBSCRIPTION_PAYMENTS_TABLE = "subscription_payments"
 USAGE_RECORDS_TABLE = "usage_records"
 
 # Kernle treasury address on Base (receives subscription payments)
-TREASURY_ADDRESS = "0x0000000000000000000000000000000000000000"  # TODO: set real multisig
+# Loaded from environment — MUST be set before production deployment
+import os
+
+TREASURY_ADDRESS = os.environ.get(
+    "KERNLE_TREASURY_ADDRESS",
+    "0x0000000000000000000000000000000000000000",  # Default: zero address (testnet only)
+)
+
+def _validate_treasury_address():
+    """Fail loudly if treasury is zero address in production."""
+    env = os.environ.get("KERNLE_ENV", "development")
+    if env == "production" and TREASURY_ADDRESS == "0x0000000000000000000000000000000000000000":
+        raise RuntimeError(
+            "FATAL: KERNLE_TREASURY_ADDRESS is zero address in production! "
+            "All payments would be burned. Set a real multisig address."
+        )
+
+_validate_treasury_address()
 
 
 def _now() -> datetime:
@@ -461,6 +478,7 @@ class SubscriptionService:
         currency: str = "USDC",
         period_start: datetime | None = None,
         period_end: datetime | None = None,
+        user_id: str | None = None,
     ) -> SubscriptionPayment:
         """Store a payment record.
 
@@ -488,6 +506,8 @@ class SubscriptionService:
             "period_end": period_end.isoformat(),
             "created_at": now.isoformat(),
         }
+        if user_id:
+            data["user_id"] = user_id
 
         def _insert():
             return db.table(SUBSCRIPTION_PAYMENTS_TABLE).insert(data).execute()
@@ -814,6 +834,40 @@ class SubscriptionService:
 PAYMENT_INTENTS_TABLE = "payment_intents"
 
 
+async def _check_tx_hash_used(db: Client, tx_hash: str, exclude_intent_id: str) -> bool:
+    """Check if a tx_hash has already been used in payment_intents or subscription_payments."""
+    import asyncio
+
+    # Check payment_intents (confirmed or processing)
+    def _check_intents():
+        return (
+            db.table(PAYMENT_INTENTS_TABLE)
+            .select("id")
+            .eq("tx_hash", tx_hash)
+            .neq("id", exclude_intent_id)
+            .in_("status", ["confirmed", "processing"])
+            .limit(1)
+            .execute()
+        )
+
+    result = await asyncio.to_thread(_check_intents)
+    if result.data:
+        return True
+
+    # Check subscription_payments
+    def _check_payments():
+        return (
+            db.table(SUBSCRIPTION_PAYMENTS_TABLE)
+            .select("id")
+            .eq("tx_hash", tx_hash)
+            .limit(1)
+            .execute()
+        )
+
+    result = await asyncio.to_thread(_check_payments)
+    return bool(result.data)
+
+
 async def get_subscription(db: Client, user_id: str) -> dict | None:
     """Get subscription as a dict for the route layer."""
     sub = await SubscriptionService.get_or_create_subscription(db, user_id)
@@ -955,9 +1009,75 @@ async def confirm_payment(
             "message": "Payment was already confirmed.",
         }
 
+    # Reject non-pending intents (expired, cancelled, failed)
+    if intent.get("status") != "pending":
+        return {
+            "status": "failed",
+            "message": f"Payment intent is '{intent.get('status')}', expected 'pending'.",
+        }
+
+    # Check expiry (P0 fix: enforce expires_at)
+    expires_at = intent.get("expires_at")
+    if expires_at:
+        from datetime import datetime as dt
+        if isinstance(expires_at, str):
+            # Parse ISO format, handle timezone
+            expiry = dt.fromisoformat(expires_at.replace("Z", "+00:00"))
+        else:
+            expiry = expires_at
+        if _now() > expiry:
+            # Mark as expired
+            def _expire():
+                return (
+                    db.table(PAYMENT_INTENTS_TABLE)
+                    .update({"status": "expired", "updated_at": _now().isoformat()})
+                    .eq("id", payment_id)
+                    .execute()
+                )
+            await asyncio.to_thread(_expire)
+            return {
+                "status": "failed",
+                "message": "Payment intent has expired. Please create a new upgrade request.",
+            }
+
+    # Validate tx_hash format (P0 fix: prevent injection)
+    import re
+    if not re.match(r'^0x[0-9a-fA-F]{64}$', tx_hash):
+        return {
+            "status": "failed",
+            "message": "Invalid transaction hash format. Expected 0x + 64 hex characters.",
+        }
+
+    # Check tx_hash hasn't been used for another payment (P0 fix: prevent replay)
+    existing_tx = await _check_tx_hash_used(db, tx_hash, payment_id)
+    if existing_tx:
+        return {
+            "status": "failed",
+            "message": "This transaction hash has already been used for another payment.",
+        }
+
     expected_amount = Decimal(intent["amount"])
     chain = intent.get("chain", "base")
     now = _now()
+
+    # Atomic claim: set status to 'processing' to prevent double-confirm race
+    # Only one concurrent request can claim a pending intent
+    def _claim():
+        return (
+            db.table(PAYMENT_INTENTS_TABLE)
+            .update({"status": "processing", "tx_hash": tx_hash, "updated_at": now.isoformat()})
+            .eq("id", payment_id)
+            .eq("status", "pending")  # atomic: only succeeds if still pending
+            .execute()
+        )
+
+    claim_result = await asyncio.to_thread(_claim)
+    if not claim_result.data:
+        # Another request already claimed this intent
+        return {
+            "status": "failed",
+            "message": "Payment is already being processed by another request.",
+        }
 
     # 2. On-chain verification
     try:
@@ -966,6 +1086,7 @@ async def confirm_payment(
             expected_amount=expected_amount,
             expected_to=TREASURY_ADDRESS,
             chain=chain,
+            tolerance=Decimal("0"),  # P0 fix: exact amount required (no underpayment)
         )
     except Exception as e:
         logger.exception("On-chain verification error for payment %s", payment_id)
@@ -1020,13 +1141,56 @@ async def confirm_payment(
     # 3b. Verification succeeded — confirm and activate
     target_tier = intent.get("tier")
 
-    # Update payment intent
+    # IMPORTANT: Record payment FIRST, then upgrade tier (P0 fix: order matters)
+    # If record_payment fails (e.g. duplicate tx_hash), we must not upgrade the tier.
+    sub = await SubscriptionService.get_or_create_subscription(db, user_id)
+
+    try:
+        # Record payment — has UNIQUE constraint on tx_hash, prevents replay
+        await SubscriptionService.record_payment(
+            db=db,
+            subscription_id=sub.id,
+            tx_hash=tx_hash,
+            amount=expected_amount,
+            from_address=result.from_address or "",
+            to_address=TREASURY_ADDRESS,
+            chain=chain,
+            user_id=user_id,  # P0 fix: include user_id for audit trail
+        )
+        # Mark payment as confirmed
+        await SubscriptionService.confirm_payment(db, tx_hash)
+    except Exception as e:
+        # Payment recording failed (likely duplicate tx_hash) — roll back intent
+        logger.warning("Payment recording failed for %s: %s", payment_id, e)
+        def _rollback():
+            return (
+                db.table(PAYMENT_INTENTS_TABLE)
+                .update({"status": "failed", "error": str(e), "updated_at": now.isoformat()})
+                .eq("id", payment_id)
+                .execute()
+            )
+        await asyncio.to_thread(_rollback)
+        return {
+            "status": "failed",
+            "message": f"Payment recording failed: {e}. Tier not upgraded.",
+        }
+
+    # Payment recorded successfully — NOW upgrade the tier
+    try:
+        upgraded_sub, _ = await SubscriptionService.upgrade_tier(
+            db, user_id, SubscriptionTier(target_tier)
+        )
+    except ValueError as e:
+        # Edge case: tier already upgraded (e.g. duplicate confirm)
+        logger.warning("Tier upgrade skipped for %s: %s", user_id, e)
+        upgraded_sub = sub
+
+    # Update payment intent to confirmed
     def _confirm_intent():
         return (
             db.table(PAYMENT_INTENTS_TABLE)
             .update({
                 "status": "confirmed",
-                "tx_hash": tx_hash,
                 "confirmed_at": now.isoformat(),
                 "updated_at": now.isoformat(),
                 "from_address": result.from_address,
@@ -1038,30 +1202,6 @@ async def confirm_payment(
         )
 
     await asyncio.to_thread(_confirm_intent)
-
-    # Apply tier upgrade
-    sub = await SubscriptionService.get_or_create_subscription(db, user_id)
-    try:
-        upgraded_sub, _ = await SubscriptionService.upgrade_tier(
-            db, user_id, SubscriptionTier(target_tier)
-        )
-    except ValueError as e:
-        # Edge case: tier already upgraded (e.g. duplicate confirm)
-        logger.warning("Tier upgrade skipped for %s: %s", user_id, e)
-        upgraded_sub = sub
-
-    # Record the payment in subscription_payments for audit trail
-    await SubscriptionService.record_payment(
-        db=db,
-        subscription_id=upgraded_sub.id,
-        tx_hash=tx_hash,
-        amount=expected_amount,
-        from_address=result.from_address or "",
-        to_address=TREASURY_ADDRESS,
-        chain=chain,
-    )
-    # Mark payment as confirmed (not just pending)
-    await SubscriptionService.confirm_payment(db, tx_hash)
 
     logger.info(
         "Payment %s confirmed — user %s upgraded to %s (tx=%s, block=%s, %d confirmations)",
