@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 12  # Bumped for memory suggestions table
+SCHEMA_VERSION = 13  # Add source_entity column for entity-neutral provenance
 
 # Maximum size for merged arrays during sync to prevent resource exhaustion
 MAX_SYNC_ARRAY_SIZE = 500
@@ -182,6 +182,7 @@ CREATE TABLE IF NOT EXISTS episodes (
     -- Context/scope fields
     context TEXT,
     context_tags TEXT,
+    source_entity TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -228,6 +229,7 @@ CREATE TABLE IF NOT EXISTS beliefs (
     -- Context/scope fields
     context TEXT,
     context_tags TEXT,
+    source_entity TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -269,6 +271,7 @@ CREATE TABLE IF NOT EXISTS agent_values (
     -- Context/scope fields
     context TEXT,
     context_tags TEXT,
+    source_entity TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -307,6 +310,7 @@ CREATE TABLE IF NOT EXISTS goals (
     -- Context/scope fields
     context TEXT,
     context_tags TEXT,
+    source_entity TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -347,6 +351,7 @@ CREATE TABLE IF NOT EXISTS notes (
     -- Context/scope fields
     context TEXT,
     context_tags TEXT,
+    source_entity TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -386,6 +391,7 @@ CREATE TABLE IF NOT EXISTS drives (
     -- Context/scope fields
     context TEXT,
     context_tags TEXT,
+    source_entity TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -428,6 +434,7 @@ CREATE TABLE IF NOT EXISTS relationships (
     -- Context/scope fields
     context TEXT,
     context_tags TEXT,
+    source_entity TEXT,
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -743,6 +750,8 @@ class SQLiteStorage:
         """
         conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         if self._has_vec:
             self._load_vec(conn)
         return conn
@@ -1522,6 +1531,23 @@ class SQLiteStorage:
             conn.commit()
             logger.info(f"Applied {len(migrations)} schema migrations")
 
+        # v13: Add source_entity column for entity-neutral provenance (Phase 5)
+        source_entity_tables = [
+            "episodes", "beliefs", "agent_values", "goals", "notes",
+            "drives", "relationships",
+        ]
+        for table in source_entity_tables:
+            if table in table_names:
+                cols = get_columns(table)
+                if "source_entity" not in cols:
+                    try:
+                        conn.execute(f"ALTER TABLE {table} ADD COLUMN source_entity TEXT")
+                        logger.info(f"Added source_entity column to {table}")
+                    except Exception as e:
+                        if "duplicate column" not in str(e).lower():
+                            logger.warning(f"Failed to add source_entity to {table}: {e}")
+        conn.commit()
+
     def _check_sqlite_vec(self) -> bool:
         """Check if sqlite-vec extension is available."""
         try:
@@ -1718,8 +1744,9 @@ class SQLiteStorage:
                  last_verified, verification_count, confidence_history,
                  times_accessed, last_accessed, is_protected, is_forgotten,
                  forgotten_at, forgotten_reason, context, context_tags,
+                 source_entity,
                  created_at, local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     episode.id,
@@ -1747,6 +1774,7 @@ class SQLiteStorage:
                     episode.forgotten_reason,
                     episode.context,
                     self._to_json(episode.context_tags),
+                    getattr(episode, "source_entity", None),
                     episode.created_at.isoformat() if episode.created_at else now,
                     now,
                     episode.cloud_synced_at.isoformat() if episode.cloud_synced_at else None,
@@ -2031,6 +2059,8 @@ class SQLiteStorage:
             # Context/scope fields
             context=self._safe_get(row, "context", None),
             context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
+            # Entity-neutral sourcing
+            source_entity=self._safe_get(row, "source_entity", None),
         )
 
     def update_episode_emotion(
@@ -2158,9 +2188,9 @@ class SQLiteStorage:
                  source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
                  supersedes, superseded_by, times_reinforced, is_active,
-                 context, context_tags,
+                 context, context_tags, source_entity,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     belief.id,
@@ -2181,6 +2211,7 @@ class SQLiteStorage:
                     1 if belief.is_active else 0,
                     belief.context,
                     self._to_json(belief.context_tags),
+                    getattr(belief, "source_entity", None),
                     now,
                     belief.cloud_synced_at.isoformat() if belief.cloud_synced_at else None,
                     belief.version,
@@ -2458,6 +2489,8 @@ class SQLiteStorage:
             # Context/scope fields
             context=self._safe_get(row, "context", None),
             context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
+            # Entity-neutral sourcing
+            source_entity=self._safe_get(row, "source_entity", None),
         )
 
     # === Values ===
@@ -2727,9 +2760,9 @@ class SQLiteStorage:
                 (id, agent_id, content, note_type, speaker, reason, tags, created_at,
                  confidence, source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
-                 context, context_tags,
+                 context, context_tags, source_entity,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     note.id,
@@ -2749,6 +2782,7 @@ class SQLiteStorage:
                     self._to_json(note.confidence_history),
                     note.context,
                     self._to_json(note.context_tags),
+                    getattr(note, "source_entity", None),
                     now,
                     note.cloud_synced_at.isoformat() if note.cloud_synced_at else None,
                     note.version,
@@ -2880,6 +2914,8 @@ class SQLiteStorage:
             # Context/scope fields
             context=self._safe_get(row, "context", None),
             context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
+            # Entity-neutral sourcing
+            source_entity=self._safe_get(row, "source_entity", None),
         )
 
     # === Drives ===
@@ -4261,7 +4297,7 @@ class SQLiteStorage:
         validate_table_name(table)  # Security: validate before SQL use
 
         row = conn.execute(
-            f"SELECT * FROM {table} WHERE id = ? AND agent_id = ? AND deleted = 0",
+            f"SELECT * FROM {table} WHERE id = ? AND agent_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0",
             (record_id, self.agent_id),
         ).fetchone()
 
@@ -4278,7 +4314,7 @@ class SQLiteStorage:
             if "episode" in types:
                 rows = conn.execute(
                     """SELECT * FROM episodes
-                       WHERE agent_id = ? AND deleted = 0
+                       WHERE agent_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
                        AND (objective LIKE ? OR outcome LIKE ? OR lessons LIKE ?)
                        LIMIT ?""",
                     (self.agent_id, search_term, search_term, search_term, limit),
@@ -4293,7 +4329,7 @@ class SQLiteStorage:
             if "note" in types:
                 rows = conn.execute(
                     """SELECT * FROM notes
-                       WHERE agent_id = ? AND deleted = 0
+                       WHERE agent_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
                        AND content LIKE ?
                        LIMIT ?""",
                     (self.agent_id, search_term, limit),
@@ -4306,7 +4342,7 @@ class SQLiteStorage:
             if "belief" in types:
                 rows = conn.execute(
                     """SELECT * FROM beliefs
-                       WHERE agent_id = ? AND deleted = 0
+                       WHERE agent_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
                        AND statement LIKE ?
                        LIMIT ?""",
                     (self.agent_id, search_term, limit),
@@ -4321,7 +4357,7 @@ class SQLiteStorage:
             if "value" in types:
                 rows = conn.execute(
                     """SELECT * FROM agent_values
-                       WHERE agent_id = ? AND deleted = 0
+                       WHERE agent_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
                        AND (name LIKE ? OR statement LIKE ?)
                        LIMIT ?""",
                     (self.agent_id, search_term, search_term, limit),
@@ -4334,7 +4370,7 @@ class SQLiteStorage:
             if "goal" in types:
                 rows = conn.execute(
                     """SELECT * FROM goals
-                       WHERE agent_id = ? AND deleted = 0
+                       WHERE agent_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
                        AND (title LIKE ? OR description LIKE ?)
                        LIMIT ?""",
                     (self.agent_id, search_term, search_term, limit),
@@ -4618,6 +4654,7 @@ class SQLiteStorage:
         table = table_map.get(memory_type)
         if not table:
             return False
+        validate_table_name(table)
 
         # Build update query dynamically
         updates = []
@@ -4642,6 +4679,10 @@ class SQLiteStorage:
             updates.append("verification_count = ?")
             params.append(verification_count)
         if confidence_history is not None:
+            # Cap confidence_history to prevent unbounded growth
+            MAX_CONFIDENCE_HISTORY = 100
+            if len(confidence_history) > MAX_CONFIDENCE_HISTORY:
+                confidence_history = confidence_history[-MAX_CONFIDENCE_HISTORY:]
             updates.append("confidence_history = ?")
             params.append(self._to_json(confidence_history))
 
@@ -5115,12 +5156,19 @@ class SQLiteStorage:
                     continue
 
                 table, converter = table_map[memory_type]
+                # Build query — exclude protected/forgotten, and for beliefs
+                # also exclude foundational beliefs (identity-critical)
+                foundational_filter = ""
+                if memory_type == "belief":
+                    foundational_filter = "AND COALESCE(is_foundational, 0) = 0"
+
                 query = f"""
                     SELECT * FROM {table}
                     WHERE agent_id = ?
                     AND deleted = 0
                     AND COALESCE(is_protected, 0) = 0
                     AND COALESCE(is_forgotten, 0) = 0
+                    {foundational_filter}
                     ORDER BY created_at ASC
                     LIMIT ?
                 """
