@@ -229,6 +229,12 @@ def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
             sanitized["context_tags"] = (
                 sanitize_array(arguments.get("context_tags"), "context_tags", 100, 20) or None
             )
+            sanitized["source"] = sanitize_string(
+                arguments.get("source"), "source", 500, required=False
+            )
+            sanitized["derived_from"] = sanitize_array(
+                arguments.get("derived_from"), "derived_from", 200, 20
+            )
 
         elif name == "memory_note":
             sanitized["content"] = sanitize_string(
@@ -249,6 +255,12 @@ def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
             )
             sanitized["context_tags"] = (
                 sanitize_array(arguments.get("context_tags"), "context_tags", 100, 20) or None
+            )
+            sanitized["source"] = sanitize_string(
+                arguments.get("source"), "source", 500, required=False
+            )
+            sanitized["derived_from"] = sanitize_array(
+                arguments.get("derived_from"), "derived_from", 200, 20
             )
 
         elif name == "memory_search":
@@ -275,6 +287,12 @@ def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
             )
             sanitized["context_tags"] = (
                 sanitize_array(arguments.get("context_tags"), "context_tags", 100, 20) or None
+            )
+            sanitized["source"] = sanitize_string(
+                arguments.get("source"), "source", 500, required=False
+            )
+            sanitized["derived_from"] = sanitize_array(
+                arguments.get("derived_from"), "derived_from", 200, 20
             )
 
         elif name == "memory_value":
