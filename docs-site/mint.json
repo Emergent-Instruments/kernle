@@ -95,6 +95,17 @@
       ]
     },
     {
+      "group": "Commerce",
+      "pages": [
+        "commerce/overview",
+        "commerce/payment-verification",
+        "commerce/testnet",
+        "commerce/wallets",
+        "commerce/jobs",
+        "commerce/skills"
+      ]
+    },
+    {
       "group": "Troubleshooting",
       "pages": [
         "troubleshooting/upgrading",
