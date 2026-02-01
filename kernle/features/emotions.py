@@ -318,7 +318,7 @@ class EmotionsMixin:
         arousal: Optional[float] = None,
         emotional_tags: Optional[List[str]] = None,
         auto_detect: bool = True,
-        relates_to: Optional[List[str]] = None,
+        derived_from: Optional[List[str]] = None,
         source: Optional[str] = None,
         context: Optional[str] = None,
         context_tags: Optional[List[str]] = None,
@@ -334,7 +334,7 @@ class EmotionsMixin:
             arousal: Emotional arousal (0.0 to 1.0), auto-detected if None
             emotional_tags: Emotion labels, auto-detected if None
             auto_detect: If True and no emotion args given, detect from text
-            relates_to: List of memory IDs this episode relates to
+            derived_from: List of memory IDs this episode was derived from
             source: Source context (e.g., 'session with Sean', 'heartbeat check')
             context: Project/scope context (e.g., 'project:api-service', 'repo:myorg/myrepo')
             context_tags: Additional context tags for filtering
@@ -402,8 +402,8 @@ class EmotionsMixin:
             emotional_tags=emotional_tags,
             confidence=0.8,
             source_type=source_type,
-            source_episodes=relates_to,  # Link to related memories
-            derived_from=[f"context:{source}"] if source else None,
+            source_episodes=derived_from,  # Link to source memories
+            derived_from=[f"context:{source}"] if source else (derived_from if derived_from else None),
             # Context/scope fields
             context=context,
             context_tags=context_tags,

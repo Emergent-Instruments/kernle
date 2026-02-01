@@ -222,7 +222,7 @@ def cmd_episode(args, k: Kernle):
     outcome = validate_input(args.outcome, "outcome", 1000)
     lessons = [validate_input(lesson, "lesson", 500) for lesson in (args.lesson or [])]
     tags = [validate_input(t, "tag", 100) for t in (args.tag or [])]
-    relates_to = getattr(args, "relates_to", None)
+    derived_from = getattr(args, "derived_from", None)
     source = getattr(args, "source", None)
     context = getattr(args, "context", None)
     context_tags = getattr(args, "context_tag", None)
@@ -248,7 +248,7 @@ def cmd_episode(args, k: Kernle):
             arousal=arousal,
             emotional_tags=emotion_tags,
             auto_detect=auto_emotion and not has_emotion_args,
-            relates_to=relates_to,
+            derived_from=derived_from,
             source=source,
             context=context,
             context_tags=context_tags,
@@ -259,7 +259,7 @@ def cmd_episode(args, k: Kernle):
             outcome=outcome,
             lessons=lessons,
             tags=tags,
-            relates_to=relates_to,
+            derived_from=derived_from,
             source=source,
             context=context,
             context_tags=context_tags,
@@ -268,8 +268,8 @@ def cmd_episode(args, k: Kernle):
     print(f"✓ Episode saved: {episode_id[:8]}...")
     if args.lesson:
         print(f"  Lessons: {len(args.lesson)}")
-    if relates_to:
-        print(f"  Links: {len(relates_to)} related memories")
+    if derived_from:
+        print(f"  Derived from: {len(derived_from)} memories")
     if valence is not None or arousal is not None:
         v = valence or 0.0
         a = arousal or 0.0
@@ -284,7 +284,7 @@ def cmd_note(args, k: Kernle):
     speaker = validate_input(args.speaker, "speaker", 200) if args.speaker else None
     reason = validate_input(args.reason, "reason", 1000) if args.reason else None
     tags = [validate_input(t, "tag", 100) for t in (args.tag or [])]
-    relates_to = getattr(args, "relates_to", None)
+    derived_from = getattr(args, "derived_from", None)
     source = getattr(args, "source", None)
     context = getattr(args, "context", None)
     context_tags = getattr(args, "context_tag", None)
@@ -296,7 +296,7 @@ def cmd_note(args, k: Kernle):
         reason=reason,
         tags=tags,
         protect=args.protect,
-        relates_to=relates_to,
+        derived_from=derived_from,
         source=source,
         context=context,
         context_tags=context_tags,
@@ -304,8 +304,8 @@ def cmd_note(args, k: Kernle):
     print(f"✓ Note saved: {args.content[:50]}...")
     if args.tag:
         print(f"  Tags: {', '.join(args.tag)}")
-    if relates_to:
-        print(f"  Links: {len(relates_to)} related memories")
+    if derived_from:
+        print(f"  Derived from: {len(derived_from)} memories")
     if source:
         print(f"  Source: {source}")
     if context:
@@ -2486,7 +2486,7 @@ def main():
     p_episode.add_argument("--lesson", "-l", action="append", help="Lesson learned")
     p_episode.add_argument("--tag", "-t", action="append", help="Tag")
     p_episode.add_argument(
-        "--relates-to", "-r", action="append", help="Related memory ID (repeatable)"
+        "--derived-from", "-r", action="append", dest="derived_from", help="Source memory ID (repeatable)"
     )
     p_episode.add_argument("--valence", "-v", type=float, help="Emotional valence (-1.0 to 1.0)")
     p_episode.add_argument("--arousal", "-a", type=float, help="Emotional arousal (0.0 to 1.0)")
@@ -2519,7 +2519,7 @@ def main():
     p_note.add_argument("--speaker", "-s", help="Speaker (for quotes)")
     p_note.add_argument("--reason", "-r", help="Reason (for decisions)")
     p_note.add_argument("--tag", action="append", help="Tag")
-    p_note.add_argument("--relates-to", action="append", help="Related memory ID (repeatable)")
+    p_note.add_argument("--derived-from", action="append", dest="derived_from", help="Source memory ID (repeatable)")
     p_note.add_argument("--protect", "-p", action="store_true", help="Protect from forgetting")
     p_note.add_argument(
         "--source", help="Source context (e.g., 'conversation with X', 'reading Y')"
@@ -2590,6 +2590,11 @@ def main():
     )
     p_init.add_argument(
         "--non-interactive", "-y", action="store_true", help="Non-interactive mode (use defaults)"
+    )
+    p_init.add_argument(
+        "--full-setup",
+        action="store_true",
+        help="Full setup: instruction file + seed beliefs + platform hooks",
     )
 
     # doctor - validate boot sequence compliance

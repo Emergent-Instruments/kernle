@@ -989,7 +989,7 @@ class Kernle(
         repeat: Optional[List[str]] = None,
         avoid: Optional[List[str]] = None,
         tags: Optional[List[str]] = None,
-        relates_to: Optional[List[str]] = None,
+        derived_from: Optional[List[str]] = None,
         source: Optional[str] = None,
         context: Optional[str] = None,
         context_tags: Optional[List[str]] = None,
@@ -997,7 +997,7 @@ class Kernle(
         """Record an episodic experience.
 
         Args:
-            relates_to: List of memory IDs this episode relates to (for linking)
+            derived_from: List of memory IDs this episode was derived from (for linking)
             source: Source context (e.g., 'session with Sean', 'heartbeat check')
             context: Project/scope context (e.g., 'project:api-service', 'repo:myorg/myrepo')
             context_tags: Additional context tags for filtering
@@ -1058,9 +1058,9 @@ class Kernle(
             created_at=datetime.now(timezone.utc),
             confidence=0.8,
             source_type=source_type,
-            source_episodes=relates_to,  # Link to related memories
-            # Store source context in derived_from for now (as free text marker)
-            derived_from=[f"context:{source}"] if source else None,
+            source_episodes=derived_from,  # Link to source memories
+            # Store source context as free text marker if provided
+            derived_from=[f"context:{source}"] if source else (derived_from if derived_from else None),
             # Context/scope fields
             context=context,
             context_tags=context_tags,
@@ -1142,7 +1142,7 @@ class Kernle(
         reason: Optional[str] = None,
         tags: Optional[List[str]] = None,
         protect: bool = False,
-        relates_to: Optional[List[str]] = None,
+        derived_from: Optional[List[str]] = None,
         source: Optional[str] = None,
         context: Optional[str] = None,
         context_tags: Optional[List[str]] = None,
@@ -1150,7 +1150,7 @@ class Kernle(
         """Capture a quick note (decision, insight, quote).
 
         Args:
-            relates_to: List of memory IDs this note relates to (for linking)
+            derived_from: List of memory IDs this note was derived from (for linking)
             source: Source context (e.g., 'conversation with X', 'reading Y')
             context: Project/scope context (e.g., 'project:api-service', 'repo:myorg/myrepo')
             context_tags: Additional context tags for filtering
@@ -1204,8 +1204,8 @@ class Kernle(
             tags=tags or [],
             created_at=datetime.now(timezone.utc),
             source_type=source_type,
-            source_episodes=relates_to,  # Link to related memories
-            derived_from=[f"context:{source}"] if source else None,
+            source_episodes=derived_from,  # Link to source memories
+            derived_from=[f"context:{source}"] if source else (derived_from if derived_from else None),
             is_protected=protect,
             # Context/scope fields
             context=context,

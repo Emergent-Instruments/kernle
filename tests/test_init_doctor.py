@@ -350,7 +350,7 @@ class TestCmdDoctor:
         """Test doctor when no instruction file exists."""
         monkeypatch.chdir(tmp_path)
 
-        args = argparse.Namespace(json=False, verbose=False, fix=False)
+        args = argparse.Namespace(json=False, verbose=False, fix=False, full=False)
 
         with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_doctor(args, mock_kernle)
@@ -362,7 +362,7 @@ class TestCmdDoctor:
         """Test doctor JSON output when no file."""
         monkeypatch.chdir(tmp_path)
 
-        args = argparse.Namespace(json=True, verbose=False, fix=False)
+        args = argparse.Namespace(json=True, verbose=False, fix=False, full=False)
 
         with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_doctor(args, mock_kernle)
@@ -394,7 +394,7 @@ Run `kernle checkpoint save "state"`
 """
         (tmp_path / "CLAUDE.md").write_text(content)
 
-        args = argparse.Namespace(json=False, verbose=False, fix=False)
+        args = argparse.Namespace(json=False, verbose=False, fix=False, full=False)
 
         with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_doctor(args, mock_kernle)
@@ -415,7 +415,7 @@ Some setup instructions.
 """
         (tmp_path / "CLAUDE.md").write_text(content)
 
-        args = argparse.Namespace(json=False, verbose=False, fix=False)
+        args = argparse.Namespace(json=False, verbose=False, fix=False, full=False)
 
         with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_doctor(args, mock_kernle)
@@ -430,7 +430,7 @@ Some setup instructions.
         content = "# Instructions\n\nkernle -a test-agent load"
         (tmp_path / "CLAUDE.md").write_text(content)
 
-        args = argparse.Namespace(json=True, verbose=False, fix=False)
+        args = argparse.Namespace(json=True, verbose=False, fix=False, full=False)
 
         with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_doctor(args, mock_kernle)
@@ -448,7 +448,7 @@ Some setup instructions.
         content = "# My Project\n\nSome content."
         (tmp_path / "CLAUDE.md").write_text(content)
 
-        args = argparse.Namespace(json=False, verbose=False, fix=True)
+        args = argparse.Namespace(json=False, verbose=False, fix=True, full=False)
 
         with patch("sys.stdout", new=StringIO()):
             cmd_doctor(args, mock_kernle)
