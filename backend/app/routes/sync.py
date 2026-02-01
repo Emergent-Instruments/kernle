@@ -33,12 +33,17 @@ router = APIRouter(prefix="/sync", tags=["sync"])
 SERVER_CONTROLLED_FIELDS = frozenset(
     {
         "agent_ref",  # Server sets based on authenticated user (FK integrity)
+        "agent_id",  # Server sets based on authenticated agent (prevents cross-agent writes)
         "deleted",  # Server controls soft-delete state
         "version",  # Server manages versioning
         "id",  # Server assigns/validates record IDs
         "embedding",  # Server generates embeddings (already stripped separately)
         "synced_at",  # Server timestamp
         "server_updated_at",  # Server timestamp
+        # Forgetting fields — prevent resurrection of tombstoned memories
+        "is_forgotten",  # Server controls forgetting state
+        "forgotten_at",  # Server timestamp for forgetting
+        "forgotten_reason",  # Server-recorded reason
     }
 )
 
