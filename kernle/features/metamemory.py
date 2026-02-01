@@ -324,7 +324,7 @@ class MetaMemoryMixin:
         Args:
             memory_type: Type of memory
             memory_id: ID of memory
-            source_type: Source type (direct_experience, inference, told_by_agent, consolidation)
+            source_type: Source type (direct_experience, inference, external, consolidation)
             source_episodes: List of supporting episode IDs
             derived_from: List of memory refs this was derived from (format: type:id)
 

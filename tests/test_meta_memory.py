@@ -95,7 +95,7 @@ class TestMetaMemoryFields:
             name="Quality",
             statement="Quality matters",
             confidence=0.95,
-            source_type="told_by_agent",
+            source_type="external",
         )
 
         storage.save_value(value)
@@ -103,7 +103,7 @@ class TestMetaMemoryFields:
 
         assert len(values) == 1
         assert values[0].confidence == 0.95
-        assert values[0].source_type == "told_by_agent"
+        assert values[0].source_type == "external"
 
     def test_goal_meta_fields(self, storage):
         """Goal should have meta-memory fields."""
@@ -392,7 +392,7 @@ class TestSourceTypes:
         """SourceType should have expected values."""
         assert SourceType.DIRECT_EXPERIENCE.value == "direct_experience"
         assert SourceType.INFERENCE.value == "inference"
-        assert SourceType.TOLD_BY_AGENT.value == "told_by_agent"
+        assert SourceType.EXTERNAL.value == "external"
         assert SourceType.CONSOLIDATION.value == "consolidation"
         assert SourceType.UNKNOWN.value == "unknown"
 
