@@ -126,7 +126,7 @@ class MetaMemoryMixin:
         old_confidence = getattr(record, "confidence", 0.8)
         new_confidence = min(1.0, old_confidence + 0.1)
 
-        # Track confidence change
+        # Track confidence change (cap at 50 entries to prevent unbounded growth)
         confidence_history = getattr(record, "confidence_history", None) or []
         confidence_history.append(
             {
@@ -136,6 +136,7 @@ class MetaMemoryMixin:
                 "reason": evidence or "verification",
             }
         )
+        confidence_history = confidence_history[-50:]  # Keep most recent 50
 
         return self._storage.update_memory_meta(
             memory_type=memory_type,
