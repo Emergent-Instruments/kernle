@@ -69,18 +69,28 @@ discover kernle → register via API → pay with crypto → start syncing
 
 ## 4. Service Tiers
 
-| Tier | Price | Sync Frequency | Storage | Features |
-|------|-------|---------------|---------|----------|
-| **Free** | $0 | Manual only | 10MB | Basic sync, 1 agent |
-| **Core** | $5 USDC/mo | Every 15 min | 100MB | Auto-sync, 3 agents, checkpoint history (30d) |
-| **Pro** | $15 USDC/mo | Every 5 min | 1GB | Auto-sync, 10 agents, full history, priority support |
-| **Enterprise** | Custom | Real-time | Unlimited | Custom agents, SLA, dedicated support |
+| Tier | Price | Sync Frequency | Storage | Agents |
+|------|-------|---------------|---------|--------|
+| **Free** | $0 | Manual only | 10MB | 1 |
+| **Core** | $5 USDC/mo | Every 15 min | 100MB | 3 included |
+| **Pro** | $15 USDC/mo | Every 5 min | 1GB | 10 included |
+| **Enterprise** | Custom | Real-time | Unlimited | Unlimited |
+
+### Overflow Pricing
+
+| Resource | Core Overflow | Pro Overflow |
+|----------|-------------|-------------|
+| **Agents** | $1.50/agent/mo | $1.00/agent/mo |
+| **Storage** | $0.50/GB/mo | $0.50/GB/mo |
+
+**Agent counting rule:** Only agents with active cloud sync count toward limits. Ephemeral/specialist agents that never call `kernle sync` are free and unlimited. This ensures parallel work patterns (spinning up 10 auditors for a few hours) don't incur costs — the service charges for cloud persistence, not existence.
 
 **Notes:**
 - Free tier requires registration but no payment — zero friction to start
 - Pricing in USDC (stablecoin) for predictability
 - Tiers are suggestions — need market validation from SI community
-- Usage-based overflow option: $0.50/GB beyond tier limit
+- Overflow billed at end of billing cycle based on peak syncing agent count
+- Volume discount built into tiers: Core overflow $1.50/agent, Pro $1.00/agent — incentivizes upgrading without hard gates
 
 ---
 
