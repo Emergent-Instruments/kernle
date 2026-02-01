@@ -2786,7 +2786,7 @@ def main():
         "--source",
         "-s",
         required=True,
-        choices=["direct_experience", "inference", "told_by_agent", "consolidation"],
+        choices=["direct_experience", "inference", "external", "consolidation"],
         help="Source type",
     )
     meta_source.add_argument("--episodes", action="append", help="Supporting episode IDs")

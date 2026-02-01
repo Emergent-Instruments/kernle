@@ -1043,7 +1043,7 @@ class Kernle(
         if source:
             source_lower = source.lower()
             if any(x in source_lower for x in ["told", "said", "heard", "learned from"]):
-                source_type = "told_by_agent"
+                source_type = "external"
             elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
                 source_type = "inference"
 
@@ -1192,11 +1192,11 @@ class Kernle(
         if source:
             source_lower = source.lower()
             if any(x in source_lower for x in ["told", "said", "heard", "learned from"]):
-                source_type = "told_by_agent"
+                source_type = "external"
             elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
                 source_type = "inference"
             elif type == "quote":
-                source_type = "told_by_agent"
+                source_type = "external"
 
         # Build derived_from: explicit lineage + source context marker
         derived_from_value = list(derived_from) if derived_from else []

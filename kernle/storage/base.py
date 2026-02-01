@@ -54,7 +54,7 @@ class SourceType(Enum):
 
     DIRECT_EXPERIENCE = "direct_experience"  # Directly observed/experienced
     INFERENCE = "inference"  # Inferred from other memories
-    TOLD_BY_AGENT = "told_by_agent"  # Told by another agent/user
+    EXTERNAL = "external"  # Information received from another being (entity-neutral)
     CONSOLIDATION = "consolidation"  # Created during consolidation
     UNKNOWN = "unknown"  # Legacy or untracked
 
@@ -213,6 +213,7 @@ class Episode:
     # Meta-memory fields
     confidence: float = 0.8
     source_type: str = "direct_experience"  # SourceType value
+    source_entity: Optional[str] = None  # Who provided it (name, email, or ID; entity-neutral)
     source_episodes: Optional[List[str]] = None  # IDs of related episodes
     derived_from: Optional[List[str]] = None  # Memory IDs this was derived from
     last_verified: Optional[datetime] = None
@@ -247,6 +248,7 @@ class Belief:
     deleted: bool = False
     # Meta-memory fields
     source_type: str = "direct_experience"  # SourceType value
+    source_entity: Optional[str] = None  # Who provided it (name, email, or ID; entity-neutral)
     source_episodes: Optional[List[str]] = None  # IDs of supporting episodes
     derived_from: Optional[List[str]] = None  # Memory IDs this was derived from
     last_verified: Optional[datetime] = None
@@ -360,6 +362,7 @@ class Note:
     # Meta-memory fields
     confidence: float = 0.8
     source_type: str = "direct_experience"  # SourceType value
+    source_entity: Optional[str] = None  # Who provided it (name, email, or ID; entity-neutral)
     source_episodes: Optional[List[str]] = None  # IDs of supporting episodes
     derived_from: Optional[List[str]] = None  # Memory IDs this was derived from
     last_verified: Optional[datetime] = None
