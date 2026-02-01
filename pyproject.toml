@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kernle"
-version = "0.2.1"
+version = "0.2.2"
 description = "Stratified memory for synthetic intelligences"
 readme = "README.md"
 license = "MIT"
@@ -74,6 +74,13 @@ Issues = "https://github.com/Emergent-Instruments/kernle/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["kernle"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "kernle/",
+    "README.md",
+    "LICENSE",
+]
 
 [tool.black]
 line-length = 100

@@ -1,9 +1,5 @@
 /**
  * kernle-load hook: Automatically inject Kernle memory into session context
- *
- * Installation: Run `kernle setup clawdbot` or manually copy to:
- * - Bundled: <moltbot>/src/hooks/bundled/kernle-load/
- * - User hooks: ~/.config/moltbot/hooks/kernle-load/
  */
 
 import { exec } from "node:child_process";

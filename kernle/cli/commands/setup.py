@@ -11,9 +11,9 @@ if TYPE_CHECKING:
 
 def get_hooks_dir() -> Path:
     """Get the hooks directory from the kernle package."""
-    # hooks/ is at the root of the kernle package
-    kernle_root = Path(__file__).parent.parent.parent.parent
-    return kernle_root / "hooks"
+    # hooks/ is inside the kernle package at kernle/hooks/
+    kernle_pkg = Path(__file__).parent.parent.parent
+    return kernle_pkg / "hooks"
 
 
 def _get_memory_flush_prompt(agent_id: str) -> str:

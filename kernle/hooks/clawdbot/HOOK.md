@@ -40,14 +40,6 @@ Enable/disable in `~/.clawdbot/clawdbot.json`:
 }
 ```
 
-## Installation
-
-See `hooks/clawdbot/README.md` for installation instructions, or run:
-
-```bash
-kernle setup clawdbot
-```
-
 ## Features
 
 - **Zero AI involvement**: Memory loads automatically
