@@ -19,6 +19,7 @@ kernle -a <agent> episode OBJECTIVE OUTCOME [options]
 |--------|-------------|
 | `-l, --lesson LESSON` | Lesson learned (repeatable) |
 | `-t, --tag TAG` | Tag (repeatable) |
+| `-r, --derived-from ID` | Source memory ID this was derived from (repeatable) |
 | `-v, --valence VALENCE` | Emotional valence (-1.0 to 1.0) |
 | `-a, --arousal AROUSAL` | Emotional arousal (0.0 to 1.0) |
 | `-e, --emotion EMOTION` | Emotion tag (repeatable) |
@@ -47,6 +48,14 @@ kernle -a <agent> episode OBJECTIVE OUTCOME [options]
       --arousal 0.8
     ```
   </Tab>
+  <Tab title="Derived From Raw">
+    ```bash
+    # Process a raw entry into an episode with provenance
+    kernle -a claire episode "Investigated performance issue" "success" \
+      --lesson "Check database indexes first" \
+      --derived-from raw:abc123
+    ```
+  </Tab>
 </Tabs>
 
 ---
@@ -65,6 +74,7 @@ kernle -a <agent> note CONTENT [options]
 | `-s, --speaker SPEAKER` | Speaker (for quotes) |
 | `-r, --reason REASON` | Reason (for decisions) |
 | `--tag TAG` | Tag (repeatable) |
+| `--derived-from ID` | Source memory ID this was derived from (repeatable) |
 | `-p, --protect` | Protect from forgetting |
 
 <Tabs>

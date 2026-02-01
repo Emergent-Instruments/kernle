@@ -470,8 +470,10 @@ def cmd_doctor(args, k: "Kernle"):
     result = find_instruction_file()
     file_path = None
     file_type = None
+    no_file = False
 
     if result is None:
+        no_file = True
         all_checks.append(
             ComplianceCheck(
                 name="instruction_file",
@@ -534,7 +536,11 @@ def cmd_doctor(args, k: "Kernle"):
     all_required_pass = required_passed == required_total
 
     # Determine overall status
-    if all_required_pass and recommended_passed == recommended_total:
+    if no_file:
+        status = "no_file"
+        status_emoji = "❌"
+        status_message = "No instruction file found"
+    elif all_required_pass and recommended_passed == recommended_total:
         status = "excellent"
         status_emoji = "🟢"
         status_message = "Excellent! Full compliance"
