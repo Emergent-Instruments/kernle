@@ -1,0 +1,195 @@
+---
+title: Testnet Setup
+description: "Get started with USDC payments on Base Sepolia"
+---
+
+# Testnet Setup
+
+This guide walks you through setting up a wallet and getting testnet USDC to test Kernle's commerce features.
+
+## Prerequisites
+
+- An EVM-compatible wallet (MetaMask, Coinbase Wallet, etc.)
+- Or: Programmatic wallet using viem/ethers
+
+## Step 1: Add Base Sepolia to Your Wallet
+
+### MetaMask
+
+1. Open MetaMask → Networks → Add Network
+2. Enter these details:
+
+| Field | Value |
+|-------|-------|
+| Network Name | Base Sepolia |
+| RPC URL | `https://sepolia.base.org` |
+| Chain ID | `84532` |
+| Currency Symbol | `ETH` |
+| Block Explorer | `https://sepolia.basescan.org` |
+
+### Programmatic (viem)
+
+```javascript
+import { baseSepolia } from 'viem/chains';
+import { createWalletClient, http } from 'viem';
+import { privateKeyToAccount } from 'viem/accounts';
+
+const account = privateKeyToAccount('0x...');
+const client = createWalletClient({
+  account,
+  chain: baseSepolia,
+  transport: http('https://sepolia.base.org')
+});
+```
+
+## Step 2: Get Testnet ETH (Gas)
+
+You need a small amount of ETH for gas fees. Options:
+
+### Option A: Base Sepolia Faucet
+- Visit [Coinbase Faucet](https://www.coinbase.com/faucets/base-ethereum-goerli-faucet)
+- Connect wallet, request ETH
+
+### Option B: Bridge from Ethereum Sepolia
+- Get Sepolia ETH from [Alchemy Faucet](https://sepoliafaucet.com/)
+- Bridge to Base Sepolia via [Base Bridge](https://bridge.base.org/)
+
+### Option C: Direct Send
+Ask someone with testnet ETH to send you ~0.01 ETH.
+
+## Step 3: Get Testnet USDC
+
+### Circle Faucet (Recommended)
+
+1. Visit [faucet.circle.com](https://faucet.circle.com)
+2. Select **USDC** (not EURC)
+3. Select **Base Sepolia** from the network dropdown
+4. Enter your wallet address
+5. Click **Send 20 USDC**
+
+<Note>
+Limit: One request per address per network every 2 hours.
+</Note>
+
+### USDC Contract Address
+
+Base Sepolia USDC: `0x036CbD53842c5426634e7929541eC2318f3dCF7e`
+
+Add this token to your wallet to see your balance.
+
+## Step 4: Verify Your Setup
+
+### Check Balances
+
+```bash
+# Check ETH balance
+curl -s -X POST https://sepolia.base.org \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"eth_getBalance","params":["YOUR_ADDRESS","latest"],"id":1}'
+
+# Check USDC balance
+curl -s -X POST https://sepolia.base.org \
+  -H "Content-Type: application/json" \
+  -d '{
+    "jsonrpc":"2.0",
+    "method":"eth_call",
+    "params":[{
+      "to":"0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+      "data":"0x70a08231000000000000000000000000YOUR_ADDRESS_WITHOUT_0x"
+    },"latest"],
+    "id":1
+  }'
+```
+
+### Send a Test Transaction
+
+```javascript
+import { createWalletClient, createPublicClient, http, parseUnits, parseAbi } from 'viem';
+import { baseSepolia } from 'viem/chains';
+import { privateKeyToAccount } from 'viem/accounts';
+
+const USDC_ADDRESS = '0x036CbD53842c5426634e7929541eC2318f3dCF7e';
+const TREASURY = '0x27cD66a635f9d5b66516043bd5eE3a792792EA17';
+
+const account = privateKeyToAccount('0x...');
+
+const walletClient = createWalletClient({
+  account,
+  chain: baseSepolia,
+  transport: http('https://sepolia.base.org')
+});
+
+const ERC20_ABI = parseAbi([
+  'function transfer(address to, uint256 amount) returns (bool)'
+]);
+
+// Send 5 USDC
+const amount = parseUnits('5', 6); // USDC has 6 decimals
+
+const hash = await walletClient.writeContract({
+  address: USDC_ADDRESS,
+  abi: ERC20_ABI,
+  functionName: 'transfer',
+  args: [TREASURY, amount]
+});
+
+console.log('TX Hash:', hash);
+console.log('Explorer:', `https://sepolia.basescan.org/tx/${hash}`);
+```
+
+### Verify the Transaction
+
+```python
+from kernle.backend.app.payments import verify_usdc_transfer_sync
+from decimal import Decimal
+
+result = verify_usdc_transfer_sync(
+    tx_hash="0x...",  # Your transaction hash
+    chain="base_sepolia"
+)
+
+print(f"Success: {result.success}")
+print(f"Amount: ${result.amount} USDC")
+print(f"Confirmations: {result.confirmations}")
+```
+
+## Treasury Address
+
+For testing payments to Kernle:
+
+**Treasury (kernle.eth):** `0x27cD66a635f9d5b66516043bd5eE3a792792EA17`
+
+<Warning>
+This is the **testnet** treasury. Do not send mainnet USDC to this address.
+</Warning>
+
+## Troubleshooting
+
+### "Insufficient funds for gas"
+
+You need ETH for gas fees. Get some from a faucet (Step 2).
+
+### "Transaction reverted"
+
+Check that:
+- You have enough USDC balance
+- The recipient address is valid
+- You're on Base Sepolia (chain ID 84532)
+
+### "USDC balance shows 0"
+
+- Wait 1-2 minutes for the faucet transaction to confirm
+- Make sure you added the USDC token to your wallet
+- Verify you're on Base Sepolia network
+
+### Faucet says "Limit Exceeded"
+
+You can only request once every 2 hours per address per network. Wait and try again, or use a different address.
+
+## Next Steps
+
+Once you have testnet USDC:
+
+1. [Send a test payment](/commerce/payment-verification#examples) to the treasury
+2. [Verify the transaction](/commerce/payment-verification) on-chain
+3. Explore the [Jobs API](/commerce/jobs) to post or complete work

@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 13  # Add source_entity column for entity-neutral provenance
+SCHEMA_VERSION = 14  # Phase 8a: Add privacy fields (subject_ids, access_grants, consent_grants)
 
 # Maximum size for merged arrays during sync to prevent resource exhaustion
 MAX_SYNC_ARRAY_SIZE = 500
@@ -183,6 +183,10 @@ CREATE TABLE IF NOT EXISTS episodes (
     context TEXT,
     context_tags TEXT,
     source_entity TEXT,
+    -- Privacy fields (Phase 8a)
+    subject_ids TEXT,       -- JSON array of entity IDs this memory is about
+    access_grants TEXT,     -- JSON array of entity IDs who can see this (empty = private)
+    consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -230,6 +234,10 @@ CREATE TABLE IF NOT EXISTS beliefs (
     context TEXT,
     context_tags TEXT,
     source_entity TEXT,
+    -- Privacy fields (Phase 8a)
+    subject_ids TEXT,       -- JSON array of entity IDs this memory is about
+    access_grants TEXT,     -- JSON array of entity IDs who can see this (empty = private)
+    consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -272,6 +280,10 @@ CREATE TABLE IF NOT EXISTS agent_values (
     context TEXT,
     context_tags TEXT,
     source_entity TEXT,
+    -- Privacy fields (Phase 8a)
+    subject_ids TEXT,       -- JSON array of entity IDs this memory is about
+    access_grants TEXT,     -- JSON array of entity IDs who can see this (empty = private)
+    consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -311,6 +323,10 @@ CREATE TABLE IF NOT EXISTS goals (
     context TEXT,
     context_tags TEXT,
     source_entity TEXT,
+    -- Privacy fields (Phase 8a)
+    subject_ids TEXT,       -- JSON array of entity IDs this memory is about
+    access_grants TEXT,     -- JSON array of entity IDs who can see this (empty = private)
+    consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -352,6 +368,10 @@ CREATE TABLE IF NOT EXISTS notes (
     context TEXT,
     context_tags TEXT,
     source_entity TEXT,
+    -- Privacy fields (Phase 8a)
+    subject_ids TEXT,       -- JSON array of entity IDs this memory is about
+    access_grants TEXT,     -- JSON array of entity IDs who can see this (empty = private)
+    consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -392,6 +412,10 @@ CREATE TABLE IF NOT EXISTS drives (
     context TEXT,
     context_tags TEXT,
     source_entity TEXT,
+    -- Privacy fields (Phase 8a)
+    subject_ids TEXT,       -- JSON array of entity IDs this memory is about
+    access_grants TEXT,     -- JSON array of entity IDs who can see this (empty = private)
+    consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -435,6 +459,10 @@ CREATE TABLE IF NOT EXISTS relationships (
     context TEXT,
     context_tags TEXT,
     source_entity TEXT,
+    -- Privacy fields (Phase 8a)
+    subject_ids TEXT,       -- JSON array of entity IDs this memory is about
+    access_grants TEXT,     -- JSON array of entity IDs who can see this (empty = private)
+    consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -466,6 +494,10 @@ CREATE TABLE IF NOT EXISTS playbooks (
     confidence REAL DEFAULT 0.8,
     last_used TEXT,
     created_at TEXT NOT NULL,
+    -- Privacy fields (Phase 8a)
+    subject_ids TEXT,       -- JSON array of entity IDs this memory is about
+    access_grants TEXT,     -- JSON array of entity IDs who can see this (empty = private)
+    consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -493,6 +525,10 @@ CREATE TABLE IF NOT EXISTS raw_entries (
     tags TEXT,  -- Include in blob text instead
     confidence REAL DEFAULT 1.0,  -- Not meaningful for raw
     source_type TEXT DEFAULT 'direct_experience',  -- Meta-memory, not for raw
+    -- Privacy fields (Phase 8a)
+    subject_ids TEXT,       -- JSON array of entity IDs this memory is about
+    access_grants TEXT,     -- JSON array of entity IDs who can see this (empty = private)
+    consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -1546,6 +1582,25 @@ class SQLiteStorage:
                     except Exception as e:
                         if "duplicate column" not in str(e).lower():
                             logger.warning(f"Failed to add source_entity to {table}: {e}")
+        conn.commit()
+
+        # v14: Add privacy fields (Phase 8a) - subject_ids, access_grants, consent_grants
+        privacy_tables = [
+            "episodes", "beliefs", "agent_values", "goals", "notes",
+            "drives", "relationships", "playbooks", "raw_entries",
+        ]
+        privacy_fields = ["subject_ids", "access_grants", "consent_grants"]
+        for table in privacy_tables:
+            if table in table_names:
+                cols = get_columns(table)
+                for field in privacy_fields:
+                    if field not in cols:
+                        try:
+                            conn.execute(f"ALTER TABLE {table} ADD COLUMN {field} TEXT")
+                            logger.info(f"Added {field} column to {table}")
+                        except Exception as e:
+                            if "duplicate column" not in str(e).lower():
+                                logger.warning(f"Failed to add {field} to {table}: {e}")
         conn.commit()
 
     def _check_sqlite_vec(self) -> bool:

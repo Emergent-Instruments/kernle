@@ -1,0 +1,250 @@
+---
+title: Payment Verification
+description: "Verify USDC transfers on-chain with cryptographic proof"
+---
+
+# Payment Verification
+
+The payment verification module allows agents to cryptographically verify that USDC transfers actually occurred on-chain. No trust required — just math.
+
+## How It Works
+
+```
+1. Agent receives tx_hash from payer
+           ↓
+2. Fetch transaction receipt via JSON-RPC
+           ↓
+3. Parse ERC20 Transfer event logs
+           ↓
+4. Validate: amount, sender, recipient
+           ↓
+5. Return verified result with block confirmation
+```
+
+## API Reference
+
+### `verify_usdc_transfer`
+
+Verify a USDC transfer on-chain.
+
+```python
+from kernle.backend.app.payments import verify_usdc_transfer
+from decimal import Decimal
+
+result = await verify_usdc_transfer(
+    tx_hash="0x...",              # Transaction hash to verify
+    expected_amount=Decimal("5"),  # Expected USDC amount (optional)
+    expected_from="0x...",         # Expected sender (optional)
+    expected_to="0x...",           # Expected recipient (optional)
+    chain="base_sepolia",          # Chain to verify on
+    min_confirmations=1,           # Required confirmations
+    tolerance=Decimal("0.01")      # Amount tolerance (default: 1 cent)
+)
+```
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `tx_hash` | `str` | Yes | Transaction hash to verify |
+| `expected_amount` | `Decimal` | No | Expected USDC amount (human-readable) |
+| `expected_from` | `str` | No | Expected sender address |
+| `expected_to` | `str` | No | Expected recipient address |
+| `chain` | `str` | No | Chain name (default: "base") |
+| `min_confirmations` | `int` | No | Minimum block confirmations (default: 1) |
+| `tolerance` | `Decimal` | No | Amount tolerance for matching (default: 0.01) |
+
+### Return Value
+
+`TransferVerificationResult` dataclass:
+
+```python
+@dataclass
+class TransferVerificationResult:
+    success: bool           # Whether verification passed
+    tx_hash: str           # The transaction hash
+    chain: str             # Chain verified on
+    
+    # Transfer details (if success=True)
+    from_address: str      # Sender address
+    to_address: str        # Recipient address
+    amount: Decimal        # Human-readable amount (e.g., 5.00)
+    amount_raw: int        # Raw units (e.g., 5000000)
+    
+    # Block info
+    block_number: int      # Block number
+    block_timestamp: datetime  # Block timestamp (UTC)
+    confirmations: int     # Number of confirmations
+    
+    # Error info (if success=False)
+    error: str             # Error message
+    error_code: str        # Error code for programmatic handling
+```
+
+### Error Codes
+
+| Code | Description |
+|------|-------------|
+| `UNKNOWN_CHAIN` | Chain not supported |
+| `TX_NOT_FOUND` | Transaction not found or not yet mined |
+| `TX_REVERTED` | Transaction reverted on-chain |
+| `INSUFFICIENT_CONFIRMATIONS` | Not enough block confirmations |
+| `NO_USDC_TRANSFER` | No USDC transfer found in transaction |
+| `TRANSFER_MISMATCH` | Transfer found but doesn't match criteria |
+| `NETWORK_ERROR` | RPC connection failed |
+| `VERIFICATION_ERROR` | RPC returned an error |
+| `UNEXPECTED_ERROR` | Unexpected exception |
+
+## Supported Chains
+
+```python
+CHAIN_CONFIG = {
+    "base": {
+        "rpc_url": "https://mainnet.base.org",
+        "usdc_address": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+        "chain_id": 8453,
+    },
+    "base_sepolia": {
+        "rpc_url": "https://sepolia.base.org", 
+        "usdc_address": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+        "chain_id": 84532,
+    },
+    "ethereum": {
+        "rpc_url": "https://eth.llamarpc.com",
+        "usdc_address": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+        "chain_id": 1,
+    },
+}
+```
+
+## Examples
+
+### Basic Verification
+
+```python
+from kernle.backend.app.payments import verify_usdc_transfer_sync
+
+# Just verify the transaction exists and succeeded
+result = verify_usdc_transfer_sync(
+    tx_hash="0xbf3cb54fbb9a2a2220dd9b5f2fddf4ae17e5962d445478988225202270f95a92",
+    chain="base_sepolia"
+)
+
+print(f"Success: {result.success}")
+print(f"Amount: ${result.amount} USDC")
+print(f"From: {result.from_address}")
+print(f"To: {result.to_address}")
+```
+
+### Verify Specific Payment
+
+```python
+from decimal import Decimal
+
+# Verify a payment to your treasury
+result = verify_usdc_transfer_sync(
+    tx_hash="0x...",
+    expected_to="0x27cD66a635f9d5b66516043bd5eE3a792792EA17",  # Treasury
+    expected_amount=Decimal("10.00"),  # Expected $10 USDC
+    chain="base_sepolia",
+    min_confirmations=3  # Wait for 3 blocks
+)
+
+if result.success:
+    # Payment verified — credit the user
+    credit_user(result.from_address, result.amount)
+else:
+    # Handle failure
+    if result.error_code == "INSUFFICIENT_CONFIRMATIONS":
+        # Wait and retry
+        pass
+    elif result.error_code == "TRANSFER_MISMATCH":
+        # Amount or recipient wrong
+        pass
+```
+
+### Async Usage
+
+```python
+import asyncio
+from kernle.backend.app.payments import verify_usdc_transfer
+
+async def check_payment(tx_hash: str):
+    result = await verify_usdc_transfer(
+        tx_hash=tx_hash,
+        chain="base_sepolia"
+    )
+    return result
+
+# Run in async context
+result = asyncio.run(check_payment("0x..."))
+```
+
+## How Verification Works
+
+### 1. Fetch Transaction Receipt
+
+```python
+receipt = await rpc_call("eth_getTransactionReceipt", [tx_hash])
+```
+
+The receipt contains:
+- Transaction status (success/reverted)
+- Block number
+- Event logs
+
+### 2. Parse Transfer Events
+
+ERC20 Transfer events have this structure:
+```
+Transfer(address indexed from, address indexed to, uint256 value)
+```
+
+Event signature: `0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef`
+
+```python
+# topics[0] = event signature
+# topics[1] = from address (padded to 32 bytes)
+# topics[2] = to address (padded to 32 bytes)
+# data = value (uint256)
+```
+
+### 3. Filter by USDC Contract
+
+Only process logs from the USDC contract address:
+
+```python
+for log in receipt["logs"]:
+    if log["address"].lower() == usdc_address.lower():
+        # This is a USDC transfer
+        transfer = parse_transfer_log(log)
+```
+
+### 4. Validate Criteria
+
+Check that the transfer matches expectations:
+- Amount within tolerance
+- Correct sender (if specified)
+- Correct recipient (if specified)
+- Sufficient confirmations
+
+## Security Considerations
+
+<Warning>
+Always verify on-chain. Never trust user-submitted payment claims without verification.
+</Warning>
+
+1. **Check confirmations** — Wait for multiple blocks to prevent reorg attacks
+2. **Verify the contract** — Ensure the Transfer event came from the real USDC contract
+3. **Validate addresses** — Normalize and compare addresses case-insensitively
+4. **Handle tolerance** — USDC has 6 decimals; rounding can cause tiny discrepancies
+
+## Testnet Testing
+
+Get testnet USDC from [Circle's faucet](https://faucet.circle.com):
+
+1. Select "Base Sepolia" network
+2. Enter your wallet address
+3. Click "Send 20 USDC"
+
+You'll receive 20 testnet USDC (limit: once per 2 hours per address).
