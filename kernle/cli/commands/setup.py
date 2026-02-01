@@ -16,13 +16,41 @@ def get_hooks_dir() -> Path:
     return kernle_root / "hooks"
 
 
+def _get_memory_flush_prompt(agent_id: str) -> str:
+    """Generate the memory flush prompt for pre-compaction checkpoint saving."""
+    return f"""Before compaction, save your working state to Kernle:
+
+```bash
+kernle -a {agent_id} checkpoint "<describe your current task>" --context "<progress and next steps>"
+```
+
+IMPORTANT: Be specific about what you're actually working on.
+- Bad: "Heartbeat complete" or "Saving state"
+- Good: "Building auth API - finished /login endpoint, next: add JWT validation"
+
+The checkpoint should answer: "What exactly am I doing and what's next?"
+
+After saving, continue with compaction."""
+
+
+def _deep_merge(base: dict, updates: dict) -> dict:
+    """Deep merge updates into base dict, preserving existing values."""
+    result = base.copy()
+    for key, value in updates.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
 def setup_clawdbot(agent_id: str, force: bool = False, enable: bool = False) -> None:
-    """Install Clawdbot/moltbot hook for automatic memory loading.
+    """Install Clawdbot/moltbot hook for automatic memory loading and checkpoint saving.
 
     Args:
         agent_id: Agent identifier
         force: Overwrite existing hook files
-        enable: Automatically enable hook in clawdbot.json
+        enable: Automatically enable hook and configure memoryFlush in clawdbot.json
     """
     hooks_dir = get_hooks_dir()
     source = hooks_dir / "clawdbot"
@@ -90,23 +118,7 @@ def setup_clawdbot(agent_id: str, force: bool = False, enable: bool = False) -> 
                     print("✓ Hook already enabled in config")
                 else:
                     print("\n⚠️  Hook not enabled in config")
-                    print("   Run with --enable to auto-configure, or add manually:")
-                    print(
-                        """
-{
-  "hooks": {
-    "internal": {
-      "enabled": true,
-      "entries": {
-        "kernle-load": {
-          "enabled": true
-        }
-      }
-    }
-  }
-}
-"""
-                    )
+                    print("   Run with --enable to auto-configure, or add manually")
             except Exception as e:
                 print(f"⚠️  Could not read config: {e}")
         else:
@@ -120,7 +132,11 @@ def setup_clawdbot(agent_id: str, force: bool = False, enable: bool = False) -> 
 
 
 def _enable_clawdbot_hook(agent_id: str) -> bool:
-    """Enable kernle-load hook in clawdbot.json.
+    """Enable kernle-load hook and configure memoryFlush in clawdbot.json.
+
+    This configures both:
+    1. Session start hook (loads KERNLE.md)
+    2. Pre-compaction memory flush (saves checkpoint)
 
     Returns True if successfully enabled (or already enabled).
     """
@@ -135,36 +151,72 @@ def _enable_clawdbot_hook(agent_id: str) -> bool:
             config_path.parent.mkdir(parents=True, exist_ok=True)
             config = {}
 
-        # Navigate/create the nested structure
-        if "hooks" not in config:
-            config["hooks"] = {}
-        if "internal" not in config["hooks"]:
-            config["hooks"]["internal"] = {}
-        if "entries" not in config["hooks"]["internal"]:
-            config["hooks"]["internal"]["entries"] = {}
+        # Build the config updates we want to apply
+        memory_flush_prompt = _get_memory_flush_prompt(agent_id)
+        kernle_config = {
+            "hooks": {
+                "internal": {
+                    "enabled": True,
+                    "entries": {"kernle-load": {"enabled": True}},
+                }
+            },
+            "agents": {
+                "defaults": {
+                    "compaction": {"memoryFlush": {"enabled": True, "prompt": memory_flush_prompt}}
+                }
+            },
+        }
 
-        # Enable internal hooks globally if not set
-        if not config["hooks"]["internal"].get("enabled"):
-            config["hooks"]["internal"]["enabled"] = True
+        # Check current state
+        hook_enabled = (
+            config.get("hooks", {})
+            .get("internal", {})
+            .get("entries", {})
+            .get("kernle-load", {})
+            .get("enabled", False)
+        )
 
-        # Check if already enabled
-        kernle_hook = config["hooks"]["internal"]["entries"].get("kernle-load", {})
-        if kernle_hook.get("enabled"):
-            print("✓ Hook already enabled in config")
+        flush_configured = (
+            config.get("agents", {})
+            .get("defaults", {})
+            .get("compaction", {})
+            .get("memoryFlush", {})
+            .get("enabled", False)
+        )
+
+        if hook_enabled and flush_configured:
+            print("✓ Kernle already fully configured")
+            print("  - Session start hook: enabled")
+            print("  - Pre-compaction flush: enabled")
             return True
 
-        # Enable the hook
-        config["hooks"]["internal"]["entries"]["kernle-load"] = {"enabled": True}
+        # Merge our config into existing
+        merged = _deep_merge(config, kernle_config)
 
-        # Write back
         with open(config_path, "w") as f:
-            json.dump(config, f, indent=2)
+            json.dump(merged, f, indent=2)
 
-        print("✓ Enabled kernle-load hook in clawdbot.json")
-        print(f"  Config: {config_path}")
+        print("✓ Updated clawdbot.json with Kernle configuration")
+
+        if not hook_enabled:
+            print("  - Enabled session start hook")
+        if not flush_configured:
+            print("  - Configured pre-compaction memory flush")
+
+        print()
+        print("=" * 50)
+        print("Kernle Setup Complete")
+        print("=" * 50)
+        print()
+        print("Configured for seamless context transitions:")
+        print("  1. Session start: Memory auto-loads into KERNLE.md")
+        print("  2. Pre-compaction: Agent saves checkpoint before compaction")
         print()
         print("⚠️  Restart Clawdbot gateway for changes to take effect:")
         print("   clawdbot gateway restart")
+        print()
+        print(f"Memory will persist across sessions for agent '{agent_id}'")
+
         return True
 
     except Exception as e:
@@ -249,7 +301,7 @@ def setup_claude_code(agent_id: str, force: bool = False, global_install: bool =
         print(f"✓ Created {location}")
 
     print(f"  Location: {target}")
-    print(f"\nNext steps:")
+    print("\nNext steps:")
     print(f"  1. Start a new Claude Code session in {'~' if global_install else 'this directory'}")
     print(f"  2. Memory will load automatically for agent '{agent_id}'")
     print("\nVerify with: claude")

@@ -3309,9 +3309,13 @@ class Kernle(
             f"# Working Memory ({self.agent_id})",
             f"_Loaded at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}_",
             "",
+            "<!-- USAGE: This is your persistent memory. Resume work from 'Continue With' ",
+            "section without announcing recovery. Save checkpoints with specific task ",
+            "descriptions before breaks or when context pressure builds. -->",
+            "",
         ]
 
-        # Checkpoint - prominently displayed at top
+        # Checkpoint - prominently displayed at top with directive language
         if memory.get("checkpoint"):
             cp = memory["checkpoint"]
 
@@ -3330,16 +3334,19 @@ class Kernle(
             except Exception:
                 pass
 
-            lines.append("## Working State")
-            lines.append(f"**Task**: {cp.get('current_task', 'unknown')}")
+            lines.append("## Continue With")
+            lines.append(f"**Current task**: {cp.get('current_task', 'unknown')}")
             if cp.get("context"):
                 lines.append(f"**Context**: {cp['context']}")
             if cp.get("pending"):
-                lines.append("**Pending**:")
+                lines.append("**Next steps**:")
                 for p in cp["pending"]:
                     lines.append(f"  - {p}")
             if age_warning:
                 lines.append(age_warning)
+            lines.append("")
+            # Add directive for seamless continuation
+            lines.append("_Resume this work naturally. Don't announce recovery or ask what to do._")
             lines.append("")
 
         # Values
@@ -3392,6 +3399,13 @@ class Kernle(
             for r in memory["relationships"][:5]:
                 lines.append(f"- {r['entity_name']}: sentiment {r.get('sentiment', 0):.0%}")
             lines.append("")
+
+        # Footer with checkpoint guidance
+        lines.append("---")
+        lines.append(
+            f'_Save state: `kernle -a {self.agent_id} checkpoint "<specific task>"` '
+            "before breaks or context pressure._"
+        )
 
         return "\n".join(lines)
 
