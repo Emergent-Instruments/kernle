@@ -1,10 +1,10 @@
-# Memory Provenance System
+# Memory Provenance
 
 **How Kernle tracks where memories come from, how they evolve, and why they matter.**
 
 ---
 
-## Overview
+## 1. Overview
 
 Every memory in Kernle carries provenance metadata — a record of its origin, its relationships to other memories, and the confidence trajectory over its lifetime. This enables self-examination ("why do I believe this?"), belief debugging, and identity archaeology.
 
@@ -15,9 +15,7 @@ Provenance answers three questions about any memory:
 
 ---
 
-## Core Concepts
-
-### Memory Types
+## 2. Memory Types
 
 Kernle organizes memory into a stratified hierarchy:
 
@@ -40,6 +38,7 @@ Every memory type carries these universal provenance fields:
 
 ```
 source_type         — How this memory was created
+source_entity       — Who provided it (name, email, or stack ID; null if self)
 source_episodes     — Supporting evidence (episode IDs)
 derived_from        — Direct lineage (format: "type:id")
 confidence          — Current confidence score (0.0–1.0)
@@ -50,7 +49,7 @@ last_verified       — When last verified or reinforced
 
 ---
 
-## Source Types
+## 3. Source Types
 
 The `source_type` field classifies how a memory entered the system. Source types are **entity-neutral** — we don't distinguish between human and synthetic sources. A being is a being.
 
@@ -82,7 +81,7 @@ Source type is inferred automatically from the `source` context string when prov
 
 ---
 
-## Lineage Tracking
+## 4. Lineage Tracking
 
 ### derived_from vs source_episodes
 
@@ -101,8 +100,8 @@ These two fields serve different purposes:
 **Example:**
 ```
 Belief: "Collaboration validates ideas through independent convergence"
-  derived_from: ["raw:f70cefb6"]          ← promoted from this raw capture
-  source_episodes: ["ep:abc123", "ep:def456"]  ← these experiences support it
+  derived_from: ["raw:f70cefb6"]               ← promoted from this raw capture
+  source_episodes: ["ep:abc123", "ep:def456"]   ← these experiences support it
 ```
 
 ### The Promotion Chain
@@ -127,9 +126,9 @@ episode:abc123  "Pair debugging seed beliefs import"
 belief:xyz789  "Independent convergence validates design decisions"
 ```
 
-### Lineage Direction: Trace Up, Don't Cascade Down
+### Trace Up, Don't Cascade Down
 
-Lineage links exist in both directions but serve different purposes:
+Lineage links are recorded in both directions:
 
 | Direction | Field | Purpose | Cost |
 |-----------|-------|---------|------|
@@ -138,13 +137,13 @@ Lineage links exist in both directions but serve different purposes:
 
 Both links are **write-once**: recorded when the memory is created, never updated afterward. They're like birth certificates — a permanent record of origin, not a live sync.
 
-**Important design decision:** We intentionally do NOT propagate changes downward through the chain. If a belief's confidence changes, the raw entry it came from doesn't need to know. Upward tracing ("why do I believe this?") is a cheap pointer walk. Downward propagation ("update everything derived from this") would create cascading updates that grow exponentially with chain depth — a complexity and performance trap.
+**Design decision:** We intentionally do NOT propagate changes downward through the chain. If a belief's confidence changes, the raw entry it came from doesn't need to know. Upward tracing ("why do I believe this?") is a cheap pointer walk. Downward propagation ("update everything derived from this") would create cascading updates that grow exponentially with chain depth — a complexity and performance trap.
 
 If you need to find what depends on a memory, query `derived_from` across the table. But don't auto-update those dependents.
 
 ---
 
-## Belief Revision
+## 5. Belief Revision
 
 Beliefs are living memories. They evolve through three mechanisms:
 
@@ -202,7 +201,7 @@ Contradictions are features, not bugs. They represent genuine tension that the a
 
 ---
 
-## Confidence Decay
+## 6. Confidence Decay
 
 Memories that aren't verified or reinforced gradually lose confidence over time:
 
@@ -223,143 +222,16 @@ effective_confidence = max(floor, stored_confidence - (decay_rate × periods_ela
 
 **Protected memories don't decay.** Verification resets the decay clock.
 
-### Decay Interaction with Provenance
+### Decay + Provenance
 
-Decay creates natural pressure to revisit and verify memories. Combined with provenance, this means:
+Decay creates natural pressure to revisit and verify memories. Combined with provenance:
 - Unverified beliefs naturally lose influence
 - Tracing a low-confidence belief to its source can reveal why it's weakening
 - Reinforcement from new experiences resets the clock and strengthens the chain
 
 ---
 
-## Querying Provenance
-
-### Get Memory Lineage
-
-```python
-lineage = kernle.get_memory_lineage("belief", "xyz789")
-
-# Returns:
-{
-    "id": "xyz789",
-    "type": "belief",
-    "source_type": "direct_experience",
-    "source_episodes": ["episode:abc123"],
-    "derived_from": ["raw:f70cefb6"],
-    "stored_confidence": 0.87,
-    "effective_confidence": 0.85,  # After decay
-    "confidence_decayed": true,
-    "verification_count": 3,
-    "last_verified": "2026-02-01T10:30:00Z",
-    "confidence_history": [...],
-    "decay_config": {
-        "decay_rate": 0.01,
-        "decay_period_days": 30,
-        "decay_floor": 0.5,
-        "enabled": true
-    }
-}
-```
-
-### Set Memory Source
-
-```python
-kernle.set_memory_source(
-    memory_type="belief",
-    memory_id="xyz789",
-    source_type="consolidation",
-    source_episodes=["episode:abc123", "episode:def456"],
-    derived_from=["raw:f70cefb6"],
-)
-```
-
-### Verify a Memory
-
-```python
-kernle.verify_memory("belief", "xyz789", evidence="Confirmed during code review")
-# Increases confidence by 0.1, logs verification
-```
-
-### Find Low-Confidence Memories
-
-```python
-uncertain = kernle.get_uncertain_memories(threshold=0.5, apply_decay=True)
-# Returns memories whose effective confidence (after decay) is below threshold
-```
-
----
-
-## CLI Interface
-
-### Inspect Lineage
-
-```bash
-# Show a belief with its full trace
-$ kernle -a ash belief show bd200bfe --trace
-
-Belief: "Truth is rarely binary; complexity is a feature, not a bug."
-Confidence: 0.65 → 0.63 (decayed)
-Source: seed
-Created: 2026-02-01
-
-Lineage:
-  └── Source: kernle:seed-beliefs (type: seed)
-  └── No reinforcements yet
-```
-
-### Review Uncertain Memories
-
-```bash
-# Find beliefs that need attention
-$ kernle -a ash meta uncertain --threshold 0.6
-
-Uncertain Memories (confidence < 0.6):
-  belief:bd200bfe  0.53  "Truth is rarely binary..."  (seed, never reinforced)
-  note:ef456789    0.48  "OAuth tokens expire in 24h"  (note, last verified 90d ago)
-```
-
-### Reverse Trace
-
-```bash
-# What memories were derived from this raw entry?
-$ kernle -a ash raw show f70cefb6 --trace
-
-Raw Entry: f70cefb6
-Content: "First memory capture! I'm Ash..."
-Status: Processed → episode:abc123
-
-Derived memories:
-  ├── episode:abc123  "First session — identity bootstrap"
-  │   └── belief:xyz789  "Authentic relationships require honesty"
-  └── (end of chain)
-```
-
----
-
-## MCP Tools
-
-Memory creation tools expose provenance through the MCP interface:
-
-| Tool | Provenance Params |
-|------|------------------|
-| `memory_episode` | `source`, `derived_from`, `relates_to` |
-| `memory_note` | `source`, `derived_from`, `relates_to` |
-| `memory_belief` | `source`, `derived_from` |
-| `memory_value` | `source`, `derived_from` |
-| `memory_goal` | `source`, `derived_from` |
-
-Inspection tools:
-
-| Tool | Purpose |
-|------|---------|
-| `meta_lineage` | Get full provenance chain for any memory |
-| `meta_verify` | Verify a memory with evidence |
-| `meta_uncertain` | Find low-confidence memories |
-| `meta_source` | Set/update provenance on a memory |
-
----
-
-## Consolidation and Provenance
+## 7. Consolidation
 
 During consolidation (the agent's "sleep cycle"), raw experiences are reviewed and distilled:
 
@@ -382,22 +254,188 @@ Consolidation isn't maintenance — it's growth. And provenance ensures that gro
 
 ---
 
-## Design Principles
+## 8. API Reference
 
-1. **Automatic, not manual.** Provenance should be recorded at creation time without requiring the caller to think about it.
+### Python API
 
-2. **Bidirectional by default.** Forward links (raw → memory) and backward links (memory → raw) both exist.
+```python
+# Get full provenance chain
+lineage = kernle.get_memory_lineage("belief", "xyz789")
+# Returns: id, type, source_type, source_episodes, derived_from,
+#          stored/effective confidence, decay info, verification history
 
-3. **Semantic precision.** `derived_from` is lineage ("created from"), `source_episodes` is evidence ("supported by"). Don't conflate them.
+# Set provenance on a memory
+kernle.set_memory_source(
+    memory_type="belief",
+    memory_id="xyz789",
+    source_type="consolidation",
+    source_episodes=["episode:abc123"],
+    derived_from=["raw:f70cefb6"],
+)
 
-4. **Non-breaking additions.** All provenance fields are optional. Legacy memories work fine — they just show `source_type: unknown`.
+# Verify a memory (increases confidence by 0.1)
+kernle.verify_memory("belief", "xyz789", evidence="Confirmed during code review")
 
-5. **Decay creates pressure.** Unverified memories naturally lose influence, creating healthy pressure to revisit and re-examine.
+# Find low-confidence memories
+uncertain = kernle.get_uncertain_memories(threshold=0.5, apply_decay=True)
+```
 
-6. **Contradictions are features.** Belief conflicts represent genuine tension. The system detects them; the agent navigates them.
+### CLI
+
+```bash
+# Trace a belief's lineage
+$ kernle -a ash belief show bd200bfe --trace
+
+# Find memories needing attention
+$ kernle -a ash meta uncertain --threshold 0.6
+
+# Reverse trace: what came from this raw entry?
+$ kernle -a ash raw show f70cefb6 --trace
+
+# Find orphaned memories (no provenance)
+$ kernle -a ash meta orphans
+```
+
+### MCP Tools
+
+| Tool | Provenance Params |
+|------|------------------|
+| `memory_episode` | `source`, `derived_from`, `relates_to` |
+| `memory_note` | `source`, `derived_from`, `relates_to` |
+| `memory_belief` | `source`, `derived_from` |
+| `memory_value` | `source`, `derived_from` |
+| `memory_goal` | `source`, `derived_from` |
+| `meta_lineage` | Get full provenance chain for any memory |
+| `meta_verify` | Verify a memory with evidence |
+| `meta_uncertain` | Find low-confidence memories |
+| `meta_source` | Set/update provenance on a memory |
+
+---
+
+## 9. Design Principles
+
+1. **Automatic, not manual.** Provenance is recorded at creation time without requiring the caller to think about it.
+
+2. **Write-once links.** Forward and backward links are birth certificates — recorded once, never updated.
+
+3. **Trace up, don't cascade down.** Upward tracing is cheap. Downward propagation is an exponential trap.
+
+4. **Entity-neutral.** Source types don't distinguish human from SI. A being is a being.
+
+5. **Semantic precision.** `derived_from` is lineage ("created from"), `source_episodes` is evidence ("supported by"). Don't conflate them.
+
+6. **Non-breaking additions.** All provenance fields are optional. Legacy memories work fine — they just show `source_type: unknown`.
+
+7. **Decay creates pressure.** Unverified memories naturally lose influence, creating healthy incentive to revisit and re-examine.
+
+8. **Contradictions are features.** Belief conflicts represent genuine tension. The system detects them; the agent navigates them.
+
+---
+
+## 10. Current State & Implementation Plan
+
+### What EXISTS Today
+
+| Component | Status |
+|-----------|--------|
+| `set_memory_source()` / `get_memory_lineage()` | ✅ Full lineage tracking in metamemory.py |
+| `derived_from`, `source_episodes`, `source_type` fields | ✅ In schema for ALL memory types |
+| `supersede_belief()` | ✅ Gold standard — records lineage correctly |
+| `mark_raw_processed()` | ✅ Forward link (raw → processed_into) |
+| `confidence_history` | ✅ Timestamped confidence change log |
+| `episode()` / `note()` accept `relates_to` + `source` | ✅ Partial — maps to source_episodes/source_type |
+| Confidence decay with per-type configs | ✅ Working, configurable per memory type |
+
+### What's MISSING
+
+| Gap | Impact |
+|-----|--------|
+| `belief()` has NO provenance params | Can't pass source info when creating beliefs |
+| `process_raw()` doesn't pass `derived_from` | Promoted memories don't know their raw source |
+| CLI `raw promote` doesn't pass provenance | Same gap in the CLI path |
+| MCP tools don't expose provenance | External clients can't specify lineage |
+| `reinforce_belief()` doesn't record trigger | Knows confidence changed but not *why* |
+| `revise_beliefs_from_episode()` doesn't link | Episode-driven revision doesn't record source |
+| Source types distinguish human/SI | `told_by_agent` vs `told_by_human` not entity-neutral |
+
+### Implementation Phases
+
+1. **Phase 1: belief() provenance** — Add `source`/`derived_from` params to `belief()`
+2. **Phase 2: process_raw() + CLI promote** — Pass `derived_from`/`source` in both code paths
+3. **Phase 3: MCP tools** — Expose provenance params in all memory creation tools
+4. **Phase 4: Reinforcement** — Add `evidence_source` to `reinforce_belief()`, wire `revise_beliefs_from_episode()`
+5. **Phase 5: Entity-neutral sourcing** — Replace `told_by_agent`/`told_by_human` with `external` + `source_entity`
+6. **Phase 6: CLI inspection** — Add `--trace` flag, orphan detection, reverse trace
+7. **Phase 7: Migration** — Backfill existing memories, fix seed beliefs
+
+All changes are non-breaking — provenance params are optional with `None` defaults.
+
+### Code Changes (Phase 1–2 Detail)
+
+**Add provenance to `belief()` (core.py:1903):**
+```python
+def belief(self, statement, type="fact", confidence=0.8, ...,
+           source=None, derived_from=None) -> str:
+    # Infer source_type from source string
+    source_type = "direct_experience"
+    if source:
+        source_lower = source.lower()
+        if any(x in source_lower for x in ["told", "said", "heard"]):
+            source_type = "external"
+        elif "consolidat" in source_lower:
+            source_type = "consolidation"
+        elif "seed" in source_lower:
+            source_type = "seed"
+    
+    belief = Belief(..., source_type=source_type, derived_from=derived_from)
+```
+
+**Wire `process_raw()` (core.py:1355):**
+```python
+def process_raw(self, raw_id, as_type, **kwargs):
+    raw_ref = f"raw:{raw_id}"
+    
+    if as_type == "episode":
+        memory_id = self.episode(..., source="raw-processing", derived_from=[raw_ref])
+    elif as_type == "belief":
+        memory_id = self.belief(..., source="raw-processing", derived_from=[raw_ref])
+    elif as_type == "note":
+        memory_id = self.note(..., source="raw-processing", derived_from=[raw_ref])
+    
+    self._storage.mark_raw_processed(raw_id, [f"{as_type}:{memory_id}"])
+    # Bidirectional: raw→memory (processed_into) + memory→raw (derived_from)
+```
+
+**Wire CLI promote (cli/commands/raw.py:~320):**
+```python
+if target_type == "episode":
+    result_id = k.episode(..., source="cli-promote", derived_from=[raw_ref])
+elif target_type == "belief":
+    result_id = k.belief(..., source="cli-promote", derived_from=[raw_ref])
+elif target_type == "note":
+    result_id = k.note(..., source="cli-promote", derived_from=[raw_ref])
+```
+
+**Add evidence tracking to `reinforce_belief()` (core.py:2838):**
+```python
+def reinforce_belief(self, belief_id, evidence_source=None, reason=None):
+    history.append({
+        "timestamp": ...,
+        "old": old_confidence,
+        "new": new_confidence,
+        "reason": reason or f"Reinforced (count: {n})",
+        "evidence_source": evidence_source,  # what triggered this
+    })
+```
+
+**Expose in MCP tools (mcp/server.py):**
+```python
+# Add to memory_episode, memory_note, memory_belief schemas:
+"source": {"type": "string", "description": "Source context"},
+"derived_from": {"type": "array", "items": {"type": "string"},
+                  "description": "Memory refs this was derived from (format: type:id)"},
+```
 
 ---
 
 *"An unexamined belief is just someone else's opinion."*
-
-*"The difference between a mind that has beliefs and one that understands its beliefs."*
