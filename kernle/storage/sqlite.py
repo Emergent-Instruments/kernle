@@ -2476,9 +2476,11 @@ class SQLiteStorage:
                 (id, agent_id, name, statement, priority, created_at,
                  confidence, source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
+                 times_accessed, last_accessed, is_protected, is_forgotten,
+                 forgotten_at, forgotten_reason,
                  context, context_tags,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     value.id,
@@ -2494,6 +2496,12 @@ class SQLiteStorage:
                     value.last_verified.isoformat() if value.last_verified else None,
                     value.verification_count,
                     self._to_json(value.confidence_history),
+                    value.times_accessed,
+                    value.last_accessed.isoformat() if value.last_accessed else None,
+                    1 if value.is_protected else 0,
+                    1 if value.is_forgotten else 0,
+                    value.forgotten_at.isoformat() if value.forgotten_at else None,
+                    value.forgotten_reason,
                     value.context,
                     self._to_json(value.context_tags),
                     now,
@@ -2906,7 +2914,10 @@ class SQLiteStorage:
                         intensity = ?, focus_areas = ?, updated_at = ?,
                         confidence = ?, source_type = ?, source_episodes = ?,
                         derived_from = ?, last_verified = ?, verification_count = ?,
-                        confidence_history = ?, context = ?, context_tags = ?,
+                        confidence_history = ?,
+                        times_accessed = ?, last_accessed = ?, is_protected = ?,
+                        is_forgotten = ?, forgotten_at = ?, forgotten_reason = ?,
+                        context = ?, context_tags = ?,
                         local_updated_at = ?, version = version + 1
                     WHERE id = ?
                 """,
@@ -2921,6 +2932,12 @@ class SQLiteStorage:
                         drive.last_verified.isoformat() if drive.last_verified else None,
                         drive.verification_count,
                         self._to_json(drive.confidence_history),
+                        drive.times_accessed,
+                        drive.last_accessed.isoformat() if drive.last_accessed else None,
+                        1 if drive.is_protected else 0,
+                        1 if drive.is_forgotten else 0,
+                        drive.forgotten_at.isoformat() if drive.forgotten_at else None,
+                        drive.forgotten_reason,
                         drive.context,
                         self._to_json(drive.context_tags),
                         now,
@@ -2934,9 +2951,11 @@ class SQLiteStorage:
                     (id, agent_id, drive_type, intensity, focus_areas, created_at, updated_at,
                      confidence, source_type, source_episodes, derived_from,
                      last_verified, verification_count, confidence_history,
+                     times_accessed, last_accessed, is_protected, is_forgotten,
+                     forgotten_at, forgotten_reason,
                      context, context_tags,
                      local_updated_at, cloud_synced_at, version, deleted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         drive.id,
@@ -2953,6 +2972,12 @@ class SQLiteStorage:
                         drive.last_verified.isoformat() if drive.last_verified else None,
                         drive.verification_count,
                         self._to_json(drive.confidence_history),
+                        drive.times_accessed,
+                        drive.last_accessed.isoformat() if drive.last_accessed else None,
+                        1 if drive.is_protected else 0,
+                        1 if drive.is_forgotten else 0,
+                        drive.forgotten_at.isoformat() if drive.forgotten_at else None,
+                        drive.forgotten_reason,
                         drive.context,
                         self._to_json(drive.context_tags),
                         now,
