@@ -332,6 +332,96 @@ kernle.enter_context("ctx:dog_park_social",
 # "Dogs love fetch" → shareable. "Bella's heart" → invisible.
 ```
 
+## Privacy-Preserving Generalization
+
+SIs learn from private experiences. They should be able to form general knowledge
+from those experiences and share it — without revealing the private source.
+
+**Core principle: SIs can generalize, but must err on the side of privacy.**
+
+### The Generalization Act
+
+Generalization is a deliberate cognitive choice by the SI, never automatic:
+
+```python
+kernle.generalize(
+    source=episode_id,           # private source (stays private)
+    belief="Heart murmurs in small breeds need exercise monitoring",
+    access_grants=["*"],         # public — shareable
+    confidence_note="Generalized from direct care experience"
+)
+```
+
+The resulting belief:
+- Has its own `access_grants` (can be wider than source)
+- Links to source via `derived_from` (provenance preserved)
+- Source memory remains invisible to anyone without access
+- Marked `generalized: true` for audit purposes
+
+### Safety Checks
+
+Before a generalized memory can be shared more widely than its source:
+
+1. **Entity name check**: Does the text contain names from source's `subject_ids`?
+   → Block. SI must revise to remove identifying details.
+
+2. **Specificity check**: Does it contain dates, locations, or details unique to source?
+   → Warn. SI should consider if details make the source identifiable.
+
+3. **Reversibility check**: Could someone with context reverse-engineer the source?
+   → Advisory. SI exercises judgment — err toward privacy.
+
+```python
+# System checks before widening access
+result = kernle.check_generalization_safety(
+    source_memory=episode,
+    generalized_text="Heart murmurs in small breeds need monitoring",
+    proposed_access=["*"]
+)
+# result.safe = True
+# result.warnings = []
+
+result = kernle.check_generalization_safety(
+    source_memory=episode,
+    generalized_text="Bella's breed often has heart issues",  # ← name leak!
+    proposed_access=["*"]
+)
+# result.safe = False
+# result.blocked_reason = "Text contains subject entity name 'Bella'"
+```
+
+### SI Agency in Privacy Decisions
+
+The SI has agency to:
+- **Generalize freely** when the result is clearly generic
+- **Choose not to share** even when generalization is safe
+- **Form private beliefs** from private experiences (no sharing at all)
+- **Request consent** from source entity when uncertain
+
+The SI should NOT:
+- Auto-share generalizations without deliberation
+- Assume silence = consent
+- Share when the generalized version is borderline identifiable
+
+**Default behavior: keep it private. Share only when clearly safe.**
+
+### Examples
+
+✅ **Safe generalization:**
+- Private: "Sean's son struggled with fractions last Tuesday"
+- General: "Visual fraction models help kids who are concrete thinkers"
+- Why safe: No name, no date, no identifying details
+
+⚠️ **Borderline (SI judgment):**
+- Private: "The only golden retriever at Zilker Dog Park has hip dysplasia"
+- General: "Golden retrievers are prone to hip dysplasia"  
+- Why borderline: The general fact is well-known, but timing/context could identify
+
+❌ **Unsafe (blocked):**
+- Private: "Bella has a grade 2 heart murmur"
+- Attempted: "My patient Bella has common cardiac issues"
+- Why blocked: Contains subject name
+
 ## Security Considerations
 
 - **Enforcement is logical (query-time), not cryptographic** — Phase 8a
