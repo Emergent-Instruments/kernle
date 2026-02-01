@@ -34,6 +34,7 @@ from kernle.cli.commands import (
     cmd_playbook,
     cmd_raw,
     cmd_stats,
+    cmd_subscription,
     cmd_suggestions,
 )
 from kernle.cli.commands.agent import cmd_agent
@@ -3308,6 +3309,53 @@ def main():
     keys_cycle.add_argument("--force", "-f", action="store_true", help="Skip confirmation prompt")
     keys_cycle.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 
+    # =========================================================================
+    # Subscription Management (kernle sub ...)
+    # =========================================================================
+
+    p_sub = subparsers.add_parser(
+        "sub",
+        help="Subscription & tier management",
+        aliases=["subscription"],
+    )
+    sub_sub = p_sub.add_subparsers(dest="sub_action")
+
+    # kernle sub tier (default when no subcommand given)
+    sub_tier = sub_sub.add_parser("tier", help="Show current tier, usage, and renewal info")
+    sub_tier.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle sub upgrade <tier>
+    sub_upgrade = sub_sub.add_parser("upgrade", help="Upgrade to a higher tier")
+    sub_upgrade.add_argument(
+        "tier", choices=["core", "pro", "enterprise"], help="Target tier"
+    )
+    sub_upgrade.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
+    sub_upgrade.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle sub downgrade <tier>
+    sub_downgrade = sub_sub.add_parser(
+        "downgrade", help="Downgrade to a lower tier (effective next period)"
+    )
+    sub_downgrade.add_argument(
+        "tier", choices=["free", "core", "pro"], help="Target tier"
+    )
+    sub_downgrade.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
+    sub_downgrade.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle sub cancel
+    sub_cancel = sub_sub.add_parser("cancel", help="Cancel auto-renewal")
+    sub_cancel.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
+    sub_cancel.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle sub usage
+    sub_usage = sub_sub.add_parser("usage", help="Show detailed usage for current billing period")
+    sub_usage.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle sub payments [--limit N]
+    sub_payments = sub_sub.add_parser("payments", help="List payment history")
+    sub_payments.add_argument("--limit", "-l", type=int, default=20, help="Max payments to show")
+    sub_payments.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
     # agent - agent management
     p_agent = subparsers.add_parser("agent", help="Agent management (list, delete)")
     agent_sub = p_agent.add_subparsers(dest="agent_action", required=True)
@@ -3745,6 +3793,9 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_migrate(args, k)
         elif args.command == "setup":
             cmd_setup(args, k)
+        # Subscription management
+        elif args.command in ("sub", "subscription"):
+            cmd_subscription(args, k)
         # Commerce commands
         elif args.command == "wallet":
             cmd_wallet(args, k)

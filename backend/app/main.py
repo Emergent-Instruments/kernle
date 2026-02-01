@@ -21,6 +21,7 @@ from .routes import (
     maintenance_router,
     memories_router,
     skills_router,
+    subscriptions_router,
     sync_router,
     wallets_router,
 )
@@ -159,6 +160,7 @@ app.include_router(jobs_router, prefix="/api/v1")
 app.include_router(skills_router, prefix="/api/v1")
 app.include_router(escrow_router, prefix="/api/v1")
 app.include_router(maintenance_router, prefix="/api/v1")
+app.include_router(subscriptions_router, prefix="/api/v1")
 
 
 @app.get("/")
