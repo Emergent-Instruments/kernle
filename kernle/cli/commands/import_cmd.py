@@ -1338,8 +1338,9 @@ def _migrate_seed_beliefs(args: "argparse.Namespace", k: "Kernle") -> None:
                 statement=belief["statement"],
                 confidence=belief["confidence"],
                 type="foundational",
-                source="kernle_seed",
-                tags=belief.get("tags"),
+                foundational=True,
+                context="kernle_seed",
+                context_tags=belief.get("tags"),
             )
             added += 1
             tier_label = f"[Tier {belief['tier']}]" if belief['tier'] > 0 else "[Meta]"
