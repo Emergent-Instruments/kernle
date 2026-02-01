@@ -83,9 +83,15 @@ new_belief = Belief(
 
 ## 3. Proposed Changes
 
-### 3.1 Core API: Add Provenance to belief()
+### 3.1 Core API: Add Provenance to Creation Methods
 
-`episode()` and `note()` already accept `relates_to` and `source` params. Only `belief()` is missing them:
+**Key semantic distinction** (credit: Claire's analysis):
+- `relates_to` → `source_episodes`: supporting evidence ("these episodes back this up")
+- `derived_from`: actual lineage ("this memory was created FROM these")
+
+A raw entry promoted to a belief isn't just evidence — it's the source material. That's `derived_from`, not `relates_to`.
+
+**Add `derived_from` and `source` params to `belief()`** (the only core method missing them):
 
 ```python
 # core.py — Updated belief() signature (line 1903)
@@ -98,10 +104,9 @@ def belief(
     foundational: bool = False,
     context: Optional[str] = None,
     context_tags: Optional[List[str]] = None,
-    # NEW: Provenance (matching episode/note pattern)
-    relates_to: Optional[List[str]] = None,    # e.g., ["raw:abc123", "episode:def456"]
+    # NEW: Provenance
     source: Optional[str] = None,              # e.g., "raw-processing", "consolidation"
-    derived_from: Optional[List[str]] = None,  # e.g., ["belief:old_id"]
+    derived_from: Optional[List[str]] = None,  # e.g., ["raw:abc123", "belief:old_id"]
 ) -> str:
     belief_id = str(uuid.uuid4())
     
@@ -126,8 +131,7 @@ def belief(
         confidence=confidence,
         created_at=datetime.now(timezone.utc),
         source_type=source_type,
-        source_episodes=relates_to,
-        derived_from=derived_from or ([f"context:{source}"] if source else None),
+        derived_from=derived_from,
         context=context,
         context_tags=context_tags,
     )
@@ -136,9 +140,21 @@ def belief(
     return belief_id
 ```
 
+**Also add explicit `derived_from` param to `episode()` and `note()`** — they currently set it indirectly via `source` (as `[f"context:{source}"]`), which is lossy. Direct `derived_from` is cleaner:
+
+```python
+# episode() and note() — add derived_from param alongside existing relates_to/source
+def episode(self, ..., derived_from: Optional[List[str]] = None) -> str:
+    episode = Episode(
+        ...
+        derived_from=derived_from or ([f"context:{source}"] if source else None),
+        ...
+    )
+```
+
 ### 3.2 process_raw(): Wire Provenance
 
-Uses existing `relates_to`/`source` params on episode/note, and the new ones on belief:
+Uses `derived_from` (lineage) for all types, plus `source` for source_type inference:
 
 ```python
 # core.py:1355 — Updated process_raw()
@@ -155,28 +171,29 @@ def process_raw(self, raw_id: str, as_type: str, **kwargs) -> str:
             outcome=outcome,
             lessons=lessons,
             tags=tags,
-            relates_to=[raw_ref],           # NEW — uses existing param
-            source="raw-processing",        # NEW — uses existing param
+            source="raw-processing",        # NEW — source_type inference
+            derived_from=[raw_ref],          # NEW — actual lineage
         )
     elif as_type == "belief":
         memory_id = self.belief(
             statement=entry.content,
             type=belief_type,
             confidence=confidence,
-            relates_to=[raw_ref],           # NEW — uses new param (from 3.1)
-            source="raw-processing",        # NEW — uses new param (from 3.1)
+            source="raw-processing",         # NEW
+            derived_from=[raw_ref],          # NEW
         )
     elif as_type == "note":
         memory_id = self.note(
             content=entry.content,
             type=note_type,
             tags=tags,
-            relates_to=[raw_ref],           # NEW — uses existing param
-            source="raw-processing",        # NEW — uses existing param
+            source="raw-processing",         # NEW
+            derived_from=[raw_ref],          # NEW
         )
     
     # Mark raw as processed (existing — forward link)
     self._storage.mark_raw_processed(raw_id, [f"{as_type}:{memory_id}"])
+    # Now we have bidirectional: raw→memory (processed_into) + memory→raw (derived_from)
     return memory_id
 ```
 
@@ -194,17 +211,17 @@ elif args.raw_action == "promote":
     if target_type == "episode":
         result_id = k.episode(
             objective=objective, outcome=outcome, tags=["promoted"],
-            relates_to=[raw_ref], source="cli-promote",   # NEW
+            source="cli-promote", derived_from=[raw_ref],   # NEW
         )
     elif target_type == "note":
         result_id = k.note(
             content=blob, type="note", tags=["promoted"],
-            relates_to=[raw_ref], source="cli-promote",   # NEW
+            source="cli-promote", derived_from=[raw_ref],   # NEW
         )
     elif target_type == "belief":
         result_id = k.belief(
             statement=blob, confidence=0.7,
-            relates_to=[raw_ref], source="cli-promote",   # NEW
+            source="cli-promote", derived_from=[raw_ref],   # NEW
         )
 
     k._storage.mark_raw_processed(full_id, [f"{target_type}:{result_id}"])
@@ -322,7 +339,7 @@ k.belief(
     context="kernle_seed",
     context_tags=belief.get("tags"),
     source="seed-initialization",              # NEW — triggers source_type="seed"
-    relates_to=["kernle:seed-beliefs"],        # NEW
+    derived_from=["kernle:seed-beliefs"],      # NEW
 )
 ```
 
