@@ -2001,7 +2001,8 @@ class Kernle(
             lines.append("")
 
         # Beliefs (filtered by confidence, sorted desc)
-        beliefs = self._storage.get_beliefs(limit=max_beliefs * 2)  # fetch extra to filter
+        # Fetch all beliefs since storage orders by created_at, not confidence
+        beliefs = self._storage.get_beliefs(limit=max(max_beliefs * 3, 200))
         if beliefs:
             filtered = [b for b in beliefs if (b.confidence or 0) >= min_confidence]
             filtered.sort(key=lambda x: x.confidence if x.confidence is not None else 0.0, reverse=True)
