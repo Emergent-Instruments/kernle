@@ -1047,6 +1047,11 @@ class Kernle(
             elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
                 source_type = "inference"
 
+        # Build derived_from: explicit lineage + source context marker
+        derived_from_value = list(derived_from) if derived_from else []
+        if source:
+            derived_from_value.append(f"context:{source}")
+
         episode = Episode(
             id=episode_id,
             agent_id=self.agent_id,
@@ -1058,9 +1063,8 @@ class Kernle(
             created_at=datetime.now(timezone.utc),
             confidence=0.8,
             source_type=source_type,
-            source_episodes=derived_from,  # Link to source memories
-            # Store source context as free text marker if provided
-            derived_from=[f"context:{source}"] if source else (derived_from if derived_from else None),
+            source_episodes=None,  # Reserved for supporting evidence (episode IDs)
+            derived_from=derived_from_value if derived_from_value else None,
             # Context/scope fields
             context=context,
             context_tags=context_tags,
@@ -1194,6 +1198,11 @@ class Kernle(
             elif type == "quote":
                 source_type = "told_by_agent"
 
+        # Build derived_from: explicit lineage + source context marker
+        derived_from_value = list(derived_from) if derived_from else []
+        if source:
+            derived_from_value.append(f"context:{source}")
+
         note = Note(
             id=note_id,
             agent_id=self.agent_id,
@@ -1204,8 +1213,8 @@ class Kernle(
             tags=tags or [],
             created_at=datetime.now(timezone.utc),
             source_type=source_type,
-            source_episodes=derived_from,  # Link to source memories
-            derived_from=[f"context:{source}"] if source else (derived_from if derived_from else None),
+            source_episodes=None,  # Reserved for supporting evidence (episode IDs)
+            derived_from=derived_from_value if derived_from_value else None,
             is_protected=protect,
             # Context/scope fields
             context=context,
@@ -1382,6 +1391,8 @@ class Kernle(
         memory_id = None
         memory_ref = None
 
+        raw_ref = f"raw:{raw_id}"
+
         if as_type == "episode":
             # Extract or use provided objective/outcome
             # Use blob (preferred) or content (deprecated) for backwards compatibility
@@ -1398,6 +1409,8 @@ class Kernle(
                 outcome=outcome,
                 lessons=lessons,
                 tags=tags,
+                source="raw-processing",
+                derived_from=[raw_ref],
             )
             memory_ref = f"episode:{memory_id}"
 
@@ -1413,6 +1426,8 @@ class Kernle(
                 speaker=kwargs.get("speaker"),
                 reason=kwargs.get("reason"),
                 tags=tags,
+                source="raw-processing",
+                derived_from=[raw_ref],
             )
             memory_ref = f"note:{memory_id}"
 
@@ -1424,6 +1439,8 @@ class Kernle(
                 statement=entry.content,
                 type=belief_type,
                 confidence=confidence,
+                source="raw-processing",
+                derived_from=[raw_ref],
             )
             memory_ref = f"belief:{memory_id}"
 
@@ -1908,14 +1925,36 @@ class Kernle(
         foundational: bool = False,
         context: Optional[str] = None,
         context_tags: Optional[List[str]] = None,
+        source: Optional[str] = None,
+        derived_from: Optional[List[str]] = None,
     ) -> str:
         """Add or update a belief.
 
         Args:
             context: Project/scope context (e.g., 'project:api-service', 'repo:myorg/myrepo')
             context_tags: Additional context tags for filtering
+            source: Source context (e.g., 'raw-processing', 'consolidation', 'told by Claire')
+            derived_from: List of memory refs this was derived from (format: type:id)
         """
         belief_id = str(uuid.uuid4())
+
+        # Determine source_type from source context
+        source_type = "direct_experience"
+        if source:
+            source_lower = source.lower()
+            if any(x in source_lower for x in ["told", "said", "heard", "learned from"]):
+                source_type = "external"
+            elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
+                source_type = "inference"
+            elif "consolidat" in source_lower:
+                source_type = "consolidation"
+            elif "seed" in source_lower:
+                source_type = "seed"
+
+        # Build derived_from: explicit lineage + source context marker
+        derived_from_value = list(derived_from) if derived_from else []
+        if source:
+            derived_from_value.append(f"context:{source}")
 
         belief = Belief(
             id=belief_id,
@@ -1924,6 +1963,8 @@ class Kernle(
             belief_type=type,
             confidence=confidence,
             created_at=datetime.now(timezone.utc),
+            source_type=source_type,
+            derived_from=derived_from_value if derived_from_value else None,
             context=context,
             context_tags=context_tags,
         )
