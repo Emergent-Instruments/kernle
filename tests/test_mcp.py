@@ -365,6 +365,8 @@ class TestMCPToolCalls:
             tags=["testing", "development"],
             context=None,
             context_tags=None,
+            source=None,
+            derived_from=None,
         )
 
     @pytest.mark.asyncio
@@ -418,6 +420,8 @@ class TestMCPToolCalls:
             tags=tags,
             context=None,
             context_tags=None,
+            source=None,
+            derived_from=None,
         )
 
     @pytest.mark.asyncio
@@ -436,6 +440,8 @@ class TestMCPToolCalls:
             tags=[],
             context=None,
             context_tags=None,
+            source=None,
+            derived_from=None,
         )
 
     @pytest.mark.asyncio
@@ -488,6 +494,8 @@ class TestMCPToolCalls:
             confidence=0.95,
             context=None,
             context_tags=None,
+            source=None,
+            derived_from=None,
         )
 
     @pytest.mark.asyncio
@@ -496,7 +504,8 @@ class TestMCPToolCalls:
         await call_tool("memory_belief", {"statement": "Simple belief"})
 
         patched_get_kernle.belief.assert_called_once_with(
-            statement="Simple belief", type="fact", confidence=0.8, context=None, context_tags=None
+            statement="Simple belief", type="fact", confidence=0.8, context=None, context_tags=None,
+            source=None, derived_from=None,
         )
 
     @pytest.mark.asyncio
@@ -1037,6 +1046,8 @@ class TestMultiToolWorkflows:
             tags=[],
             context=None,
             context_tags=None,
+            source=None,
+            derived_from=None,
         )
         patched_get_kernle.checkpoint.assert_called_once_with(
             task="Testing complete", pending=[], context=""
@@ -1067,6 +1078,8 @@ class TestMultiToolWorkflows:
             confidence=0.9,
             context=None,
             context_tags=None,
+            source=None,
+            derived_from=None,
         )
         patched_get_kernle.value.assert_called_once_with(
             name="reliability",

@@ -644,6 +644,15 @@ TOOLS = [
                     "items": {"type": "string"},
                     "description": "Additional context tags for filtering",
                 },
+                "source": {
+                    "type": "string",
+                    "description": "Source context (e.g., 'session with Sean', 'heartbeat check')",
+                },
+                "derived_from": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Memory IDs this was derived from (format: type:id, e.g., 'raw:abc123')",
+                },
             },
             "required": ["objective", "outcome"],
         },
@@ -685,6 +694,15 @@ TOOLS = [
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "Additional context tags for filtering",
+                },
+                "source": {
+                    "type": "string",
+                    "description": "Source context (e.g., 'conversation with X', 'reading Y')",
+                },
+                "derived_from": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Memory IDs this was derived from (format: type:id, e.g., 'raw:abc123')",
                 },
             },
             "required": ["content"],
@@ -738,6 +756,15 @@ TOOLS = [
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "Additional context tags for filtering",
+                },
+                "source": {
+                    "type": "string",
+                    "description": "Source context (e.g., 'consolidation', 'told by X', 'raw-processing')",
+                },
+                "derived_from": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Memory IDs this was derived from (format: type:id, e.g., 'raw:abc123')",
                 },
             },
             "required": ["statement"],
@@ -1279,6 +1306,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 tags=sanitized_args.get("tags"),
                 context=sanitized_args.get("context"),
                 context_tags=sanitized_args.get("context_tags"),
+                source=sanitized_args.get("source"),
+                derived_from=sanitized_args.get("derived_from"),
             )
             result = f"Episode saved: {episode_id[:8]}..."
 
@@ -1291,6 +1320,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 tags=sanitized_args.get("tags"),
                 context=sanitized_args.get("context"),
                 context_tags=sanitized_args.get("context_tags"),
+                source=sanitized_args.get("source"),
+                derived_from=sanitized_args.get("derived_from"),
             )
             result = f"Note saved: {sanitized_args['content'][:50]}..."
 
@@ -1317,6 +1348,8 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 confidence=sanitized_args.get("confidence", 0.8),
                 context=sanitized_args.get("context"),
                 context_tags=sanitized_args.get("context_tags"),
+                source=sanitized_args.get("source"),
+                derived_from=sanitized_args.get("derived_from"),
             )
             result = f"Belief saved: {belief_id[:8]}..."
 
