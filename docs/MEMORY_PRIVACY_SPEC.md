@@ -348,7 +348,8 @@ kernle.generalize(
     source=episode_id,           # private source (stays private)
     belief="Heart murmurs in small breeds need exercise monitoring",
     access_grants=["*"],         # public — shareable
-    confidence_note="Generalized from direct care experience"
+    abstraction_note="Generalized from direct care experience. "
+                     "No identifying details — applies to breed, not individual."
 )
 ```
 
@@ -357,6 +358,8 @@ The resulting belief:
 - Links to source via `derived_from` (provenance preserved)
 - Source memory remains invisible to anyone without access
 - Marked `generalized: true` for audit purposes
+- Carries `abstraction_note` — the SI's reasoning for why this is safe to share
+  (audit trail of the judgment call itself, not just the result — per Claire)
 
 ### Safety Checks
 
