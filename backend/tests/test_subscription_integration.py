@@ -197,27 +197,47 @@ class TestCreateUpgradePayment:
 # =============================================================================
 
 
+VALID_TX_HASH = "0x" + "a1" * 32  # Valid 66-char hex tx hash
+
+
+def _make_pending_intent(**overrides) -> dict:
+    """Create a standard pending payment intent for tests."""
+    base = {
+        "id": "pay-1",
+        "user_id": "user-1",
+        "subscription_id": "sub-1",
+        "tier": "core",
+        "amount": "5",
+        "currency": "USDC",
+        "treasury_address": TREASURY_ADDRESS,
+        "chain": "base",
+        "status": "pending",
+        "expires_at": (datetime.now(timezone.utc) + timedelta(hours=24)).isoformat(),
+    }
+    base.update(overrides)
+    return base
+
+
+def _mock_claim_success():
+    """Mock asyncio.to_thread to simulate successful atomic claim."""
+    async def _side_effect(fn, *args, **kwargs):
+        result = MagicMock()
+        result.data = [{"id": "pay-1"}]
+        return result
+    return _side_effect
+
+
 class TestConfirmPayment:
     """Tests for confirm_payment which wires together verification + upgrade."""
 
     @pytest.mark.asyncio
     async def test_successful_verification_activates_tier(self):
         """Happy path: on-chain tx verified → tier upgraded."""
-        intent = {
-            "id": "pay-1",
-            "user_id": "user-1",
-            "subscription_id": "sub-1",
-            "tier": "core",
-            "amount": "5",
-            "currency": "USDC",
-            "treasury_address": TREASURY_ADDRESS,
-            "chain": "base",
-            "status": "pending",
-        }
+        intent = _make_pending_intent()
 
         verification_result = TransferVerificationResult(
             success=True,
-            tx_hash="0xabc123",
+            tx_hash=VALID_TX_HASH,
             chain="base",
             from_address="0xsender",
             to_address=TREASURY_ADDRESS,
@@ -238,11 +258,16 @@ class TestConfirmPayment:
                 return_value=intent,
             ),
             patch(
+                "app.subscriptions.service._check_tx_hash_used",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
                 "app.payments.verify_usdc_transfer",
                 new_callable=AsyncMock,
                 return_value=verification_result,
             ),
-            patch("asyncio.to_thread", new_callable=AsyncMock) as mock_thread,
+            patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=_mock_claim_success()),
             patch(
                 "app.subscriptions.service.SubscriptionService.get_or_create_subscription",
                 new_callable=AsyncMock,
@@ -264,7 +289,7 @@ class TestConfirmPayment:
                 return_value=payment_record,
             ),
         ):
-            result = await confirm_payment(MagicMock(), "pay-1", "0xabc123", "user-1")
+            result = await confirm_payment(MagicMock(), "pay-1", VALID_TX_HASH, "user-1")
 
         assert result is not None
         assert result["status"] == "confirmed"
@@ -274,18 +299,11 @@ class TestConfirmPayment:
     @pytest.mark.asyncio
     async def test_failed_verification_marks_failed(self):
         """On-chain verification fails → payment marked failed."""
-        intent = {
-            "id": "pay-1",
-            "user_id": "user-1",
-            "tier": "core",
-            "amount": "5",
-            "chain": "base",
-            "status": "pending",
-        }
+        intent = _make_pending_intent()
 
         verification_result = TransferVerificationResult(
             success=False,
-            tx_hash="0xbad",
+            tx_hash=VALID_TX_HASH,
             chain="base",
             error="No USDC transfer found in transaction",
             error_code="NO_USDC_TRANSFER",
@@ -298,13 +316,18 @@ class TestConfirmPayment:
                 return_value=intent,
             ),
             patch(
+                "app.subscriptions.service._check_tx_hash_used",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=_mock_claim_success()),
+            patch(
                 "app.payments.verify_usdc_transfer",
                 new_callable=AsyncMock,
                 return_value=verification_result,
             ),
-            patch("asyncio.to_thread", new_callable=AsyncMock),
         ):
-            result = await confirm_payment(MagicMock(), "pay-1", "0xbad", "user-1")
+            result = await confirm_payment(MagicMock(), "pay-1", VALID_TX_HASH, "user-1")
 
         assert result["status"] == "failed"
         assert "No USDC transfer" in result["message"]
@@ -312,22 +335,17 @@ class TestConfirmPayment:
     @pytest.mark.asyncio
     async def test_already_confirmed_returns_early(self):
         """Payment already confirmed → return without re-verifying."""
-        intent = {
-            "id": "pay-1",
-            "user_id": "user-1",
-            "tier": "pro",
-            "status": "confirmed",
-        }
+        intent = _make_pending_intent(status="confirmed")
 
         with patch(
             "app.subscriptions.service.get_payment",
             new_callable=AsyncMock,
             return_value=intent,
         ):
-            result = await confirm_payment(MagicMock(), "pay-1", "0xabc", "user-1")
+            result = await confirm_payment(MagicMock(), "pay-1", VALID_TX_HASH, "user-1")
 
         assert result["status"] == "confirmed"
-        assert result["tier"] == "pro"
+        assert result["tier"] == "core"
         assert "already" in result["message"].lower()
 
     @pytest.mark.asyncio
@@ -338,21 +356,14 @@ class TestConfirmPayment:
             new_callable=AsyncMock,
             return_value=None,
         ):
-            result = await confirm_payment(MagicMock(), "no-such-pay", "0xabc", "user-1")
+            result = await confirm_payment(MagicMock(), "no-such-pay", VALID_TX_HASH, "user-1")
 
         assert result is None
 
     @pytest.mark.asyncio
     async def test_network_error_marks_pending(self):
         """Verification network error → pending_verification (retry later)."""
-        intent = {
-            "id": "pay-1",
-            "user_id": "user-1",
-            "tier": "core",
-            "amount": "5",
-            "chain": "base",
-            "status": "pending",
-        }
+        intent = _make_pending_intent()
 
         with (
             patch(
@@ -361,13 +372,18 @@ class TestConfirmPayment:
                 return_value=intent,
             ),
             patch(
+                "app.subscriptions.service._check_tx_hash_used",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=_mock_claim_success()),
+            patch(
                 "app.payments.verify_usdc_transfer",
                 new_callable=AsyncMock,
                 side_effect=Exception("RPC timeout"),
             ),
-            patch("asyncio.to_thread", new_callable=AsyncMock),
         ):
-            result = await confirm_payment(MagicMock(), "pay-1", "0xabc", "user-1")
+            result = await confirm_payment(MagicMock(), "pay-1", VALID_TX_HASH, "user-1")
 
         assert result["status"] == "pending_verification"
         assert "retry" in result["message"].lower()
@@ -375,18 +391,11 @@ class TestConfirmPayment:
     @pytest.mark.asyncio
     async def test_amount_mismatch_fails(self):
         """Tx verified but amount doesn't match → failed."""
-        intent = {
-            "id": "pay-1",
-            "user_id": "user-1",
-            "tier": "core",
-            "amount": "5",
-            "chain": "base",
-            "status": "pending",
-        }
+        intent = _make_pending_intent()
 
         verification_result = TransferVerificationResult(
             success=False,
-            tx_hash="0xabc",
+            tx_hash=VALID_TX_HASH,
             chain="base",
             amount=Decimal("3.00"),
             error="Transfer found but doesn't match: amount: expected 5, got 3.000000",
@@ -400,16 +409,93 @@ class TestConfirmPayment:
                 return_value=intent,
             ),
             patch(
+                "app.subscriptions.service._check_tx_hash_used",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=_mock_claim_success()),
+            patch(
                 "app.payments.verify_usdc_transfer",
                 new_callable=AsyncMock,
                 return_value=verification_result,
             ),
-            patch("asyncio.to_thread", new_callable=AsyncMock),
         ):
-            result = await confirm_payment(MagicMock(), "pay-1", "0xabc", "user-1")
+            result = await confirm_payment(MagicMock(), "pay-1", VALID_TX_HASH, "user-1")
 
         assert result["status"] == "failed"
         assert "TRANSFER_MISMATCH" in str(result) or "match" in result["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_invalid_tx_hash_rejected(self):
+        """Invalid tx_hash format → immediate rejection."""
+        intent = _make_pending_intent()
+
+        with patch(
+            "app.subscriptions.service.get_payment",
+            new_callable=AsyncMock,
+            return_value=intent,
+        ):
+            result = await confirm_payment(MagicMock(), "pay-1", "not-a-valid-hash", "user-1")
+
+        assert result["status"] == "failed"
+        assert "Invalid transaction hash" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_tx_hash_replay_rejected(self):
+        """Tx hash already used → rejected before verification."""
+        intent = _make_pending_intent()
+
+        with (
+            patch(
+                "app.subscriptions.service.get_payment",
+                new_callable=AsyncMock,
+                return_value=intent,
+            ),
+            patch(
+                "app.subscriptions.service._check_tx_hash_used",
+                new_callable=AsyncMock,
+                return_value=True,  # Already used!
+            ),
+        ):
+            result = await confirm_payment(MagicMock(), "pay-1", VALID_TX_HASH, "user-1")
+
+        assert result["status"] == "failed"
+        assert "already been used" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_expired_intent_rejected(self):
+        """Expired payment intent → rejected."""
+        expired_intent = _make_pending_intent(
+            expires_at=(datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
+        )
+
+        with (
+            patch(
+                "app.subscriptions.service.get_payment",
+                new_callable=AsyncMock,
+                return_value=expired_intent,
+            ),
+            patch("asyncio.to_thread", new_callable=AsyncMock, side_effect=_mock_claim_success()),
+        ):
+            result = await confirm_payment(MagicMock(), "pay-1", VALID_TX_HASH, "user-1")
+
+        assert result["status"] == "failed"
+        assert "expired" in result["message"].lower()
+
+    @pytest.mark.asyncio
+    async def test_non_pending_status_rejected(self):
+        """Non-pending intent (e.g. failed) → rejected."""
+        failed_intent = _make_pending_intent(status="failed")
+
+        with patch(
+            "app.subscriptions.service.get_payment",
+            new_callable=AsyncMock,
+            return_value=failed_intent,
+        ):
+            result = await confirm_payment(MagicMock(), "pay-1", VALID_TX_HASH, "user-1")
+
+        assert result["status"] == "failed"
+        assert "pending" in result["message"].lower()
 
 
 # =============================================================================
