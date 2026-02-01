@@ -392,6 +392,38 @@ class Kernle(
 
         return sanitized
 
+    @staticmethod
+    def _validate_derived_from(refs: Optional[List[str]]) -> Optional[List[str]]:
+        """Validate derived_from references format.
+
+        Accepts refs in format 'type:id' or 'context:description'.
+        Filters out empty strings and validates basic structure.
+
+        Args:
+            refs: List of memory references
+
+        Returns:
+            Validated list, or None if empty
+        """
+        if not refs:
+            return None
+
+        valid_types = {"raw", "episode", "belief", "note", "value", "goal",
+                       "drive", "relationship", "context", "kernle"}
+        validated = []
+        for ref in refs:
+            if not ref or not isinstance(ref, str):
+                continue
+            ref = ref.strip()
+            if ":" not in ref:
+                continue  # Skip malformed refs
+            ref_type = ref.split(":", 1)[0]
+            if ref_type not in valid_types:
+                continue  # Skip unknown types
+            validated.append(ref)
+
+        return validated if validated else None
+
     # =========================================================================
     # LOAD
     # =========================================================================
@@ -1936,6 +1968,7 @@ class Kernle(
             source: Source context (e.g., 'raw-processing', 'consolidation', 'told by Claire')
             derived_from: List of memory refs this was derived from (format: type:id)
         """
+        confidence = max(0.0, min(1.0, confidence))  # Clamp to valid range
         belief_id = str(uuid.uuid4())
 
         # Determine source_type from source context
@@ -1955,6 +1988,7 @@ class Kernle(
         derived_from_value = list(derived_from) if derived_from else []
         if source:
             derived_from_value.append(f"context:{source}")
+        derived_from_value = self._validate_derived_from(derived_from_value)
 
         belief = Belief(
             id=belief_id,
@@ -1964,7 +1998,7 @@ class Kernle(
             confidence=confidence,
             created_at=datetime.now(timezone.utc),
             source_type=source_type,
-            derived_from=derived_from_value if derived_from_value else None,
+            derived_from=derived_from_value,
             context=context,
             context_tags=context_tags,
         )
@@ -2917,8 +2951,8 @@ class Kernle(
         # Each reinforcement adds less confidence, capped at 0.99
         # Use (times_reinforced) which is already incremented, so first reinforcement uses 1
         confidence_boost = 0.05 * (1.0 / (1 + existing.times_reinforced * 0.1))
-        room_to_grow = 0.99 - existing.confidence
-        existing.confidence = min(0.99, existing.confidence + room_to_grow * confidence_boost)
+        room_to_grow = max(0.0, 0.99 - existing.confidence)  # Prevent negative when > 0.99
+        existing.confidence = max(0.0, min(0.99, existing.confidence + room_to_grow * confidence_boost))
 
         # Update confidence history with accurate old/new values
         history_entry = {
@@ -2959,7 +2993,7 @@ class Kernle(
         Args:
             old_id: ID of the belief being superseded
             new_statement: The new belief statement
-            confidence: Confidence in the new belief
+            confidence: Confidence in the new belief (clamped to 0.0-1.0)
             reason: Optional reason for the supersession
 
         Returns:
@@ -2983,6 +3017,7 @@ class Kernle(
             raise ValueError(f"Belief {old_id} not found")
 
         # Create the new belief
+        confidence = max(0.0, min(1.0, confidence))  # Clamp to valid range
         new_id = str(uuid.uuid4())
         new_belief = Belief(
             id=new_id,
@@ -3223,10 +3258,13 @@ class Kernle(
         history = []
         visited = set()
 
-        # Walk backwards to find the original belief
+        # Walk backwards to find the original belief (with cycle detection)
+        back_visited = set()
+
         def walk_back(bid: str) -> Optional[str]:
-            if bid in visited or bid not in belief_map:
+            if bid in back_visited or bid not in belief_map:
                 return None
+            back_visited.add(bid)
             belief = belief_map[bid]
             if belief.supersedes and belief.supersedes in belief_map:
                 return belief.supersedes

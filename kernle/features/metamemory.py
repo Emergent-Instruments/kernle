@@ -191,6 +191,65 @@ class MetaMemoryMixin:
             },
         }
 
+    def trace_lineage(
+        self: "Kernle",
+        memory_type: str,
+        memory_id: str,
+        max_depth: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """Walk the full derivation chain upward with cycle detection.
+
+        Follows derived_from links to build the complete lineage tree.
+        Safe against circular references (uses visited set).
+
+        Args:
+            memory_type: Type of memory to start from
+            memory_id: ID of the memory to trace
+            max_depth: Maximum chain depth to prevent excessive traversal
+
+        Returns:
+            List of lineage entries from root to the target memory.
+            Each entry has: ref, type, id, summary, derived_from, depth.
+            Returns empty list if memory not found.
+        """
+        chain = []
+        visited = set()
+
+        def _walk(mem_type: str, mem_id: str, depth: int):
+            ref = f"{mem_type}:{mem_id}"
+            if ref in visited or depth > max_depth:
+                if ref in visited:
+                    chain.append({"ref": ref, "cycle_detected": True, "depth": depth})
+                return
+
+            visited.add(ref)
+            record = self._storage.get_memory(mem_type, mem_id)
+            if not record:
+                chain.append({"ref": ref, "not_found": True, "depth": depth})
+                return
+
+            derived_from = getattr(record, "derived_from", None) or []
+
+            # Walk parents first (so chain is root → target order)
+            for parent_ref in derived_from:
+                if ":" in parent_ref and not parent_ref.startswith("context:"):
+                    parts = parent_ref.split(":", 1)
+                    _walk(parts[0], parts[1], depth + 1)
+
+            chain.append({
+                "ref": ref,
+                "type": mem_type,
+                "id": mem_id,
+                "summary": self._get_memory_summary(mem_type, record),
+                "source_type": getattr(record, "source_type", "unknown"),
+                "derived_from": derived_from,
+                "confidence": getattr(record, "confidence", None),
+                "depth": depth,
+            })
+
+        _walk(memory_type, memory_id, 0)
+        return chain
+
     def get_uncertain_memories(
         self: "Kernle",
         threshold: float = 0.5,
