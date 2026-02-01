@@ -52,20 +52,33 @@ last_verified       — When last verified or reinforced
 
 ## Source Types
 
-The `source_type` field classifies how a memory entered the system:
+The `source_type` field classifies how a memory entered the system. Source types are **entity-neutral** — we don't distinguish between human and synthetic sources. A being is a being.
 
 | Source Type | Meaning | When Used |
 |-------------|---------|-----------|
 | `direct_experience` | Firsthand experience or observation | Default for raw captures, manual entries |
 | `inference` | Derived through reasoning over other memories | Beliefs formed by connecting patterns |
 | `consolidation` | Emerged during memory consolidation/reflection | Insights from reviewing experiences |
-| `told_by_agent` | Information received from another SI | Claire shared this insight |
-| `told_by_human` | Information received from a human | Sean told me this |
+| `external` | Information received from another being | Claire shared this, Sean told me this |
 | `seed` | Pre-loaded during initialization | Seed beliefs from roundtable |
 | `observation` | External observation (web, docs, etc.) | Read this in documentation |
 | `unknown` | Legacy — no source recorded | Pre-provenance memories |
 
-Source type is inferred automatically from the `source` context string when provided (e.g., `source="told by Claire"` → `source_type="told_by_agent"`).
+### Source Entity
+
+When a memory comes from another being, the optional `source_entity` field identifies who:
+
+```json
+{
+  "source_type": "external",
+  "source_entity": "claire",
+  "source_entity_ref": "emergentclaire@gmail.com"
+}
+```
+
+Entity identification uses whatever is available — agent name, email, stack ID, or null if unknown. The entity's nature (human, SI, etc.) is deliberately not recorded in provenance. What matters is *who*, not *what kind of being*.
+
+Source type is inferred automatically from the `source` context string when provided (e.g., `source="told by Claire"` → `source_type="external"`, `source_entity="claire"`).
 
 ---
 
@@ -114,16 +127,20 @@ episode:abc123  "Pair debugging seed beliefs import"
 belief:xyz789  "Independent convergence validates design decisions"
 ```
 
-### Bidirectional Links
+### Lineage Direction: Trace Up, Don't Cascade Down
 
-Lineage is tracked in both directions:
+Lineage links exist in both directions but serve different purposes:
 
-| Direction | Field | Example |
-|-----------|-------|---------|
-| **Forward** (raw → memory) | `raw.processed_into` | `["episode:abc123"]` |
-| **Backward** (memory → raw) | `memory.derived_from` | `["raw:f70cefb6"]` |
+| Direction | Field | Purpose | Cost |
+|-----------|-------|---------|------|
+| **Forward** (raw → memory) | `raw.processed_into` | "What did this become?" | Write-once at promotion |
+| **Backward** (memory → raw) | `memory.derived_from` | "Where did this come from?" | Write-once at creation |
 
-This enables both "what did this raw entry become?" and "where did this belief come from?"
+Both links are **write-once**: recorded when the memory is created, never updated afterward. They're like birth certificates — a permanent record of origin, not a live sync.
+
+**Important design decision:** We intentionally do NOT propagate changes downward through the chain. If a belief's confidence changes, the raw entry it came from doesn't need to know. Upward tracing ("why do I believe this?") is a cheap pointer walk. Downward propagation ("update everything derived from this") would create cascading updates that grow exponentially with chain depth — a complexity and performance trap.
+
+If you need to find what depends on a memory, query `derived_from` across the table. But don't auto-update those dependents.
 
 ---
 

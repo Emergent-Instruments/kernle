@@ -423,16 +423,19 @@ Fix: kernle -a ash migrate fix-provenance
 
 ## 5. Source Type Taxonomy
 
+Source types are **entity-neutral** — we don't distinguish between human and synthetic sources.
+
 | Source Type | Meaning | Example |
 |-------------|---------|---------|
 | `direct_experience` | From a raw capture of lived experience | Raw entry promoted to belief |
 | `inference` | Derived from reasoning over other memories | Belief superseded by new insight |
 | `consolidation` | Emerged during memory consolidation | Reflection-driven belief revision |
 | `seed` | Pre-loaded during initialization | Seed beliefs from roundtable |
-| `told_by_agent` | Information from another SI | Claire shared this insight |
-| `told_by_human` | Information from a human | Sean told me this |
+| `external` | Information from another being | Claire or Sean shared this |
 | `observation` | External observation (web, docs, etc.) | Read this in documentation |
 | `unknown` | Legacy — no source recorded | Pre-provenance memories |
+
+When `source_type="external"`, an optional `source_entity` field identifies who (by name, email, or stack ID). The entity's nature (human/SI) is deliberately not recorded — a being is a being.
 
 ---
 
@@ -455,13 +458,15 @@ kernle -a ash migrate fix-provenance
 
 ### 6.3 Implementation Order
 
-1. **Phase 1: belief() provenance** — Add `relates_to`/`source`/`derived_from` params to `belief()` (the only core method missing them)
-2. **Phase 2: process_raw() + CLI promote** — Pass `relates_to`/`source` in both code paths
+1. **Phase 1: belief() provenance** — Add `source`/`derived_from` params to `belief()` (the only core method missing them)
+2. **Phase 2: process_raw() + CLI promote** — Pass `derived_from`/`source` in both code paths
 3. **Phase 3: MCP tools** — Expose provenance params in all memory creation tools
 4. **Phase 4: Reinforcement** — Add `evidence_source` to `reinforce_belief()` and wire `revise_beliefs_from_episode()`
-5. **Phase 5: CLI inspection** — Add `--trace` flag, orphan detection, reverse trace
-6. **Phase 6: Migration** — Backfill existing memories, fix seed beliefs
-7. **Phase 7: Confidence propagation** — Complete the `propagate_confidence()` stub
+5. **Phase 5: Entity-neutral sourcing** — Replace `told_by_agent`/`told_by_human` with `external` + `source_entity` field
+6. **Phase 6: CLI inspection** — Add `--trace` flag, orphan detection, reverse trace
+7. **Phase 7: Migration** — Backfill existing memories, fix seed beliefs
+
+> **Note:** Downward confidence propagation (`propagate_confidence()`) is intentionally deferred. Upward tracing is cheap (pointer walk). Downward cascading creates exponential update complexity with chain depth — not worth the cost.
 
 ---
 
