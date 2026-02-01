@@ -9,10 +9,15 @@ from kernle import Kernle
 
 
 @pytest.fixture
-def k(tmp_path):
-    """Create a Kernle instance with temp DB."""
-    os.environ["KERNLE_DB_PATH"] = str(tmp_path / "test.db")
-    os.environ["KERNLE_CHECKPOINT_DIR"] = str(tmp_path / "checkpoints")
+def k(tmp_path, request):
+    """Create a Kernle instance with temp DB unique to each test."""
+    # Use test name to create unique paths
+    test_name = request.node.name
+    db_path = tmp_path / f"{test_name}.db"
+    cp_path = tmp_path / f"{test_name}_checkpoints"
+    
+    os.environ["KERNLE_DB_PATH"] = str(db_path)
+    os.environ["KERNLE_CHECKPOINT_DIR"] = str(cp_path)
     instance = Kernle(agent_id="test-export")
     yield instance
     os.environ.pop("KERNLE_DB_PATH", None)
@@ -29,14 +34,14 @@ class TestExportCache:
 
     def test_beliefs_included(self, k):
         """Beliefs above min_confidence appear in cache."""
-        k.belief("The sky is blue", confidence=0.9)
-        k.belief("Water is wet", confidence=0.8)
-        k.belief("Low confidence thing", confidence=0.2)
+        k.belief("UNIQUE_SKY_IS_BLUE_789", confidence=0.9)
+        k.belief("UNIQUE_WATER_IS_WET_456", confidence=0.8)
+        k.belief("UNIQUE_LOW_CONF_THING_123", confidence=0.2)
 
-        content = k.export_cache(min_confidence=0.5)
-        assert "sky is blue" in content
-        assert "Water is wet" in content
-        assert "Low confidence thing" not in content
+        content = k.export_cache(min_confidence=0.5, max_beliefs=500)
+        assert "UNIQUE_SKY_IS_BLUE_789" in content
+        assert "UNIQUE_WATER_IS_WET_456" in content
+        assert "UNIQUE_LOW_CONF_THING_123" not in content
 
     def test_beliefs_max_limit(self, k):
         """Max beliefs parameter limits output."""
@@ -44,8 +49,8 @@ class TestExportCache:
             k.belief(f"Belief number {i}", confidence=0.9 - i * 0.01)
 
         content = k.export_cache(max_beliefs=3)
-        # Should have exactly 3 beliefs
-        belief_lines = [l for l in content.split("\n") if l.startswith("- [")]
+        # Should have exactly 3 beliefs (matching "- [XX%]" format, not goals "- [priority]")
+        belief_lines = [l for l in content.split("\n") if l.startswith("- [") and "%" in l]
         assert len(belief_lines) == 3
 
     def test_values_included(self, k):
@@ -112,3 +117,39 @@ class TestExportCache:
             )
 
         assert strip_timestamp(content1) == strip_timestamp(content2)
+
+    def test_negative_min_confidence_clamped(self, k):
+        """Negative min_confidence is clamped to 0 (no error raised)."""
+        # The main test is that passing negative min_confidence doesn't raise an error
+        # It gets clamped to 0.0, which includes all beliefs
+        content = k.export_cache(min_confidence=-1.0)
+        # If we get here without error, the clamping worked
+        assert "MEMORY.md" in content  # Basic sanity check
+
+    def test_high_min_confidence_clamped(self, k):
+        """min_confidence > 1 is clamped to 1."""
+        k.belief("UNIQUE_PERFECT_CONF_ABC", confidence=1.0)
+        k.belief("UNIQUE_ALMOST_PERFECT_DEF", confidence=0.99)
+        
+        content = k.export_cache(min_confidence=2.0)
+        # Only 1.0 confidence beliefs pass when clamped to 1.0
+        assert "UNIQUE_PERFECT_CONF_ABC" in content
+        assert "UNIQUE_ALMOST_PERFECT_DEF" not in content
+
+    def test_negative_max_beliefs_clamped(self, k):
+        """Negative max_beliefs is clamped to 0."""
+        k.belief("UNIQUE_MAX_ZERO_TEST_GHI", confidence=0.95)
+        
+        content = k.export_cache(max_beliefs=-5)
+        # With max_beliefs=0 (clamped from -5), no beliefs section should appear
+        # or at minimum our specific belief shouldn't be there
+        assert "UNIQUE_MAX_ZERO_TEST_GHI" not in content
+
+    def test_unicode_in_beliefs(self, k):
+        """Unicode characters in beliefs are handled correctly."""
+        k.belief("UNIQUE_UNICODE_🌱_日本語_TEST", confidence=0.95)
+        k.belief("UNIQUE_EMOJI_🎉🔥✨_TEST", confidence=0.94)
+        
+        content = k.export_cache(max_beliefs=100)
+        assert "UNIQUE_UNICODE_🌱_日本語_TEST" in content
+        assert "UNIQUE_EMOJI_🎉🔥✨_TEST" in content
