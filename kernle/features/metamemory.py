@@ -250,6 +250,75 @@ class MetaMemoryMixin:
         _walk(memory_type, memory_id, 0)
         return chain
 
+    def find_orphaned_memories(
+        self: "Kernle",
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Find memories with missing or unknown provenance.
+
+        Orphaned memories are those with:
+        - source_type = 'unknown' (legacy memories from before provenance tracking)
+        - source_type = 'consolidation' or 'inference' but no derived_from
+        - Memories that were promoted from raw but lack derived_from
+
+        Args:
+            limit: Maximum results to return
+
+        Returns:
+            List of orphaned memory dicts with type, id, summary, and reason
+        """
+        orphans: List[Dict[str, Any]] = []
+
+        # First, get memories with source_type 'unknown' using existing method
+        unknown_results = self._storage.get_memories_by_source(
+            source_type="unknown", limit=limit
+        )
+        for result in unknown_results:
+            orphans.append(
+                {
+                    "id": result.record.id,
+                    "type": result.record_type,
+                    "source_type": "unknown",
+                    "summary": self._get_memory_summary(result.record_type, result.record),
+                    "reason": "unknown source (legacy memory)",
+                    "created_at": (
+                        result.record.created_at.strftime("%Y-%m-%d")
+                        if getattr(result.record, "created_at", None)
+                        else "unknown"
+                    ),
+                }
+            )
+
+        # Then check consolidation/inference memories for missing derived_from
+        if len(orphans) < limit:
+            for source in ("consolidation", "inference"):
+                results = self._storage.get_memories_by_source(
+                    source_type=source, limit=limit - len(orphans)
+                )
+                for result in results:
+                    derived_from = getattr(result.record, "derived_from", None)
+                    if not derived_from:
+                        orphans.append(
+                            {
+                                "id": result.record.id,
+                                "type": result.record_type,
+                                "source_type": source,
+                                "summary": self._get_memory_summary(
+                                    result.record_type, result.record
+                                ),
+                                "reason": f"{source} without derived_from chain",
+                                "created_at": (
+                                    result.record.created_at.strftime("%Y-%m-%d")
+                                    if getattr(result.record, "created_at", None)
+                                    else "unknown"
+                                ),
+                            }
+                        )
+                    if len(orphans) >= limit:
+                        break
+
+        return orphans[:limit]
+
     def get_uncertain_memories(
         self: "Kernle",
         threshold: float = 0.5,

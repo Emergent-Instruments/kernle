@@ -2809,6 +2809,14 @@ def main():
     meta_learn.add_argument("--limit", "-l", type=int, default=5, help="Max opportunities to show")
     meta_learn.add_argument("--json", "-j", action="store_true")
 
+    meta_orphans = meta_sub.add_parser(
+        "orphans", help="Find memories with missing provenance"
+    )
+    meta_orphans.add_argument(
+        "--limit", "-l", type=int, default=50, help="Max memories to return"
+    )
+    meta_orphans.add_argument("--json", "-j", action="store_true")
+
     # belief (belief revision operations)
     p_belief = subparsers.add_parser("belief", help="Belief revision operations")
     belief_sub = p_belief.add_subparsers(dest="belief_action", required=True)

@@ -310,3 +310,37 @@ def cmd_meta(args, k: "Kernle"):
                 print(f"   Reason: {opp['reason']}")
                 print(f"   Action: {opp['suggested_action']}")
                 print()
+
+    elif args.meta_action == "orphans":
+        orphans = k.find_orphaned_memories(limit=args.limit)
+
+        if args.json:
+            print(json.dumps(orphans, indent=2, default=str))
+        else:
+            if not orphans:
+                print("✓ No orphaned memories found.")
+                print("All memories have proper provenance tracking.")
+                return
+
+            print("Orphaned Memories (missing provenance)")
+            print("=" * 60)
+            print()
+
+            source_icons = {
+                "unknown": "❓",
+                "none": "⚫",
+                "consolidation": "🔄",
+                "inference": "💭",
+            }
+
+            for mem in orphans:
+                icon = source_icons.get(mem["source_type"], "•")
+                print(f"{icon} [{mem['type']:8}] {mem['summary'][:45]}...")
+                print(f"   ID: {mem['id'][:12]}...  Source: {mem['source_type']}")
+                print(f"   Reason: {mem['reason']}")
+                print(f"   Created: {mem['created_at']}")
+                print()
+
+            print(f"Total orphans: {len(orphans)}")
+            print()
+            print("To fix: use `kernle meta source <type> <id> --source <source_type>`")
