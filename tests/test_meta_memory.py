@@ -422,5 +422,200 @@ class TestConfidenceHistory:
         assert belief.confidence_history[0]["reason"] == "verified"
 
 
+class TestTraceLineage:
+    """Test lineage trace traversal (Phase 6)."""
+
+    def test_trace_simple_chain(self, storage):
+        """Should trace a raw → episode → belief chain."""
+        from kernle import Kernle
+
+        k = Kernle.__new__(Kernle)
+        k._storage = storage
+
+        storage.save_episode(
+            Episode(
+                id="ep-trace-1",
+                agent_id="test-agent",
+                objective="Observed something",
+                outcome="Noted",
+                derived_from=["raw:r1"],
+            )
+        )
+        storage.save_belief(
+            Belief(
+                id="b-trace-1",
+                agent_id="test-agent",
+                statement="Something is true",
+                derived_from=["episode:ep-trace-1"],
+            )
+        )
+
+        chain = k.trace_lineage("belief", "b-trace-1")
+        assert len(chain) >= 2
+        refs = [e["ref"] for e in chain if not e.get("not_found")]
+        assert "belief:b-trace-1" in refs
+        assert "episode:ep-trace-1" in refs
+
+    def test_trace_cycle_detection(self, storage):
+        """Should detect cycles without infinite loops."""
+        from kernle import Kernle
+
+        k = Kernle.__new__(Kernle)
+        k._storage = storage
+
+        storage.save_belief(
+            Belief(
+                id="b-cyc-1",
+                agent_id="test-agent",
+                statement="Circular A",
+                derived_from=["belief:b-cyc-2"],
+            )
+        )
+        storage.save_belief(
+            Belief(
+                id="b-cyc-2",
+                agent_id="test-agent",
+                statement="Circular B",
+                derived_from=["belief:b-cyc-1"],
+            )
+        )
+
+        chain = k.trace_lineage("belief", "b-cyc-1", max_depth=20)
+        cycle_entries = [e for e in chain if e.get("cycle_detected")]
+        assert len(cycle_entries) > 0
+
+
+class TestReverseTrace:
+    """Test reverse trace (find dependents)."""
+
+    def test_reverse_finds_dependents(self, storage):
+        """Should find memories that derive from a given memory."""
+        from kernle import Kernle
+
+        k = Kernle.__new__(Kernle)
+        k._storage = storage
+
+        storage.save_episode(
+            Episode(
+                id="ep-src-1",
+                agent_id="test-agent",
+                objective="Source episode",
+                outcome="Done",
+            )
+        )
+        storage.save_belief(
+            Belief(
+                id="b-dep-1",
+                agent_id="test-agent",
+                statement="Depends on episode",
+                derived_from=["episode:ep-src-1"],
+            )
+        )
+        storage.save_note(
+            Note(
+                id="n-dep-1",
+                agent_id="test-agent",
+                content="Also depends on episode",
+                derived_from=["episode:ep-src-1"],
+            )
+        )
+
+        dependents = k.reverse_trace("episode", "ep-src-1")
+        refs = [d["ref"] for d in dependents]
+        assert "belief:b-dep-1" in refs
+        assert "note:n-dep-1" in refs
+
+    def test_reverse_empty_when_no_dependents(self, storage):
+        """Should return empty list when nothing derives from memory."""
+        from kernle import Kernle
+
+        k = Kernle.__new__(Kernle)
+        k._storage = storage
+
+        storage.save_episode(
+            Episode(
+                id="ep-lonely-1",
+                agent_id="test-agent",
+                objective="Lonely episode",
+                outcome="Done",
+            )
+        )
+
+        dependents = k.reverse_trace("episode", "ep-lonely-1")
+        assert dependents == []
+
+
+class TestOrphanDetection:
+    """Test orphaned reference detection."""
+
+    def test_clean_references(self, storage):
+        """Should report clean when all references exist."""
+        from kernle import Kernle
+
+        k = Kernle.__new__(Kernle)
+        k._storage = storage
+
+        storage.save_episode(
+            Episode(
+                id="ep-clean-1",
+                agent_id="test-agent",
+                objective="Clean episode",
+                outcome="Done",
+            )
+        )
+        storage.save_belief(
+            Belief(
+                id="b-clean-1",
+                agent_id="test-agent",
+                statement="Clean belief",
+                derived_from=["episode:ep-clean-1"],
+            )
+        )
+
+        result = k.find_orphaned_references()
+        assert result["health"] == "clean"
+        assert result["orphaned_references"] == 0
+
+    def test_detects_orphaned_refs(self, storage):
+        """Should detect references to non-existent memories."""
+        from kernle import Kernle
+
+        k = Kernle.__new__(Kernle)
+        k._storage = storage
+
+        storage.save_belief(
+            Belief(
+                id="b-orphan-1",
+                agent_id="test-agent",
+                statement="Has dangling ref",
+                derived_from=["episode:does-not-exist"],
+            )
+        )
+
+        result = k.find_orphaned_references()
+        assert result["health"] == "has_orphans"
+        assert result["orphaned_references"] == 1
+        assert result["orphans"][0]["broken_ref"] == "episode:does-not-exist"
+
+    def test_context_refs_skipped(self, storage):
+        """Should skip context: markers (not real memory refs)."""
+        from kernle import Kernle
+
+        k = Kernle.__new__(Kernle)
+        k._storage = storage
+
+        storage.save_belief(
+            Belief(
+                id="b-ctx-1",
+                agent_id="test-agent",
+                statement="Has context ref",
+                derived_from=["context:consolidation"],
+            )
+        )
+
+        result = k.find_orphaned_references()
+        assert result["orphaned_references"] == 0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -309,6 +309,141 @@ class MetaMemoryMixin:
 
         return formatted
 
+    def reverse_trace(
+        self: "Kernle",
+        memory_type: str,
+        memory_id: str,
+        max_depth: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Find all memories that derive FROM the given memory.
+
+        Scans derived_from fields across all memory types to find
+        downstream dependents. Useful for impact analysis.
+
+        Args:
+            memory_type: Type of the source memory
+            memory_id: ID of the source memory
+            max_depth: Maximum levels of reverse traversal
+
+        Returns:
+            List of dependent memories with depth info.
+        """
+        ref = f"{memory_type}:{memory_id}"
+        dependents: List[Dict[str, Any]] = []
+        visited = {ref}
+
+        # Memory types and their storage tables
+        scan_types = ["episode", "belief", "value", "goal", "note"]
+
+        def _find_dependents(target_ref: str, depth: int):
+            if depth > max_depth:
+                return
+
+            for mem_type in scan_types:
+                try:
+                    if mem_type == "episode":
+                        records = self._storage.get_episodes(limit=500)
+                    elif mem_type == "belief":
+                        records = self._storage.get_beliefs(limit=500, include_inactive=True)
+                    elif mem_type == "note":
+                        records = self._storage.get_notes(limit=500)
+                    else:
+                        continue  # Skip types without bulk getters for now
+                except Exception:
+                    continue
+
+                for record in records:
+                    derived = getattr(record, "derived_from", None) or []
+                    if target_ref in derived:
+                        child_ref = f"{mem_type}:{record.id}"
+                        if child_ref not in visited:
+                            visited.add(child_ref)
+                            dependents.append({
+                                "ref": child_ref,
+                                "type": mem_type,
+                                "id": record.id,
+                                "summary": self._get_memory_summary(mem_type, record),
+                                "derived_from": derived,
+                                "confidence": getattr(record, "confidence", None),
+                                "depth": depth,
+                            })
+                            # Recurse to find further dependents
+                            _find_dependents(child_ref, depth + 1)
+
+        _find_dependents(ref, 1)
+        return dependents
+
+    def find_orphaned_references(
+        self: "Kernle",
+        memory_types: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Scan for dangling references in derived_from and source_episodes.
+
+        Checks that every ref in derived_from/source_episodes points to
+        an existing memory. Returns details on broken links.
+
+        Args:
+            memory_types: Types to scan (defaults to episode, belief, note)
+
+        Returns:
+            Dict with orphan count, details, and summary.
+        """
+        types_to_scan = memory_types or ["episode", "belief", "note"]
+        orphans: List[Dict[str, Any]] = []
+        total_refs = 0
+        valid_refs = 0
+
+        for mem_type in types_to_scan:
+            try:
+                if mem_type == "episode":
+                    records = self._storage.get_episodes(limit=1000)
+                elif mem_type == "belief":
+                    records = self._storage.get_beliefs(limit=1000, include_inactive=True)
+                elif mem_type == "note":
+                    records = self._storage.get_notes(limit=1000)
+                else:
+                    continue
+            except Exception:
+                continue
+
+            for record in records:
+                record_ref = f"{mem_type}:{record.id}"
+                all_refs = []
+
+                derived = getattr(record, "derived_from", None) or []
+                source_eps = getattr(record, "source_episodes", None) or []
+                all_refs.extend(("derived_from", r) for r in derived)
+                all_refs.extend(("source_episodes", r) for r in source_eps)
+
+                for field, ref in all_refs:
+                    # Skip context markers and non-ref strings
+                    if ref.startswith("context:") or ":" not in ref:
+                        continue
+
+                    total_refs += 1
+                    parts = ref.split(":", 1)
+                    ref_type, ref_id = parts[0], parts[1]
+
+                    # Check if referenced memory exists
+                    target = self._storage.get_memory(ref_type, ref_id)
+                    if target:
+                        valid_refs += 1
+                    else:
+                        orphans.append({
+                            "memory": record_ref,
+                            "memory_summary": self._get_memory_summary(mem_type, record),
+                            "field": field,
+                            "broken_ref": ref,
+                        })
+
+        return {
+            "total_references": total_refs,
+            "valid_references": valid_refs,
+            "orphaned_references": len(orphans),
+            "orphans": orphans,
+            "health": "clean" if not orphans else "has_orphans",
+        }
+
     def _get_memory_summary(self: "Kernle", memory_type: str, record: Any) -> str:
         """Get a brief summary of a memory record."""
         if memory_type == "episode":
