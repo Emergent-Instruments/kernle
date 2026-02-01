@@ -18,30 +18,25 @@ Seamless transitions require **three components** working together:
 
 ### 1. Session Start Hook (Memory Loading)
 
-Already provided by `kernle setup clawdbot` - loads KERNLE.md at session start with:
+Provided by `kernle setup clawdbot` - loads KERNLE.md at session start with:
 - Current working task from checkpoint
 - Values, beliefs, goals
 - Recent work and lessons
 - Relationships
 
-### 2. Pre-Compact Hook (State Saving)
+### 2. Pre-Compaction Memory Flush (State Saving)
 
-**NEW**: Add the pre-compact hook to save state before compaction.
+**Automatically configured by `kernle setup clawdbot`** - configures OpenClaw's memoryFlush to prompt the agent to save a Kernle checkpoint before compaction.
 
-Copy `hooks/clawdbot/pre-compact-handler.ts` alongside the load handler, then enable:
+Run setup to configure both components:
 
-```json
-{
-  "hooks": {
-    "internal": {
-      "entries": {
-        "kernle-load": { "enabled": true },
-        "kernle-checkpoint": { "enabled": true }
-      }
-    }
-  }
-}
+```bash
+kernle setup clawdbot
 ```
+
+This updates `~/.clawdbot/clawdbot.json` with:
+- Session start hook (loads KERNLE.md)
+- Pre-compaction memory flush prompt (saves checkpoint)
 
 ### 3. Agent Instructions (Behavioral)
 
