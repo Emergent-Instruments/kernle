@@ -1,8 +1,8 @@
 """Subscription service — business logic for tier management, payments, and quotas.
 
 All monetary values use Decimal. Sync frequency is never limited.
-On-chain payment verification is a separate concern; this service
-accepts tx_hash and marks payment records but does not verify on-chain.
+On-chain payment verification uses the payments.verification module
+(USDC transfer verification on Base / Base Sepolia / Ethereum).
 """
 
 from __future__ import annotations
@@ -801,3 +801,391 @@ class SubscriptionService:
                     return result
 
         return result
+
+
+# =============================================================================
+# Module-level bridge functions (called by routes)
+#
+# These translate between the route layer's dict-based interface and the
+# SubscriptionService's model-based static methods, and wire in on-chain
+# payment verification via the payments module.
+# =============================================================================
+
+PAYMENT_INTENTS_TABLE = "payment_intents"
+
+
+async def get_subscription(db: Client, user_id: str) -> dict | None:
+    """Get subscription as a dict for the route layer."""
+    sub = await SubscriptionService.get_or_create_subscription(db, user_id)
+    config = get_tier_config(sub.tier)
+    return {
+        "tier": sub.tier.value,
+        "status": sub.status.value,
+        "starts_at": sub.starts_at,
+        "renews_at": sub.renews_at,
+        "cancelled_at": sub.cancelled_at,
+        "auto_renew": sub.auto_renew,
+        "renewal_amount": str(config.price_usdc) if sub.auto_renew else None,
+    }
+
+
+async def get_current_usage(db: Client, user_id: str) -> dict | None:
+    """Get current-period usage as a dict for the route layer."""
+    sub = await SubscriptionService.get_or_create_subscription(db, user_id)
+    config = get_tier_config(sub.tier)
+    usage = await SubscriptionService.get_usage(db, user_id)
+    return {
+        "period": usage.period,
+        "storage_used": usage.storage_bytes,
+        "storage_limit": config.storage_limit_bytes,
+        "sync_count": usage.sync_count,
+        "last_sync": usage.updated_at,
+        "agents_used": usage.stacks_syncing,
+        "agents_limit": config.stack_limit,
+    }
+
+
+async def create_upgrade_payment(
+    db: Client,
+    user_id: str,
+    target_tier: str,
+) -> dict | None:
+    """Create a pending payment intent for a tier upgrade.
+
+    Returns payment instructions (payment_id, amount, treasury_address).
+    The actual upgrade is applied when the payment is confirmed.
+    """
+    import asyncio
+    import uuid
+
+    tier = SubscriptionTier(target_tier)
+    config = get_tier_config(tier)
+
+    sub = await SubscriptionService.get_or_create_subscription(db, user_id)
+    payment_id = str(uuid.uuid4())
+    now = _now()
+
+    # Store a payment intent — links the pending payment to the tier upgrade
+    from datetime import timedelta
+    expires_at = now + timedelta(hours=24)  # 24h to complete payment
+
+    data = {
+        "id": payment_id,
+        "user_id": user_id,
+        "subscription_id": sub.id,
+        "tier": target_tier,
+        "amount": str(config.price_usdc),
+        "currency": "USDC",
+        "treasury_address": TREASURY_ADDRESS,
+        "chain": "base",
+        "status": "pending",
+        "expires_at": expires_at.isoformat(),
+        "created_at": now.isoformat(),
+    }
+
+    def _insert():
+        return db.table(PAYMENT_INTENTS_TABLE).insert(data).execute()
+
+    try:
+        result = await asyncio.to_thread(_insert)
+        if not result.data:
+            return None
+    except Exception:
+        logger.exception("Failed to create payment intent for user %s", user_id)
+        return None
+
+    return {
+        "payment_id": payment_id,
+        "amount": str(config.price_usdc),
+        "currency": "USDC",
+        "treasury_address": TREASURY_ADDRESS,
+        "chain": "base",
+    }
+
+
+async def get_payment(
+    db: Client,
+    payment_id: str,
+    user_id: str,
+) -> dict | None:
+    """Fetch a payment intent by ID, scoped to the user."""
+    import asyncio
+
+    def _query():
+        return (
+            db.table(PAYMENT_INTENTS_TABLE)
+            .select("*")
+            .eq("id", payment_id)
+            .eq("user_id", user_id)
+            .limit(1)
+            .execute()
+        )
+
+    result = await asyncio.to_thread(_query)
+    return result.data[0] if result.data else None
+
+
+async def confirm_payment(
+    db: Client,
+    payment_id: str,
+    tx_hash: str,
+    user_id: str,
+) -> dict | None:
+    """Verify an on-chain USDC payment and activate the tier upgrade.
+
+    Flow:
+    1. Look up payment intent
+    2. Verify the transfer on-chain via verify_usdc_transfer
+    3. If valid: mark confirmed, apply tier upgrade, record payment
+    4. If invalid: mark failed with error details
+    """
+    import asyncio
+
+    from ..payments import verify_usdc_transfer
+
+    # 1. Fetch payment intent
+    intent = await get_payment(db, payment_id, user_id)
+    if not intent:
+        return None
+
+    if intent.get("status") == "confirmed":
+        return {
+            "status": "confirmed",
+            "tier": intent.get("tier"),
+            "message": "Payment was already confirmed.",
+        }
+
+    expected_amount = Decimal(intent["amount"])
+    chain = intent.get("chain", "base")
+    now = _now()
+
+    # 2. On-chain verification
+    try:
+        result = await verify_usdc_transfer(
+            tx_hash=tx_hash,
+            expected_amount=expected_amount,
+            expected_to=TREASURY_ADDRESS,
+            chain=chain,
+        )
+    except Exception as e:
+        logger.exception("On-chain verification error for payment %s", payment_id)
+        # Mark intent as needing retry, don't fail permanently on network errors
+        def _mark_error():
+            return (
+                db.table(PAYMENT_INTENTS_TABLE)
+                .update({
+                    "status": "verification_error",
+                    "tx_hash": tx_hash,
+                    "error": str(e),
+                    "updated_at": now.isoformat(),
+                })
+                .eq("id", payment_id)
+                .execute()
+            )
+
+        await asyncio.to_thread(_mark_error)
+        return {
+            "status": "pending_verification",
+            "message": f"Verification temporarily unavailable: {e}. Will retry.",
+        }
+
+    if not result.success:
+        # 3a. Verification failed — mark payment as failed
+        def _fail():
+            return (
+                db.table(PAYMENT_INTENTS_TABLE)
+                .update({
+                    "status": "failed",
+                    "tx_hash": tx_hash,
+                    "error": result.error,
+                    "error_code": result.error_code,
+                    "updated_at": now.isoformat(),
+                })
+                .eq("id", payment_id)
+                .execute()
+            )
+
+        await asyncio.to_thread(_fail)
+        logger.warning(
+            "Payment verification failed for %s: %s (%s)",
+            payment_id,
+            result.error,
+            result.error_code,
+        )
+        return {
+            "status": "failed",
+            "message": f"Payment verification failed: {result.error}",
+        }
+
+    # 3b. Verification succeeded — confirm and activate
+    target_tier = intent.get("tier")
+
+    # Update payment intent
+    def _confirm_intent():
+        return (
+            db.table(PAYMENT_INTENTS_TABLE)
+            .update({
+                "status": "confirmed",
+                "tx_hash": tx_hash,
+                "confirmed_at": now.isoformat(),
+                "updated_at": now.isoformat(),
+                "from_address": result.from_address,
+                "block_number": result.block_number,
+                "confirmations": result.confirmations,
+            })
+            .eq("id", payment_id)
+            .execute()
+        )
+
+    await asyncio.to_thread(_confirm_intent)
+
+    # Apply tier upgrade
+    sub = await SubscriptionService.get_or_create_subscription(db, user_id)
+    try:
+        upgraded_sub, _ = await SubscriptionService.upgrade_tier(
+            db, user_id, SubscriptionTier(target_tier)
+        )
+    except ValueError as e:
+        # Edge case: tier already upgraded (e.g. duplicate confirm)
+        logger.warning("Tier upgrade skipped for %s: %s", user_id, e)
+        upgraded_sub = sub
+
+    # Record the payment in subscription_payments for audit trail
+    await SubscriptionService.record_payment(
+        db=db,
+        subscription_id=upgraded_sub.id,
+        tx_hash=tx_hash,
+        amount=expected_amount,
+        from_address=result.from_address or "",
+        to_address=TREASURY_ADDRESS,
+        chain=chain,
+    )
+    # Mark payment as confirmed (not just pending)
+    await SubscriptionService.confirm_payment(db, tx_hash)
+
+    logger.info(
+        "Payment %s confirmed — user %s upgraded to %s (tx=%s, block=%s, %d confirmations)",
+        payment_id,
+        user_id,
+        target_tier,
+        tx_hash,
+        result.block_number,
+        result.confirmations or 0,
+    )
+
+    return {
+        "status": "confirmed",
+        "tier": target_tier,
+        "activated_at": now.isoformat(),
+        "message": f"Payment confirmed! Your subscription has been upgraded to {target_tier}.",
+    }
+
+
+async def schedule_downgrade(
+    db: Client,
+    user_id: str,
+    target_tier: str,
+) -> dict | None:
+    """Schedule a downgrade effective at end of billing period."""
+    try:
+        sub, effective_at = await SubscriptionService.downgrade_tier(
+            db, user_id, SubscriptionTier(target_tier)
+        )
+        return {"effective_at": effective_at}
+    except ValueError:
+        return None
+
+
+async def cancel_subscription(db: Client, user_id: str) -> dict | None:
+    """Cancel auto-renewal."""
+    try:
+        sub = await SubscriptionService.cancel_subscription(db, user_id)
+        return {
+            "cancelled_at": sub.cancelled_at or _now(),
+            "active_until": sub.renews_at or _now(),
+        }
+    except ValueError:
+        return None
+
+
+async def reactivate_subscription(db: Client, user_id: str) -> dict | None:
+    """Re-enable auto-renewal for a cancelled subscription."""
+    import asyncio
+
+    sub = await SubscriptionService.get_or_create_subscription(db, user_id)
+
+    if sub.status != SubscriptionStatus.cancelled and sub.cancelled_at is None:
+        return None
+
+    now = _now()
+    update = {
+        "auto_renew": True,
+        "cancelled_at": None,
+        "status": SubscriptionStatus.active.value,
+        "updated_at": now.isoformat(),
+    }
+
+    def _update():
+        return (
+            db.table(SUBSCRIPTIONS_TABLE)
+            .update(update)
+            .eq("id", sub.id)
+            .execute()
+        )
+
+    result = await asyncio.to_thread(_update)
+    if not result.data:
+        return None
+
+    logger.info("Subscription reactivated for user %s", user_id)
+    return {
+        "renews_at": sub.renews_at,
+    }
+
+
+async def list_payments(
+    db: Client,
+    user_id: str,
+    page: int = 1,
+    per_page: int = 20,
+) -> dict:
+    """List payment history with pagination."""
+    import asyncio
+
+    # Get user's subscription(s) to find their payment records
+    sub = await SubscriptionService.get_or_create_subscription(db, user_id)
+    offset = (page - 1) * per_page
+
+    def _query():
+        return (
+            db.table(SUBSCRIPTION_PAYMENTS_TABLE)
+            .select("*", count="exact")
+            .eq("subscription_id", sub.id)
+            .order("created_at", desc=True)
+            .range(offset, offset + per_page - 1)
+            .execute()
+        )
+
+    result = await asyncio.to_thread(_query)
+
+    payments = []
+    for row in result.data or []:
+        payments.append({
+            "id": row.get("id", ""),
+            "amount": str(row.get("amount", "0")),
+            "currency": row.get("currency", "USDC"),
+            "tx_hash": row.get("tx_hash"),
+            "from_address": row.get("from_address"),
+            "to_address": row.get("to_address"),
+            "chain": row.get("chain", "base"),
+            "status": row.get("status", "pending"),
+            "period_start": row.get("period_start"),
+            "period_end": row.get("period_end"),
+            "created_at": row.get("created_at"),
+            "confirmed_at": row.get("confirmed_at"),
+        })
+
+    return {
+        "payments": payments,
+        "total": result.count or len(payments),
+    }

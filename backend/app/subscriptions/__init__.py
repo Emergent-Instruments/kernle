@@ -20,7 +20,19 @@ from .models import (
     UsageResponse,
     PaymentInfo,
 )
-from .service import SubscriptionService
+from .service import (
+    SubscriptionService,
+    # Module-level bridge functions (used by routes)
+    get_subscription,
+    get_current_usage,
+    create_upgrade_payment,
+    get_payment,
+    confirm_payment,
+    schedule_downgrade,
+    cancel_subscription,
+    reactivate_subscription,
+    list_payments,
+)
 
 __all__ = [
     # Enums
@@ -47,4 +59,14 @@ __all__ = [
     "PaymentInfo",
     # Service
     "SubscriptionService",
+    # Bridge functions
+    "get_subscription",
+    "get_current_usage",
+    "create_upgrade_payment",
+    "get_payment",
+    "confirm_payment",
+    "schedule_downgrade",
+    "cancel_subscription",
+    "reactivate_subscription",
+    "list_payments",
 ]
