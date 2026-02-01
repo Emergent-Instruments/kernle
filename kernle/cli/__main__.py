@@ -3356,6 +3356,18 @@ def main():
     sub_payments.add_argument("--limit", "-l", type=int, default=20, help="Max payments to show")
     sub_payments.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 
+    # kernle sub renewals [--dry-run] (admin: process pending renewals via API)
+    sub_renewals = sub_sub.add_parser(
+        "renewals",
+        help="Process pending renewals (admin/cron)",
+    )
+    sub_renewals.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview changes without applying them",
+    )
+    sub_renewals.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
     # agent - agent management
     p_agent = subparsers.add_parser("agent", help="Agent management (list, delete)")
     agent_sub = p_agent.add_subparsers(dest="agent_action", required=True)

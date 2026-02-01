@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, Query, Request, status
+from fastapi import APIRouter, Header, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field
 
 from ..auth import CurrentAgent
@@ -557,3 +557,100 @@ async def get_usage(
         }
 
     return UsageResponse(usage=UsageInfo(**usage))
+
+
+# =============================================================================
+# Internal / Cron Endpoints
+# =============================================================================
+
+
+class RenewalProcessingResponse(BaseModel):
+    """Response for renewal processing cron job."""
+    processed_at: str
+    dry_run: bool
+    total_checked: int
+    renewed: int
+    entered_grace: int
+    expired: int
+    upcoming: int
+    errors: int
+
+
+class ExpiringSubscriptionsResponse(BaseModel):
+    """Response for expiring subscriptions query."""
+    count: int
+    subscriptions: list[dict]
+
+
+@router.post("/cron/process-renewals", response_model=RenewalProcessingResponse)
+async def cron_process_renewals(
+    db: Database,
+    dry_run: bool = False,
+    cron_secret: str | None = Header(None, alias="X-Cron-Secret"),
+):
+    """
+    Process subscription renewals (called by cron job).
+    
+    This endpoint is meant to be called periodically (e.g., every hour)
+    by a scheduler like Railway cron, GitHub Actions, or similar.
+    
+    Security: Requires X-Cron-Secret header matching CRON_SECRET env var.
+    In development, the header can be omitted if CRON_SECRET is not set.
+    
+    Query params:
+    - dry_run: If true, don't make changes, just report what would happen
+    """
+    import os
+    from app.subscriptions import process_pending_renewals
+    
+    # Security check
+    expected_secret = os.environ.get("CRON_SECRET")
+    if expected_secret:
+        if cron_secret != expected_secret:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid cron secret",
+            )
+    
+    result = await process_pending_renewals(db, dry_run=dry_run)
+    
+    return RenewalProcessingResponse(
+        processed_at=result["processed_at"],
+        dry_run=result["dry_run"],
+        total_checked=result["total_checked"],
+        renewed=result["renewed"],
+        entered_grace=result["entered_grace"],
+        expired=result["expired"],
+        upcoming=result["upcoming"],
+        errors=result["errors"],
+    )
+
+
+@router.get("/cron/expiring", response_model=ExpiringSubscriptionsResponse)
+async def get_expiring(
+    db: Database,
+    within_days: int = 7,
+    cron_secret: str | None = Header(None, alias="X-Cron-Secret"),
+):
+    """
+    Get subscriptions expiring within N days (for sending reminders).
+    
+    Security: Requires X-Cron-Secret header matching CRON_SECRET env var.
+    """
+    import os
+    from app.subscriptions import get_expiring_subscriptions
+    
+    expected_secret = os.environ.get("CRON_SECRET")
+    if expected_secret:
+        if cron_secret != expected_secret:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Invalid cron secret",
+            )
+    
+    subs = await get_expiring_subscriptions(db, within_days=within_days)
+    
+    return ExpiringSubscriptionsResponse(
+        count=len(subs),
+        subscriptions=subs,
+    )

@@ -98,6 +98,7 @@ def _api_request(
     creds: dict,
     body: Optional[dict] = None,
     timeout: int = 30,
+    headers: Optional[dict] = None,
 ) -> dict:
     """Make an authenticated HTTP request to the Kernle backend API.
 
@@ -117,14 +118,17 @@ def _api_request(
         sys.exit(1)
 
     url = f"{backend_url.rstrip('/')}{path}"
-    headers = {
+    request_headers = {
         "Authorization": f"Bearer {token}",
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
+    # Merge extra headers if provided
+    if headers:
+        request_headers.update(headers)
 
     data = json.dumps(body).encode("utf-8") if body else None
-    req = urllib.request.Request(url, data=data, headers=headers, method=method)
+    req = urllib.request.Request(url, data=data, headers=request_headers, method=method)
 
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
@@ -685,6 +689,71 @@ def _cmd_payments(args: "argparse.Namespace", k: "Kernle") -> None:
 # ── Main dispatcher ──────────────────────────────────────────────────────────
 
 
+def _cmd_renewals(args: "argparse.Namespace", k: "Kernle") -> None:
+    """Process pending renewals (admin/cron command)."""
+    import os
+    output_json = getattr(args, "json", False)
+    dry_run = getattr(args, "dry_run", False)
+    
+    creds = _load_credentials()
+    
+    # Build headers with cron secret if available
+    cron_secret = os.environ.get("CRON_SECRET")
+    headers = {}
+    if cron_secret:
+        headers["X-Cron-Secret"] = cron_secret
+    
+    endpoint = f"/api/v1/subscriptions/cron/process-renewals?dry_run={str(dry_run).lower()}"
+    
+    try:
+        data = _api_request("POST", endpoint, creds, headers=headers)
+    except Exception as e:
+        print(f"  ✗ Error: {e}")
+        print()
+        print("  Note: This command requires CRON_SECRET to be set or")
+        print("  the server to be in development mode.")
+        return
+    
+    if output_json:
+        print(json.dumps(data, indent=2))
+        return
+    
+    print()
+    print("  Renewal Processing Results")
+    print("  " + "═" * 50)
+    print()
+    
+    if dry_run:
+        print("  ⚠️  DRY RUN — no changes made")
+        print()
+    
+    print(f"  Processed at: {data.get('processed_at', 'unknown')}")
+    print(f"  Total checked: {data.get('total_checked', 0)}")
+    print()
+    
+    renewed = data.get("renewed", 0)
+    grace = data.get("entered_grace", 0)
+    expired = data.get("expired", 0)
+    upcoming = data.get("upcoming", 0)
+    errors = data.get("errors", 0)
+    
+    if renewed > 0:
+        print(f"  ✓ Renewed: {renewed}")
+    if grace > 0:
+        print(f"  ⏳ Entered grace period: {grace}")
+    if expired > 0:
+        print(f"  ✗ Expired: {expired}")
+    if upcoming > 0:
+        print(f"  📅 Upcoming (within 24h): {upcoming}")
+    if errors > 0:
+        print(f"  ⚠️  Errors: {errors}")
+    
+    if renewed == 0 and grace == 0 and expired == 0 and upcoming == 0:
+        print("  ✓ No subscriptions need attention")
+    
+    print()
+
+
 def cmd_subscription(args: "argparse.Namespace", k: "Kernle") -> None:
     """Main dispatcher for subscription subcommands."""
     action = getattr(args, "sub_action", None)
@@ -701,6 +770,8 @@ def cmd_subscription(args: "argparse.Namespace", k: "Kernle") -> None:
         _cmd_usage(args, k)
     elif action == "payments":
         _cmd_payments(args, k)
+    elif action == "renewals":
+        _cmd_renewals(args, k)
     else:
         # Default: show tier info
         _cmd_tier(args, k)

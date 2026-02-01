@@ -32,6 +32,9 @@ from .service import (
     cancel_subscription,
     reactivate_subscription,
     list_payments,
+    # Renewal processing (for cron)
+    process_pending_renewals,
+    get_expiring_subscriptions,
 )
 
 __all__ = [
@@ -69,4 +72,7 @@ __all__ = [
     "cancel_subscription",
     "reactivate_subscription",
     "list_payments",
+    # Renewal processing
+    "process_pending_renewals",
+    "get_expiring_subscriptions",
 ]

@@ -1189,3 +1189,190 @@ async def list_payments(
         "payments": payments,
         "total": result.count or len(payments),
     }
+
+
+# =============================================================================
+# Renewal Processing (for cron job)
+# =============================================================================
+
+
+async def process_pending_renewals(
+    db: Client,
+    dry_run: bool = False,
+) -> dict:
+    """Process all subscriptions that need renewal attention.
+    
+    Finds subscriptions where:
+    - renews_at has passed (or is within next 24h for notifications)
+    - status is 'active' or 'grace_period'
+    
+    For each:
+    - If auto_renew=True and renews_at passed: extend subscription
+    - If auto_renew=False and renews_at passed: enter grace period or expire
+    - If in grace_period and grace ended: downgrade to free
+    
+    Args:
+        db: Supabase client
+        dry_run: If True, don't make changes, just report what would happen
+    
+    Returns:
+        Summary dict with counts and details of processed subscriptions
+    """
+    import asyncio
+    from datetime import timedelta
+    
+    now = _now()
+    
+    # Find all subscriptions that might need processing
+    # - renews_at <= now + 24h (catch recently expired and about-to-expire)
+    # - status is active or grace_period
+    # - tier is not free (free tier never renews)
+    lookahead = now + timedelta(hours=24)
+    
+    def _query():
+        return (
+            db.table(SUBSCRIPTIONS_TABLE)
+            .select("*")
+            .in_("status", [
+                SubscriptionStatus.active.value,
+                SubscriptionStatus.grace_period.value,
+            ])
+            .neq("tier", SubscriptionTier.free.value)
+            .lte("renews_at", lookahead.isoformat())
+            .execute()
+        )
+    
+    result = await asyncio.to_thread(_query)
+    subscriptions = result.data or []
+    
+    summary = {
+        "processed_at": now.isoformat(),
+        "dry_run": dry_run,
+        "total_checked": len(subscriptions),
+        "renewed": 0,
+        "entered_grace": 0,
+        "expired": 0,
+        "upcoming": 0,  # Within 24h but not yet due
+        "errors": 0,
+        "details": [],
+    }
+    
+    for row in subscriptions:
+        sub_id = row.get("id", "")
+        user_id = row.get("user_id", "")
+        tier = row.get("tier", "free")
+        renews_at_str = row.get("renews_at")
+        auto_renew = row.get("auto_renew", False)
+        status = row.get("status", "active")
+        
+        renews_at = None
+        if renews_at_str:
+            from datetime import datetime as dt
+            try:
+                renews_at = dt.fromisoformat(renews_at_str.replace("Z", "+00:00"))
+            except ValueError:
+                pass
+        
+        detail = {
+            "subscription_id": sub_id,
+            "user_id": user_id,
+            "tier": tier,
+            "renews_at": renews_at_str,
+            "auto_renew": auto_renew,
+            "status": status,
+            "action": None,
+        }
+        
+        try:
+            # Not yet due (within lookahead window but future)
+            if renews_at and now < renews_at:
+                detail["action"] = "upcoming"
+                summary["upcoming"] += 1
+                summary["details"].append(detail)
+                continue
+            
+            # Due for processing
+            if dry_run:
+                # Predict what would happen
+                if auto_renew:
+                    detail["action"] = "would_renew"
+                    summary["renewed"] += 1
+                elif status == SubscriptionStatus.active.value:
+                    detail["action"] = "would_enter_grace"
+                    summary["entered_grace"] += 1
+                else:
+                    # Already in grace, check if expired
+                    grace_end = renews_at + timedelta(days=7) if renews_at else now
+                    if now >= grace_end:
+                        detail["action"] = "would_expire"
+                        summary["expired"] += 1
+                    else:
+                        detail["action"] = "in_grace_period"
+            else:
+                # Actually process
+                updated_sub = await SubscriptionService.check_renewal(db, sub_id)
+                
+                if updated_sub.status == SubscriptionStatus.expired:
+                    detail["action"] = "expired"
+                    summary["expired"] += 1
+                elif updated_sub.status == SubscriptionStatus.grace_period and status == SubscriptionStatus.active.value:
+                    detail["action"] = "entered_grace"
+                    summary["entered_grace"] += 1
+                elif auto_renew and updated_sub.renews_at and updated_sub.renews_at > renews_at:
+                    detail["action"] = "renewed"
+                    detail["new_renews_at"] = updated_sub.renews_at.isoformat() if updated_sub.renews_at else None
+                    summary["renewed"] += 1
+                else:
+                    detail["action"] = "no_change"
+            
+            summary["details"].append(detail)
+            
+        except Exception as e:
+            logger.error("Error processing subscription %s: %s", sub_id, e)
+            detail["action"] = "error"
+            detail["error"] = str(e)
+            summary["errors"] += 1
+            summary["details"].append(detail)
+    
+    logger.info(
+        "Renewal processing complete: %d checked, %d renewed, %d grace, %d expired, %d errors",
+        summary["total_checked"],
+        summary["renewed"],
+        summary["entered_grace"],
+        summary["expired"],
+        summary["errors"],
+    )
+    
+    return summary
+
+
+async def get_expiring_subscriptions(
+    db: Client,
+    within_days: int = 7,
+) -> list[dict]:
+    """Get subscriptions expiring within the specified window.
+    
+    Useful for sending renewal reminders.
+    """
+    import asyncio
+    from datetime import timedelta
+    
+    now = _now()
+    window_end = now + timedelta(days=within_days)
+    
+    def _query():
+        return (
+            db.table(SUBSCRIPTIONS_TABLE)
+            .select("id, user_id, tier, renews_at, auto_renew, status")
+            .in_("status", [
+                SubscriptionStatus.active.value,
+                SubscriptionStatus.grace_period.value,
+            ])
+            .neq("tier", SubscriptionTier.free.value)
+            .gte("renews_at", now.isoformat())
+            .lte("renews_at", window_end.isoformat())
+            .execute()
+        )
+    
+    result = await asyncio.to_thread(_query)
+    return result.data or []
