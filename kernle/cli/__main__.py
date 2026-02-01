@@ -3463,6 +3463,18 @@ Beliefs already present in the agent's memory will be skipped.
         help="List seed beliefs without adding them",
     )
 
+    # migrate backfill-provenance - add provenance metadata to existing memories
+    migrate_provenance = migrate_sub.add_parser(
+        "backfill-provenance",
+        help="Backfill provenance metadata on existing memories (source_type, derived_from)",
+    )
+    migrate_provenance.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview what would be updated without making changes",
+    )
+    migrate_provenance.add_argument("--json", "-j", action="store_true")
+
     # setup - install platform hooks for automatic memory loading
     p_setup = subparsers.add_parser(
         "setup", help="Install platform hooks for automatic memory loading"
