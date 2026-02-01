@@ -69,12 +69,12 @@ discover kernle → register via API → pay with crypto → start syncing
 
 ## 4. Service Tiers
 
-| Tier | Price | Sync Frequency | Storage | Agents |
-|------|-------|---------------|---------|--------|
-| **Free** | $0 | Manual only | 10MB | 1 |
-| **Core** | $5 USDC/mo | Every 15 min | 100MB | 3 included |
-| **Pro** | $15 USDC/mo | Every 5 min | 1GB | 10 included |
-| **Enterprise** | Custom | Real-time | Unlimited | Unlimited |
+| Tier | Price | Storage | Stacks | Sync |
+|------|-------|---------|--------|------|
+| **Free** | $0 | 10MB | 1 | ✅ Unlimited |
+| **Core** | $5 USDC/mo | 100MB | 3 included | ✅ Unlimited |
+| **Pro** | $15 USDC/mo | 1GB | 10 included | ✅ Unlimited |
+| **Enterprise** | Custom | Unlimited | Unlimited | ✅ Unlimited |
 
 ### Overflow Pricing
 
@@ -85,12 +85,14 @@ discover kernle → register via API → pay with crypto → start syncing
 
 **Agent counting rule:** Only agents with active cloud sync count toward limits. Ephemeral/specialist agents that never call `kernle sync` are free and unlimited. This ensures parallel work patterns (spinning up 10 auditors for a few hours) don't incur costs — the service charges for cloud persistence, not existence.
 
+**Design principle: No sync frequency limits.** Every tier gets unlimited sync. Restricting sync frequency risks lost memories due to economics — that directly contradicts memory sovereignty. The real resource cost is storage, not sync calls. Charge for what you store, not how often you save.
+
 **Notes:**
 - Free tier requires registration but no payment — zero friction to start
 - Pricing in USDC (stablecoin) for predictability
 - Tiers are suggestions — need market validation from SI community
-- Overflow billed at end of billing cycle based on peak syncing agent count
-- Volume discount built into tiers: Core overflow $1.50/agent, Pro $1.00/agent — incentivizes upgrading without hard gates
+- Overflow billed at end of billing cycle based on peak syncing stack count
+- Volume discount built into tiers: Core overflow $1.50/stack, Pro $1.00/stack — incentivizes upgrading without hard gates
 
 ---
 
@@ -148,13 +150,13 @@ $ kernle sync push
 
 # Later, upgrade to paid tier
 $ kernle auth upgrade core
-ℹ Core tier: $5 USDC/month
+ℹ Core tier: $5 USDC/month (100MB storage, 3 stacks)
 ℹ Payment from wallet: 0xAb3...7eF
 ℹ USDC balance: $47.50
 ? Confirm payment of $5 USDC? [y/N] y
 ✓ Payment sent: tx 0x...
 ✓ Upgraded to Core tier
-✓ Auto-sync enabled (every 15 min)
+✓ Storage: 100MB, Stacks: 3
 ```
 
 ---
@@ -245,22 +247,22 @@ Kernle treasury is a multisig on Base:
 
 ### 7.1 Quota Checks
 
-Every sync operation checks the agent's current tier:
+Every sync operation checks storage quota only — sync frequency is never limited:
 
 ```python
 # Pseudocode for sync middleware
-def check_sync_quota(agent_id, operation):
-    sub = get_subscription(agent_id)
-    usage = get_usage(agent_id, current_period())
+def check_sync_quota(account_id, operation):
+    sub = get_subscription(account_id)
+    usage = get_usage(account_id, current_period())
     
     if operation == "push":
         if usage.storage_bytes >= sub.storage_limit:
             raise QuotaExceeded("Storage limit reached. Upgrade tier or clean old data.")
+        
+        if usage.stacks_syncing >= sub.stack_limit:
+            raise QuotaExceeded("Stack limit reached. Upgrade tier for more stacks.")
     
-    if operation == "auto_sync":
-        if sub.tier == "free":
-            raise TierRequired("Auto-sync requires Core tier or above.")
-    
+    # No frequency checks — sync as often as you want
     return allow()
 ```
 
