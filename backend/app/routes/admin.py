@@ -678,9 +678,9 @@ async def backfill_embeddings(
 
 @router.get("/agents/{agent_id}", response_model=AgentSummary)
 async def get_agent(
+    admin: AdminAgent,
+    db: Database,
     agent_id: str = Path(..., min_length=1, max_length=64, pattern=r"^[a-z0-9_-]+$"),
-    admin: AdminAgent = None,
-    db: Database = None,
     user_id: str | None = Query(
         default=None, max_length=128, description="Filter by user_id (for multi-tenant)"
     ),

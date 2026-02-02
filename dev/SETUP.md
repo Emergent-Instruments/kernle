@@ -71,14 +71,14 @@ Claude Code reads `CLAUDE.md` from your project root and `~/.claude/CLAUDE.md` g
 ```markdown
 ## Memory
 
-At session start, call the `kernle_load` tool to restore your memory state.
-Before ending or when context is getting full, call `kernle_checkpoint` to save state.
+At session start, call the `memory_load` tool to restore your memory state.
+Before ending or when context is getting full, call `memory_checkpoint_save` to save state.
 
 Use Kernle tools for:
-- `kernle_episode` - Record experiences with lessons learned
-- `kernle_note` - Quick captures (decisions, insights)
-- `kernle_belief` - Things you've learned to be true
-- `kernle_anxiety` - Check memory pressure
+- `memory_episode` - Record experiences with lessons learned
+- `memory_note` - Quick captures (decisions, insights)
+- `memory_belief` - Things you've learned to be true
+- `memory_anxiety` - Check memory pressure
 ```
 
 **Option B: CLI in Instructions**
@@ -222,7 +222,7 @@ Claude Desktop supports MCP servers for tool access.
 {
   "mcpServers": {
     "kernle": {
-      "command": "kernle", 
+      "command": "kernle",
       "args": ["mcp", "-a", "your-agent-id"]
     }
   }
@@ -280,7 +280,7 @@ When context compacts or sessions reset, the AI reads its instruction file (CLAU
 
 Make sure your instruction file includes:
 1. **Load at start**: `kernle load` or `kernle_load` tool
-2. **Save before end**: `kernle checkpoint save` 
+2. **Save before end**: `kernle checkpoint save`
 3. **Record learnings**: `kernle episode` for significant experiences
 
 ---
@@ -319,8 +319,8 @@ kernle -a your-agent-id consolidate
 
 ## Next Steps
 
-- [Architecture](architecture.md) — How Kernle's memory layers work
+- [Architecture](ARCHITECTURE.md) — How Kernle's memory layers work
 - [CLI Reference](CLI.md) — All available commands
-- [MCP Audit](MCP_AUDIT.md) — MCP server tool reference and security review
+- [MCP Audit](audits/MCP_AUDIT.md) — MCP server tool reference and security review
 - [Anxiety Tracking](ANXIETY_TRACKING.md) — Understanding the anxiety model
 - [Raw Memory Layer](RAW_MEMORY_LAYER.md) — Zero-friction capture

@@ -49,7 +49,7 @@ Railway-hosted API backend for Kernle memory sync.
 uv pip install -e ".[dev]"
 
 # Copy environment variables
-cp ../.env .env
+cp ../.env.example .env
 
 # Run server
 uvicorn app.main:app --reload
