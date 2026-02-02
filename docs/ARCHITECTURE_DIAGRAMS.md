@@ -995,6 +995,57 @@ graph TB
 
 > **Design Decision — Stack-Level Isolation:** AISD uses one Kernle stack per student (`kernle -a student-{id}`). The `agent_id` in the JWT is the sole access boundary. No student can see another student's memories. The AISD admin account has its own user_id for auditing but queries are always scoped by agent_id.
 
+### 5.6 Responsibility Boundary
+
+Clear delineation of what AISD builds vs. what Kernle provides.
+
+```mermaid
+graph TB
+    subgraph "AISD Owns (Build This)"
+        UI["Student Dashboard UI"]
+        AUTH_AISD["Student Authentication<br/>(login, SSO, roles)"]
+        ORCH["Model Orchestration<br/>(prompt construction,<br/>model selection, routing)"]
+        ASSESS["Assessment Engine<br/>(quiz scoring, progress tracking)"]
+        PROMOTE["Memory Promotion Logic<br/>(decide what becomes<br/>a belief vs. stays raw)"]
+        CRON_AISD["Nightly Jobs<br/>(batch analysis, reports,<br/>memory maintenance)"]
+        CURRICULUM["Curriculum Mapping<br/>(standards, lesson plans)"]
+    end
+
+    subgraph "Kernle Provides (Use This)"
+        STORAGE["Memory Storage<br/>(episodes, beliefs, goals,<br/>notes, values, drives)"]
+        SEARCH["Semantic Search<br/>(pgvector similarity)"]
+        SYNC_API["Sync API<br/>(push/pull, conflict resolution)"]
+        EMBED_API["Auto-Embedding<br/>(1536-dim on write)"]
+        ISOLATION["Stack Isolation<br/>(per-student agent_id)"]
+        QUOTA["Quota & Billing<br/>(per-stack, storage-based)"]
+        PRIVACY["Privacy Fields<br/>(access_grants, consent)"]
+    end
+
+    subgraph "Foundation Model (Choose One)"
+        GPT["OpenAI GPT"]
+        CLAUDE["Anthropic Claude"]
+        GEMINI["Google Gemini"]
+        OTHER["Other / Fine-tuned"]
+    end
+
+    UI --> AUTH_AISD --> ORCH
+    ORCH --> GPT & CLAUDE & GEMINI & OTHER
+    ORCH --> SEARCH
+    ASSESS --> PROMOTE --> SYNC_API
+    CRON_AISD --> SYNC_API
+    STORAGE --> SEARCH
+    SYNC_API --> STORAGE
+    STORAGE --> EMBED_API
+    STORAGE --> ISOLATION
+    ISOLATION --> QUOTA
+
+    style ORCH fill:#d9a04a,color:#fff
+    style STORAGE fill:#6b4fbb,color:#fff
+    style SEARCH fill:#9b59b6,color:#fff
+```
+
+> **Key Integration Point:** AISD calls their own foundation model — Kernle never touches the model directly. Kernle's job is to store, search, and serve memories. AISD decides *when* to write memories, *what* to promote to beliefs, and *how* to inject context into model prompts. This keeps Kernle model-agnostic and lets AISD swap models without touching the memory layer.
+
 ---
 
 ## 6. Data Flow Diagrams
