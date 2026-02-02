@@ -1286,9 +1286,6 @@ def cmd_sync(args, k: Kernle):
         # Build operations list for the API
         operations = []
         for change in queued_changes:
-            # Get the actual record data
-            record = k._storage._get_record_for_push(change.table_name, change.record_id)
-
             op_type = (
                 "update" if change.operation in ("upsert", "insert", "update") else change.operation
             )
@@ -1305,53 +1302,69 @@ def cmd_sync(args, k: Kernle):
             }
 
             # Add record data for non-delete operations
-            if record and op_type != "delete":
-                # Convert record to dict
-                record_dict = {}
-                for field in [
-                    "id",
-                    "agent_id",
-                    "content",
-                    "objective",
-                    "outcome_type",
-                    "outcome_description",
-                    "lessons_learned",
-                    "tags",
-                    "statement",
-                    "confidence",
-                    "drive_type",
-                    "intensity",
-                    "name",
-                    "priority",
-                    "title",
-                    "status",
-                    "progress",
-                    "entity_name",
-                    "entity_type",
-                    "relationship_type",
-                    "notes",
-                    "sentiment",
-                    "focus_areas",
-                    "created_at",
-                    "updated_at",
-                    "local_updated_at",
-                    # raw_entries fields
-                    "timestamp",
-                    "source",
-                    "processed",
-                    # playbooks fields
-                    "description",
-                    "steps",
-                    "triggers",
-                    # goals fields
-                    "target_date",
-                ]:
-                    if hasattr(record, field):
-                        value = getattr(record, field)
-                        if hasattr(value, "isoformat"):
-                            value = value.isoformat()
-                        record_dict[field] = value
-                op_data["data"] = record_dict
+            if op_type != "delete":
+                record_dict = None
+
+                # First, try to use the stored payload from the queue
+                # This ensures we can sync even if the source record was later deleted/superseded
+                if change.payload:
+                    try:
+                        record_dict = json.loads(change.payload)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+                # Fall back to fetching from source table if no stored payload
+                if not record_dict:
+                    record = k._storage._get_record_for_push(change.table_name, change.record_id)
+                    if record:
+                        # Convert record to dict
+                        record_dict = {}
+                        for field in [
+                            "id",
+                            "agent_id",
+                            "content",
+                            "objective",
+                            "outcome_type",
+                            "outcome_description",
+                            "lessons_learned",
+                            "tags",
+                            "statement",
+                            "confidence",
+                            "drive_type",
+                            "intensity",
+                            "name",
+                            "priority",
+                            "title",
+                            "status",
+                            "progress",
+                            "entity_name",
+                            "entity_type",
+                            "relationship_type",
+                            "notes",
+                            "sentiment",
+                            "focus_areas",
+                            "created_at",
+                            "updated_at",
+                            "local_updated_at",
+                            # raw_entries fields
+                            "timestamp",
+                            "source",
+                            "processed",
+                            # playbooks fields
+                            "description",
+                            "steps",
+                            "triggers",
+                            # goals fields
+                            "target_date",
+                        ]:
+                            if hasattr(record, field):
+                                value = getattr(record, field)
+                                if hasattr(value, "isoformat"):
+                                    value = value.isoformat()
+                                record_dict[field] = value
+
+                if record_dict:
+                    op_data["data"] = record_dict
 
             operations.append(op_data)
 

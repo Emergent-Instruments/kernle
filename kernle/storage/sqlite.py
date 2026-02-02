@@ -5558,10 +5558,15 @@ class SQLiteStorage:
         return count
 
     def get_queued_changes(self, limit: int = 100) -> List[QueuedChange]:
-        """Get queued changes for sync (legacy method, returns unsynced items)."""
+        """Get queued changes for sync (legacy method, returns unsynced items).
+
+        Note: Uses COALESCE(data, payload) to handle both column formats.
+        The 'data' column is the current standard; 'payload' is legacy.
+        """
         with self._connect() as conn:
             rows = conn.execute(
-                """SELECT id, table_name, record_id, operation, payload, queued_at
+                """SELECT id, table_name, record_id, operation,
+                          COALESCE(data, payload) as payload, queued_at
                    FROM sync_queue
                    WHERE synced = 0
                    ORDER BY id
