@@ -292,7 +292,7 @@ graph LR
         C1 --> C2 --> C3
     end
 
-    subgraph "Consolidation"
+    subgraph "Promotion"
         CO1["Gather recent<br/>episodes (≥3)"]
         CO2["Extract lessons<br/>across episodes"]
         CO3["Count recurring<br/>patterns (≥2)"]
@@ -909,7 +909,7 @@ graph TD
     RAW["📥 Raw Entry<br/>kernle raw 'content'<br/>→ raw_entries table"]
     EP["📖 Episode<br/>kernle episode 'obj' 'outcome'<br/>→ episodes table"]
     NOTE["📝 Note<br/>kernle note 'content'<br/>→ notes table"]
-    CONSOL["🔄 Consolidation<br/>kernle consolidate<br/>(min 3 episodes)"]
+    CONSOL["🔄 Promotion<br/>kernle promote<br/>(min 3 episodes)"]
     LESSON["📚 Common Lessons<br/>(count ≥ 2 across episodes)"]
     BELIEF["💡 Belief<br/>kernle belief 'statement'<br/>→ beliefs table"]
     VALUE["⭐ Value<br/>(identity formation)"]
