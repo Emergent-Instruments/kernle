@@ -835,6 +835,24 @@ class SQLiteStorage:
 
     # === Cloud Search Methods ===
 
+    def _validate_backend_url(self, backend_url: str) -> Optional[str]:
+        """Validate backend URL to avoid leaking auth tokens to unsafe endpoints."""
+        from urllib.parse import urlparse
+
+        parsed = urlparse(backend_url)
+        if parsed.scheme not in {"https", "http"}:
+            logger.warning("Invalid backend_url scheme; only http/https allowed.")
+            return None
+        if not parsed.netloc:
+            logger.warning("Invalid backend_url; missing host.")
+            return None
+        if parsed.scheme == "http":
+            host = parsed.hostname or ""
+            if host not in {"localhost", "127.0.0.1"}:
+                logger.warning("Refusing non-local http backend_url for security.")
+                return None
+        return backend_url
+
     def _load_cloud_credentials(self) -> Optional[Dict[str, str]]:
         """Load cloud credentials from config files or environment variables.
 
@@ -882,6 +900,9 @@ class SQLiteStorage:
                         auth_token = auth_token or config.get("auth_token")
                 except (json.JSONDecodeError, OSError):
                     pass
+
+        if backend_url:
+            backend_url = self._validate_backend_url(backend_url)
 
         if backend_url and auth_token:
             self._cloud_credentials = {
@@ -1582,8 +1603,13 @@ class SQLiteStorage:
 
         # v13: Add source_entity column for entity-neutral provenance (Phase 5)
         source_entity_tables = [
-            "episodes", "beliefs", "agent_values", "goals", "notes",
-            "drives", "relationships",
+            "episodes",
+            "beliefs",
+            "agent_values",
+            "goals",
+            "notes",
+            "drives",
+            "relationships",
         ]
         for table in source_entity_tables:
             if table in table_names:
@@ -1599,8 +1625,15 @@ class SQLiteStorage:
 
         # v14: Add privacy fields (Phase 8a) - subject_ids, access_grants, consent_grants
         privacy_tables = [
-            "episodes", "beliefs", "agent_values", "goals", "notes",
-            "drives", "relationships", "playbooks", "raw_entries",
+            "episodes",
+            "beliefs",
+            "agent_values",
+            "goals",
+            "notes",
+            "drives",
+            "relationships",
+            "playbooks",
+            "raw_entries",
         ]
         privacy_fields = ["subject_ids", "access_grants", "consent_grants"]
         for table in privacy_tables:
@@ -4850,9 +4883,9 @@ class SQLiteStorage:
             params.append(verification_count)
         if confidence_history is not None:
             # Cap confidence_history to prevent unbounded growth
-            MAX_CONFIDENCE_HISTORY = 100
-            if len(confidence_history) > MAX_CONFIDENCE_HISTORY:
-                confidence_history = confidence_history[-MAX_CONFIDENCE_HISTORY:]
+            max_confidence_history = 100
+            if len(confidence_history) > max_confidence_history:
+                confidence_history = confidence_history[-max_confidence_history:]
             updates.append("confidence_history = ?")
             params.append(self._to_json(confidence_history))
 

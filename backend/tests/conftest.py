@@ -77,3 +77,21 @@ def auth_headers():
     # Use clearly invalid test ID that cannot collide with production IDs
     token = create_access_token(settings, user_id="usr_TEST_ONLY_000000")
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture(autouse=True)
+def mock_user_lookup(monkeypatch):
+    """Avoid real Supabase calls for auth in unit tests."""
+    if os.environ.get("RUN_INTEGRATION"):
+        return
+
+    async def _fake_get_user(db, user_id):
+        return {"user_id": user_id, "tier": "free", "is_admin": False}
+
+    monkeypatch.setattr("app.database.get_user", _fake_get_user)
+
+    async def _fake_ensure_agent_exists(db, user_id, agent_id):
+        return {"id": "agent-uuid", "agent_id": agent_id, "user_id": user_id}
+
+    monkeypatch.setattr("app.database.ensure_agent_exists", _fake_ensure_agent_exists)
+    monkeypatch.setattr("app.routes.sync.ensure_agent_exists", _fake_ensure_agent_exists)
