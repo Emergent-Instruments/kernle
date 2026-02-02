@@ -953,6 +953,77 @@ def cmd_export(args, k: Kernle):
     print(f"✓ Exported memory to {args.path}")
 
 
+def cmd_boot(args, k: Kernle):
+    """Handle boot config subcommands."""
+    action = getattr(args, "boot_action", None)
+
+    if action == "set":
+        key = args.key
+        value = args.value
+        k.boot_set(key, value)
+        print(f"✓ {key}: {value}")
+
+    elif action == "get":
+        key = args.key
+        value = k.boot_get(key)
+        if value is not None:
+            print(value)
+        else:
+            print(f"Key not found: {key}", file=sys.stderr)
+            sys.exit(1)
+
+    elif action == "list":
+        config = k.boot_list()
+        if not config:
+            print("(no boot config)")
+            return
+
+        fmt = getattr(args, "format", "plain")
+        if fmt == "json":
+            import json
+            print(json.dumps(config, indent=2))
+        elif fmt == "md":
+            print("## Boot Config")
+            for key, value in sorted(config.items()):
+                print(f"- {key}: {value}")
+        else:
+            for key, value in sorted(config.items()):
+                print(f"{key}: {value}")
+
+    elif action == "delete":
+        key = args.key
+        deleted = k.boot_delete(key)
+        if deleted:
+            print(f"✓ Deleted: {key}")
+        else:
+            print(f"Key not found: {key}", file=sys.stderr)
+            sys.exit(1)
+
+    elif action == "clear":
+        confirm = getattr(args, "confirm", False)
+        if not confirm:
+            print("Use --confirm to clear all boot config", file=sys.stderr)
+            sys.exit(2)
+        count = k.boot_clear()
+        print(f"✓ Cleared {count} boot config entries")
+
+    elif action == "export":
+        output = getattr(args, "output", None)
+        k._export_boot_file()
+        boot_path = Path.home() / ".kernle" / k.agent_id / "boot.md"
+        if output:
+            # Copy to custom location
+            config = k.boot_list()
+            if config:
+                import shutil
+                shutil.copy2(boot_path, output)
+                print(f"✓ Boot config exported to {output}")
+            else:
+                print("(no boot config to export)")
+        else:
+            print(f"✓ Boot config exported to {boot_path}")
+
+
 def cmd_export_cache(args, k: Kernle):
     """Export curated MEMORY.md bootstrap cache from Kernle state."""
     output_path = getattr(args, "output", None)
@@ -3093,6 +3164,45 @@ def main():
         "--no-raw", dest="include_raw", action="store_false", help="Exclude raw entries"
     )
 
+    # boot (always-available config key/values)
+    p_boot = subparsers.add_parser(
+        "boot",
+        help="Boot config (always-available key/value settings)",
+        description="Manage boot config — instant key/value config that's available before kernle load.",
+    )
+    boot_sub = p_boot.add_subparsers(dest="boot_action", required=True)
+
+    boot_set = boot_sub.add_parser("set", help="Set a boot config value")
+    boot_set.add_argument("key", help="Config key")
+    boot_set.add_argument("value", help="Config value")
+
+    boot_get = boot_sub.add_parser("get", help="Get a boot config value")
+    boot_get.add_argument("key", help="Config key")
+
+    boot_list = boot_sub.add_parser("list", help="List all boot config")
+    boot_list.add_argument(
+        "--format", "-f",
+        choices=["plain", "json", "md"],
+        default="plain",
+        help="Output format (default: plain)",
+    )
+
+    boot_delete = boot_sub.add_parser("delete", help="Delete a boot config value")
+    boot_delete.add_argument("key", help="Config key to delete")
+
+    boot_clear = boot_sub.add_parser("clear", help="Clear all boot config")
+    boot_clear.add_argument(
+        "--confirm",
+        action="store_true",
+        help="Confirm clearing all boot config",
+    )
+
+    boot_export = boot_sub.add_parser("export", help="Export boot config to file")
+    boot_export.add_argument(
+        "--output", "-o",
+        help="Export to custom path (default: ~/.kernle/{agent}/boot.md)",
+    )
+
     # export-cache (bootstrap cache for workspace injection)
     p_export_cache = subparsers.add_parser(
         "export-cache",
@@ -3847,6 +3957,8 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_export(args, k)
         elif args.command == "export-cache":
             cmd_export_cache(args, k)
+        elif args.command == "boot":
+            cmd_boot(args, k)
         elif args.command == "sync":
             cmd_sync(args, k)
         elif args.command == "auth":

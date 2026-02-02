@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 14  # Phase 8a: Add privacy fields (subject_ids, access_grants, consent_grants)
+SCHEMA_VERSION = 15  # Phase 9: Boot layer (always-available config key/values)
 
 # Maximum size for merged arrays during sync to prevent resource exhaustion
 MAX_SYNC_ARRAY_SIZE = 500
@@ -123,6 +123,7 @@ ALLOWED_TABLES = frozenset(
         "sync_conflicts",
         "embeddings",
         "health_check_events",
+        "boot_config",
     }
 )
 
@@ -621,6 +622,18 @@ CREATE TABLE IF NOT EXISTS sync_conflicts (
 );
 CREATE INDEX IF NOT EXISTS idx_sync_conflicts_resolved ON sync_conflicts(resolved_at);
 CREATE INDEX IF NOT EXISTS idx_sync_conflicts_record ON sync_conflicts(table_name, record_id);
+
+-- Boot config (always-available key/value config for agents)
+CREATE TABLE IF NOT EXISTS boot_config (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4)))),
+    agent_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(agent_id, key)
+);
+CREATE INDEX IF NOT EXISTS idx_boot_agent ON boot_config(agent_id);
 
 -- Embedding metadata (tracks what's been embedded)
 CREATE TABLE IF NOT EXISTS embedding_meta (
@@ -1602,6 +1615,25 @@ class SQLiteStorage:
                             if "duplicate column" not in str(e).lower():
                                 logger.warning(f"Failed to add {field} to {table}: {e}")
         conn.commit()
+
+        # v15: Boot config table (Phase 9) - always-available key/value config
+        if "boot_config" not in table_names:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS boot_config (
+                    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4)))),
+                    agent_id TEXT NOT NULL,
+                    key TEXT NOT NULL,
+                    value TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(agent_id, key)
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_boot_agent ON boot_config(agent_id)"
+            )
+            logger.info("Created boot_config table")
+            conn.commit()
 
     def _check_sqlite_vec(self) -> bool:
         """Check if sqlite-vec extension is available."""
@@ -3531,6 +3563,68 @@ class SQLiteStorage:
             version=row["version"],
             deleted=bool(row["deleted"]),
         )
+
+    # === Boot Config ===
+
+    def boot_set(self, key: str, value: str) -> None:
+        """Set a boot config value. Creates or updates."""
+        if not key or not isinstance(key, str):
+            raise ValueError("Boot config key must be a non-empty string")
+        if not isinstance(value, str):
+            raise ValueError("Boot config value must be a string")
+        # Strip whitespace from key, preserve value
+        key = key.strip()
+        if not key:
+            raise ValueError("Boot config key must be a non-empty string")
+
+        now = self._now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO boot_config (id, agent_id, key, value, created_at, updated_at)
+                VALUES (lower(hex(randomblob(4))), ?, ?, ?, ?, ?)
+                ON CONFLICT(agent_id, key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = excluded.updated_at
+                """,
+                (self.agent_id, key, value, now, now),
+            )
+
+    def boot_get(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        """Get a boot config value. Returns default if not found."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM boot_config WHERE agent_id = ? AND key = ?",
+                (self.agent_id, key),
+            ).fetchone()
+        return row["value"] if row else default
+
+    def boot_list(self) -> Dict[str, str]:
+        """List all boot config values as a dict."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT key, value FROM boot_config WHERE agent_id = ? ORDER BY key",
+                (self.agent_id,),
+            ).fetchall()
+        return {row["key"]: row["value"] for row in rows}
+
+    def boot_delete(self, key: str) -> bool:
+        """Delete a boot config value. Returns True if deleted."""
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM boot_config WHERE agent_id = ? AND key = ?",
+                (self.agent_id, key),
+            )
+        return cursor.rowcount > 0
+
+    def boot_clear(self) -> int:
+        """Clear all boot config for this agent. Returns count deleted."""
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM boot_config WHERE agent_id = ?",
+                (self.agent_id,),
+            )
+        return cursor.rowcount
 
     # === Raw Entries ===
 
