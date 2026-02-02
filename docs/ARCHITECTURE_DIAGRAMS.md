@@ -868,7 +868,105 @@ graph LR
     RAW --> RAW1
 ```
 
-### 5.3 Per-Stack Privacy Isolation
+### 5.3 Tutoring Session Flow (AISD Backend Operations)
+
+Complete sequence showing what AISD's backend does during a tutoring session.
+
+```mermaid
+sequenceDiagram
+    participant Student as Student Browser
+    participant AISD as AISD Backend
+    participant DB as AISD Database<br/>(Grades, Schedule)
+    participant K as Kernle API
+    participant LLM as Foundation Model<br/>(Claude/GPT-4)
+    participant RAG as RAG Service<br/>(Course Content)
+
+    Note over Student,RAG: Session Start
+    Student->>AISD: Open tutoring app
+    AISD->>AISD: Authenticate student<br/>→ student_id = 4521
+
+    rect rgb(230, 245, 255)
+        Note over AISD,K: 1. Load Student Context
+        AISD->>K: kernle -a student-4521 load --budget 4000
+        K-->>AISD: beliefs, goals, episodes, values<br/>(learning style, strengths, history)
+    end
+
+    rect rgb(255, 245, 230)
+        Note over AISD,DB: 2. Fetch Live Data
+        AISD->>DB: SELECT grades, assignments<br/>WHERE student_id = 4521
+        DB-->>AISD: Current grades, pending work,<br/>recent test scores
+        AISD->>DB: SELECT schedule<br/>WHERE date = TODAY
+        DB-->>AISD: Today's classes, upcoming tests
+    end
+
+    rect rgb(230, 255, 230)
+        Note over AISD,LLM: 3. Build & Send Prompt
+        AISD->>AISD: Assemble context:<br/>• Kernle memory (beliefs, goals)<br/>• Live grades & schedule<br/>• Student's question
+        AISD->>LLM: System prompt + context + question
+        LLM-->>AISD: Tutoring response
+    end
+
+    AISD-->>Student: Display response
+
+    Note over Student,RAG: Student Asks Follow-up
+    Student->>AISD: "Can you explain quadratic formula?"
+
+    rect rgb(255, 230, 255)
+        Note over AISD,RAG: 4. RAG for Course Content
+        AISD->>RAG: Search: "quadratic formula"<br/>+ student's curriculum
+        RAG-->>AISD: Relevant textbook sections,<br/>worked examples, practice problems
+    end
+
+    AISD->>LLM: Follow-up + RAG context
+    LLM-->>AISD: Explanation with examples
+    AISD-->>Student: Display explanation
+
+    Note over Student,RAG: Session End — Memory Capture
+    rect rgb(255, 255, 230)
+        Note over AISD,K: 5. Save to Kernle
+        AISD->>K: kernle -a student-4521 episode<br/>"algebra tutoring" "covered quadratic formula"<br/>--lesson "responded well to visual examples"
+        AISD->>K: kernle -a student-4521 raw<br/>"hesitated on factoring step 3x"
+        AISD->>K: kernle -a student-4521 checkpoint<br/>"algebra session complete"
+    end
+```
+
+### 5.4 AISD Architecture Overview
+
+```mermaid
+graph TB
+    subgraph "AISD Platform (Their Infrastructure)"
+        WEB["Web App<br/>(React/Next.js)"]
+        API["AISD Backend<br/>(Node.js/Python)"]
+        DB[(AISD Database<br/>Grades, Schedule,<br/>Assignments)]
+        RAG["RAG Service<br/>(Course content,<br/>textbooks)"]
+        LLM_CLIENT["LLM Client<br/>(OpenAI/Anthropic SDK)"]
+    end
+
+    subgraph "Kernle (Memory Layer)"
+        K_API["Kernle CLI/API"]
+        K_LOCAL[(Local SQLite<br/>per-student stacks)]
+        K_CLOUD["Kernle Cloud<br/>(optional sync)"]
+    end
+
+    subgraph "External Services"
+        LLM["Foundation Model<br/>(Claude, GPT-4, etc.)"]
+    end
+
+    WEB -->|"HTTP"| API
+    API --> DB
+    API --> RAG
+    API -->|"kernle -a student-{id}"| K_API
+    K_API --> K_LOCAL
+    K_LOCAL -.->|"sync"| K_CLOUD
+    API --> LLM_CLIENT
+    LLM_CLIENT -->|"API calls"| LLM
+
+    style API fill:#4a90d9,color:#fff
+    style K_API fill:#2d8659,color:#fff
+    style LLM fill:#9b59b6,color:#fff
+```
+
+### 5.5 Per-Stack Privacy Isolation
 
 ```mermaid
 graph TB
