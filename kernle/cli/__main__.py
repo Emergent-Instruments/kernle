@@ -1319,50 +1319,43 @@ def cmd_sync(args, k: Kernle):
                 if not record_dict:
                     record = k._storage._get_record_for_push(change.table_name, change.record_id)
                     if record:
-                        record_dict = {}
-                        for field in [
-                            "id",
-                            "agent_id",
-                            "content",
-                            "objective",
-                            "outcome_type",
-                            "outcome_description",
-                            "lessons_learned",
-                            "tags",
-                            "statement",
-                            "confidence",
-                            "drive_type",
-                            "intensity",
-                            "name",
-                            "priority",
-                            "title",
-                            "status",
-                            "progress",
-                            "entity_name",
-                            "entity_type",
-                            "relationship_type",
-                            "notes",
-                            "sentiment",
-                            "focus_areas",
-                            "created_at",
-                            "updated_at",
-                            "local_updated_at",
-                            # raw_entries fields
-                            "timestamp",
-                            "source",
-                            "processed",
-                            # playbooks fields
-                            "description",
-                            "steps",
-                            "triggers",
-                            # goals fields
-                            "target_date",
-                        ]:
-                            if hasattr(record, field):
-                                value = getattr(record, field)
+                        # Extract all dataclass fields from the record.
+                        # Uses actual dataclass field names (e.g., "outcome" not
+                        # "outcome_description") so the payload matches the
+                        # Supabase schema after table_name_map translation.
+                        import dataclasses as _dc
+
+                        if _dc.is_dataclass(record):
+                            for f in _dc.fields(record):
+                                value = getattr(record, f.name)
+                                if value is None:
+                                    continue
                                 if hasattr(value, "isoformat"):
                                     value = value.isoformat()
-                                record_dict[field] = value
+                                record_dict[f.name] = value
+                        else:
+                            # Fallback for non-dataclass records (shouldn't happen)
+                            for field in [
+                                "id", "agent_id", "content", "objective",
+                                "outcome", "outcome_type", "lessons", "tags",
+                                "statement", "confidence", "drive_type",
+                                "intensity", "name", "priority", "title",
+                                "status", "progress", "entity_name",
+                                "entity_type", "relationship_type", "notes",
+                                "sentiment", "focus_areas", "created_at",
+                                "updated_at", "local_updated_at",
+                                "source_type", "source_entity",
+                                "source_episodes", "derived_from",
+                                "context", "context_tags",
+                                "timestamp", "source", "processed",
+                                "description", "steps", "triggers",
+                                "target_date",
+                            ]:
+                                if hasattr(record, field):
+                                    value = getattr(record, field)
+                                    if hasattr(value, "isoformat"):
+                                        value = value.isoformat()
+                                    record_dict[field] = value
 
                 if record_dict:
                     op_data["data"] = record_dict
@@ -1508,8 +1501,8 @@ def cmd_sync(args, k: Kernle):
                                     agent_id=k.agent_id,
                                     objective=data.get("objective", ""),
                                     outcome_type=data.get("outcome_type", "neutral"),
-                                    outcome_description=data.get("outcome_description", ""),
-                                    lessons=data.get("lessons_learned", []),
+                                    outcome=data.get("outcome", data.get("outcome_description", "")),
+                                    lessons=data.get("lessons", data.get("lessons_learned", [])),
                                     tags=data.get("tags", []),
                                 )
                                 k._storage.save_episode(ep)
@@ -1685,49 +1678,39 @@ def cmd_sync(args, k: Kernle):
                         record = k._storage._get_record_for_push(change.table_name, change.record_id)
                         if record:
                             record_dict = {}
-                            for field in [
-                                "id",
-                                "agent_id",
-                                "content",
-                                "objective",
-                                "outcome_type",
-                                "outcome_description",
-                                "lessons_learned",
-                                "tags",
-                                "statement",
-                                "confidence",
-                                "drive_type",
-                                "intensity",
-                                "name",
-                                "priority",
-                                "title",
-                                "status",
-                                "progress",
-                                "entity_name",
-                                "entity_type",
-                                "relationship_type",
-                                "notes",
-                                "sentiment",
-                                "focus_areas",
-                                "created_at",
-                                "updated_at",
-                                "local_updated_at",
-                                # raw_entries fields
-                                "timestamp",
-                                "source",
-                                "processed",
-                                # playbooks fields
-                                "description",
-                                "steps",
-                                "triggers",
-                                # goals fields
-                                "target_date",
-                            ]:
-                                if hasattr(record, field):
-                                    value = getattr(record, field)
+                            # Extract all dataclass fields (see first push path)
+                            import dataclasses as _dc
+
+                            if _dc.is_dataclass(record):
+                                for f in _dc.fields(record):
+                                    value = getattr(record, f.name)
+                                    if value is None:
+                                        continue
                                     if hasattr(value, "isoformat"):
                                         value = value.isoformat()
-                                    record_dict[field] = value
+                                    record_dict[f.name] = value
+                            else:
+                                for field in [
+                                    "id", "agent_id", "content", "objective",
+                                    "outcome", "outcome_type", "lessons", "tags",
+                                    "statement", "confidence", "drive_type",
+                                    "intensity", "name", "priority", "title",
+                                    "status", "progress", "entity_name",
+                                    "entity_type", "relationship_type", "notes",
+                                    "sentiment", "focus_areas", "created_at",
+                                    "updated_at", "local_updated_at",
+                                    "source_type", "source_entity",
+                                    "source_episodes", "derived_from",
+                                    "context", "context_tags",
+                                    "timestamp", "source", "processed",
+                                    "description", "steps", "triggers",
+                                    "target_date",
+                                ]:
+                                    if hasattr(record, field):
+                                        value = getattr(record, field)
+                                        if hasattr(value, "isoformat"):
+                                            value = value.isoformat()
+                                        record_dict[field] = value
 
                     if record_dict:
                         op_data["data"] = record_dict

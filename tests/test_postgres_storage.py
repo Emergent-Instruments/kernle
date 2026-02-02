@@ -93,13 +93,13 @@ def mock_supabase_client():
 
     # Storage for simulating database
     storage = {
-        "agent_episodes": [],
-        "agent_beliefs": [],
-        "agent_values": [],
-        "agent_goals": [],
-        "memories": [],
-        "agent_drives": [],
-        "agent_relationships": [],
+        "episodes": [],
+        "beliefs": [],
+        "values": [],
+        "goals": [],
+        "notes": [],
+        "drives": [],
+        "relationships": [],
         "playbooks": [],
     }
 
@@ -270,25 +270,25 @@ class TestSupabaseEpisodes:
 
         episode_id = storage.save_episode(episode)
         assert episode_id is not None
-        assert len(db["agent_episodes"]) == 1
+        assert len(db["episodes"]) == 1
 
-        saved = db["agent_episodes"][0]
+        saved = db["episodes"][0]
         assert saved["objective"] == "Test objective"
-        assert saved["outcome_description"] == "Test outcome"
+        assert saved["outcome"] == "Test outcome"
 
     def test_get_episodes(self, supabase_storage):
         """Test retrieving episodes."""
         storage, db = supabase_storage
 
         # Add test data directly to mock storage
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": str(uuid.uuid4()),
                 "agent_id": "test_agent",
                 "objective": "First task",
-                "outcome_description": "Completed",
+                "outcome": "Completed",
                 "outcome_type": "success",
-                "lessons_learned": [],
+                "lessons": [],
                 "tags": ["work"],
                 "created_at": datetime.now(timezone.utc).isoformat(),
                 "confidence": 0.9,
@@ -304,12 +304,12 @@ class TestSupabaseEpisodes:
         storage, db = supabase_storage
 
         ep_id = str(uuid.uuid4())
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": ep_id,
                 "agent_id": "test_agent",
                 "objective": "Specific episode",
-                "outcome_description": "Done",
+                "outcome": "Done",
                 "outcome_type": "success",
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
@@ -324,12 +324,12 @@ class TestSupabaseEpisodes:
         storage, db = supabase_storage
 
         ep_id = str(uuid.uuid4())
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": ep_id,
                 "agent_id": "test_agent",
                 "objective": "Emotional episode",
-                "outcome_description": "Felt good",
+                "outcome": "Felt good",
                 "emotional_valence": 0.0,
                 "emotional_arousal": 0.0,
                 "created_at": datetime.now(timezone.utc).isoformat(),
@@ -360,13 +360,13 @@ class TestSupabaseBeliefs:
 
         belief_id = storage.save_belief(belief)
         assert belief_id is not None
-        assert len(db["agent_beliefs"]) == 1
+        assert len(db["beliefs"]) == 1
 
     def test_get_beliefs(self, supabase_storage):
         """Test retrieving beliefs."""
         storage, db = supabase_storage
 
-        db["agent_beliefs"].append(
+        db["beliefs"].append(
             {
                 "id": str(uuid.uuid4()),
                 "agent_id": "test_agent",
@@ -386,7 +386,7 @@ class TestSupabaseBeliefs:
         """Test finding a belief by statement."""
         storage, db = supabase_storage
 
-        db["agent_beliefs"].append(
+        db["beliefs"].append(
             {
                 "id": str(uuid.uuid4()),
                 "agent_id": "test_agent",
@@ -422,13 +422,13 @@ class TestSupabaseValues:
 
         value_id = storage.save_value(value)
         assert value_id is not None
-        assert len(db["agent_values"]) == 1
+        assert len(db["values"]) == 1
 
     def test_get_values(self, supabase_storage):
         """Test retrieving values."""
         storage, db = supabase_storage
 
-        db["agent_values"].append(
+        db["values"].append(
             {
                 "id": str(uuid.uuid4()),
                 "agent_id": "test_agent",
@@ -466,13 +466,13 @@ class TestSupabaseGoals:
 
         goal_id = storage.save_goal(goal)
         assert goal_id is not None
-        assert len(db["agent_goals"]) == 1
+        assert len(db["goals"]) == 1
 
     def test_get_goals(self, supabase_storage):
         """Test retrieving goals."""
         storage, db = supabase_storage
 
-        db["agent_goals"].append(
+        db["goals"].append(
             {
                 "id": str(uuid.uuid4()),
                 "agent_id": "test_agent",
@@ -509,16 +509,16 @@ class TestSupabaseNotes:
 
         note_id = storage.save_note(note)
         assert note_id is not None
-        assert len(db["memories"]) == 1
+        assert len(db["notes"]) == 1
 
     def test_get_notes(self, supabase_storage):
         """Test retrieving notes."""
         storage, db = supabase_storage
 
-        db["memories"].append(
+        db["notes"].append(
             {
                 "id": str(uuid.uuid4()),
-                "owner_id": "test_agent",
+                "agent_id": "test_agent",
                 "content": "A curated memory",
                 "source": "curated",
                 "metadata": {"note_type": "note", "tags": []},
@@ -556,7 +556,7 @@ class TestSupabaseDrives:
         """Test retrieving drives."""
         storage, db = supabase_storage
 
-        db["agent_drives"].append(
+        db["drives"].append(
             {
                 "id": str(uuid.uuid4()),
                 "agent_id": "test_agent",
@@ -608,11 +608,11 @@ class TestSupabaseStats:
         storage, db = supabase_storage
 
         # Add some test data
-        db["agent_episodes"].append({"id": "1", "agent_id": "test_agent"})
-        db["agent_beliefs"].append({"id": "1", "agent_id": "test_agent", "is_active": True})
-        db["agent_values"].append({"id": "1", "agent_id": "test_agent", "is_active": True})
-        db["agent_goals"].append({"id": "1", "agent_id": "test_agent", "status": "active"})
-        db["memories"].append({"id": "1", "owner_id": "test_agent", "source": "curated"})
+        db["episodes"].append({"id": "1", "agent_id": "test_agent"})
+        db["beliefs"].append({"id": "1", "agent_id": "test_agent", "is_active": True})
+        db["values"].append({"id": "1", "agent_id": "test_agent", "is_active": True})
+        db["goals"].append({"id": "1", "agent_id": "test_agent", "status": "active"})
+        db["notes"].append({"id": "1", "agent_id": "test_agent", "source": "curated"})
 
         stats = storage.get_stats()
         assert "episodes" in stats
@@ -632,13 +632,13 @@ class TestSupabaseSearch:
         """Test searching episodes by text."""
         storage, db = supabase_storage
 
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": str(uuid.uuid4()),
                 "agent_id": "test_agent",
                 "objective": "Implement feature X",
-                "outcome_description": "Successfully deployed",
-                "lessons_learned": ["Plan ahead"],
+                "outcome": "Successfully deployed",
+                "lessons": ["Plan ahead"],
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
         )
@@ -650,10 +650,10 @@ class TestSupabaseSearch:
         """Test searching notes by content."""
         storage, db = supabase_storage
 
-        db["memories"].append(
+        db["notes"].append(
             {
                 "id": str(uuid.uuid4()),
-                "owner_id": "test_agent",
+                "agent_id": "test_agent",
                 "content": "Important discovery about testing",
                 "source": "curated",
                 "metadata": {},
@@ -676,12 +676,12 @@ class TestSupabaseMetaMemory:
         storage, db = supabase_storage
 
         ep_id = str(uuid.uuid4())
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": ep_id,
                 "agent_id": "test_agent",
                 "objective": "Test memory",
-                "outcome_description": "Found",
+                "outcome": "Found",
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
         )
@@ -939,12 +939,12 @@ class TestSupabaseForgetting:
         storage, db = supabase_storage
 
         ep_id = str(uuid.uuid4())
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": ep_id,
                 "agent_id": "test_agent",
                 "objective": "Test episode",
-                "outcome_description": "Success",
+                "outcome": "Success",
                 "times_accessed": 0,
                 "last_accessed": None,
                 "created_at": datetime.now(timezone.utc).isoformat(),
@@ -955,7 +955,7 @@ class TestSupabaseForgetting:
         assert result is True
 
         # Verify access was recorded
-        updated = db["agent_episodes"][0]
+        updated = db["episodes"][0]
         assert updated["times_accessed"] == 1
         assert updated["last_accessed"] is not None
 
@@ -964,12 +964,12 @@ class TestSupabaseForgetting:
         storage, db = supabase_storage
 
         ep_id = str(uuid.uuid4())
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": ep_id,
                 "agent_id": "test_agent",
                 "objective": "Test episode",
-                "outcome_description": "Success",
+                "outcome": "Success",
                 "times_accessed": 5,
                 "last_accessed": None,
                 "created_at": datetime.now(timezone.utc).isoformat(),
@@ -978,7 +978,7 @@ class TestSupabaseForgetting:
 
         storage.record_access("episode", ep_id)
 
-        updated = db["agent_episodes"][0]
+        updated = db["episodes"][0]
         assert updated["times_accessed"] == 6
 
     def test_record_access_not_found(self, supabase_storage):
@@ -999,13 +999,13 @@ class TestSupabaseForgetting:
 
         ep_id1 = str(uuid.uuid4())
         ep_id2 = str(uuid.uuid4())
-        db["agent_episodes"].extend(
+        db["episodes"].extend(
             [
                 {
                     "id": ep_id1,
                     "agent_id": "test_agent",
                     "objective": "Episode 1",
-                    "outcome_description": "Success",
+                    "outcome": "Success",
                     "times_accessed": 0,
                     "created_at": datetime.now(timezone.utc).isoformat(),
                 },
@@ -1013,7 +1013,7 @@ class TestSupabaseForgetting:
                     "id": ep_id2,
                     "agent_id": "test_agent",
                     "objective": "Episode 2",
-                    "outcome_description": "Success",
+                    "outcome": "Success",
                     "times_accessed": 0,
                     "created_at": datetime.now(timezone.utc).isoformat(),
                 },
@@ -1028,12 +1028,12 @@ class TestSupabaseForgetting:
         storage, db = supabase_storage
 
         ep_id = str(uuid.uuid4())
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": ep_id,
                 "agent_id": "test_agent",
                 "objective": "Test episode",
-                "outcome_description": "Success",
+                "outcome": "Success",
                 "is_protected": False,
                 "is_forgotten": False,
                 "forgotten_at": None,
@@ -1045,7 +1045,7 @@ class TestSupabaseForgetting:
         result = storage.forget_memory("episode", ep_id, reason="Low salience")
         assert result is True
 
-        updated = db["agent_episodes"][0]
+        updated = db["episodes"][0]
         assert updated["is_forgotten"] is True
         assert updated["forgotten_reason"] == "Low salience"
         assert updated["forgotten_at"] is not None
@@ -1055,12 +1055,12 @@ class TestSupabaseForgetting:
         storage, db = supabase_storage
 
         ep_id = str(uuid.uuid4())
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": ep_id,
                 "agent_id": "test_agent",
                 "objective": "Protected episode",
-                "outcome_description": "Success",
+                "outcome": "Success",
                 "is_protected": True,
                 "is_forgotten": False,
                 "created_at": datetime.now(timezone.utc).isoformat(),
@@ -1070,7 +1070,7 @@ class TestSupabaseForgetting:
         result = storage.forget_memory("episode", ep_id)
         assert result is False
 
-        updated = db["agent_episodes"][0]
+        updated = db["episodes"][0]
         assert updated["is_forgotten"] is False
 
     def test_forget_already_forgotten_fails(self, supabase_storage):
@@ -1078,12 +1078,12 @@ class TestSupabaseForgetting:
         storage, db = supabase_storage
 
         ep_id = str(uuid.uuid4())
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": ep_id,
                 "agent_id": "test_agent",
                 "objective": "Already forgotten",
-                "outcome_description": "Success",
+                "outcome": "Success",
                 "is_protected": False,
                 "is_forgotten": True,
                 "forgotten_at": datetime.now(timezone.utc).isoformat(),
@@ -1099,12 +1099,12 @@ class TestSupabaseForgetting:
         storage, db = supabase_storage
 
         ep_id = str(uuid.uuid4())
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": ep_id,
                 "agent_id": "test_agent",
                 "objective": "Forgotten episode",
-                "outcome_description": "Success",
+                "outcome": "Success",
                 "is_forgotten": True,
                 "forgotten_at": datetime.now(timezone.utc).isoformat(),
                 "forgotten_reason": "Test",
@@ -1115,7 +1115,7 @@ class TestSupabaseForgetting:
         result = storage.recover_memory("episode", ep_id)
         assert result is True
 
-        updated = db["agent_episodes"][0]
+        updated = db["episodes"][0]
         assert updated["is_forgotten"] is False
         assert updated["forgotten_at"] is None
         assert updated["forgotten_reason"] is None
@@ -1125,12 +1125,12 @@ class TestSupabaseForgetting:
         storage, db = supabase_storage
 
         ep_id = str(uuid.uuid4())
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": ep_id,
                 "agent_id": "test_agent",
                 "objective": "Normal episode",
-                "outcome_description": "Success",
+                "outcome": "Success",
                 "is_forgotten": False,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
@@ -1144,12 +1144,12 @@ class TestSupabaseForgetting:
         storage, db = supabase_storage
 
         ep_id = str(uuid.uuid4())
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": ep_id,
                 "agent_id": "test_agent",
                 "objective": "Test episode",
-                "outcome_description": "Success",
+                "outcome": "Success",
                 "is_protected": False,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
@@ -1158,7 +1158,7 @@ class TestSupabaseForgetting:
         result = storage.protect_memory("episode", ep_id, protected=True)
         assert result is True
 
-        updated = db["agent_episodes"][0]
+        updated = db["episodes"][0]
         assert updated["is_protected"] is True
 
     def test_unprotect_memory(self, supabase_storage):
@@ -1166,12 +1166,12 @@ class TestSupabaseForgetting:
         storage, db = supabase_storage
 
         ep_id = str(uuid.uuid4())
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": ep_id,
                 "agent_id": "test_agent",
                 "objective": "Test episode",
-                "outcome_description": "Success",
+                "outcome": "Success",
                 "is_protected": True,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
@@ -1180,7 +1180,7 @@ class TestSupabaseForgetting:
         result = storage.protect_memory("episode", ep_id, protected=False)
         assert result is True
 
-        updated = db["agent_episodes"][0]
+        updated = db["episodes"][0]
         assert updated["is_protected"] is False
 
     def test_get_forgetting_candidates(self, supabase_storage):
@@ -1189,12 +1189,12 @@ class TestSupabaseForgetting:
 
         # Add old episode (120 days ago) with low confidence
         old_date = datetime.now(timezone.utc).isoformat()
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": "old-episode",
                 "agent_id": "test_agent",
                 "objective": "Old episode",
-                "outcome_description": "Meh",
+                "outcome": "Meh",
                 "confidence": 0.3,
                 "times_accessed": 0,
                 "last_accessed": None,
@@ -1205,12 +1205,12 @@ class TestSupabaseForgetting:
         )
 
         # Add protected episode (should not be a candidate)
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": "protected-episode",
                 "agent_id": "test_agent",
                 "objective": "Protected episode",
-                "outcome_description": "Important",
+                "outcome": "Important",
                 "confidence": 0.3,
                 "times_accessed": 0,
                 "is_protected": True,
@@ -1220,12 +1220,12 @@ class TestSupabaseForgetting:
         )
 
         # Add already forgotten episode (should not be a candidate)
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": "forgotten-episode",
                 "agent_id": "test_agent",
                 "objective": "Already forgotten",
-                "outcome_description": "Old",
+                "outcome": "Old",
                 "confidence": 0.3,
                 "times_accessed": 0,
                 "is_protected": False,
@@ -1248,12 +1248,12 @@ class TestSupabaseForgetting:
         now = datetime.now(timezone.utc).isoformat()
 
         # High salience (high confidence, recent access)
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": "high-salience",
                 "agent_id": "test_agent",
                 "objective": "High salience",
-                "outcome_description": "Great",
+                "outcome": "Great",
                 "confidence": 0.9,
                 "times_accessed": 10,
                 "last_accessed": now,
@@ -1264,12 +1264,12 @@ class TestSupabaseForgetting:
         )
 
         # Low salience (low confidence, never accessed)
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": "low-salience",
                 "agent_id": "test_agent",
                 "objective": "Low salience",
-                "outcome_description": "Meh",
+                "outcome": "Meh",
                 "confidence": 0.2,
                 "times_accessed": 0,
                 "last_accessed": None,
@@ -1294,12 +1294,12 @@ class TestSupabaseForgetting:
         now = datetime.now(timezone.utc).isoformat()
 
         # Add forgotten episodes
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": "forgotten-1",
                 "agent_id": "test_agent",
                 "objective": "Forgotten 1",
-                "outcome_description": "Old",
+                "outcome": "Old",
                 "is_forgotten": True,
                 "forgotten_at": now,
                 "forgotten_reason": "Low salience",
@@ -1307,12 +1307,12 @@ class TestSupabaseForgetting:
             }
         )
 
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": "forgotten-2",
                 "agent_id": "test_agent",
                 "objective": "Forgotten 2",
-                "outcome_description": "Old",
+                "outcome": "Old",
                 "is_forgotten": True,
                 "forgotten_at": now,
                 "forgotten_reason": "Manual",
@@ -1321,12 +1321,12 @@ class TestSupabaseForgetting:
         )
 
         # Add non-forgotten episode (should not be returned)
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": "active",
                 "agent_id": "test_agent",
                 "objective": "Active",
-                "outcome_description": "Current",
+                "outcome": "Current",
                 "is_forgotten": False,
                 "created_at": now,
             }
@@ -1344,12 +1344,12 @@ class TestSupabaseForgetting:
         """Test getting forgotten memories when none exist."""
         storage, db = supabase_storage
 
-        db["agent_episodes"].append(
+        db["episodes"].append(
             {
                 "id": "active",
                 "agent_id": "test_agent",
                 "objective": "Active",
-                "outcome_description": "Current",
+                "outcome": "Current",
                 "is_forgotten": False,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
@@ -1363,7 +1363,7 @@ class TestSupabaseForgetting:
         storage, db = supabase_storage
 
         belief_id = str(uuid.uuid4())
-        db["agent_beliefs"].append(
+        db["beliefs"].append(
             {
                 "id": belief_id,
                 "agent_id": "test_agent",
@@ -1380,18 +1380,18 @@ class TestSupabaseForgetting:
         result = storage.forget_memory("belief", belief_id, reason="Outdated")
         assert result is True
 
-        updated = db["agent_beliefs"][0]
+        updated = db["beliefs"][0]
         assert updated["is_forgotten"] is True
 
-    def test_forget_note_uses_owner_id(self, supabase_storage):
-        """Test that forgetting notes uses owner_id correctly."""
+    def test_forget_note_uses_agent_id(self, supabase_storage):
+        """Test that forgetting notes uses agent_id correctly."""
         storage, db = supabase_storage
 
         note_id = str(uuid.uuid4())
-        db["memories"].append(
+        db["notes"].append(
             {
                 "id": note_id,
-                "owner_id": "test_agent",  # Notes use owner_id, not agent_id
+                "agent_id": "test_agent",  # Notes use agent_id, not agent_id
                 "content": "Test note",
                 "source": "curated",
                 "is_protected": False,
@@ -1404,5 +1404,5 @@ class TestSupabaseForgetting:
         result = storage.forget_memory("note", note_id, reason="Cleanup")
         assert result is True
 
-        updated = db["memories"][0]
+        updated = db["notes"][0]
         assert updated["is_forgotten"] is True
