@@ -579,7 +579,7 @@ kernle -a claire export memory-snapshot.json --format json
 
 ## init
 
-Initialize Kernle with interactive setup.
+Initialize Kernle by generating a `CLAUDE.md`/`AGENTS.md` health check section.
 
 ```bash
 kernle -a <agent> init [options]
@@ -587,17 +587,20 @@ kernle -a <agent> init [options]
 
 | Option | Description |
 |--------|-------------|
-| `-y, --non-interactive` | Use defaults |
-| `--env {claude-code,clawdbot,cline,cursor,desktop}` | Target environment |
-| `--seed-values` | Seed initial values (default: true) |
-| `--no-seed-values` | Skip seeding values |
+| `-s, --style {standard,minimal,combined}` | Section style (default: standard) |
+| `-o, --output PATH` | Output file path (auto-detects CLAUDE.md/AGENTS.md) |
+| `-p, --print` | Print to stdout instead of writing |
+| `-f, --force` | Overwrite/append even if Kernle section already exists |
+| `--no-per-message` | Skip per-message health check section |
+| `-y, --non-interactive` | Use defaults (no prompts) |
+| `--full-setup` | Full setup: instruction file + seed beliefs + platform hooks |
 
 ```bash
 # Interactive
 kernle -a my-project init
 
-# Non-interactive for Claude Code
-kernle -a my-project init -y --env claude-code
+# Non-interactive
+kernle -a my-project init -y --style minimal
 ```
 
 ---

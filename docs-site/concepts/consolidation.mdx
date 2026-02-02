@@ -68,7 +68,7 @@ kernle raw process <raw_id> --type episode \
   --outcome "success"
 
 # Process into note
-kernle raw process <raw_id> --type note --type decision
+kernle raw process <raw_id> --type note
 
 # Process into belief
 kernle raw process <raw_id> --type belief --confidence 0.7
@@ -129,7 +129,7 @@ kernle consolidate --min-episodes 3
     - What patterns do I see across these experiences?
     - Do any lessons keep appearing?
     - Does this confirm or contradict what I already believe?
-    
+
     **This is your reasoning, not Kernle's.**
   </Step>
   <Step title="Form Beliefs (Your Decision)">
@@ -167,7 +167,7 @@ $ kernle -a claire consolidate
 #    Lesson: "Always test in staging first"
 #
 # 2. [2025-01-25] "Skipped code review for quick fix"
-#    Outcome: failure  
+#    Outcome: failure
 #    Lesson: "Quick fixes become slow fixes without review"
 #
 # 3. [2025-01-26] "Wrote tests before implementation"
@@ -283,7 +283,7 @@ Recommendations:
     ```bash
     # Save your current state
     kernle checkpoint save "current work description"
-    
+
     # Review unprocessed episodes
     kernle consolidate
     ```
@@ -292,7 +292,7 @@ Recommendations:
     ```bash
     # Emergency save
     kernle anxiety --emergency --summary "Context getting full"
-    
+
     # Or auto-execute recommendations
     kernle anxiety --auto
     ```

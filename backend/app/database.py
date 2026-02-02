@@ -907,8 +907,10 @@ async def verify_api_key_auth(db: Client, api_key: str) -> dict | None:
 
             # Get tier and admin status from users table
             user = await get_user(db, user_id)
-            tier = user.get("tier", "free") if user else "free"
-            is_admin = user.get("is_admin", False) if user else False
+            if not user:
+                return None
+            tier = user.get("tier", "free")
+            is_admin = user.get("is_admin", False)
 
             return {
                 "user_id": user_id,

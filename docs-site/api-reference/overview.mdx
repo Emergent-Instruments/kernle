@@ -10,24 +10,17 @@ The Kernle API provides programmatic access to memory operations for cloud-synce
 ## Base URL
 
 ```
-https://api.kernle.ai
+https://kernle-backend.up.railway.app
 ```
 
 For self-hosted deployments, use your configured backend URL.
 
 ## Authentication
 
-All API requests require authentication via API key:
+All API requests require authentication via either:
 
-```bash
-Authorization: Bearer knl_sk_your-api-key
-```
-
-API keys use the `knl_sk_` prefix for easy identification. Get your API key from the [Dashboard](https://kernle.ai/settings/keys) or via CLI:
-
-```bash
-kernle auth keys create --name "My App"
-```
+- **API key**: `Authorization: Bearer knl_sk_...`
+- **JWT** (web UI): `Authorization: Bearer <jwt>`
 
 ## Request Format
 
@@ -36,32 +29,12 @@ kernle auth keys create --name "My App"
 
 ## Response Format
 
-All responses follow this structure:
+Responses are JSON objects specific to each endpoint (no envelope). Errors use
+FastAPI-style responses:
 
 ```json
 {
-  "success": true,
-  "data": { ... },
-  "meta": {
-    "timestamp": "2024-01-15T10:30:00Z",
-    "request_id": "req_abc123"
-  }
-}
-```
-
-### Error Responses
-
-```json
-{
-  "success": false,
-  "error": {
-    "code": "invalid_request",
-    "message": "Missing required field: agent_id"
-  },
-  "meta": {
-    "timestamp": "2024-01-15T10:30:00Z",
-    "request_id": "req_abc123"
-  }
+  "detail": "Error message"
 }
 ```
 
@@ -78,19 +51,7 @@ All responses follow this structure:
 
 ## Rate Limits
 
-| Plan | Requests/minute | Requests/day |
-|------|-----------------|--------------|
-| Free | 60 | 1,000 |
-| Pro | 300 | 50,000 |
-| Enterprise | Custom | Custom |
-
-Rate limit headers are included in responses:
-
-```
-X-RateLimit-Limit: 60
-X-RateLimit-Remaining: 45
-X-RateLimit-Reset: 1705312200
-```
+Rate limits are enforced per endpoint (see `backend/docs/API.md`).
 
 ## API Endpoints
 
@@ -108,6 +69,11 @@ X-RateLimit-Reset: 1705312200
     Generate and manage embeddings
   </Card>
 </CardGroup>
+
+<Note>
+Additional endpoints exist for **commerce** and **subscriptions** under
+`/api/v1`. Dedicated API reference pages are coming soon.
+</Note>
 
 ## SDKs
 

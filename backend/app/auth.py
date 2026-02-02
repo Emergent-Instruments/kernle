@@ -391,6 +391,7 @@ async def get_current_agent(
     except HTTPException:
         raise
     except Exception as e:
+        # Fail closed if we can't verify user
         logger.warning(f"User lookup failed for {user_id}: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

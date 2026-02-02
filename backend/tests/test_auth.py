@@ -113,9 +113,13 @@ class TestAuthEndpoints:
         with (
             patch("app.routes.auth.get_user", new_callable=AsyncMock) as mock_get_user,
             patch("app.routes.auth.get_usage_for_user", new_callable=AsyncMock) as mock_get_usage,
+            patch("app.database.get_user", new_callable=AsyncMock) as mock_auth_get_user,
+            patch("app.database.get_supabase_client") as mock_get_db,
         ):
             mock_get_user.return_value = mock_user
             mock_get_usage.return_value = mock_usage
+            mock_auth_get_user.return_value = mock_user
+            mock_get_db.return_value = MagicMock()
 
             response = client.get("/auth/me", headers=auth_headers)
 
