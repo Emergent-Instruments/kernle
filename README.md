@@ -51,7 +51,7 @@ kernle -a my-agent setup cowork
 
 After setup, memory loads automatically at every session start. No more forgetting to run `kernle load`!
 
-See `hooks/` directory for manual installation or `kernle setup --help` for details.
+See `kernle/hooks/` directory for manual installation or `kernle setup --help` for details.
 
 ## Other Integrations
 
