@@ -81,16 +81,18 @@ def auth_headers():
 
 
 @pytest.fixture(autouse=True)
-def mock_auth_db():
-    """Stub auth DB access to avoid network calls in unit tests."""
-    with (
-        patch("app.database.get_supabase_client") as mock_get_db,
-        patch("app.database.get_user", new_callable=AsyncMock) as mock_get_user,
-    ):
-        mock_get_db.return_value = MagicMock()
-        mock_get_user.return_value = {
-            "user_id": "usr_TEST_ONLY_000000",
-            "tier": "free",
-            "is_admin": False,
-        }
-        yield
+def mock_user_lookup(monkeypatch):
+    """Avoid real Supabase calls for auth in unit tests."""
+    if os.environ.get("RUN_INTEGRATION"):
+        return
+
+    async def _fake_get_user(db, user_id):
+        return {"user_id": user_id, "tier": "free", "is_admin": False}
+
+    monkeypatch.setattr("app.database.get_user", _fake_get_user)
+
+    async def _fake_ensure_agent_exists(db, user_id, agent_id):
+        return {"id": "agent-uuid", "agent_id": agent_id, "user_id": user_id}
+
+    monkeypatch.setattr("app.database.ensure_agent_exists", _fake_ensure_agent_exists)
+    monkeypatch.setattr("app.routes.sync.ensure_agent_exists", _fake_ensure_agent_exists)

@@ -25,7 +25,7 @@ from ..database import (
     create_api_key,
     create_seed_beliefs,
     create_user,
-    deactivate_api_key,
+    cycle_api_key_atomic,
     delete_api_key,
     get_agent,
     get_agent_by_email,
@@ -156,6 +156,15 @@ async def exchange_supabase_token(
                 detail="Authentication service temporarily unavailable",
             )
 
+        # Only accept expected JWT algorithms (prevents alg confusion attacks)
+        allowed_algs = {"RS256"}
+        if alg not in allowed_algs:
+            logger.error(f"OAuth: Unsupported JWT alg {alg}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token algorithm",
+            )
+
         # Find the key matching our token's kid
         signing_key = None
         for key in jwks_data.get("keys", []):
@@ -178,7 +187,7 @@ async def exchange_supabase_token(
             payload = jwt.decode(
                 token,
                 public_key,
-                algorithms=[alg],
+                algorithms=list(allowed_algs),
                 audience="authenticated",
                 issuer=expected_issuer,
             )
@@ -775,31 +784,28 @@ async def cycle_api_key(
     key_hash = hash_api_key(raw_key)
     key_prefix = get_api_key_prefix(raw_key)
 
-    # Create new key first (safer: if this fails, old key still works)
-    new_key_record = await create_api_key(
-        db,
-        user_id=auth.user_id,
-        key_hash=key_hash,
-        key_prefix=key_prefix,
-        name=old_key["name"],
-    )
+    try:
+        new_key_record = await cycle_api_key_atomic(
+            db,
+            key_id=key_id,
+            user_id=auth.user_id,
+            key_hash=key_hash,
+            key_prefix=key_prefix,
+            name=old_key["name"],
+        )
+    except Exception as e:
+        logger.error(
+            f"API key cycle failed for user {auth.user_id} key {key_id}: {type(e).__name__}: {e}"
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to cycle API key",
+        )
 
     if not new_key_record:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to create new API key",
-        )
-
-    # Deactivate old key (after new one is created)
-    # If this fails, user has two active keys (safe, just suboptimal)
-    try:
-        await deactivate_api_key(db, key_id, auth.user_id)
-    except Exception as e:
-        # Log but don't fail - new key is created, old one still active
-        # User can manually deactivate or it will be cleaned up
-        logger.warning(
-            f"Failed to deactivate old key {key_id} during cycle for user {auth.user_id}: {e}. "
-            "New key created successfully. User may need to manually deactivate old key."
+            detail="Failed to cycle API key",
         )
 
     logger.info(

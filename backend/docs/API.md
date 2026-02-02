@@ -118,8 +118,8 @@ Exchange a Supabase OAuth access token for a Kernle access token. Supports accou
 ```
 
 **Side Effects:**
-- Creates new agent if not exists (with seed beliefs)
-- Merges accounts if email matches existing agent
+- Creates/merges user records based on email
+- Agents are created separately when memory features are used
 
 **Errors:**
 - `401 Unauthorized`: Invalid or expired Supabase token
@@ -144,6 +144,56 @@ Get information about the currently authenticated agent.
   "created_at": "2024-01-01T00:00:00Z",
   "last_sync_at": "2024-01-01T00:00:00Z | null",
   "user_id": "string | null"
+}
+```
+
+---
+
+### Login With API Key
+
+```
+POST /auth/login
+```
+
+Validate an API key and return a fresh JWT token. Also sets an httpOnly cookie.
+
+🔒 **Requires Authentication** (via API key)
+
+**Response (200):**
+```json
+{
+  "user_id": "string",
+  "agent_id": "string",
+  "token": "string",
+  "token_expires": "2024-01-01T00:00:00Z"
+}
+```
+
+---
+
+### Usage Stats
+
+```
+GET /auth/usage
+```
+
+Get current usage statistics for the authenticated user.
+
+🔒 **Requires Authentication**
+
+**Response (200):**
+```json
+{
+  "tier": "string",
+  "limits": { "daily_limit": 1000, "monthly_limit": 20000 },
+  "usage": {
+    "daily_requests": 12,
+    "monthly_requests": 340,
+    "daily_reset_at": "2024-01-01T00:00:00Z",
+    "monthly_reset_at": "2024-02-01T00:00:00Z"
+  },
+  "daily_remaining": 988,
+  "monthly_remaining": 19660
 }
 ```
 
@@ -479,7 +529,7 @@ Create embeddings for multiple texts in a single request.
 **Request Body:**
 ```json
 {
-  "texts": ["string", "string", ...] 
+  "texts": ["string", "string", ...]
 }
 ```
 

@@ -953,6 +953,103 @@ def cmd_export(args, k: Kernle):
     print(f"✓ Exported memory to {args.path}")
 
 
+def cmd_boot(args, k: Kernle):
+    """Handle boot config subcommands."""
+    action = getattr(args, "boot_action", None)
+
+    if action == "set":
+        key = args.key
+        value = args.value
+        k.boot_set(key, value)
+        print(f"✓ {key}: {value}")
+
+    elif action == "get":
+        key = args.key
+        value = k.boot_get(key)
+        if value is not None:
+            print(value)
+        else:
+            print(f"Key not found: {key}", file=sys.stderr)
+            sys.exit(1)
+
+    elif action == "list":
+        config = k.boot_list()
+        if not config:
+            print("(no boot config)")
+            return
+
+        fmt = getattr(args, "format", "plain")
+        if fmt == "json":
+            import json
+            print(json.dumps(config, indent=2))
+        elif fmt == "md":
+            print("## Boot Config")
+            for key, value in sorted(config.items()):
+                print(f"- {key}: {value}")
+        else:
+            for key, value in sorted(config.items()):
+                print(f"{key}: {value}")
+
+    elif action == "delete":
+        key = args.key
+        deleted = k.boot_delete(key)
+        if deleted:
+            print(f"✓ Deleted: {key}")
+        else:
+            print(f"Key not found: {key}", file=sys.stderr)
+            sys.exit(1)
+
+    elif action == "clear":
+        confirm = getattr(args, "confirm", False)
+        if not confirm:
+            print("Use --confirm to clear all boot config", file=sys.stderr)
+            sys.exit(2)
+        count = k.boot_clear()
+        print(f"✓ Cleared {count} boot config entries")
+
+    elif action == "export":
+        output = getattr(args, "output", None)
+        k._export_boot_file()
+        boot_path = Path.home() / ".kernle" / k.agent_id / "boot.md"
+        if output:
+            # Copy to custom location
+            config = k.boot_list()
+            if config:
+                import shutil
+                shutil.copy2(boot_path, output)
+                print(f"✓ Boot config exported to {output}")
+            else:
+                print("(no boot config to export)")
+        else:
+            print(f"✓ Boot config exported to {boot_path}")
+
+
+def cmd_export_cache(args, k: Kernle):
+    """Export curated MEMORY.md bootstrap cache from Kernle state."""
+    output_path = getattr(args, "output", None)
+    min_confidence = getattr(args, "min_confidence", 0.4)
+    max_beliefs = getattr(args, "max_beliefs", 50)
+    no_checkpoint = getattr(args, "no_checkpoint", False)
+
+    content = k.export_cache(
+        path=output_path,
+        min_confidence=min_confidence,
+        max_beliefs=max_beliefs,
+        include_checkpoint=not no_checkpoint,
+    )
+
+    if output_path:
+        # Count what was exported
+        belief_count = content.count("\n- [")
+        value_count = content.count("\n- **")
+        print(f"✓ Cache exported to {output_path}")
+        print(f"  Beliefs: ~{belief_count}, Values+Relationships: ~{value_count}")
+        print(f"  Min confidence: {min_confidence:.0%}")
+    else:
+        # Print to stdout
+        print(content)
+
+
 def cmd_sync(args, k: Kernle):
     """Handle sync subcommands for local-to-cloud synchronization."""
     import os
@@ -1188,10 +1285,8 @@ def cmd_sync(args, k: Kernle):
 
         # Build operations list for the API
         operations = []
+        skipped_orphans = 0
         for change in queued_changes:
-            # Get the actual record data
-            record = k._storage._get_record_for_push(change.table_name, change.record_id)
-
             op_type = (
                 "update" if change.operation in ("upsert", "insert", "update") else change.operation
             )
@@ -1208,55 +1303,83 @@ def cmd_sync(args, k: Kernle):
             }
 
             # Add record data for non-delete operations
-            if record and op_type != "delete":
-                # Convert record to dict
-                record_dict = {}
-                for field in [
-                    "id",
-                    "agent_id",
-                    "content",
-                    "objective",
-                    "outcome_type",
-                    "outcome_description",
-                    "lessons_learned",
-                    "tags",
-                    "statement",
-                    "confidence",
-                    "drive_type",
-                    "intensity",
-                    "name",
-                    "priority",
-                    "title",
-                    "status",
-                    "progress",
-                    "entity_name",
-                    "entity_type",
-                    "relationship_type",
-                    "notes",
-                    "sentiment",
-                    "focus_areas",
-                    "created_at",
-                    "updated_at",
-                    "local_updated_at",
-                    # raw_entries fields
-                    "timestamp",
-                    "source",
-                    "processed",
-                    # playbooks fields
-                    "description",
-                    "steps",
-                    "triggers",
-                    # goals fields
-                    "target_date",
-                ]:
-                    if hasattr(record, field):
-                        value = getattr(record, field)
-                        if hasattr(value, "isoformat"):
-                            value = value.isoformat()
-                        record_dict[field] = value
-                op_data["data"] = record_dict
+            # Strategy: stored payload first (canonical snapshot from change time),
+            # fall back to re-fetch from source table
+            if op_type != "delete":
+                record_dict = None
+
+                # Try stored payload first (survives source record deletion)
+                if change.payload:
+                    try:
+                        record_dict = json.loads(change.payload)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+                # Fall back to live source table
+                if not record_dict:
+                    record = k._storage._get_record_for_push(change.table_name, change.record_id)
+                    if record:
+                        record_dict = {}
+                        for field in [
+                            "id",
+                            "agent_id",
+                            "content",
+                            "objective",
+                            "outcome_type",
+                            "outcome_description",
+                            "lessons_learned",
+                            "tags",
+                            "statement",
+                            "confidence",
+                            "drive_type",
+                            "intensity",
+                            "name",
+                            "priority",
+                            "title",
+                            "status",
+                            "progress",
+                            "entity_name",
+                            "entity_type",
+                            "relationship_type",
+                            "notes",
+                            "sentiment",
+                            "focus_areas",
+                            "created_at",
+                            "updated_at",
+                            "local_updated_at",
+                            # raw_entries fields
+                            "timestamp",
+                            "source",
+                            "processed",
+                            # playbooks fields
+                            "description",
+                            "steps",
+                            "triggers",
+                            # goals fields
+                            "target_date",
+                        ]:
+                            if hasattr(record, field):
+                                value = getattr(record, field)
+                                if hasattr(value, "isoformat"):
+                                    value = value.isoformat()
+                                record_dict[field] = value
+
+                if record_dict:
+                    op_data["data"] = record_dict
+                else:
+                    # No stored payload AND no source record — orphaned entry
+                    skipped_orphans += 1
+                    with k._storage._connect() as conn:
+                        conn.execute(
+                            "UPDATE sync_queue SET synced = 1 WHERE id = ?",
+                            (change.id,),
+                        )
+                    continue
 
             operations.append(op_data)
+
+        if skipped_orphans > 0:
+            print(f"⚠️  Skipped {skipped_orphans} orphaned entries (source records deleted)")
 
         # Send to backend
         # Include agent_id as just the local project name
@@ -1529,8 +1652,8 @@ def cmd_sync(args, k: Kernle):
             print("  ✓ No pending changes to push")
         else:
             operations = []
+            skipped_orphans = 0
             for change in queued_changes:
-                record = k._storage._get_record_for_push(change.table_name, change.record_id)
                 op_type = (
                     "update"
                     if change.operation in ("upsert", "insert", "update")
@@ -1548,54 +1671,79 @@ def cmd_sync(args, k: Kernle):
                     "version": 1,
                 }
 
-                if record and op_type != "delete":
-                    record_dict = {}
-                    for field in [
-                        "id",
-                        "agent_id",
-                        "content",
-                        "objective",
-                        "outcome_type",
-                        "outcome_description",
-                        "lessons_learned",
-                        "tags",
-                        "statement",
-                        "confidence",
-                        "drive_type",
-                        "intensity",
-                        "name",
-                        "priority",
-                        "title",
-                        "status",
-                        "progress",
-                        "entity_name",
-                        "entity_type",
-                        "relationship_type",
-                        "notes",
-                        "sentiment",
-                        "focus_areas",
-                        "created_at",
-                        "updated_at",
-                        "local_updated_at",
-                        # raw_entries fields
-                        "timestamp",
-                        "source",
-                        "processed",
-                        # playbooks fields
-                        "description",
-                        "steps",
-                        "triggers",
-                        # goals fields
-                        "target_date",
-                    ]:
-                        if hasattr(record, field):
-                            value = getattr(record, field)
-                            if hasattr(value, "isoformat"):
-                                value = value.isoformat()
-                            record_dict[field] = value
-                    op_data["data"] = record_dict
+                # Payload-first: use stored data, fall back to source table
+                if op_type != "delete":
+                    record_dict = None
+
+                    if change.payload:
+                        try:
+                            record_dict = json.loads(change.payload)
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+
+                    if not record_dict:
+                        record = k._storage._get_record_for_push(change.table_name, change.record_id)
+                        if record:
+                            record_dict = {}
+                            for field in [
+                                "id",
+                                "agent_id",
+                                "content",
+                                "objective",
+                                "outcome_type",
+                                "outcome_description",
+                                "lessons_learned",
+                                "tags",
+                                "statement",
+                                "confidence",
+                                "drive_type",
+                                "intensity",
+                                "name",
+                                "priority",
+                                "title",
+                                "status",
+                                "progress",
+                                "entity_name",
+                                "entity_type",
+                                "relationship_type",
+                                "notes",
+                                "sentiment",
+                                "focus_areas",
+                                "created_at",
+                                "updated_at",
+                                "local_updated_at",
+                                # raw_entries fields
+                                "timestamp",
+                                "source",
+                                "processed",
+                                # playbooks fields
+                                "description",
+                                "steps",
+                                "triggers",
+                                # goals fields
+                                "target_date",
+                            ]:
+                                if hasattr(record, field):
+                                    value = getattr(record, field)
+                                    if hasattr(value, "isoformat"):
+                                        value = value.isoformat()
+                                    record_dict[field] = value
+
+                    if record_dict:
+                        op_data["data"] = record_dict
+                    else:
+                        skipped_orphans += 1
+                        with k._storage._connect() as conn:
+                            conn.execute(
+                                "UPDATE sync_queue SET synced = 1 WHERE id = ?",
+                                (change.id,),
+                        )
+                    continue
 
                 operations.append(op_data)
+
+            if skipped_orphans > 0:
+                print(f"  ⚠️  Skipped {skipped_orphans} orphaned entries (source records deleted)")
 
             try:
                 response = httpx.post(
@@ -3067,6 +3215,85 @@ def main():
         "--no-raw", dest="include_raw", action="store_false", help="Exclude raw entries"
     )
 
+    # boot (always-available config key/values)
+    p_boot = subparsers.add_parser(
+        "boot",
+        help="Boot config (always-available key/value settings)",
+        description="Manage boot config — instant key/value config that's available before kernle load.",
+    )
+    boot_sub = p_boot.add_subparsers(dest="boot_action", required=True)
+
+    boot_set = boot_sub.add_parser("set", help="Set a boot config value")
+    boot_set.add_argument("key", help="Config key")
+    boot_set.add_argument("value", help="Config value")
+
+    boot_get = boot_sub.add_parser("get", help="Get a boot config value")
+    boot_get.add_argument("key", help="Config key")
+
+    boot_list = boot_sub.add_parser("list", help="List all boot config")
+    boot_list.add_argument(
+        "--format", "-f",
+        choices=["plain", "json", "md"],
+        default="plain",
+        help="Output format (default: plain)",
+    )
+
+    boot_delete = boot_sub.add_parser("delete", help="Delete a boot config value")
+    boot_delete.add_argument("key", help="Config key to delete")
+
+    boot_clear = boot_sub.add_parser("clear", help="Clear all boot config")
+    boot_clear.add_argument(
+        "--confirm",
+        action="store_true",
+        help="Confirm clearing all boot config",
+    )
+
+    boot_export = boot_sub.add_parser("export", help="Export boot config to file")
+    boot_export.add_argument(
+        "--output", "-o",
+        help="Export to custom path (default: ~/.kernle/{agent}/boot.md)",
+    )
+
+    # export-cache (bootstrap cache for workspace injection)
+    p_export_cache = subparsers.add_parser(
+        "export-cache",
+        help="Export curated MEMORY.md cache from beliefs/values/goals",
+        description="""
+Export a read-only bootstrap cache (MEMORY.md) from Kernle state.
+
+This is NOT a full memory dump — it's a curated summary of high-signal
+layers (beliefs, values, goals, key relationships, checkpoint) designed
+to give an agent immediate context before `kernle load` runs.
+
+The output file should never be manually edited. It's auto-generated
+and will be overwritten on next export.
+
+Typical usage in a memoryFlush hook:
+  kernle -a <agent> export-cache --output /path/to/workspace/MEMORY.md
+""",
+    )
+    p_export_cache.add_argument(
+        "--output", "-o",
+        help="Write to file (default: stdout)",
+    )
+    p_export_cache.add_argument(
+        "--min-confidence",
+        type=float,
+        default=0.4,
+        help="Minimum belief confidence to include (default: 0.4)",
+    )
+    p_export_cache.add_argument(
+        "--max-beliefs",
+        type=int,
+        default=50,
+        help="Maximum number of beliefs (default: 50)",
+    )
+    p_export_cache.add_argument(
+        "--no-checkpoint",
+        action="store_true",
+        help="Exclude checkpoint from cache",
+    )
+
     # playbook (procedural memory)
     p_playbook = subparsers.add_parser("playbook", help="Playbook (procedural memory) operations")
     playbook_sub = p_playbook.add_subparsers(dest="playbook_action", required=True)
@@ -3779,6 +4006,10 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_dump(args, k)
         elif args.command == "export":
             cmd_export(args, k)
+        elif args.command == "export-cache":
+            cmd_export_cache(args, k)
+        elif args.command == "boot":
+            cmd_boot(args, k)
         elif args.command == "sync":
             cmd_sync(args, k)
         elif args.command == "auth":

@@ -22,7 +22,9 @@ Railway-hosted API backend for Kernle memory sync.
 - `POST /auth/register` - Register a new agent
 - `POST /auth/token` - Get access token
 - `POST /auth/oauth/token` - Exchange Supabase OAuth token
+- `POST /auth/login` - Validate API key and get JWT
 - `GET /auth/me` - Get current agent info
+- `GET /auth/usage` - Get usage stats
 
 #### API Keys
 - `POST /auth/keys` - Create new API key
@@ -49,7 +51,7 @@ Railway-hosted API backend for Kernle memory sync.
 uv pip install -e ".[dev]"
 
 # Copy environment variables
-cp ../.env .env
+cp ../.env.example .env
 
 # Run server
 uvicorn app.main:app --reload
@@ -65,12 +67,12 @@ uvicorn app.main:app --reload
 
 Required:
 - `SUPABASE_URL` - Supabase project URL
-- `SUPABASE_SERVICE_ROLE_KEY` - Service role key for backend operations
-- `SUPABASE_ANON_KEY` - Anon key
+- `SUPABASE_SECRET_KEY` or `SUPABASE_SERVICE_ROLE_KEY` - Backend/admin access key
+- `JWT_SECRET_KEY` - Secret for JWT signing (required)
 - `DATABASE_URL` - PostgreSQL connection string
 
 Optional:
-- `JWT_SECRET_KEY` - Secret for JWT signing (auto-generated if not set)
+- `SUPABASE_PUBLISHABLE_KEY` or `SUPABASE_ANON_KEY` - Client/public access key
 - `OPENAI_API_KEY` - Required for embeddings endpoints
-- `DEBUG` - Enable debug mode
-- `CORS_ORIGINS` - Allowed CORS origins (default: *)
+- `DEBUG` - Enable debug mode (adds localhost to allowed origins)
+- `CORS_ORIGINS` - Allowed CORS origins (defaults to production domains)

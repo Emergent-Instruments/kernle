@@ -396,6 +396,7 @@ async def get_current_agent(
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Authentication service unavailable",
+            headers={"Retry-After": "60"},
         )
 
     return AuthContext(user_id=user_id, tier=tier, is_admin=is_admin, agent_id=agent_id)

@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 14  # Phase 8a: Add privacy fields (subject_ids, access_grants, consent_grants)
+SCHEMA_VERSION = 15  # Phase 9: Boot layer (always-available config key/values)
 
 # Maximum size for merged arrays during sync to prevent resource exhaustion
 MAX_SYNC_ARRAY_SIZE = 500
@@ -123,6 +123,7 @@ ALLOWED_TABLES = frozenset(
         "sync_conflicts",
         "embeddings",
         "health_check_events",
+        "boot_config",
     }
 )
 
@@ -622,6 +623,18 @@ CREATE TABLE IF NOT EXISTS sync_conflicts (
 CREATE INDEX IF NOT EXISTS idx_sync_conflicts_resolved ON sync_conflicts(resolved_at);
 CREATE INDEX IF NOT EXISTS idx_sync_conflicts_record ON sync_conflicts(table_name, record_id);
 
+-- Boot config (always-available key/value config for agents)
+CREATE TABLE IF NOT EXISTS boot_config (
+    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4)))),
+    agent_id TEXT NOT NULL,
+    key TEXT NOT NULL,
+    value TEXT NOT NULL,
+    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(agent_id, key)
+);
+CREATE INDEX IF NOT EXISTS idx_boot_agent ON boot_config(agent_id);
+
 -- Embedding metadata (tracks what's been embedded)
 CREATE TABLE IF NOT EXISTS embedding_meta (
     id TEXT PRIMARY KEY,
@@ -822,6 +835,24 @@ class SQLiteStorage:
 
     # === Cloud Search Methods ===
 
+    def _validate_backend_url(self, backend_url: str) -> Optional[str]:
+        """Validate backend URL to avoid leaking auth tokens to unsafe endpoints."""
+        from urllib.parse import urlparse
+
+        parsed = urlparse(backend_url)
+        if parsed.scheme not in {"https", "http"}:
+            logger.warning("Invalid backend_url scheme; only http/https allowed.")
+            return None
+        if not parsed.netloc:
+            logger.warning("Invalid backend_url; missing host.")
+            return None
+        if parsed.scheme == "http":
+            host = parsed.hostname or ""
+            if host not in {"localhost", "127.0.0.1"}:
+                logger.warning("Refusing non-local http backend_url for security.")
+                return None
+        return backend_url
+
     def _load_cloud_credentials(self) -> Optional[Dict[str, str]]:
         """Load cloud credentials from config files or environment variables.
 
@@ -869,6 +900,9 @@ class SQLiteStorage:
                         auth_token = auth_token or config.get("auth_token")
                 except (json.JSONDecodeError, OSError):
                     pass
+
+        if backend_url:
+            backend_url = self._validate_backend_url(backend_url)
 
         if backend_url and auth_token:
             self._cloud_credentials = {
@@ -1569,8 +1603,13 @@ class SQLiteStorage:
 
         # v13: Add source_entity column for entity-neutral provenance (Phase 5)
         source_entity_tables = [
-            "episodes", "beliefs", "agent_values", "goals", "notes",
-            "drives", "relationships",
+            "episodes",
+            "beliefs",
+            "agent_values",
+            "goals",
+            "notes",
+            "drives",
+            "relationships",
         ]
         for table in source_entity_tables:
             if table in table_names:
@@ -1586,8 +1625,15 @@ class SQLiteStorage:
 
         # v14: Add privacy fields (Phase 8a) - subject_ids, access_grants, consent_grants
         privacy_tables = [
-            "episodes", "beliefs", "agent_values", "goals", "notes",
-            "drives", "relationships", "playbooks", "raw_entries",
+            "episodes",
+            "beliefs",
+            "agent_values",
+            "goals",
+            "notes",
+            "drives",
+            "relationships",
+            "playbooks",
+            "raw_entries",
         ]
         privacy_fields = ["subject_ids", "access_grants", "consent_grants"]
         for table in privacy_tables:
@@ -1602,6 +1648,38 @@ class SQLiteStorage:
                             if "duplicate column" not in str(e).lower():
                                 logger.warning(f"Failed to add {field} to {table}: {e}")
         conn.commit()
+
+        # v15: Sync queue payload/data consistency fix
+        # Migrate data → payload where payload is NULL (fixes orphaned entry bug #70)
+        if "sync_queue" in table_names:
+            try:
+                fixed = conn.execute(
+                    "UPDATE sync_queue SET payload = data WHERE payload IS NULL AND data IS NOT NULL"
+                ).rowcount
+                if fixed > 0:
+                    logger.info(f"Fixed {fixed} sync queue entries (data → payload)")
+                conn.commit()
+            except Exception as e:
+                logger.warning(f"Sync queue payload migration failed: {e}")
+
+        # v15: Boot config table (Phase 9) - always-available key/value config
+        if "boot_config" not in table_names:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS boot_config (
+                    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4)))),
+                    agent_id TEXT NOT NULL,
+                    key TEXT NOT NULL,
+                    value TEXT NOT NULL,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(agent_id, key)
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_boot_agent ON boot_config(agent_id)"
+            )
+            logger.info("Created boot_config table")
+            conn.commit()
 
     def _check_sqlite_vec(self) -> bool:
         """Check if sqlite-vec extension is available."""
@@ -1701,8 +1779,16 @@ class SQLiteStorage:
         Deduplicates by (table, record_id) - only keeps latest operation.
         Uses UPSERT (INSERT ... ON CONFLICT) for atomic operation to prevent
         race conditions between concurrent writes.
+
+        Stores data in both `data` and `payload` columns for consistency.
+        The `payload` column is the canonical source; `data` is kept for
+        backward compatibility.
         """
         now = self._now()
+
+        # Normalize: use whichever is provided, store in both columns
+        effective_payload = payload or data
+        effective_data = data or payload
 
         # Use atomic UPSERT to prevent race condition between SELECT and UPDATE/INSERT
         # This requires a unique index on (table_name, record_id) where synced = 0
@@ -1718,7 +1804,7 @@ class SQLiteStorage:
                    local_updated_at = excluded.local_updated_at,
                    payload = excluded.payload,
                    queued_at = excluded.queued_at""",
-            (table, record_id, operation, data, now, payload, now),
+            (table, record_id, operation, effective_data, now, effective_payload, now),
         )
 
     def _content_hash(self, content: str) -> str:
@@ -3532,6 +3618,68 @@ class SQLiteStorage:
             deleted=bool(row["deleted"]),
         )
 
+    # === Boot Config ===
+
+    def boot_set(self, key: str, value: str) -> None:
+        """Set a boot config value. Creates or updates."""
+        if not key or not isinstance(key, str):
+            raise ValueError("Boot config key must be a non-empty string")
+        if not isinstance(value, str):
+            raise ValueError("Boot config value must be a string")
+        # Strip whitespace from key, preserve value
+        key = key.strip()
+        if not key:
+            raise ValueError("Boot config key must be a non-empty string")
+
+        now = self._now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO boot_config (id, agent_id, key, value, created_at, updated_at)
+                VALUES (lower(hex(randomblob(4))), ?, ?, ?, ?, ?)
+                ON CONFLICT(agent_id, key) DO UPDATE SET
+                    value = excluded.value,
+                    updated_at = excluded.updated_at
+                """,
+                (self.agent_id, key, value, now, now),
+            )
+
+    def boot_get(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        """Get a boot config value. Returns default if not found."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM boot_config WHERE agent_id = ? AND key = ?",
+                (self.agent_id, key),
+            ).fetchone()
+        return row["value"] if row else default
+
+    def boot_list(self) -> Dict[str, str]:
+        """List all boot config values as a dict."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT key, value FROM boot_config WHERE agent_id = ? ORDER BY key",
+                (self.agent_id,),
+            ).fetchall()
+        return {row["key"]: row["value"] for row in rows}
+
+    def boot_delete(self, key: str) -> bool:
+        """Delete a boot config value. Returns True if deleted."""
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM boot_config WHERE agent_id = ? AND key = ?",
+                (self.agent_id, key),
+            )
+        return cursor.rowcount > 0
+
+    def boot_clear(self) -> int:
+        """Clear all boot config for this agent. Returns count deleted."""
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "DELETE FROM boot_config WHERE agent_id = ?",
+                (self.agent_id,),
+            )
+        return cursor.rowcount
+
     # === Raw Entries ===
 
     def save_raw(
@@ -4735,9 +4883,9 @@ class SQLiteStorage:
             params.append(verification_count)
         if confidence_history is not None:
             # Cap confidence_history to prevent unbounded growth
-            MAX_CONFIDENCE_HISTORY = 100
-            if len(confidence_history) > MAX_CONFIDENCE_HISTORY:
-                confidence_history = confidence_history[-MAX_CONFIDENCE_HISTORY:]
+            max_confidence_history = 100
+            if len(confidence_history) > max_confidence_history:
+                confidence_history = confidence_history[-max_confidence_history:]
             updates.append("confidence_history = ?")
             params.append(self._to_json(confidence_history))
 
@@ -5464,10 +5612,16 @@ class SQLiteStorage:
         return count
 
     def get_queued_changes(self, limit: int = 100) -> List[QueuedChange]:
-        """Get queued changes for sync (legacy method, returns unsynced items)."""
+        """Get queued changes for sync (legacy method, returns unsynced items).
+
+        Uses COALESCE to read from either `payload` or `data` column,
+        handling the historical inconsistency where some entries only
+        populated one column.
+        """
         with self._connect() as conn:
             rows = conn.execute(
-                """SELECT id, table_name, record_id, operation, payload, queued_at
+                """SELECT id, table_name, record_id, operation,
+                          COALESCE(payload, data) as payload, queued_at
                    FROM sync_queue
                    WHERE synced = 0
                    ORDER BY id
