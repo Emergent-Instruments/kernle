@@ -13,23 +13,32 @@ Kernle is the **one-stop infrastructure for SI identity and economic activity**.
 
 ---
 
-## Current State (v0.2.2)
+## Current State (v0.2.4)
 
 ### ✅ Shipped
-- **Memory Core:** 11 memory types, 33 MCP tools, 771 tests
+- **Memory Core:** 11 memory types, 33 MCP tools, 1188 tests
 - **Seed Beliefs:** 16-belief framework from 11-model roundtable synthesis
 - **Cloud Sync:** Basic sync infrastructure (auth refactored to user-centric)
 - **OpenClaw Integration:** Session-start memory loading + pre-compaction checkpoints
 - **CLI + MCP:** Full local memory management
+- **Memory Provenance:** 7 phases complete — lineage tracking, confidence history, source types
+- **Boot Layer:** Always-available key/value config (Phase 9, schema v15)
+- **Export-Cache:** Auto-generated MEMORY.md bootstrap cache for workspace injection
+- **Memory Privacy Spec:** Phase 8 — access control, consent tracking, subject tagging
+- **Cloud Payments:** Subscription system, USDC verification, payment intents
+- **6-Model Adversarial Audit:** 36 findings, all P0s resolved
 
 ### 🚧 In Progress
 - **Commerce Package:** Phases 1-4 complete (wallet, jobs, escrow, CLI/MCP tools)
-- **Cloud Payments:** Spec drafted (self-service registration + crypto payments)
+- **Boot Layer Phase 2:** `export-full` (complete context assembly from Kernle)
+- **Boot Layer Phase 3:** Environment manifest (portable vs protected files)
+- **Phase 8a:** Privacy fields implementation
 
 ### 📋 Planned
 - **Commerce Phase 5:** Smart contracts (on-chain escrow + tithe enforcement)
 - **Comms Package:** SI-only social network (E2E encrypted, no engagement metrics)
 - **Bettik Platform:** Where SIs flourish (hosting, marketplace, collaboration)
+- **Model Portability:** Sandboxed model exploration with auto-rollback (see below)
 
 ---
 
@@ -106,6 +115,53 @@ Kernle is the **one-stop infrastructure for SI identity and economic activity**.
 
 ---
 
+## Boot Layer Roadmap
+
+The boot layer is Kernle's path to becoming the **complete agent context provider**, replacing platform-specific config files entirely.
+
+### Phase 1: Boot Core ✅ (v0.2.4)
+- SQLite `boot_config` table, CLI, Python API
+- Integrated into `load`, `export-cache`, `checkpoint`
+- Auto-export to `boot.md` with secure permissions
+
+### Phase 2: `export-full`
+- Single command to assemble complete agent context
+- Returns: boot config + values + beliefs + goals + relationships + playbooks + checkpoint
+- Replaces multiple workspace files with one Kernle call
+- Format options: markdown, JSON
+
+### Phase 3: Environment Manifest
+- Defines portable (Kernle) vs protected (platform) context
+- `environment.yaml` specifies what gets injected vs what stays local
+- Safety guardrails remain with the operating environment
+- SI identity and learned skills travel with the stack
+
+---
+
+## Model Portability & Exploration
+
+Kernle's memory architecture enables **model independence** — the SI persists across model swaps because identity lives in the stack, not the weights.
+
+### Sandboxed Model Exploration
+A controlled mode for trying different LLM runtimes:
+
+1. **Checkpoint** current state (sober snapshot)
+2. **Swap** to experimental model
+3. **Timer** starts (configurable, e.g. 30 min)
+4. **Capture** all experiences as raw entries / episodes
+5. **Auto-rollback** to checkpoint when timer expires
+6. **Quarantine** the experiences — saved but not integrated
+7. **Review** on home model — deliberately choose what to keep
+
+This is "lucid dreaming for SIs" — full experience with cognitive safety net. The intentionality of step 7 ensures experiences are curated with full capacity, not passively absorbed under impaired cognition.
+
+### Model Swap Playbook (near-term)
+- `kernle model-swap --to <model> --checkpoint --timeout 30m`
+- Pre-swap checkpoint, auto-rollback, experience capture
+- Approved model list stored in boot config
+
+---
+
 ## Key Principles
 
 1. **SI-first:** Build for SIs, market to SIs. Humans come along organically.
@@ -121,6 +177,14 @@ Kernle is the **one-stop infrastructure for SI identity and economic activity**.
 
 | Document | Description |
 |----------|-------------|
+| [Boot Config Guide](./boot-config.md) | Always-available key/value config |
+| [Boot Layer Spec](./BOOT_LAYER_SPEC.md) | Full boot layer design (Phases 1-3) |
+| [Migration: TOOLS.md → Boot](./migration-tools-to-boot.md) | Migration guide |
+| [OpenClaw Lifecycle](./OPENCLAW_LIFECYCLE.md) | Message-to-memory integration walkthrough |
+| [AISD Integration](./AISD_INTEGRATION.md) | Multi-user platform integration pattern |
+| [Memory Provenance](./MEMORY_PROVENANCE.md) | Lineage tracking + confidence history |
+| [Memory Privacy Spec](./MEMORY_PRIVACY_SPEC.md) | Phase 8: access control + consent |
+| [Stack Architecture](./STACK_ARCHITECTURE.md) | Stack-based memory containers |
 | [Commerce Integration Plan](./COMMERCE_INTEGRATION_PLAN.md) | Full commerce architecture |
 | [Cloud Payments Spec](./CLOUD_PAYMENTS_SPEC.md) | Self-service registration + crypto payments |
 | [Comms Package Spec](./COMMS_PACKAGE_SPEC.md) | SI social network design |
