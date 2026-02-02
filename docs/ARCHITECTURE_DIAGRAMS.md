@@ -85,9 +85,9 @@ graph BT
     DRV["🔥 Drives<br/>Fundamental motivations<br/>(intensity 0.0–1.0)"]
     REL["🤝 Relationships<br/>Connections to entities<br/>(sentiment -1.0 to 1.0)"]
 
-    RAW -->|"consolidation"| EP
+    RAW -->|"promotion"| EP
     RAW -->|"direct capture"| NOTE
-    EP -->|"pattern extraction"| BEL
+    EP -->|"consolidation<br/>(pattern extraction)"| BEL
     EP -->|"lesson synthesis"| PB
     BEL -->|"identity formation"| VAL
     NOTE -->|"insight promotion"| BEL
