@@ -602,15 +602,31 @@ graph TB
 
 ### 3.2 Memory Lifecycle in a Session
 
+The memory lifecycle uses a **belt-and-suspenders** pattern: MEMORY.md is refreshed
+both at session start (guaranteed) and session end (best-effort). SQLite is always
+the source of truth; MEMORY.md is a read-only projection.
+
 ```mermaid
 sequenceDiagram
     participant GW as OpenClaw Gateway
+    participant HOOK as kernle-memory-refresh<br/>Hook
     participant WS as Workspace Files
     participant K as Kernle CLI
     participant LLM as Foundation Model
     participant SQLITE as Local SQLite
 
     Note over GW: Session starts (message arrives)
+
+    rect rgb(230, 245, 255)
+        Note over GW,HOOK: agent:bootstrap event (pre-injection)
+        GW->>HOOK: Fire agent:bootstrap
+        HOOK->>K: kernle -a {agent} export-cache<br/>--output MEMORY.md
+        K->>SQLITE: Read latest state
+        SQLITE-->>K: Current beliefs, values,<br/>goals, boot config, checkpoint
+        K->>WS: Write fresh MEMORY.md
+        Note over WS: MEMORY.md guaranteed current<br/>(even if previous session crashed)
+    end
+
     GW->>WS: Inject AGENTS.md, SOUL.md,<br/>USER.md, MEMORY.md as context
     Note over WS: MEMORY.md provides immediate<br/>bootstrap context (beliefs, values,<br/>goals, boot config)
 
@@ -626,14 +642,21 @@ sequenceDiagram
     LLM->>K: kernle -a {agent} episode "task" "outcome"
     K->>SQLITE: Save episode + queue sync
 
-    Note over GW: Compaction hook triggers
-    LLM->>K: kernle -a {agent} checkpoint save "task"<br/>--context "..." --progress "..."
-    K->>SQLITE: Save checkpoint + push sync queue
-    LLM->>K: kernle -a {agent} export-cache
-    K->>WS: Write updated MEMORY.md
-
-    Note over WS: MEMORY.md now current<br/>for next session bootstrap
+    rect rgb(255, 245, 230)
+        Note over GW,LLM: Compaction hook (best-effort)
+        LLM->>K: kernle -a {agent} checkpoint save "task"<br/>--context "..." --progress "..."
+        K->>SQLITE: Save checkpoint + push sync queue
+        LLM->>K: kernle -a {agent} export-cache
+        K->>WS: Write updated MEMORY.md
+        Note over WS: MEMORY.md refreshed for next session<br/>(skipped if session ends abruptly)
+    end
 ```
+
+**Key design decision:** The `kernle-memory-refresh` hook runs on `agent:bootstrap`
+(before workspace file injection), ensuring the agent always wakes with current
+memory. The compaction flush is a best-effort optimization — if it fails (crash,
+timeout), no data is lost because the next session will regenerate MEMORY.md from
+SQLite.
 
 ### 3.3 Boot Config Layer
 
@@ -709,7 +732,14 @@ sequenceDiagram
     participant FS as File System
 
     DEV->>CC: Start coding session
-    Note over CC: Reads workspace files<br/>(AGENTS.md → SOUL.md → USER.md)
+
+    rect rgb(230, 245, 255)
+        Note over CC,K: Pre-session refresh (if OpenClaw-hosted)
+        CC->>K: kernle -a ash export-cache --output MEMORY.md
+        Note over CC: MEMORY.md guaranteed fresh
+    end
+
+    Note over CC: Reads workspace files<br/>(AGENTS.md → SOUL.md → USER.md → MEMORY.md)
 
     CC->>K: kernle -a ash load
     K-->>CC: Working memory JSON<br/>(values, beliefs, goals,<br/>episodes, checkpoint)
@@ -749,14 +779,18 @@ graph TB
     end
 
     subgraph "Session N+1 (starts)"
+        R0["kernle-memory-refresh hook<br/>runs export-cache<br/>(guaranteed fresh MEMORY.md)"]
         R1["MEMORY.md injected as context<br/>(immediate bootstrap)"]
         R2["kernle -a ash load<br/>(full memory restore)"]
         R3["Checkpoint loaded:<br/>task='Implementing auth module'<br/>progress='3/5 endpoints done'<br/>next='rate limiting endpoint'<br/>blocker='need Redis config'"]
         R4["Resume work on rate limiting<br/>endpoint with full context"]
-        R1 --> R2 --> R3 --> R4
+        R0 --> R1 --> R2 --> R3 --> R4
     end
 
-    S4 -.->|"persists across<br/>session boundary"| R1
+    S4 -.->|"best-effort persist"| R1
+    Note over R0: Even if Session N crashed<br/>without export-cache,<br/>hook regenerates from SQLite
+
+    style R0 fill:#3a7bd5,color:#fff
 
     style S2 fill:#2d8659,color:#fff
     style R3 fill:#d9a04a,color:#fff
