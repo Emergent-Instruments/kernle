@@ -219,13 +219,13 @@ def mock_supabase_client():
 
     # In-memory storage for different tables
     storage = {
-        "agent_values": [],
-        "agent_beliefs": [],
-        "agent_goals": [],
-        "agent_episodes": [],
-        "agent_drives": [],
-        "agent_relationships": [],
-        "memories": [],
+        "values": [],
+        "beliefs": [],
+        "goals": [],
+        "episodes": [],
+        "drives": [],
+        "relationships": [],
+        "notes": [],
     }
 
     def create_table_mock(table_name: str):
