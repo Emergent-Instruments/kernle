@@ -778,8 +778,10 @@ graph TB
         S1 --> S2 --> S3 --> S4
     end
 
+    S4 -.->|"best-effort persist"| R1
+
     subgraph "Session N+1 (starts)"
-        R0["kernle-memory-refresh hook<br/>runs export-cache<br/>(guaranteed fresh MEMORY.md)"]
+        R0["🔄 kernle-memory-refresh hook<br/>runs export-cache<br/>(guaranteed fresh MEMORY.md)"]
         R1["MEMORY.md injected as context<br/>(immediate bootstrap)"]
         R2["kernle -a ash load<br/>(full memory restore)"]
         R3["Checkpoint loaded:<br/>task='Implementing auth module'<br/>progress='3/5 endpoints done'<br/>next='rate limiting endpoint'<br/>blocker='need Redis config'"]
@@ -787,13 +789,13 @@ graph TB
         R0 --> R1 --> R2 --> R3 --> R4
     end
 
-    S4 -.->|"best-effort persist"| R1
-    Note over R0: Even if Session N crashed<br/>without export-cache,<br/>hook regenerates from SQLite
+    SAFETY["💡 Even if Session N crashed without<br/>export-cache, the hook regenerates<br/>MEMORY.md from SQLite"]
+    R0 -.-> SAFETY
 
     style R0 fill:#3a7bd5,color:#fff
-
     style S2 fill:#2d8659,color:#fff
     style R3 fill:#d9a04a,color:#fff
+    style SAFETY fill:#fff3cd,color:#333,stroke:#ffc107
 ```
 
 > **Design Decision — Generic Task Warning:** The CLI warns when checkpoint task names are too generic (e.g., "auto-save", "checkpoint") without additional context. Descriptive checkpoints are critical for session recovery.
