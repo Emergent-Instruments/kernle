@@ -1616,6 +1616,19 @@ class SQLiteStorage:
                                 logger.warning(f"Failed to add {field} to {table}: {e}")
         conn.commit()
 
+        # v15: Sync queue payload/data consistency fix
+        # Migrate data → payload where payload is NULL (fixes orphaned entry bug #70)
+        if "sync_queue" in table_names:
+            try:
+                fixed = conn.execute(
+                    "UPDATE sync_queue SET payload = data WHERE payload IS NULL AND data IS NOT NULL"
+                ).rowcount
+                if fixed > 0:
+                    logger.info(f"Fixed {fixed} sync queue entries (data → payload)")
+                conn.commit()
+            except Exception as e:
+                logger.warning(f"Sync queue payload migration failed: {e}")
+
         # v15: Boot config table (Phase 9) - always-available key/value config
         if "boot_config" not in table_names:
             conn.execute("""
@@ -1733,8 +1746,16 @@ class SQLiteStorage:
         Deduplicates by (table, record_id) - only keeps latest operation.
         Uses UPSERT (INSERT ... ON CONFLICT) for atomic operation to prevent
         race conditions between concurrent writes.
+
+        Stores data in both `data` and `payload` columns for consistency.
+        The `payload` column is the canonical source; `data` is kept for
+        backward compatibility.
         """
         now = self._now()
+
+        # Normalize: use whichever is provided, store in both columns
+        effective_payload = payload or data
+        effective_data = data or payload
 
         # Use atomic UPSERT to prevent race condition between SELECT and UPDATE/INSERT
         # This requires a unique index on (table_name, record_id) where synced = 0
@@ -1750,7 +1771,7 @@ class SQLiteStorage:
                    local_updated_at = excluded.local_updated_at,
                    payload = excluded.payload,
                    queued_at = excluded.queued_at""",
-            (table, record_id, operation, data, now, payload, now),
+            (table, record_id, operation, effective_data, now, effective_payload, now),
         )
 
     def _content_hash(self, content: str) -> str:
@@ -5558,10 +5579,16 @@ class SQLiteStorage:
         return count
 
     def get_queued_changes(self, limit: int = 100) -> List[QueuedChange]:
-        """Get queued changes for sync (legacy method, returns unsynced items)."""
+        """Get queued changes for sync (legacy method, returns unsynced items).
+
+        Uses COALESCE to read from either `payload` or `data` column,
+        handling the historical inconsistency where some entries only
+        populated one column.
+        """
         with self._connect() as conn:
             rows = conn.execute(
-                """SELECT id, table_name, record_id, operation, payload, queued_at
+                """SELECT id, table_name, record_id, operation,
+                          COALESCE(payload, data) as payload, queued_at
                    FROM sync_queue
                    WHERE synced = 0
                    ORDER BY id

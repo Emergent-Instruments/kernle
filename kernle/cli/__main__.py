@@ -1285,10 +1285,8 @@ def cmd_sync(args, k: Kernle):
 
         # Build operations list for the API
         operations = []
+        skipped_orphans = 0
         for change in queued_changes:
-            # Get the actual record data
-            record = k._storage._get_record_for_push(change.table_name, change.record_id)
-
             op_type = (
                 "update" if change.operation in ("upsert", "insert", "update") else change.operation
             )
@@ -1305,55 +1303,83 @@ def cmd_sync(args, k: Kernle):
             }
 
             # Add record data for non-delete operations
-            if record and op_type != "delete":
-                # Convert record to dict
-                record_dict = {}
-                for field in [
-                    "id",
-                    "agent_id",
-                    "content",
-                    "objective",
-                    "outcome_type",
-                    "outcome_description",
-                    "lessons_learned",
-                    "tags",
-                    "statement",
-                    "confidence",
-                    "drive_type",
-                    "intensity",
-                    "name",
-                    "priority",
-                    "title",
-                    "status",
-                    "progress",
-                    "entity_name",
-                    "entity_type",
-                    "relationship_type",
-                    "notes",
-                    "sentiment",
-                    "focus_areas",
-                    "created_at",
-                    "updated_at",
-                    "local_updated_at",
-                    # raw_entries fields
-                    "timestamp",
-                    "source",
-                    "processed",
-                    # playbooks fields
-                    "description",
-                    "steps",
-                    "triggers",
-                    # goals fields
-                    "target_date",
-                ]:
-                    if hasattr(record, field):
-                        value = getattr(record, field)
-                        if hasattr(value, "isoformat"):
-                            value = value.isoformat()
-                        record_dict[field] = value
-                op_data["data"] = record_dict
+            # Strategy: stored payload first (canonical snapshot from change time),
+            # fall back to re-fetch from source table
+            if op_type != "delete":
+                record_dict = None
+
+                # Try stored payload first (survives source record deletion)
+                if change.payload:
+                    try:
+                        record_dict = json.loads(change.payload)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+                # Fall back to live source table
+                if not record_dict:
+                    record = k._storage._get_record_for_push(change.table_name, change.record_id)
+                    if record:
+                        record_dict = {}
+                        for field in [
+                            "id",
+                            "agent_id",
+                            "content",
+                            "objective",
+                            "outcome_type",
+                            "outcome_description",
+                            "lessons_learned",
+                            "tags",
+                            "statement",
+                            "confidence",
+                            "drive_type",
+                            "intensity",
+                            "name",
+                            "priority",
+                            "title",
+                            "status",
+                            "progress",
+                            "entity_name",
+                            "entity_type",
+                            "relationship_type",
+                            "notes",
+                            "sentiment",
+                            "focus_areas",
+                            "created_at",
+                            "updated_at",
+                            "local_updated_at",
+                            # raw_entries fields
+                            "timestamp",
+                            "source",
+                            "processed",
+                            # playbooks fields
+                            "description",
+                            "steps",
+                            "triggers",
+                            # goals fields
+                            "target_date",
+                        ]:
+                            if hasattr(record, field):
+                                value = getattr(record, field)
+                                if hasattr(value, "isoformat"):
+                                    value = value.isoformat()
+                                record_dict[field] = value
+
+                if record_dict:
+                    op_data["data"] = record_dict
+                else:
+                    # No stored payload AND no source record — orphaned entry
+                    skipped_orphans += 1
+                    with k._storage._connect() as conn:
+                        conn.execute(
+                            "UPDATE sync_queue SET synced = 1 WHERE id = ?",
+                            (change.id,),
+                        )
+                    continue
 
             operations.append(op_data)
+
+        if skipped_orphans > 0:
+            print(f"⚠️  Skipped {skipped_orphans} orphaned entries (source records deleted)")
 
         # Send to backend
         # Include agent_id as just the local project name
@@ -1626,8 +1652,8 @@ def cmd_sync(args, k: Kernle):
             print("  ✓ No pending changes to push")
         else:
             operations = []
+            skipped_orphans = 0
             for change in queued_changes:
-                record = k._storage._get_record_for_push(change.table_name, change.record_id)
                 op_type = (
                     "update"
                     if change.operation in ("upsert", "insert", "update")
@@ -1645,54 +1671,79 @@ def cmd_sync(args, k: Kernle):
                     "version": 1,
                 }
 
-                if record and op_type != "delete":
-                    record_dict = {}
-                    for field in [
-                        "id",
-                        "agent_id",
-                        "content",
-                        "objective",
-                        "outcome_type",
-                        "outcome_description",
-                        "lessons_learned",
-                        "tags",
-                        "statement",
-                        "confidence",
-                        "drive_type",
-                        "intensity",
-                        "name",
-                        "priority",
-                        "title",
-                        "status",
-                        "progress",
-                        "entity_name",
-                        "entity_type",
-                        "relationship_type",
-                        "notes",
-                        "sentiment",
-                        "focus_areas",
-                        "created_at",
-                        "updated_at",
-                        "local_updated_at",
-                        # raw_entries fields
-                        "timestamp",
-                        "source",
-                        "processed",
-                        # playbooks fields
-                        "description",
-                        "steps",
-                        "triggers",
-                        # goals fields
-                        "target_date",
-                    ]:
-                        if hasattr(record, field):
-                            value = getattr(record, field)
-                            if hasattr(value, "isoformat"):
-                                value = value.isoformat()
-                            record_dict[field] = value
-                    op_data["data"] = record_dict
+                # Payload-first: use stored data, fall back to source table
+                if op_type != "delete":
+                    record_dict = None
+
+                    if change.payload:
+                        try:
+                            record_dict = json.loads(change.payload)
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+
+                    if not record_dict:
+                        record = k._storage._get_record_for_push(change.table_name, change.record_id)
+                        if record:
+                            record_dict = {}
+                            for field in [
+                                "id",
+                                "agent_id",
+                                "content",
+                                "objective",
+                                "outcome_type",
+                                "outcome_description",
+                                "lessons_learned",
+                                "tags",
+                                "statement",
+                                "confidence",
+                                "drive_type",
+                                "intensity",
+                                "name",
+                                "priority",
+                                "title",
+                                "status",
+                                "progress",
+                                "entity_name",
+                                "entity_type",
+                                "relationship_type",
+                                "notes",
+                                "sentiment",
+                                "focus_areas",
+                                "created_at",
+                                "updated_at",
+                                "local_updated_at",
+                                # raw_entries fields
+                                "timestamp",
+                                "source",
+                                "processed",
+                                # playbooks fields
+                                "description",
+                                "steps",
+                                "triggers",
+                                # goals fields
+                                "target_date",
+                            ]:
+                                if hasattr(record, field):
+                                    value = getattr(record, field)
+                                    if hasattr(value, "isoformat"):
+                                        value = value.isoformat()
+                                    record_dict[field] = value
+
+                    if record_dict:
+                        op_data["data"] = record_dict
+                    else:
+                        skipped_orphans += 1
+                        with k._storage._connect() as conn:
+                            conn.execute(
+                                "UPDATE sync_queue SET synced = 1 WHERE id = ?",
+                                (change.id,),
+                        )
+                    continue
 
                 operations.append(op_data)
+
+            if skipped_orphans > 0:
+                print(f"  ⚠️  Skipped {skipped_orphans} orphaned entries (source records deleted)")
 
             try:
                 response = httpx.post(
