@@ -85,12 +85,12 @@ graph BT
     DRV["🔥 Drives<br/>Fundamental motivations<br/>(intensity 0.0–1.0)"]
     REL["🤝 Relationships<br/>Connections to entities<br/>(sentiment -1.0 to 1.0)"]
 
-    RAW -->|"promotion"| EP
+    RAW -->|"consolidation"| EP
     RAW -->|"direct capture"| NOTE
-    EP -->|"consolidation<br/>(pattern extraction)"| BEL
+    EP -->|"promotion"| BEL
     EP -->|"lesson synthesis"| PB
-    BEL -->|"identity formation"| VAL
-    NOTE -->|"insight promotion"| BEL
+    BEL -->|"formation"| VAL
+    NOTE -->|"promotion"| BEL
     EP -->|"goal discovery"| GOAL
     EP -->|"entity modeling"| REL
     BEL -->|"motivation synthesis"| DRV
@@ -917,11 +917,11 @@ graph TD
     OBS --> RAW
     OBS --> EP
     OBS --> NOTE
-    RAW -->|"processed"| EP
+    RAW -->|"consolidation"| EP
     EP --> CONSOL
     CONSOL --> LESSON
-    LESSON -->|"pattern promotion"| BELIEF
-    BELIEF -->|"high confidence<br/>+ reinforcement"| VALUE
+    LESSON -->|"promotion"| BELIEF
+    BELIEF -->|"formation"| VALUE
 
     subgraph "Side Effects (per write)"
         SYNC_Q["Enqueue to sync_queue"]
