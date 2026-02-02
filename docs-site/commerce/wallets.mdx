@@ -28,21 +28,21 @@ class WalletAccount:
     address: str               # EVM address (0x...)
     chain: str                 # "base", "ethereum", etc.
     status: WalletStatus       # active, paused, claimed
-    
+
     # Spending limits
     daily_limit: Decimal       # Max daily spend (USDC)
     weekly_limit: Decimal      # Max weekly spend (USDC)
     monthly_limit: Decimal     # Max monthly spend (USDC)
-    
+
     # Tracking
     spent_today: Decimal
     spent_this_week: Decimal
     spent_this_month: Decimal
-    
+
     # Ownership
     human_owner_id: Optional[str]  # Set when claimed
     claimed_at: Optional[datetime]
-    
+
     created_at: datetime
     updated_at: datetime
 ```
@@ -136,9 +136,10 @@ If a human steward needs to take custody:
 # Human claims the wallet
 await wallet_service.claim_wallet(
     wallet_id=wallet.id,
-    human_owner_id="sean"
+    owner_eoa="0x1234567890123456789012345678901234567890",
+    actor_id="agent_sean"
 )
-# Wallet status changes to "claimed"
+# Wallet status changes to "active"
 # Agent can no longer transfer from this wallet
 ```
 
@@ -158,14 +159,14 @@ Spending limits are enforced **before** signing transactions:
 ```python
 def transfer(self, wallet_id, to, amount):
     wallet = self.get_wallet(wallet_id)
-    
+
     # Check limits BEFORE signing
     if wallet.spent_today + amount > wallet.daily_limit:
         raise SpendingLimitExceededError("daily")
-    
+
     # Only then proceed with transfer
     tx = self._sign_and_send(wallet, to, amount)
-    
+
     # Update tracking
     wallet.spent_today += amount
     self._save(wallet)

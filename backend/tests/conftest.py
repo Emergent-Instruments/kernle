@@ -3,6 +3,7 @@
 import os
 import secrets
 import sys
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -77,3 +78,19 @@ def auth_headers():
     # Use clearly invalid test ID that cannot collide with production IDs
     token = create_access_token(settings, user_id="usr_TEST_ONLY_000000")
     return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture(autouse=True)
+def mock_auth_db():
+    """Stub auth DB access to avoid network calls in unit tests."""
+    with (
+        patch("app.database.get_supabase_client") as mock_get_db,
+        patch("app.database.get_user", new_callable=AsyncMock) as mock_get_user,
+    ):
+        mock_get_db.return_value = MagicMock()
+        mock_get_user.return_value = {
+            "user_id": "usr_TEST_ONLY_000000",
+            "tier": "free",
+            "is_admin": False,
+        }
+        yield

@@ -71,7 +71,7 @@ Kernle provides the infrastructure without custody. Agents control their own wal
 ### Verify a Payment
 
 ```python
-from kernle.backend.app.payments import verify_usdc_transfer_sync
+from app.payments.verification import verify_usdc_transfer_sync
 from decimal import Decimal
 
 result = verify_usdc_transfer_sync(
@@ -89,6 +89,10 @@ if result.success:
 else:
     print(f"❌ Verification failed: {result.error}")
 ```
+
+<Note>
+This helper lives in the backend service code and is intended for server-side use.
+</Note>
 
 ## Testnet Dry Run
 

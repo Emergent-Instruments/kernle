@@ -31,29 +31,22 @@ POST /auth/oauth/token
 
 ```json
 {
-  "success": true,
-  "data": {
-    "user_id": "usr_abc123def456",
-    "email": "user@example.com",
-    "api_key": "knl_sk_your-new-api-key",
-    "tier": "free"
-  }
+  "access_token": "string",
+  "token_type": "bearer",
+  "expires_in": 3600,
+  "user_id": "string"
 }
 ```
 
 <Info>
-This endpoint verifies Supabase JWTs using JWKS (JSON Web Key Set) public key verification. It supports all JWT algorithms used by Supabase (RS256, ES256, HS256).
+This endpoint verifies Supabase JWTs using JWKS (JSON Web Key Set) public key verification.
 </Info>
 
 ---
 
-## Register
+## Register Agent
 
-Create a new Kernle account.
-
-<Note>
-After registration, check your email for verification.
-</Note>
+Create a new agent and user record.
 
 ```http
 POST /auth/register
@@ -63,7 +56,9 @@ POST /auth/register
 
 ```json
 {
-  "email": "user@example.com"
+  "agent_id": "string (1-64 chars, lowercase alphanumeric, _, -)",
+  "display_name": "string | null",
+  "email": "string | null"
 }
 ```
 
@@ -71,35 +66,30 @@ POST /auth/register
 
 ```json
 {
-  "success": true,
-  "data": {
-    "user_id": "user_abc123",
-    "message": "Verification email sent"
-  }
+  "access_token": "string",
+  "token_type": "bearer",
+  "expires_in": 3600,
+  "user_id": "string",
+  "secret": "string (SAVE THIS - shown only once)"
 }
-```
-
-### CLI Equivalent
-
-```bash
-kernle auth register --email user@example.com
 ```
 
 ---
 
-## Verify Email
+## Get Token (Agent Secret)
 
-Verify email address with the token from the verification email.
+Get an access token for an existing agent using its secret.
 
 ```http
-POST /auth/verify
+POST /auth/token
 ```
 
 ### Request Body
 
 ```json
 {
-  "token": "verification_token_from_email"
+  "agent_id": "string",
+  "secret": "string"
 }
 ```
 
@@ -107,65 +97,22 @@ POST /auth/verify
 
 ```json
 {
-  "success": true,
-  "data": {
-    "user_id": "user_abc123",
-    "verified": true,
-    "api_key": "sk-initial-key"
-  }
+  "access_token": "string",
+  "token_type": "bearer",
+  "expires_in": 3600,
+  "user_id": "string | null"
 }
 ```
 
 ---
 
-## Login
+## Login (API Key → JWT)
 
-Get authentication token for an existing account.
+Validate an API key and return a fresh JWT. This endpoint expects the API key
+in the `Authorization` header.
 
 ```http
 POST /auth/login
-```
-
-### Request Body
-
-```json
-{
-  "api_key": "knl_sk_your-api-key"
-}
-```
-
-### Response
-
-```json
-{
-  "success": true,
-  "data": {
-    "user_id": "user_abc123",
-    "token": "session_token",
-    "expires_at": "2024-01-16T10:30:00Z"
-  }
-}
-```
-
-### CLI Equivalent
-
-```bash
-kernle auth login --api-key knl_sk_your-api-key
-```
-
----
-
-## Get Auth Status
-
-Check current authentication status.
-
-```http
-GET /auth/status
-```
-
-### Headers
-
-```
 Authorization: Bearer knl_sk_your-api-key
 ```
 
@@ -173,21 +120,11 @@ Authorization: Bearer knl_sk_your-api-key
 
 ```json
 {
-  "success": true,
-  "data": {
-    "authenticated": true,
-    "user_id": "user_abc123",
-    "email": "user@example.com",
-    "created_at": "2024-01-01T00:00:00Z",
-    "agents": ["claire", "assistant"]
-  }
+  "user_id": "string",
+  "agent_id": "string",
+  "token": "string",
+  "token_expires": "ISO timestamp"
 }
-```
-
-### CLI Equivalent
-
-```bash
-kernle auth status
 ```
 
 ---
@@ -210,27 +147,16 @@ Authorization: Bearer knl_sk_your-api-key
 
 ```json
 {
-  "success": true,
-  "data": {
-    "keys": [
-      {
-        "id": "key_abc123",
-        "name": "Development",
-        "prefix": "knl_sk_abc",
-        "created_at": "2024-01-01T00:00:00Z",
-        "last_used_at": "2024-01-15T10:30:00Z",
-        "is_active": true
-      },
-      {
-        "id": "key_def456",
-        "name": "Production",
-        "prefix": "sk-def",
-        "created_at": "2024-01-10T00:00:00Z",
-        "last_used_at": null,
-        "is_active": true
-      }
-    ]
-  }
+  "keys": [
+    {
+      "id": "key_abc123",
+      "name": "Development",
+      "key_prefix": "knl_sk_abc12...",
+      "created_at": "2024-01-01T00:00:00Z",
+      "last_used_at": "2024-01-15T10:30:00Z",
+      "is_active": true
+    }
+  ]
 }
 ```
 
@@ -272,14 +198,11 @@ The full API key is only returned once at creation time. Store it securely.
 
 ```json
 {
-  "success": true,
-  "data": {
-    "id": "key_xyz789",
-    "name": "My New Key",
-    "key": "sk-full-api-key-only-shown-once",
-    "prefix": "sk-xyz",
-    "created_at": "2024-01-15T10:30:00Z"
-  }
+  "id": "key_xyz789",
+  "name": "My New Key",
+  "key": "knl_sk_full-api-key-only-shown-once",
+  "key_prefix": "knl_sk_abc12",
+  "created_at": "2024-01-15T10:30:00Z"
 }
 ```
 
@@ -307,16 +230,7 @@ Authorization: Bearer knl_sk_your-api-key
 
 ### Response
 
-```json
-{
-  "success": true,
-  "data": {
-    "id": "key_abc123",
-    "revoked": true,
-    "revoked_at": "2024-01-15T10:30:00Z"
-  }
-}
-```
+204 No Content
 
 ### CLI Equivalent
 
@@ -344,13 +258,13 @@ Authorization: Bearer knl_sk_your-api-key
 
 ```json
 {
-  "success": true,
-  "data": {
-    "old_key_id": "key_abc123",
-    "old_key_revoked": true,
-    "new_key_id": "key_xyz789",
-    "new_key": "sk-new-api-key",
-    "new_key_prefix": "sk-xyz"
+  "old_key_id": "key_abc123",
+  "new_key": {
+    "id": "key_xyz789",
+    "name": "My New Key",
+    "key": "knl_sk_new-api-key",
+    "key_prefix": "knl_sk_abc12",
+    "created_at": "2024-01-15T10:30:00Z"
   }
 }
 ```

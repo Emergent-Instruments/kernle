@@ -370,7 +370,7 @@ async def get_current_agent(
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Get tier and is_admin from users table (fail gracefully)
+    # Get tier and is_admin from users table (fail closed)
     tier = "free"
     is_admin = False
     try:
@@ -383,9 +383,20 @@ async def get_current_agent(
             is_admin = user.get("is_admin", False)
         else:
             logger.warning(f"User not found in database: {user_id}")
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="User not found",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+    except HTTPException:
+        raise
     except Exception as e:
-        # Log but continue with defaults - don't block auth
-        logger.warning(f"User lookup failed for {user_id}, defaulting to free/non-admin: {e}")
+        # Fail closed if we can't verify user
+        logger.warning(f"User lookup failed for {user_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service unavailable",
+        )
 
     return AuthContext(user_id=user_id, tier=tier, is_admin=is_admin, agent_id=agent_id)
 
