@@ -255,7 +255,7 @@ school_url = k.boot_get("school_url", default="https://blend.austinisd.org")
 
 # Full load when needed (includes boot in response)
 memory = k.load(budget=4000)
-boot_config = memory.get("boot", {})
+boot_config = memory.get("boot_config", {})
 ```
 
 ## Migration from TOOLS.md
