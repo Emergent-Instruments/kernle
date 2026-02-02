@@ -813,6 +813,28 @@ async def deactivate_api_key(db: Client, key_id: str, user_id: str) -> bool:
     return len(result.data) > 0
 
 
+async def cycle_api_key_atomic(
+    db: Client,
+    key_id: str,
+    user_id: str,
+    key_hash: str,
+    key_prefix: str,
+    name: str,
+) -> dict | None:
+    """Atomically deactivate an API key and create a replacement."""
+    result = db.rpc(
+        "cycle_api_key",
+        {
+            "p_key_id": key_id,
+            "p_user_id": user_id,
+            "p_key_hash": key_hash,
+            "p_key_prefix": key_prefix,
+            "p_name": name,
+        },
+    ).execute()
+    return result.data[0] if result.data else None
+
+
 async def update_api_key_last_used(db: Client, key_id: str) -> None:
     """Update the last_used_at timestamp for an API key."""
     from datetime import datetime, timezone

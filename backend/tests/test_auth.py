@@ -138,6 +138,32 @@ class TestAuthEndpoints:
 class TestOAuthTokenExchange:
     """Test OAuth token exchange endpoint - real validation logic, not just mocks."""
 
+    def _make_rs256_token(self, issuer: str, kid: str) -> str:
+        """Create a signed RS256 JWT for tests."""
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from jose import jwt
+
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        private_pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        )
+
+        return jwt.encode(
+            {
+                "sub": "test-user-id",
+                "email": "test@example.com",
+                "iss": issuer,
+                "aud": "authenticated",
+                "exp": 9999999999,
+            },
+            private_pem,
+            algorithm="RS256",
+            headers={"kid": kid},
+        )
+
     def test_oauth_rejects_invalid_token_format(self, client):
         """Test that malformed tokens are rejected before any external calls."""
         response = client.post(
@@ -202,24 +228,11 @@ class TestOAuthTokenExchange:
 
     def test_oauth_handles_jwks_fetch_failure(self, client):
         """Test graceful handling when JWKS endpoint is unavailable."""
-        from jose import jwt
-
         settings = get_settings()
         expected_issuer = f"{settings.supabase_url}/auth/v1"
 
         # Token with correct issuer but JWKS will fail to fetch
-        token = jwt.encode(
-            {
-                "sub": "test-user-id",
-                "email": "test@example.com",
-                "iss": expected_issuer,
-                "aud": "authenticated",
-                "exp": 9999999999,
-            },
-            "fake-secret",
-            algorithm="HS256",
-            headers={"kid": "nonexistent-kid"},
-        )
+        token = self._make_rs256_token(expected_issuer, "nonexistent-kid")
 
         # Mock httpx to simulate JWKS fetch failure
         with patch("httpx.AsyncClient") as mock_client_class:
@@ -237,23 +250,10 @@ class TestOAuthTokenExchange:
 
     def test_oauth_rejects_unknown_kid(self, client):
         """Test that tokens with unknown key IDs are rejected."""
-        from jose import jwt
-
         settings = get_settings()
         expected_issuer = f"{settings.supabase_url}/auth/v1"
 
-        token = jwt.encode(
-            {
-                "sub": "test-user-id",
-                "email": "test@example.com",
-                "iss": expected_issuer,
-                "aud": "authenticated",
-                "exp": 9999999999,
-            },
-            "fake-secret",
-            algorithm="HS256",
-            headers={"kid": "unknown-kid-12345"},
-        )
+        token = self._make_rs256_token(expected_issuer, "unknown-kid-12345")
 
         # Mock JWKS response with no matching key
         with patch("httpx.AsyncClient") as mock_client_class:
