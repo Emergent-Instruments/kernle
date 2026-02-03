@@ -24,8 +24,10 @@ TIER_PRICES = {"free": "0", "core": "5.000000", "pro": "15.000000"}
 
 # -- Shared / nested models -------------------------------------------------
 
+
 class TierInfo(BaseModel):
     """Current subscription tier details."""
+
     tier: str
     status: str  # active | grace_period | cancelled | expired
     starts_at: datetime | None = None
@@ -37,6 +39,7 @@ class TierInfo(BaseModel):
 
 class UsageInfo(BaseModel):
     """Current-period usage snapshot."""
+
     period: str  # YYYY-MM
     storage_used: int = 0
     storage_limit: int = 0
@@ -48,6 +51,7 @@ class UsageInfo(BaseModel):
 
 class PaymentInfo(BaseModel):
     """Single payment record."""
+
     id: str
     amount: str
     currency: str = "USDC"
@@ -64,18 +68,22 @@ class PaymentInfo(BaseModel):
 
 # -- Request models ----------------------------------------------------------
 
+
 class UpgradeRequest(BaseModel):
     """Request to upgrade subscription tier."""
+
     tier: str = Field(..., description="Target tier: core, pro, or enterprise")
 
 
 class DowngradeRequest(BaseModel):
     """Request to downgrade subscription tier."""
+
     tier: str = Field(..., description="Target tier to downgrade to")
 
 
 class PaymentConfirmRequest(BaseModel):
     """Confirm an on-chain payment."""
+
     payment_id: str = Field(..., description="Payment ID returned by /upgrade")
     tx_hash: str = Field(
         ...,
@@ -86,14 +94,17 @@ class PaymentConfirmRequest(BaseModel):
 
 # -- Response models ---------------------------------------------------------
 
+
 class SubscriptionStatusResponse(BaseModel):
     """Full subscription status with usage."""
+
     subscription: TierInfo
     usage: UsageInfo
 
 
 class UpgradeResponse(BaseModel):
     """Payment instructions returned after requesting an upgrade."""
+
     payment_id: str
     amount: str
     currency: str = "USDC"
@@ -105,6 +116,7 @@ class UpgradeResponse(BaseModel):
 
 class DowngradeResponse(BaseModel):
     """Confirmation of a scheduled downgrade."""
+
     current_tier: str
     new_tier: str
     effective_at: datetime
@@ -113,6 +125,7 @@ class DowngradeResponse(BaseModel):
 
 class CancelResponse(BaseModel):
     """Confirmation of cancellation."""
+
     tier: str
     status: str
     cancelled_at: datetime
@@ -122,6 +135,7 @@ class CancelResponse(BaseModel):
 
 class ReactivateResponse(BaseModel):
     """Confirmation of reactivation."""
+
     tier: str
     status: str
     auto_renew: bool
@@ -131,6 +145,7 @@ class ReactivateResponse(BaseModel):
 
 class PaymentHistoryResponse(BaseModel):
     """Paginated payment history."""
+
     payments: list[PaymentInfo]
     total: int
     page: int
@@ -139,6 +154,7 @@ class PaymentHistoryResponse(BaseModel):
 
 class PaymentConfirmResponse(BaseModel):
     """Result of payment confirmation."""
+
     payment_id: str
     status: str  # confirmed | pending_verification | failed
     tier: str | None = None
@@ -148,6 +164,7 @@ class PaymentConfirmResponse(BaseModel):
 
 class UsageResponse(BaseModel):
     """Current-period usage with quota info."""
+
     usage: UsageInfo
 
 
@@ -159,9 +176,11 @@ class UsageResponse(BaseModel):
 # the service module is not yet present (companion task builds it).  In
 # production both will exist.
 
+
 def _svc():
     """Lazy-import subscription service functions."""
     from ..subscriptions import service as svc
+
     return svc
 
 
@@ -170,6 +189,7 @@ def _svc():
 # ---------------------------------------------------------------------------
 
 # ── GET /api/v1/subscriptions/me ──────────────────────────────────────────
+
 
 @router.get("/subscriptions/me", response_model=SubscriptionStatusResponse)
 async def get_subscription_status(
@@ -215,6 +235,7 @@ async def get_subscription_status(
 
 
 # ── POST /api/v1/subscriptions/upgrade ────────────────────────────────────
+
 
 @router.post("/subscriptions/upgrade", response_model=UpgradeResponse)
 @limiter.limit("5/minute")
@@ -262,7 +283,7 @@ async def upgrade_subscription(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot upgrade from '{current_tier}' to '{target_tier}'. "
-                   f"Current tier is equal or higher.",
+            f"Current tier is equal or higher.",
         )
 
     # Create a pending payment record and return instructions
@@ -287,11 +308,12 @@ async def upgrade_subscription(
         chain=payment.get("chain", "base"),
         tier=target_tier,
         message=f"Send {payment['amount']} USDC to {payment['treasury_address']} on Base. "
-                f"Then confirm with POST /subscriptions/payments/confirm.",
+        f"Then confirm with POST /subscriptions/payments/confirm.",
     )
 
 
 # ── POST /api/v1/subscriptions/downgrade ──────────────────────────────────
+
 
 @router.post("/subscriptions/downgrade", response_model=DowngradeResponse)
 @limiter.limit("5/minute")
@@ -324,7 +346,7 @@ async def downgrade_subscription(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot downgrade from '{current_tier}' to '{target_tier}'. "
-                   f"Target must be a lower tier.",
+            f"Target must be a lower tier.",
         )
 
     result = await svc.schedule_downgrade(db, auth.user_id, target_tier)
@@ -345,11 +367,12 @@ async def downgrade_subscription(
         new_tier=target_tier,
         effective_at=result["effective_at"],
         message=f"Downgrade to '{target_tier}' scheduled. "
-                f"Your current '{current_tier}' tier remains active until {result['effective_at']}.",
+        f"Your current '{current_tier}' tier remains active until {result['effective_at']}.",
     )
 
 
 # ── POST /api/v1/subscriptions/cancel ─────────────────────────────────────
+
 
 @router.post("/subscriptions/cancel", response_model=CancelResponse)
 @limiter.limit("5/minute")
@@ -394,11 +417,12 @@ async def cancel_subscription(
         cancelled_at=result["cancelled_at"],
         active_until=result["active_until"],
         message=f"Auto-renewal cancelled. Your '{current_sub['tier']}' tier remains active "
-                f"until {result['active_until']}.",
+        f"until {result['active_until']}.",
     )
 
 
 # ── POST /api/v1/subscriptions/reactivate ─────────────────────────────────
+
 
 @router.post("/subscriptions/reactivate", response_model=ReactivateResponse)
 @limiter.limit("5/minute")
@@ -425,7 +449,7 @@ async def reactivate_subscription(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Subscription status is '{current_sub.get('status')}' — "
-                   f"only cancelled subscriptions can be reactivated.",
+            f"only cancelled subscriptions can be reactivated.",
         )
 
     result = await svc.reactivate_subscription(db, auth.user_id)
@@ -448,6 +472,7 @@ async def reactivate_subscription(
 
 
 # ── GET /api/v1/subscriptions/payments ─────────────────────────────────────
+
 
 @router.get("/subscriptions/payments", response_model=PaymentHistoryResponse)
 async def list_payments(
@@ -476,6 +501,7 @@ async def list_payments(
 
 
 # ── POST /api/v1/subscriptions/payments/confirm ───────────────────────────
+
 
 @router.post("/subscriptions/payments/confirm", response_model=PaymentConfirmResponse)
 @limiter.limit("10/minute")
@@ -534,6 +560,7 @@ async def confirm_payment(
 
 
 # ── GET /api/v1/usage/me ──────────────────────────────────────────────────
+
 
 @router.get("/usage/me", response_model=UsageResponse)
 async def get_usage(

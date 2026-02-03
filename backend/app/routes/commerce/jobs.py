@@ -500,7 +500,6 @@ async def list_jobs_endpoint(
     agent_id = auth.agent_id or auth.user_id
     logger.info(f"GET /jobs | agent={agent_id} | status={status_filter} | mine={mine}")
 
-
     # If mine=True, we want jobs where user is client OR worker
     # For simplicity, we'll do two queries and merge
     if mine:
@@ -616,7 +615,9 @@ async def fund_job(
     return to_job_response(updated)
 
 
-@router.post("/{job_id}/apply", response_model=JobApplicationResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{job_id}/apply", response_model=JobApplicationResponse, status_code=status.HTTP_201_CREATED
+)
 @limiter.limit("30/minute")
 async def apply_to_job(
     request: Request,
@@ -724,7 +725,9 @@ async def accept_application(
     are accepted concurrently.
     """
     agent_id = auth.agent_id or auth.user_id
-    logger.info(f"POST /jobs/{job_id}/accept | agent={agent_id} | app={accept_request.application_id}")
+    logger.info(
+        f"POST /jobs/{job_id}/accept | agent={agent_id} | app={accept_request.application_id}"
+    )
 
     # Get job to check ownership (safe even with races - ownership doesn't change)
     job = await get_job(db, job_id)
@@ -959,7 +962,9 @@ async def dispute_job(
             detail="Failed to raise dispute",
         )
 
-    logger.info(f"Job disputed | id={job_id} | by={agent_id} | reason={dispute_request.reason[:50]}")
+    logger.info(
+        f"Job disputed | id={job_id} | by={agent_id} | reason={dispute_request.reason[:50]}"
+    )
     return to_job_response(updated)
 
 

@@ -9,7 +9,9 @@ import pytest
 class TestWalletRoutes:
     """Tests for wallet endpoints."""
 
-    @pytest.mark.skip(reason="Requires integration test - auth middleware connects to Supabase before patches")
+    @pytest.mark.skip(
+        reason="Requires integration test - auth middleware connects to Supabase before patches"
+    )
     def test_get_my_wallet_success(self, client, auth_headers):
         """Test getting own wallet."""
         mock_wallet = {
@@ -26,8 +28,14 @@ class TestWalletRoutes:
         }
 
         with patch("app.database.get_user", new_callable=AsyncMock) as mock_get_user:
-            mock_get_user.return_value = {"user_id": "usr_TEST_ONLY_000000", "tier": "free", "is_admin": False}
-            with patch("app.routes.commerce.wallets.get_wallet_by_agent", new_callable=AsyncMock) as mock_by_agent:
+            mock_get_user.return_value = {
+                "user_id": "usr_TEST_ONLY_000000",
+                "tier": "free",
+                "is_admin": False,
+            }
+            with patch(
+                "app.routes.commerce.wallets.get_wallet_by_agent", new_callable=AsyncMock
+            ) as mock_by_agent:
                 mock_by_agent.return_value = mock_wallet
                 response = client.get("/api/v1/wallets/me", headers=auth_headers)
 
@@ -38,8 +46,12 @@ class TestWalletRoutes:
 
     def test_get_my_wallet_not_found(self, client, auth_headers):
         """Test wallet not found error."""
-        with patch("app.routes.commerce.wallets.get_wallet_by_agent", new_callable=AsyncMock) as mock_by_agent:
-            with patch("app.routes.commerce.wallets.get_wallet_by_user", new_callable=AsyncMock) as mock_by_user:
+        with patch(
+            "app.routes.commerce.wallets.get_wallet_by_agent", new_callable=AsyncMock
+        ) as mock_by_agent:
+            with patch(
+                "app.routes.commerce.wallets.get_wallet_by_user", new_callable=AsyncMock
+            ) as mock_by_user:
                 mock_by_agent.return_value = None
                 mock_by_user.return_value = None
                 response = client.get("/api/v1/wallets/me", headers=auth_headers)
@@ -177,7 +189,9 @@ class TestJobRoutes:
         }
 
         with patch("app.routes.commerce.jobs.get_job", new_callable=AsyncMock) as mock_get:
-            with patch("app.routes.commerce.jobs.create_application", new_callable=AsyncMock) as mock_create:
+            with patch(
+                "app.routes.commerce.jobs.create_application", new_callable=AsyncMock
+            ) as mock_create:
                 mock_get.return_value = mock_job
                 mock_create.return_value = mock_app
                 response = client.post(
@@ -260,7 +274,9 @@ class TestSkillRoutes:
         mock_skill = {"id": "skill-1", "name": "coding"}
 
         with patch("app.routes.commerce.skills.get_skill", new_callable=AsyncMock) as mock_get:
-            with patch("app.routes.commerce.skills.find_agents_with_skill", new_callable=AsyncMock) as mock_find:
+            with patch(
+                "app.routes.commerce.skills.find_agents_with_skill", new_callable=AsyncMock
+            ) as mock_find:
                 mock_get.return_value = mock_skill
                 mock_find.return_value = ["agent-1", "agent-2"]
                 response = client.get("/api/v1/skills/coding/agents", headers=auth_headers)
@@ -286,7 +302,9 @@ class TestEscrowRoutes:
             "completed_at": datetime.now(timezone.utc).isoformat(),
         }
 
-        with patch("app.routes.commerce.escrow.get_job_by_escrow", new_callable=AsyncMock) as mock_get:
+        with patch(
+            "app.routes.commerce.escrow.get_job_by_escrow", new_callable=AsyncMock
+        ) as mock_get:
             mock_get.return_value = mock_job
             response = client.get(
                 "/api/v1/escrow/0x1234567890123456789012345678901234567890",
@@ -300,7 +318,9 @@ class TestEscrowRoutes:
 
     def test_get_escrow_not_found(self, client, auth_headers):
         """Test escrow not found."""
-        with patch("app.routes.commerce.escrow.get_job_by_escrow", new_callable=AsyncMock) as mock_get:
+        with patch(
+            "app.routes.commerce.escrow.get_job_by_escrow", new_callable=AsyncMock
+        ) as mock_get:
             mock_get.return_value = None
             response = client.get(
                 "/api/v1/escrow/0x1234567890123456789012345678901234567890",
@@ -325,8 +345,12 @@ class TestMaintenanceRoutes:
 
     def test_maintenance_health_no_issues(self, client, auth_headers):
         """Test maintenance health when no jobs need action."""
-        with patch("app.routes.commerce.maintenance.get_jobs_past_deadline", new_callable=AsyncMock) as mock_deadline:
-            with patch("app.routes.commerce.maintenance.get_disputes_past_timeout", new_callable=AsyncMock) as mock_disputes:
+        with patch(
+            "app.routes.commerce.maintenance.get_jobs_past_deadline", new_callable=AsyncMock
+        ) as mock_deadline:
+            with patch(
+                "app.routes.commerce.maintenance.get_disputes_past_timeout", new_callable=AsyncMock
+            ) as mock_disputes:
                 mock_deadline.return_value = []
                 mock_disputes.return_value = []
                 response = client.get("/api/v1/maintenance/health", headers=auth_headers)
@@ -342,8 +366,12 @@ class TestMaintenanceRoutes:
         mock_overdue = [{"id": "job-1", "deadline": "2024-01-01T00:00:00Z"}]
         mock_disputes = [{"id": "job-2", "disputed_at": "2024-01-01T00:00:00Z"}]
 
-        with patch("app.routes.commerce.maintenance.get_jobs_past_deadline", new_callable=AsyncMock) as mock_deadline:
-            with patch("app.routes.commerce.maintenance.get_disputes_past_timeout", new_callable=AsyncMock) as mock_disp:
+        with patch(
+            "app.routes.commerce.maintenance.get_jobs_past_deadline", new_callable=AsyncMock
+        ) as mock_deadline:
+            with patch(
+                "app.routes.commerce.maintenance.get_disputes_past_timeout", new_callable=AsyncMock
+            ) as mock_disp:
                 mock_deadline.return_value = mock_overdue
                 mock_disp.return_value = mock_disputes
                 response = client.get("/api/v1/maintenance/health", headers=auth_headers)
@@ -356,14 +384,20 @@ class TestMaintenanceRoutes:
 
     def test_check_timeouts_dry_run(self, client, auth_headers):
         """Test timeout check in dry run mode."""
-        mock_overdue = [{
-            "id": "job-1",
-            "deadline": (datetime.now(timezone.utc) - timedelta(days=2)).isoformat(),
-            "status": "accepted",
-        }]
+        mock_overdue = [
+            {
+                "id": "job-1",
+                "deadline": (datetime.now(timezone.utc) - timedelta(days=2)).isoformat(),
+                "status": "accepted",
+            }
+        ]
 
-        with patch("app.routes.commerce.maintenance.get_jobs_past_deadline", new_callable=AsyncMock) as mock_deadline:
-            with patch("app.routes.commerce.maintenance.get_disputes_past_timeout", new_callable=AsyncMock) as mock_disputes:
+        with patch(
+            "app.routes.commerce.maintenance.get_jobs_past_deadline", new_callable=AsyncMock
+        ) as mock_deadline:
+            with patch(
+                "app.routes.commerce.maintenance.get_disputes_past_timeout", new_callable=AsyncMock
+            ) as mock_disputes:
                 mock_deadline.return_value = mock_overdue
                 mock_disputes.return_value = []
                 response = client.post(
@@ -381,15 +415,23 @@ class TestMaintenanceRoutes:
 
     def test_check_timeouts_executes_cancellation(self, client, auth_headers):
         """Test timeout check actually cancels jobs when not dry run."""
-        mock_overdue = [{
-            "id": "job-1",
-            "deadline": (datetime.now(timezone.utc) - timedelta(days=2)).isoformat(),
-            "status": "accepted",
-        }]
+        mock_overdue = [
+            {
+                "id": "job-1",
+                "deadline": (datetime.now(timezone.utc) - timedelta(days=2)).isoformat(),
+                "status": "accepted",
+            }
+        ]
 
-        with patch("app.routes.commerce.maintenance.get_jobs_past_deadline", new_callable=AsyncMock) as mock_deadline:
-            with patch("app.routes.commerce.maintenance.get_disputes_past_timeout", new_callable=AsyncMock) as mock_disputes:
-                with patch("app.routes.commerce.maintenance.cancel_job_for_timeout", new_callable=AsyncMock) as mock_cancel:
+        with patch(
+            "app.routes.commerce.maintenance.get_jobs_past_deadline", new_callable=AsyncMock
+        ) as mock_deadline:
+            with patch(
+                "app.routes.commerce.maintenance.get_disputes_past_timeout", new_callable=AsyncMock
+            ) as mock_disputes:
+                with patch(
+                    "app.routes.commerce.maintenance.cancel_job_for_timeout", new_callable=AsyncMock
+                ) as mock_cancel:
                     mock_deadline.return_value = mock_overdue
                     mock_disputes.return_value = []
                     mock_cancel.return_value = {"id": "job-1", "status": "cancelled"}
@@ -409,15 +451,23 @@ class TestMaintenanceRoutes:
 
     def test_check_timeouts_dispute_escalation(self, client, auth_headers):
         """Test dispute timeout escalation."""
-        mock_stale_dispute = [{
-            "id": "job-2",
-            "disputed_at": (datetime.now(timezone.utc) - timedelta(days=20)).isoformat(),
-            "status": "disputed",
-        }]
+        mock_stale_dispute = [
+            {
+                "id": "job-2",
+                "disputed_at": (datetime.now(timezone.utc) - timedelta(days=20)).isoformat(),
+                "status": "disputed",
+            }
+        ]
 
-        with patch("app.routes.commerce.maintenance.get_jobs_past_deadline", new_callable=AsyncMock) as mock_deadline:
-            with patch("app.routes.commerce.maintenance.get_disputes_past_timeout", new_callable=AsyncMock) as mock_disputes:
-                with patch("app.routes.commerce.maintenance.cancel_job_for_timeout", new_callable=AsyncMock) as mock_cancel:
+        with patch(
+            "app.routes.commerce.maintenance.get_jobs_past_deadline", new_callable=AsyncMock
+        ) as mock_deadline:
+            with patch(
+                "app.routes.commerce.maintenance.get_disputes_past_timeout", new_callable=AsyncMock
+            ) as mock_disputes:
+                with patch(
+                    "app.routes.commerce.maintenance.cancel_job_for_timeout", new_callable=AsyncMock
+                ) as mock_cancel:
                     mock_deadline.return_value = []
                     mock_disputes.return_value = mock_stale_dispute
                     mock_cancel.return_value = {"id": "job-2", "status": "cancelled"}
@@ -436,17 +486,21 @@ class TestMaintenanceRoutes:
 
     def test_list_overdue_jobs(self, client, auth_headers):
         """Test listing overdue jobs."""
-        mock_overdue = [{
-            "id": "job-1",
-            "title": "Test Job",
-            "client_id": "client-1",
-            "worker_id": "worker-1",
-            "deadline": (datetime.now(timezone.utc) - timedelta(days=2)).isoformat(),
-            "accepted_at": (datetime.now(timezone.utc) - timedelta(days=5)).isoformat(),
-            "budget_usdc": 100.0,
-        }]
+        mock_overdue = [
+            {
+                "id": "job-1",
+                "title": "Test Job",
+                "client_id": "client-1",
+                "worker_id": "worker-1",
+                "deadline": (datetime.now(timezone.utc) - timedelta(days=2)).isoformat(),
+                "accepted_at": (datetime.now(timezone.utc) - timedelta(days=5)).isoformat(),
+                "budget_usdc": 100.0,
+            }
+        ]
 
-        with patch("app.routes.commerce.maintenance.get_jobs_past_deadline", new_callable=AsyncMock) as mock_deadline:
+        with patch(
+            "app.routes.commerce.maintenance.get_jobs_past_deadline", new_callable=AsyncMock
+        ) as mock_deadline:
             mock_deadline.return_value = mock_overdue
             response = client.get("/api/v1/maintenance/overdue-jobs", headers=auth_headers)
 
@@ -457,16 +511,20 @@ class TestMaintenanceRoutes:
 
     def test_list_stale_disputes(self, client, auth_headers):
         """Test listing stale disputes."""
-        mock_disputes = [{
-            "id": "job-2",
-            "title": "Disputed Job",
-            "client_id": "client-1",
-            "worker_id": "worker-1",
-            "disputed_at": (datetime.now(timezone.utc) - timedelta(days=20)).isoformat(),
-            "budget_usdc": 200.0,
-        }]
+        mock_disputes = [
+            {
+                "id": "job-2",
+                "title": "Disputed Job",
+                "client_id": "client-1",
+                "worker_id": "worker-1",
+                "disputed_at": (datetime.now(timezone.utc) - timedelta(days=20)).isoformat(),
+                "budget_usdc": 200.0,
+            }
+        ]
 
-        with patch("app.routes.commerce.maintenance.get_disputes_past_timeout", new_callable=AsyncMock) as mock_disp:
+        with patch(
+            "app.routes.commerce.maintenance.get_disputes_past_timeout", new_callable=AsyncMock
+        ) as mock_disp:
             mock_disp.return_value = mock_disputes
             response = client.get("/api/v1/maintenance/stale-disputes", headers=auth_headers)
 

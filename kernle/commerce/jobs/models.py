@@ -128,6 +128,7 @@ class Job:
         # Jobs loaded from storage may have past deadlines which is valid
         if self.status == "open" and self.created_at is None and self.deadline:
             from datetime import timezone
+
             now = datetime.now(timezone.utc)
             # Make deadline timezone-aware if naive
             deadline = self.deadline
@@ -200,6 +201,7 @@ class Job:
     @classmethod
     def from_dict(cls, data: dict) -> "Job":
         """Create from dictionary."""
+
         def parse_dt(val):
             if val and isinstance(val, str):
                 return datetime.fromisoformat(val.replace("Z", "+00:00"))
@@ -294,6 +296,7 @@ class JobApplication:
     @classmethod
     def from_dict(cls, data: dict) -> "JobApplication":
         """Create from dictionary."""
+
         def parse_dt(val):
             if val and isinstance(val, str):
                 return datetime.fromisoformat(val.replace("Z", "+00:00"))

@@ -1675,9 +1675,7 @@ class SQLiteStorage:
                     UNIQUE(agent_id, key)
                 )
             """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_boot_agent ON boot_config(agent_id)"
-            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_boot_agent ON boot_config(agent_id)")
             logger.info("Created boot_config table")
             conn.commit()
 

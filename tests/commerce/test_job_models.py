@@ -538,12 +538,17 @@ class TestValidJobTransitions:
     def test_accepted_transitions(self):
         """Test valid transitions from accepted state."""
         assert VALID_JOB_TRANSITIONS[JobStatus.ACCEPTED] == {
-            JobStatus.DELIVERED, JobStatus.DISPUTED, JobStatus.CANCELLED
+            JobStatus.DELIVERED,
+            JobStatus.DISPUTED,
+            JobStatus.CANCELLED,
         }
 
     def test_delivered_transitions(self):
         """Test valid transitions from delivered state."""
-        assert VALID_JOB_TRANSITIONS[JobStatus.DELIVERED] == {JobStatus.COMPLETED, JobStatus.DISPUTED}
+        assert VALID_JOB_TRANSITIONS[JobStatus.DELIVERED] == {
+            JobStatus.COMPLETED,
+            JobStatus.DISPUTED,
+        }
 
     def test_disputed_transitions(self):
         """Test valid transitions from disputed state."""

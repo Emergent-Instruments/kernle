@@ -726,9 +726,7 @@ class SupabaseStorage:
         # Use upsert to avoid TOCTOU race condition
         # ON CONFLICT on (agent_id, drive_type) unique constraint
         result = (
-            self.client.table("drives")
-            .upsert(data, on_conflict="agent_id,drive_type")
-            .execute()
+            self.client.table("drives").upsert(data, on_conflict="agent_id,drive_type").execute()
         )
 
         # If upsert returned an existing row with different ID, update drive.id
@@ -739,9 +737,7 @@ class SupabaseStorage:
 
     def get_drives(self) -> List[Drive]:
         """Get all drives for the agent."""
-        result = (
-            self.client.table("drives").select("*").eq("agent_id", self.agent_id).execute()
-        )
+        result = self.client.table("drives").select("*").eq("agent_id", self.agent_id).execute()
 
         return [self._row_to_drive(row) for row in result.data]
 
@@ -1319,11 +1315,7 @@ class SupabaseStorage:
             try:
                 # Handle notes which use owner_id
                 if memory_type == "note":
-                    query = (
-                        self.client.table(table)
-                        .select("*")
-                        .eq("agent_id", self.agent_id)
-                    )
+                    query = self.client.table(table).select("*").eq("agent_id", self.agent_id)
                 else:
                     query = self.client.table(table).select("*").eq("agent_id", self.agent_id)
 
@@ -1375,11 +1367,7 @@ class SupabaseStorage:
 
             try:
                 if memory_type == "note":
-                    query = (
-                        self.client.table(table)
-                        .select("*")
-                        .eq("agent_id", self.agent_id)
-                    )
+                    query = self.client.table(table).select("*").eq("agent_id", self.agent_id)
                 else:
                     query = self.client.table(table).select("*").eq("agent_id", self.agent_id)
 
@@ -1966,11 +1954,7 @@ class SupabaseStorage:
             try:
                 # Query for non-protected, non-forgotten memories
                 if memory_type == "note":
-                    query = (
-                        self.client.table(table)
-                        .select("*")
-                        .eq("agent_id", self.agent_id)
-                    )
+                    query = self.client.table(table).select("*").eq("agent_id", self.agent_id)
                 else:
                     query = self.client.table(table).select("*").eq("agent_id", self.agent_id)
 

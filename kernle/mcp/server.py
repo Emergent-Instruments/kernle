@@ -40,6 +40,7 @@ try:
         get_commerce_tools,
         set_commerce_agent_id,
     )
+
     COMMERCE_AVAILABLE = True
 except ImportError:
     COMMERCE_AVAILABLE = False

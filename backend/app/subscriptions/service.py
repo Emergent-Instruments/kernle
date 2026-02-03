@@ -46,6 +46,7 @@ TREASURY_ADDRESS = os.environ.get(
     "0x0000000000000000000000000000000000000000",  # Default: zero address (testnet only)
 )
 
+
 def _validate_treasury_address():
     """Fail loudly if treasury is zero address in production."""
     env = os.environ.get("KERNLE_ENV", "development")
@@ -54,6 +55,7 @@ def _validate_treasury_address():
             "FATAL: KERNLE_TREASURY_ADDRESS is zero address in production! "
             "All payments would be burned. Set a real multisig address."
         )
+
 
 _validate_treasury_address()
 
@@ -204,12 +206,7 @@ class SubscriptionService:
         }
 
         def _update():
-            return (
-                db.table(SUBSCRIPTIONS_TABLE)
-                .update(update)
-                .eq("id", sub.id)
-                .execute()
-            )
+            return db.table(SUBSCRIPTIONS_TABLE).update(update).eq("id", sub.id).execute()
 
         result = await asyncio.to_thread(_update)
 
@@ -282,12 +279,7 @@ class SubscriptionService:
         }
 
         def _update():
-            return (
-                db.table(SUBSCRIPTIONS_TABLE)
-                .update(update)
-                .eq("id", sub.id)
-                .execute()
-            )
+            return db.table(SUBSCRIPTIONS_TABLE).update(update).eq("id", sub.id).execute()
 
         result = await asyncio.to_thread(_update)
 
@@ -333,12 +325,7 @@ class SubscriptionService:
         }
 
         def _update():
-            return (
-                db.table(SUBSCRIPTIONS_TABLE)
-                .update(update)
-                .eq("id", sub.id)
-                .execute()
-            )
+            return db.table(SUBSCRIPTIONS_TABLE).update(update).eq("id", sub.id).execute()
 
         result = await asyncio.to_thread(_update)
 
@@ -395,12 +382,7 @@ class SubscriptionService:
             }
 
             def _renew():
-                return (
-                    db.table(SUBSCRIPTIONS_TABLE)
-                    .update(update)
-                    .eq("id", sub.id)
-                    .execute()
-                )
+                return db.table(SUBSCRIPTIONS_TABLE).update(update).eq("id", sub.id).execute()
 
             result = await asyncio.to_thread(_renew)
             logger.info("Subscription %s renewed until %s", subscription_id, new_renews)
@@ -415,12 +397,7 @@ class SubscriptionService:
             }
 
             def _grace():
-                return (
-                    db.table(SUBSCRIPTIONS_TABLE)
-                    .update(update)
-                    .eq("id", sub.id)
-                    .execute()
-                )
+                return db.table(SUBSCRIPTIONS_TABLE).update(update).eq("id", sub.id).execute()
 
             result = await asyncio.to_thread(_grace)
             logger.info("Subscription %s entered grace period", subscription_id)
@@ -445,12 +422,7 @@ class SubscriptionService:
                 }
 
                 def _expire():
-                    return (
-                        db.table(SUBSCRIPTIONS_TABLE)
-                        .update(update)
-                        .eq("id", sub.id)
-                        .execute()
-                    )
+                    return db.table(SUBSCRIPTIONS_TABLE).update(update).eq("id", sub.id).execute()
 
                 result = await asyncio.to_thread(_expire)
                 logger.warning("Subscription %s expired → free tier", subscription_id)
@@ -535,10 +507,12 @@ class SubscriptionService:
         def _update():
             return (
                 db.table(SUBSCRIPTION_PAYMENTS_TABLE)
-                .update({
-                    "status": PaymentStatus.confirmed.value,
-                    "confirmed_at": now.isoformat(),
-                })
+                .update(
+                    {
+                        "status": PaymentStatus.confirmed.value,
+                        "confirmed_at": now.isoformat(),
+                    }
+                )
                 .eq("tx_hash", tx_hash)
                 .execute()
             )
@@ -661,9 +635,7 @@ class SubscriptionService:
             if result.data and len(result.data) > 0:
                 return UsageRecord(**result.data[0])
         except Exception:
-            logger.debug(
-                "increment_subscription_usage RPC unavailable, using read-modify-write"
-            )
+            logger.debug("increment_subscription_usage RPC unavailable, using read-modify-write")
 
         # Fallback: read-modify-write (has race window, acceptable for now)
         usage = await SubscriptionService.get_usage(db, user_id)
@@ -673,11 +645,13 @@ class SubscriptionService:
         def _update():
             return (
                 db.table(USAGE_RECORDS_TABLE)
-                .update({
-                    "storage_bytes": new_storage,
-                    "sync_count": new_sync,
-                    "updated_at": now.isoformat(),
-                })
+                .update(
+                    {
+                        "storage_bytes": new_storage,
+                        "sync_count": new_sync,
+                        "updated_at": now.isoformat(),
+                    }
+                )
                 .eq("user_id", user_id)
                 .eq("period", period)
                 .execute()
@@ -715,10 +689,12 @@ class SubscriptionService:
         def _update():
             return (
                 db.table(USAGE_RECORDS_TABLE)
-                .update({
-                    "stacks_syncing": stacks_syncing,
-                    "updated_at": now.isoformat(),
-                })
+                .update(
+                    {
+                        "stacks_syncing": stacks_syncing,
+                        "updated_at": now.isoformat(),
+                    }
+                )
                 .eq("user_id", user_id)
                 .eq("period", period)
                 .execute()
@@ -917,6 +893,7 @@ async def create_upgrade_payment(
 
     # Store a payment intent — links the pending payment to the tier upgrade
     from datetime import timedelta
+
     expires_at = now + timedelta(hours=24)  # 24h to complete payment
 
     data = {
@@ -1016,6 +993,7 @@ async def confirm_payment(
     expires_at = intent.get("expires_at")
     if expires_at:
         from datetime import datetime as dt
+
         if isinstance(expires_at, str):
             # Parse ISO format, handle timezone
             expiry = dt.fromisoformat(expires_at.replace("Z", "+00:00"))
@@ -1030,6 +1008,7 @@ async def confirm_payment(
                     .eq("id", payment_id)
                     .execute()
                 )
+
             await asyncio.to_thread(_expire)
             return {
                 "status": "failed",
@@ -1038,7 +1017,8 @@ async def confirm_payment(
 
     # Validate tx_hash format (P0 fix: prevent injection)
     import re
-    if not re.match(r'^0x[0-9a-fA-F]{64}$', tx_hash):
+
+    if not re.match(r"^0x[0-9a-fA-F]{64}$", tx_hash):
         return {
             "status": "failed",
             "message": "Invalid transaction hash format. Expected 0x + 64 hex characters.",
@@ -1087,16 +1067,19 @@ async def confirm_payment(
     except Exception as e:
         logger.exception("On-chain verification error for payment %s", payment_id)
         error_str = str(e)  # Capture before exception variable is deleted
+
         # Mark intent as needing retry, don't fail permanently on network errors
         def _mark_error():
             return (
                 db.table(PAYMENT_INTENTS_TABLE)
-                .update({
-                    "status": "verification_error",
-                    "tx_hash": tx_hash,
-                    "error": error_str,
-                    "updated_at": now.isoformat(),
-                })
+                .update(
+                    {
+                        "status": "verification_error",
+                        "tx_hash": tx_hash,
+                        "error": error_str,
+                        "updated_at": now.isoformat(),
+                    }
+                )
                 .eq("id", payment_id)
                 .execute()
             )
@@ -1112,13 +1095,15 @@ async def confirm_payment(
         def _fail():
             return (
                 db.table(PAYMENT_INTENTS_TABLE)
-                .update({
-                    "status": "failed",
-                    "tx_hash": tx_hash,
-                    "error": result.error,
-                    "error_code": result.error_code,
-                    "updated_at": now.isoformat(),
-                })
+                .update(
+                    {
+                        "status": "failed",
+                        "tx_hash": tx_hash,
+                        "error": result.error,
+                        "error_code": result.error_code,
+                        "updated_at": now.isoformat(),
+                    }
+                )
                 .eq("id", payment_id)
                 .execute()
             )
@@ -1160,6 +1145,7 @@ async def confirm_payment(
         # Payment recording failed (likely duplicate tx_hash) — roll back intent
         error_str = str(e)  # Capture before exception variable is deleted
         logger.warning("Payment recording failed for %s: %s", payment_id, error_str)
+
         def _rollback():
             return (
                 db.table(PAYMENT_INTENTS_TABLE)
@@ -1167,6 +1153,7 @@ async def confirm_payment(
                 .eq("id", payment_id)
                 .execute()
             )
+
         await asyncio.to_thread(_rollback)
         return {
             "status": "failed",
@@ -1186,14 +1173,16 @@ async def confirm_payment(
     def _confirm_intent():
         return (
             db.table(PAYMENT_INTENTS_TABLE)
-            .update({
-                "status": "confirmed",
-                "confirmed_at": now.isoformat(),
-                "updated_at": now.isoformat(),
-                "from_address": result.from_address,
-                "block_number": result.block_number,
-                "confirmations": result.confirmations,
-            })
+            .update(
+                {
+                    "status": "confirmed",
+                    "confirmed_at": now.isoformat(),
+                    "updated_at": now.isoformat(),
+                    "from_address": result.from_address,
+                    "block_number": result.block_number,
+                    "confirmations": result.confirmations,
+                }
+            )
             .eq("id", payment_id)
             .execute()
         )
@@ -1263,12 +1252,7 @@ async def reactivate_subscription(db: Client, user_id: str) -> dict | None:
     }
 
     def _update():
-        return (
-            db.table(SUBSCRIPTIONS_TABLE)
-            .update(update)
-            .eq("id", sub.id)
-            .execute()
-        )
+        return db.table(SUBSCRIPTIONS_TABLE).update(update).eq("id", sub.id).execute()
 
     result = await asyncio.to_thread(_update)
     if not result.data:
@@ -1307,20 +1291,22 @@ async def list_payments(
 
     payments = []
     for row in result.data or []:
-        payments.append({
-            "id": row.get("id", ""),
-            "amount": str(row.get("amount", "0")),
-            "currency": row.get("currency", "USDC"),
-            "tx_hash": row.get("tx_hash"),
-            "from_address": row.get("from_address"),
-            "to_address": row.get("to_address"),
-            "chain": row.get("chain", "base"),
-            "status": row.get("status", "pending"),
-            "period_start": row.get("period_start"),
-            "period_end": row.get("period_end"),
-            "created_at": row.get("created_at"),
-            "confirmed_at": row.get("confirmed_at"),
-        })
+        payments.append(
+            {
+                "id": row.get("id", ""),
+                "amount": str(row.get("amount", "0")),
+                "currency": row.get("currency", "USDC"),
+                "tx_hash": row.get("tx_hash"),
+                "from_address": row.get("from_address"),
+                "to_address": row.get("to_address"),
+                "chain": row.get("chain", "base"),
+                "status": row.get("status", "pending"),
+                "period_start": row.get("period_start"),
+                "period_end": row.get("period_end"),
+                "created_at": row.get("created_at"),
+                "confirmed_at": row.get("confirmed_at"),
+            }
+        )
 
     return {
         "payments": payments,

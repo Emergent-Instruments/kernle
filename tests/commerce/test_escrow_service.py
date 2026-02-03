@@ -200,9 +200,7 @@ class TestBalanceAndAllowance:
 
     def test_get_usdc_balance_returns_decimal(self, service):
         """Test that get_usdc_balance returns a Decimal."""
-        balance = service.get_usdc_balance(
-            "0x1234567890123456789012345678901234567890"
-        )
+        balance = service.get_usdc_balance("0x1234567890123456789012345678901234567890")
 
         assert isinstance(balance, Decimal)
         assert balance == Decimal("0.00")  # Stub returns 0

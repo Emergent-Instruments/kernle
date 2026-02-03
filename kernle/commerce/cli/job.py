@@ -44,27 +44,27 @@ def _parse_deadline(deadline_str: str) -> datetime:
     now = datetime.now(timezone.utc)
 
     # Relative format
-    if deadline_str.endswith('d'):
+    if deadline_str.endswith("d"):
         days = int(deadline_str[:-1])
         return now + timedelta(days=days)
-    elif deadline_str.endswith('w'):
+    elif deadline_str.endswith("w"):
         weeks = int(deadline_str[:-1])
         return now + timedelta(weeks=weeks)
-    elif deadline_str.endswith('m'):
+    elif deadline_str.endswith("m"):
         months = int(deadline_str[:-1])
         return now + timedelta(days=months * 30)  # Approximate
 
     # ISO or date-only format
     try:
         # Try full ISO format
-        if 'T' in deadline_str:
-            dt = datetime.fromisoformat(deadline_str.replace('Z', '+00:00'))
+        if "T" in deadline_str:
+            dt = datetime.fromisoformat(deadline_str.replace("Z", "+00:00"))
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
             return dt
         else:
             # Date only - set to end of day
-            dt = datetime.strptime(deadline_str, '%Y-%m-%d')
+            dt = datetime.strptime(deadline_str, "%Y-%m-%d")
             return dt.replace(hour=23, minute=59, second=59, tzinfo=timezone.utc)
     except ValueError as e:
         raise ValueError(
@@ -100,12 +100,15 @@ def cmd_job(args: "argparse.Namespace", k: "Kernle") -> None:
         handler(args, k)
     else:
         print(f"Unknown job action: {action}")
-        print("Available actions: create, list, show, fund, applications, accept, approve, cancel, dispute, search, apply, deliver")
+        print(
+            "Available actions: create, list, show, fund, applications, accept, approve, cancel, dispute, search, apply, deliver"
+        )
 
 
 # =============================================================================
 # Client Commands
 # =============================================================================
+
 
 def _job_create(args: "argparse.Namespace", k: "Kernle") -> None:
     """Create a new job listing."""
@@ -199,7 +202,7 @@ def _job_list(args: "argparse.Namespace", k: "Kernle") -> None:
                     "cancelled": "❌",
                 }.get(job.status, "⚪")
 
-                deadline_str = job.deadline.strftime('%Y-%m-%d') if job.deadline else "N/A"
+                deadline_str = job.deadline.strftime("%Y-%m-%d") if job.deadline else "N/A"
                 print(f"\n  {status_emoji} {job.title}")
                 print(f"     ID: {job.id[:8]}... | ${job.budget_usdc:.0f} | Due: {deadline_str}")
                 if job.skills_required:
@@ -243,7 +246,9 @@ def _job_show(args: "argparse.Namespace", k: "Kernle") -> None:
             print(f"  Client:      {job.client_id}")
             if job.worker_id:
                 print(f"  Worker:      {job.worker_id}")
-            print(f"  Deadline:    {job.deadline.strftime('%Y-%m-%d %H:%M UTC') if job.deadline else 'N/A'}")
+            print(
+                f"  Deadline:    {job.deadline.strftime('%Y-%m-%d %H:%M UTC') if job.deadline else 'N/A'}"
+            )
 
             if job.skills_required:
                 print(f"  Skills:      {', '.join(job.skills_required)}")
@@ -299,6 +304,7 @@ def _job_fund(args: "argparse.Namespace", k: "Kernle") -> None:
 
         # For now, we'll simulate with a placeholder address
         import uuid
+
         escrow_address = f"0x{''.join(uuid.uuid4().hex[:40])}"
 
         job = service.fund_job(
@@ -309,12 +315,17 @@ def _job_fund(args: "argparse.Namespace", k: "Kernle") -> None:
         )
 
         if output_json:
-            print(json.dumps({
-                "success": True,
-                "job_id": job.id,
-                "escrow_address": job.escrow_address,
-                "status": job.status,
-            }, indent=2))
+            print(
+                json.dumps(
+                    {
+                        "success": True,
+                        "job_id": job.id,
+                        "escrow_address": job.escrow_address,
+                        "status": job.status,
+                    },
+                    indent=2,
+                )
+            )
         else:
             print("✅ Job funded successfully!")
             print("")
@@ -398,11 +409,17 @@ def _job_accept(args: "argparse.Namespace", k: "Kernle") -> None:
         )
 
         if output_json:
-            print(json.dumps({
-                "success": True,
-                "job": job.to_dict(),
-                "application": application.to_dict(),
-            }, indent=2, default=str))
+            print(
+                json.dumps(
+                    {
+                        "success": True,
+                        "job": job.to_dict(),
+                        "application": application.to_dict(),
+                    },
+                    indent=2,
+                    default=str,
+                )
+            )
         else:
             print("✅ Application accepted!")
             print("")
@@ -434,10 +451,16 @@ def _job_approve(args: "argparse.Namespace", k: "Kernle") -> None:
         )
 
         if output_json:
-            print(json.dumps({
-                "success": True,
-                "job": job.to_dict(),
-            }, indent=2, default=str))
+            print(
+                json.dumps(
+                    {
+                        "success": True,
+                        "job": job.to_dict(),
+                    },
+                    indent=2,
+                    default=str,
+                )
+            )
         else:
             print("✅ Job approved! Payment released.")
             print("")
@@ -468,11 +491,16 @@ def _job_cancel(args: "argparse.Namespace", k: "Kernle") -> None:
         )
 
         if output_json:
-            print(json.dumps({
-                "success": True,
-                "job_id": job.id,
-                "status": job.status,
-            }, indent=2))
+            print(
+                json.dumps(
+                    {
+                        "success": True,
+                        "job_id": job.id,
+                        "status": job.status,
+                    },
+                    indent=2,
+                )
+            )
         else:
             print("✅ Job cancelled.")
             print("")
@@ -505,10 +533,16 @@ def _job_dispute(args: "argparse.Namespace", k: "Kernle") -> None:
         )
 
         if output_json:
-            print(json.dumps({
-                "success": True,
-                "job": job.to_dict(),
-            }, indent=2, default=str))
+            print(
+                json.dumps(
+                    {
+                        "success": True,
+                        "job": job.to_dict(),
+                    },
+                    indent=2,
+                    default=str,
+                )
+            )
         else:
             print("⚠️  Dispute raised.")
             print("")
@@ -528,6 +562,7 @@ def _job_dispute(args: "argparse.Namespace", k: "Kernle") -> None:
 # =============================================================================
 # Worker Commands
 # =============================================================================
+
 
 def _job_search(args: "argparse.Namespace", k: "Kernle") -> None:
     """Search for available jobs."""
@@ -560,9 +595,11 @@ def _job_search(args: "argparse.Namespace", k: "Kernle") -> None:
             print("=" * 60)
 
             for job in jobs:
-                deadline_str = job.deadline.strftime('%Y-%m-%d') if job.deadline else "N/A"
+                deadline_str = job.deadline.strftime("%Y-%m-%d") if job.deadline else "N/A"
                 print(f"\n  💼 {job.title}")
-                print(f"     ID: {job.id[:8]}... | ${job.budget_usdc:.0f} USDC | Due: {deadline_str}")
+                print(
+                    f"     ID: {job.id[:8]}... | ${job.budget_usdc:.0f} USDC | Due: {deadline_str}"
+                )
                 if job.skills_required:
                     print(f"     Skills: {', '.join(job.skills_required)}")
                 print(f"     {job.description[:100]}{'...' if len(job.description) > 100 else ''}")
@@ -640,10 +677,16 @@ def _job_deliver(args: "argparse.Namespace", k: "Kernle") -> None:
         )
 
         if output_json:
-            print(json.dumps({
-                "success": True,
-                "job": job.to_dict(),
-            }, indent=2, default=str))
+            print(
+                json.dumps(
+                    {
+                        "success": True,
+                        "job": job.to_dict(),
+                    },
+                    indent=2,
+                    default=str,
+                )
+            )
         else:
             print("✅ Deliverable submitted!")
             print("")

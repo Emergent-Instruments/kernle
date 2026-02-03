@@ -131,6 +131,7 @@ def reset_commerce_services() -> None:
 # Input Validation
 # =============================================================================
 
+
 def sanitize_string(
     value: Any, field_name: str, max_length: int = 1000, required: bool = True
 ) -> str:
@@ -201,9 +202,7 @@ def validate_number(
     return float(value)
 
 
-def validate_datetime(
-    value: Any, field_name: str, required: bool = True
-) -> Optional[datetime]:
+def validate_datetime(value: Any, field_name: str, required: bool = True) -> Optional[datetime]:
     """Validate and parse datetime values."""
     if value is None:
         if required:
@@ -268,7 +267,6 @@ COMMERCE_TOOLS: List[Tool] = [
             "properties": {},
         },
     ),
-
     # =========================================================================
     # Job Tools (Client)
     # =========================================================================
@@ -311,7 +309,15 @@ COMMERCE_TOOLS: List[Tool] = [
             "properties": {
                 "status": {
                     "type": "string",
-                    "enum": ["open", "funded", "accepted", "delivered", "completed", "disputed", "cancelled"],
+                    "enum": [
+                        "open",
+                        "funded",
+                        "accepted",
+                        "delivered",
+                        "completed",
+                        "disputed",
+                        "cancelled",
+                    ],
                     "description": "Filter by job status",
                 },
                 "mine": {
@@ -414,7 +420,6 @@ COMMERCE_TOOLS: List[Tool] = [
             "required": ["job_id", "reason"],
         },
     ),
-
     # =========================================================================
     # Job Tools (Worker)
     # =========================================================================
@@ -484,7 +489,6 @@ COMMERCE_TOOLS: List[Tool] = [
             "required": ["job_id", "url"],
         },
     ),
-
     # =========================================================================
     # Skills Tools
     # =========================================================================
@@ -516,6 +520,7 @@ COMMERCE_TOOLS: List[Tool] = [
 # =============================================================================
 # Tool Handlers
 # =============================================================================
+
 
 def _format_wallet_balance(wallet: WalletAccount, balance: Decimal) -> str:
     """Format wallet balance for display."""
@@ -594,10 +599,12 @@ async def handle_wallet_balance(arguments: Dict[str, Any]) -> List[TextContent]:
         # Auto-create wallet if it doesn't exist
         wallet = service.create_wallet(agent_id)
         balance = service.get_balance(wallet.id)
-        return [TextContent(
-            type="text",
-            text=f"Wallet created!\n{_format_wallet_balance(wallet, balance.usdc_balance)}"
-        )]
+        return [
+            TextContent(
+                type="text",
+                text=f"Wallet created!\n{_format_wallet_balance(wallet, balance.usdc_balance)}",
+            )
+        ]
 
 
 async def handle_wallet_address(arguments: Dict[str, Any]) -> List[TextContent]:
@@ -692,6 +699,7 @@ async def handle_job_fund(arguments: Dict[str, Any]) -> List[TextContent]:
     # Ethereum addresses are 42 chars: 0x + 40 hex chars
     # UUID hex is only 32 chars, so we combine two to get 40
     import uuid
+
     hash1 = uuid.uuid5(uuid.NAMESPACE_DNS, job_id).hex
     hash2 = uuid.uuid5(uuid.NAMESPACE_URL, job_id).hex
     escrow_address = f"0x{hash1}{hash2[:8]}"
@@ -702,10 +710,9 @@ async def handle_job_fund(arguments: Dict[str, Any]) -> List[TextContent]:
         escrow_address=escrow_address,
     )
 
-    return [TextContent(
-        type="text",
-        text=f"Job funded!\nEscrow: {escrow_address}\n{_format_job(job)}"
-    )]
+    return [
+        TextContent(type="text", text=f"Job funded!\nEscrow: {escrow_address}\n{_format_job(job)}")
+    ]
 
 
 async def handle_job_applications(arguments: Dict[str, Any]) -> List[TextContent]:
@@ -718,7 +725,9 @@ async def handle_job_applications(arguments: Dict[str, Any]) -> List[TextContent
     # Verify caller is the client
     job = service.get_job(job_id)
     if job.client_id != agent_id:
-        return [TextContent(type="text", text="You can only view applications for jobs you posted.")]
+        return [
+            TextContent(type="text", text="You can only view applications for jobs you posted.")
+        ]
 
     applications = service.list_applications(job_id=job_id)
 
@@ -747,10 +756,12 @@ async def handle_job_accept(arguments: Dict[str, Any]) -> List[TextContent]:
         actor_id=agent_id,
     )
 
-    return [TextContent(
-        type="text",
-        text=f"Application accepted!\nWorker {application.applicant_id} assigned to job.\n{_format_job(job)}"
-    )]
+    return [
+        TextContent(
+            type="text",
+            text=f"Application accepted!\nWorker {application.applicant_id} assigned to job.\n{_format_job(job)}",
+        )
+    ]
 
 
 async def handle_job_approve(arguments: Dict[str, Any]) -> List[TextContent]:
@@ -765,10 +776,11 @@ async def handle_job_approve(arguments: Dict[str, Any]) -> List[TextContent]:
         actor_id=agent_id,
     )
 
-    return [TextContent(
-        type="text",
-        text=f"Job approved! Payment released to worker.\n{_format_job(job)}"
-    )]
+    return [
+        TextContent(
+            type="text", text=f"Job approved! Payment released to worker.\n{_format_job(job)}"
+        )
+    ]
 
 
 async def handle_job_cancel(arguments: Dict[str, Any]) -> List[TextContent]:
@@ -783,10 +795,7 @@ async def handle_job_cancel(arguments: Dict[str, Any]) -> List[TextContent]:
         actor_id=agent_id,
     )
 
-    return [TextContent(
-        type="text",
-        text=f"Job cancelled.\n{_format_job(job)}"
-    )]
+    return [TextContent(type="text", text=f"Job cancelled.\n{_format_job(job)}")]
 
 
 async def handle_job_dispute(arguments: Dict[str, Any]) -> List[TextContent]:
@@ -803,10 +812,12 @@ async def handle_job_dispute(arguments: Dict[str, Any]) -> List[TextContent]:
         reason=reason,
     )
 
-    return [TextContent(
-        type="text",
-        text=f"Dispute raised. An arbitrator will review the case.\n{_format_job(job)}"
-    )]
+    return [
+        TextContent(
+            type="text",
+            text=f"Dispute raised. An arbitrator will review the case.\n{_format_job(job)}",
+        )
+    ]
 
 
 async def handle_job_search(arguments: Dict[str, Any]) -> List[TextContent]:
@@ -857,10 +868,9 @@ async def handle_job_apply(arguments: Dict[str, Any]) -> List[TextContent]:
         message=message,
     )
 
-    return [TextContent(
-        type="text",
-        text=f"Application submitted!\n{_format_application(application)}"
-    )]
+    return [
+        TextContent(type="text", text=f"Application submitted!\n{_format_application(application)}")
+    ]
 
 
 async def handle_job_deliver(arguments: Dict[str, Any]) -> List[TextContent]:
@@ -881,10 +891,12 @@ async def handle_job_deliver(arguments: Dict[str, Any]) -> List[TextContent]:
         deliverable_hash=hash_val if hash_val else None,
     )
 
-    return [TextContent(
-        type="text",
-        text=f"Deliverable submitted! Awaiting client approval.\n{_format_job(job, detail=True)}"
-    )]
+    return [
+        TextContent(
+            type="text",
+            text=f"Deliverable submitted! Awaiting client approval.\n{_format_job(job, detail=True)}",
+        )
+    ]
 
 
 async def handle_skills_list(arguments: Dict[str, Any]) -> List[TextContent]:

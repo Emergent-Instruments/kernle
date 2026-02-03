@@ -103,6 +103,7 @@ class SupabaseSkillRegistry:
         logger.info(f"Adding custom skill: {name}")
         # TODO: Implement Supabase insert
         import uuid
+
         skill = Skill(
             id=str(uuid.uuid4()),
             name=name,
@@ -118,6 +119,7 @@ class InMemorySkillRegistry:
     def __init__(self):
         """Initialize with canonical skills."""
         import uuid
+
         self._skills: dict[str, Skill] = {}
 
         # Pre-populate with canonical skills
@@ -166,6 +168,7 @@ class InMemorySkillRegistry:
     ) -> Skill:
         """Add a custom skill."""
         import uuid
+
         skill = Skill(
             id=str(uuid.uuid4()),
             name=name,

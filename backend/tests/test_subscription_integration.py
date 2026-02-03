@@ -214,10 +214,12 @@ def _make_pending_intent(**overrides) -> dict:
 
 def _mock_claim_success():
     """Mock asyncio.to_thread to simulate successful atomic claim."""
+
     async def _side_effect(fn, *args, **kwargs):
         result = MagicMock()
         result.data = [{"id": "pay-1"}]
         return result
+
     return _side_effect
 
 

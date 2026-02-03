@@ -144,7 +144,7 @@ class InMemoryJobStorage:
         # Sort by created_at desc
         jobs.sort(key=lambda j: j.created_at or self._utc_now(), reverse=True)
 
-        return jobs[offset:offset + limit]
+        return jobs[offset : offset + limit]
 
     def update_job(self, job: Job) -> bool:
         """Update a job."""
@@ -213,7 +213,6 @@ class InMemoryJobStorage:
         transitions = self._transitions.get(job_id, [])
         # Sort by created_at asc
         return sorted(transitions, key=lambda t: t.created_at or self._utc_now())
-
 
 
 class SupabaseJobStorage:

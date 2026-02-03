@@ -73,11 +73,11 @@ def _sanitize_search_query(query: str) -> str:
 
     # Escape special SQL/LIKE characters
     # These characters have special meaning in LIKE patterns or SQL
-    special_chars = ['%', '_', '\\', "'", '"', ';', '--', '/*', '*/']
+    special_chars = ["%", "_", "\\", "'", '"', ";", "--", "/*", "*/"]
     sanitized = query
 
     for char in special_chars:
-        sanitized = sanitized.replace(char, '')
+        sanitized = sanitized.replace(char, "")
 
     # Limit length to prevent DoS
     return sanitized[:100].strip()

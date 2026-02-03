@@ -47,6 +47,7 @@ CHAIN_CONFIG = {
 
 class PaymentVerificationError(Exception):
     """Raised when payment verification fails."""
+
     pass
 
 
@@ -150,7 +151,7 @@ def _parse_transfer_log(log: dict, usdc_decimals: int) -> Optional[dict]:
     # Parse the value from data field
     data = log.get("data", "0x0")
     amount_raw = int(data, 16)
-    amount = Decimal(amount_raw) / Decimal(10 ** usdc_decimals)
+    amount = Decimal(amount_raw) / Decimal(10**usdc_decimals)
 
     return {
         "from_address": from_address,
@@ -315,11 +316,17 @@ async def verify_usdc_transfer(
         found_transfer = usdc_transfers[0] if usdc_transfers else None
         error_details = []
         if expected_from and found_transfer and found_transfer["from_address"] != expected_from:
-            error_details.append(f"from mismatch: expected {expected_from}, got {found_transfer['from_address']}")
+            error_details.append(
+                f"from mismatch: expected {expected_from}, got {found_transfer['from_address']}"
+            )
         if expected_to and found_transfer and found_transfer["to_address"] != expected_to:
-            error_details.append(f"to mismatch: expected {expected_to}, got {found_transfer['to_address']}")
+            error_details.append(
+                f"to mismatch: expected {expected_to}, got {found_transfer['to_address']}"
+            )
         if expected_amount and found_transfer:
-            error_details.append(f"amount: expected {expected_amount}, got {found_transfer['amount']}")
+            error_details.append(
+                f"amount: expected {expected_amount}, got {found_transfer['amount']}"
+            )
 
         return TransferVerificationResult(
             success=False,
@@ -377,12 +384,15 @@ def verify_usdc_transfer_sync(
 ) -> TransferVerificationResult:
     """Synchronous wrapper for verify_usdc_transfer."""
     import asyncio
-    return asyncio.run(verify_usdc_transfer(
-        tx_hash=tx_hash,
-        expected_amount=expected_amount,
-        expected_from=expected_from,
-        expected_to=expected_to,
-        chain=chain,
-        min_confirmations=min_confirmations,
-        tolerance=tolerance,
-    ))
+
+    return asyncio.run(
+        verify_usdc_transfer(
+            tx_hash=tx_hash,
+            expected_amount=expected_amount,
+            expected_from=expected_from,
+            expected_to=expected_to,
+            chain=chain,
+            min_confirmations=min_confirmations,
+            tolerance=tolerance,
+        )
+    )

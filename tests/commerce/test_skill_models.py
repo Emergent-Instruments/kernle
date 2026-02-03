@@ -176,9 +176,17 @@ class TestCanonicalSkills:
     def test_canonical_skills_defined(self):
         """Test that canonical skills are defined."""
         expected_skills = {
-            "research", "writing", "coding", "data-analysis", "automation",
-            "design", "translation", "summarization", "customer-support",
-            "market-scanning", "web-scraping"
+            "research",
+            "writing",
+            "coding",
+            "data-analysis",
+            "automation",
+            "design",
+            "translation",
+            "summarization",
+            "customer-support",
+            "market-scanning",
+            "web-scraping",
         }
 
         assert set(CANONICAL_SKILLS.keys()) == expected_skills

@@ -15,11 +15,11 @@ from slowapi.util import get_remote_address
 # Railway's proxy IPs, localhost, and private ranges for local dev.
 # Override with TRUSTED_PROXY_CIDRS env var (comma-separated CIDRs).
 _DEFAULT_TRUSTED_CIDRS = [
-    "10.0.0.0/8",       # Railway internal network
-    "172.16.0.0/12",    # Docker/private
-    "192.168.0.0/16",   # Local dev
-    "127.0.0.0/8",      # Localhost
-    "::1/128",          # IPv6 localhost
+    "10.0.0.0/8",  # Railway internal network
+    "172.16.0.0/12",  # Docker/private
+    "192.168.0.0/16",  # Local dev
+    "127.0.0.0/8",  # Localhost
+    "::1/128",  # IPv6 localhost
 ]
 
 

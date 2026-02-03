@@ -39,26 +39,31 @@ logger = logging.getLogger(__name__)
 
 class EscrowServiceError(Exception):
     """Base exception for escrow service errors."""
+
     pass
 
 
 class EscrowNotFoundError(EscrowServiceError):
     """Escrow contract not found."""
+
     pass
 
 
 class InsufficientAllowanceError(EscrowServiceError):
     """Insufficient USDC allowance for escrow."""
+
     pass
 
 
 class InvalidEscrowStateError(EscrowServiceError):
     """Escrow is in invalid state for requested operation."""
+
     pass
 
 
 class TransactionFailedError(EscrowServiceError):
     """Blockchain transaction failed."""
+
     pass
 
 
@@ -78,6 +83,7 @@ class EscrowInfo:
         delivered_at: When delivery was submitted
         approval_timeout: Seconds until auto-release after delivery
     """
+
     address: str
     job_id: str
     client: str
@@ -144,6 +150,7 @@ class TransactionResult:
         gas_used: Gas consumed
         error: Error message if failed
     """
+
     success: bool
     tx_hash: Optional[str] = None
     block_number: Optional[int] = None
@@ -293,6 +300,7 @@ class EscrowService:
             32-byte representation
         """
         import hashlib
+
         # Use SHA256 hash to get consistent 32 bytes from any input
         return hashlib.sha256(job_id.encode()).digest()
 
@@ -348,10 +356,7 @@ class EscrowService:
 
         TODO: Implement actual contract deployment
         """
-        logger.info(
-            f"Deploying escrow for job {job_id}: "
-            f"{amount} USDC, deadline {deadline}"
-        )
+        logger.info(f"Deploying escrow for job {job_id}: " f"{amount} USDC, deadline {deadline}")
 
         # Convert parameters
         self._job_id_to_bytes32(job_id)
@@ -375,6 +380,7 @@ class EscrowService:
 
         # STUB: Generate placeholder escrow address
         import uuid
+
         # Ethereum addresses are 40 hex chars after 0x
         base_hash = uuid.uuid5(uuid.NAMESPACE_DNS, job_id).hex
         extra_hash = uuid.uuid5(uuid.NAMESPACE_URL, job_id).hex[:8]
@@ -526,9 +532,7 @@ class EscrowService:
 
         TODO: Implement actual approval
         """
-        logger.info(
-            f"Approving {amount} USDC: {owner_address} → {spender_address}"
-        )
+        logger.info(f"Approving {amount} USDC: {owner_address} → {spender_address}")
 
         # TODO: Implement USDC approve call
         # usdc = self._get_usdc()
@@ -565,9 +569,7 @@ class EscrowService:
 
         TODO: Implement actual worker assignment
         """
-        logger.info(
-            f"Assigning worker {worker_address} to escrow {escrow_address}"
-        )
+        logger.info(f"Assigning worker {worker_address} to escrow {escrow_address}")
 
         # TODO: Implement worker assignment
         # escrow = self._get_escrow(escrow_address)
@@ -801,9 +803,7 @@ class EscrowService:
         with escrow_lock:
             self._check_reentrancy(escrow_address, "resolve_dispute")
             try:
-                logger.info(
-                    f"Resolving dispute on {escrow_address}: funds to {recipient_address}"
-                )
+                logger.info(f"Resolving dispute on {escrow_address}: funds to {recipient_address}")
 
                 # TODO: Implement dispute resolution
                 # escrow = self._get_escrow(escrow_address)

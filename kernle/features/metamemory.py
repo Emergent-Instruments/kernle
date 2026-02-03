@@ -236,16 +236,18 @@ class MetaMemoryMixin:
                     parts = parent_ref.split(":", 1)
                     _walk(parts[0], parts[1], depth + 1)
 
-            chain.append({
-                "ref": ref,
-                "type": mem_type,
-                "id": mem_id,
-                "summary": self._get_memory_summary(mem_type, record),
-                "source_type": getattr(record, "source_type", "unknown"),
-                "derived_from": derived_from,
-                "confidence": getattr(record, "confidence", None),
-                "depth": depth,
-            })
+            chain.append(
+                {
+                    "ref": ref,
+                    "type": mem_type,
+                    "id": mem_id,
+                    "summary": self._get_memory_summary(mem_type, record),
+                    "source_type": getattr(record, "source_type", "unknown"),
+                    "derived_from": derived_from,
+                    "confidence": getattr(record, "confidence", None),
+                    "depth": depth,
+                }
+            )
 
         _walk(memory_type, memory_id, 0)
         return chain
@@ -358,15 +360,17 @@ class MetaMemoryMixin:
                         child_ref = f"{mem_type}:{record.id}"
                         if child_ref not in visited:
                             visited.add(child_ref)
-                            dependents.append({
-                                "ref": child_ref,
-                                "type": mem_type,
-                                "id": record.id,
-                                "summary": self._get_memory_summary(mem_type, record),
-                                "derived_from": derived,
-                                "confidence": getattr(record, "confidence", None),
-                                "depth": depth,
-                            })
+                            dependents.append(
+                                {
+                                    "ref": child_ref,
+                                    "type": mem_type,
+                                    "id": record.id,
+                                    "summary": self._get_memory_summary(mem_type, record),
+                                    "derived_from": derived,
+                                    "confidence": getattr(record, "confidence", None),
+                                    "depth": depth,
+                                }
+                            )
                             # Recurse to find further dependents
                             _find_dependents(child_ref, depth + 1)
 
@@ -429,12 +433,14 @@ class MetaMemoryMixin:
                     if target:
                         valid_refs += 1
                     else:
-                        orphans.append({
-                            "memory": record_ref,
-                            "memory_summary": self._get_memory_summary(mem_type, record),
-                            "field": field,
-                            "broken_ref": ref,
-                        })
+                        orphans.append(
+                            {
+                                "memory": record_ref,
+                                "memory_summary": self._get_memory_summary(mem_type, record),
+                                "field": field,
+                                "broken_ref": ref,
+                            }
+                        )
 
         return {
             "total_references": total_refs,

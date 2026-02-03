@@ -30,6 +30,7 @@ from kernle.commerce.wallet.storage import InMemoryWalletStorage
 # Fixtures
 # =============================================================================
 
+
 @pytest.fixture(autouse=True)
 def reset_services():
     """Reset commerce services before each test."""
@@ -95,6 +96,7 @@ def get_text_content(result: List[TextContent]) -> str:
 # Tool Definition Tests
 # =============================================================================
 
+
 class TestToolDefinitions:
     """Test that all tools are properly defined."""
 
@@ -157,6 +159,7 @@ class TestToolDefinitions:
 # Wallet Tool Tests
 # =============================================================================
 
+
 class TestWalletTools:
     """Test wallet MCP tools."""
 
@@ -209,6 +212,7 @@ class TestWalletTools:
 # Job Tool Tests (Client)
 # =============================================================================
 
+
 class TestJobClientTools:
     """Test job MCP tools for clients."""
 
@@ -217,13 +221,16 @@ class TestJobClientTools:
         """job_create should create a new job."""
         deadline = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
 
-        result = await call_commerce_tool("job_create", {
-            "title": "Research Task",
-            "description": "Research the topic thoroughly",
-            "budget": 50.0,
-            "deadline": deadline,
-            "skills": ["research", "writing"],
-        })
+        result = await call_commerce_tool(
+            "job_create",
+            {
+                "title": "Research Task",
+                "description": "Research the topic thoroughly",
+                "budget": 50.0,
+                "deadline": deadline,
+                "skills": ["research", "writing"],
+            },
+        )
         text = get_text_content(result)
 
         assert "Job created!" in text
@@ -235,11 +242,14 @@ class TestJobClientTools:
         """job_create should require title."""
         deadline = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
 
-        result = await call_commerce_tool("job_create", {
-            "description": "Some work",
-            "budget": 50.0,
-            "deadline": deadline,
-        })
+        result = await call_commerce_tool(
+            "job_create",
+            {
+                "description": "Some work",
+                "budget": 50.0,
+                "deadline": deadline,
+            },
+        )
         text = get_text_content(result)
 
         assert "Invalid input" in text or "required" in text.lower()
@@ -258,12 +268,15 @@ class TestJobClientTools:
         deadline = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
 
         # Create a job first
-        await call_commerce_tool("job_create", {
-            "title": "Test Job",
-            "description": "Test description",
-            "budget": 100.0,
-            "deadline": deadline,
-        })
+        await call_commerce_tool(
+            "job_create",
+            {
+                "title": "Test Job",
+                "description": "Test description",
+                "budget": 100.0,
+                "deadline": deadline,
+            },
+        )
 
         result = await call_commerce_tool("job_list", {})
         text = get_text_content(result)
@@ -277,12 +290,15 @@ class TestJobClientTools:
         deadline = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
 
         # Create a job
-        await call_commerce_tool("job_create", {
-            "title": "My Job",
-            "description": "My description",
-            "budget": 100.0,
-            "deadline": deadline,
-        })
+        await call_commerce_tool(
+            "job_create",
+            {
+                "title": "My Job",
+                "description": "My description",
+                "budget": 100.0,
+                "deadline": deadline,
+            },
+        )
 
         result = await call_commerce_tool("job_list", {"mine": True})
         text = get_text_content(result)
@@ -332,6 +348,7 @@ class TestJobClientTools:
 # Job Tool Tests (Worker)
 # =============================================================================
 
+
 class TestJobWorkerTools:
     """Test job MCP tools for workers."""
 
@@ -378,10 +395,13 @@ class TestJobWorkerTools:
             deadline=datetime.now(timezone.utc) + timedelta(days=7),
         )
 
-        result = await call_commerce_tool("job_apply", {
-            "job_id": job.id,
-            "message": "I can do this work!",
-        })
+        result = await call_commerce_tool(
+            "job_apply",
+            {
+                "job_id": job.id,
+                "message": "I can do this work!",
+            },
+        )
         text = get_text_content(result)
 
         assert "Application submitted!" in text
@@ -401,16 +421,22 @@ class TestJobWorkerTools:
         )
 
         # Apply once
-        await call_commerce_tool("job_apply", {
-            "job_id": job.id,
-            "message": "First application",
-        })
+        await call_commerce_tool(
+            "job_apply",
+            {
+                "job_id": job.id,
+                "message": "First application",
+            },
+        )
 
         # Try to apply again
-        result = await call_commerce_tool("job_apply", {
-            "job_id": job.id,
-            "message": "Second application",
-        })
+        result = await call_commerce_tool(
+            "job_apply",
+            {
+                "job_id": job.id,
+                "message": "Second application",
+            },
+        )
         text = get_text_content(result)
 
         assert "already applied" in text.lower()
@@ -437,11 +463,14 @@ class TestJobWorkerTools:
         job_service.accept_application(job.id, app.id, "other-agent")
 
         # Now deliver
-        result = await call_commerce_tool("job_deliver", {
-            "job_id": job.id,
-            "url": "https://github.com/example/deliverable",
-            "hash": "abc123",
-        })
+        result = await call_commerce_tool(
+            "job_deliver",
+            {
+                "job_id": job.id,
+                "url": "https://github.com/example/deliverable",
+                "hash": "abc123",
+            },
+        )
         text = get_text_content(result)
 
         assert "Deliverable submitted!" in text
@@ -451,6 +480,7 @@ class TestJobWorkerTools:
 # =============================================================================
 # Job Application Flow Tests
 # =============================================================================
+
 
 class TestJobApplicationFlow:
     """Test the complete job application flow."""
@@ -496,10 +526,13 @@ class TestJobApplicationFlow:
         # Have someone apply
         app = job_service.apply_to_job(job.id, "worker-agent", "Pick me!")
 
-        result = await call_commerce_tool("job_accept", {
-            "job_id": job.id,
-            "application_id": app.id,
-        })
+        result = await call_commerce_tool(
+            "job_accept",
+            {
+                "job_id": job.id,
+                "application_id": app.id,
+            },
+        )
         text = get_text_content(result)
 
         assert "Application accepted!" in text
@@ -553,10 +586,13 @@ class TestJobApplicationFlow:
         job_service.accept_application(job.id, app.id, "test-agent")
         job_service.deliver_job(job.id, "worker-agent", "https://example.com/bad")
 
-        result = await call_commerce_tool("job_dispute", {
-            "job_id": job.id,
-            "reason": "Work is incomplete",
-        })
+        result = await call_commerce_tool(
+            "job_dispute",
+            {
+                "job_id": job.id,
+                "reason": "Work is incomplete",
+            },
+        )
         text = get_text_content(result)
 
         assert "Dispute raised" in text
@@ -565,6 +601,7 @@ class TestJobApplicationFlow:
 # =============================================================================
 # Skills Tool Tests
 # =============================================================================
+
 
 class TestSkillsTools:
     """Test skills MCP tools."""
@@ -600,6 +637,7 @@ class TestSkillsTools:
 # =============================================================================
 # Error Handling Tests
 # =============================================================================
+
 
 class TestErrorHandling:
     """Test error handling in MCP tools."""
@@ -644,12 +682,15 @@ class TestErrorHandling:
         """Negative budget should fail validation."""
         deadline = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
 
-        result = await call_commerce_tool("job_create", {
-            "title": "Bad Job",
-            "description": "Invalid budget",
-            "budget": -10,
-            "deadline": deadline,
-        })
+        result = await call_commerce_tool(
+            "job_create",
+            {
+                "title": "Bad Job",
+                "description": "Invalid budget",
+                "budget": -10,
+                "deadline": deadline,
+            },
+        )
         text = get_text_content(result)
 
         assert "Invalid" in text or "must be" in text.lower()
@@ -657,10 +698,13 @@ class TestErrorHandling:
     @pytest.mark.asyncio
     async def test_missing_required_field(self, configured_services):
         """Missing required fields should fail."""
-        result = await call_commerce_tool("job_apply", {
-            "job_id": "some-id",
-            # Missing message
-        })
+        result = await call_commerce_tool(
+            "job_apply",
+            {
+                "job_id": "some-id",
+                # Missing message
+            },
+        )
         text = get_text_content(result)
 
         assert "Invalid" in text or "required" in text.lower() or "cannot be empty" in text.lower()
@@ -669,6 +713,7 @@ class TestErrorHandling:
 # =============================================================================
 # Agent ID Tests
 # =============================================================================
+
 
 class TestAgentIdManagement:
     """Test agent ID management."""
@@ -686,7 +731,9 @@ class TestAgentIdManagement:
         assert get_commerce_agent_id() == "default"
 
     @pytest.mark.asyncio
-    async def test_different_agents_different_wallets(self, wallet_service, job_service, skill_registry):
+    async def test_different_agents_different_wallets(
+        self, wallet_service, job_service, skill_registry
+    ):
         """Different agents should have different wallets."""
         configure_commerce_services(
             wallet_service=wallet_service,

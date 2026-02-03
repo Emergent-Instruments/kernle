@@ -64,7 +64,7 @@ class InMemoryJobStorage:
         if max_budget:
             result = [j for j in result if j.budget_usdc <= max_budget]
 
-        return result[offset:offset + limit]
+        return result[offset : offset + limit]
 
     def update_job(self, job: Job) -> bool:
         if job.id not in self.jobs:

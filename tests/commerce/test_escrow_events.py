@@ -1,6 +1,5 @@
 """Tests for escrow events module."""
 
-
 from kernle.commerce.escrow.events import (
     DeliveredEvent,
     DisputedEvent,
@@ -200,6 +199,7 @@ class TestEscrowEventMonitor:
         monitor = EscrowEventMonitor(rpc_url="https://sepolia.base.org")
 
         events_received = []
+
         def handler(event):
             events_received.append(event)
 
@@ -330,14 +330,10 @@ class TestEscrowEventIndexer:
         indexer.index(event2)
         indexer.index(event3)
 
-        escrow1_events = indexer.get_events_for_escrow(
-            "0x1111111111111111111111111111111111111111"
-        )
+        escrow1_events = indexer.get_events_for_escrow("0x1111111111111111111111111111111111111111")
         assert len(escrow1_events) == 2
 
-        escrow2_events = indexer.get_events_for_escrow(
-            "0x2222222222222222222222222222222222222222"
-        )
+        escrow2_events = indexer.get_events_for_escrow("0x2222222222222222222222222222222222222222")
         assert len(escrow2_events) == 1
 
     def test_get_events_by_type(self):

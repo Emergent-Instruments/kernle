@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 # Event Data Classes
 # =============================================================================
 
+
 class EscrowEventType(str, Enum):
     """Types of escrow events."""
 
@@ -59,6 +60,7 @@ class EscrowEvent:
         timestamp: When the event occurred (if known)
         raw_data: Raw event data
     """
+
     event_type: EscrowEventType
     contract_address: str
     tx_hash: str
@@ -76,6 +78,7 @@ class FundedEvent(EscrowEvent):
         client: Address of the client who funded
         amount: Amount of USDC deposited (in wei, divide by 10^6)
     """
+
     client: str = ""
     amount: int = 0
 
@@ -90,6 +93,7 @@ class WorkerAssignedEvent(EscrowEvent):
     Attributes:
         worker: Address of the assigned worker
     """
+
     worker: str = ""
 
     def __post_init__(self):
@@ -104,6 +108,7 @@ class DeliveredEvent(EscrowEvent):
         worker: Address of the delivering worker
         deliverable_hash: IPFS/content hash of deliverable
     """
+
     worker: str = ""
     deliverable_hash: str = ""
 
@@ -119,6 +124,7 @@ class ReleasedEvent(EscrowEvent):
         worker: Address receiving payment
         amount: Amount of USDC released
     """
+
     worker: str = ""
     amount: int = 0
 
@@ -134,6 +140,7 @@ class RefundedEvent(EscrowEvent):
         client: Address receiving refund
         amount: Amount of USDC refunded
     """
+
     client: str = ""
     amount: int = 0
 
@@ -148,6 +155,7 @@ class DisputedEvent(EscrowEvent):
     Attributes:
         disputant: Address of party raising dispute
     """
+
     disputant: str = ""
 
     def __post_init__(self):
@@ -162,6 +170,7 @@ class DisputeResolvedEvent(EscrowEvent):
         recipient: Address receiving funds after resolution
         amount: Amount of USDC transferred
     """
+
     recipient: str = ""
     amount: int = 0
 
@@ -179,6 +188,7 @@ class EscrowCreatedEvent(EscrowEvent):
         client: Address of the client
         amount: Budget amount in USDC
     """
+
     job_id: str = ""
     escrow: str = ""
     client: str = ""
@@ -191,6 +201,7 @@ class EscrowCreatedEvent(EscrowEvent):
 # =============================================================================
 # Event Handler Protocol
 # =============================================================================
+
 
 class EventHandler(Protocol):
     """Protocol for event handlers."""
@@ -210,6 +221,7 @@ EventCallback = Callable[[EscrowEvent], None]
 # =============================================================================
 # Event Parser
 # =============================================================================
+
 
 class EscrowEventParser:
     """Parses raw event logs into typed EscrowEvent objects.
@@ -286,6 +298,7 @@ class EscrowEventParser:
 # =============================================================================
 # Event Monitor
 # =============================================================================
+
 
 class EscrowEventMonitor:
     """Monitors escrow contracts for events.
@@ -483,6 +496,7 @@ class EscrowEventMonitor:
 # =============================================================================
 # Event Indexer
 # =============================================================================
+
 
 class EscrowEventIndexer:
     """Indexes escrow events for querying.

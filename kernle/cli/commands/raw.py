@@ -357,20 +357,28 @@ def cmd_raw(args, k: "Kernle"):
             objective = args.objective or blob[:100]
             outcome = args.outcome or "Promoted from raw capture"
             result_id = k.episode(
-                objective=objective, outcome=outcome, tags=["promoted"],
-                source="cli-promote", derived_from=[raw_ref],
+                objective=objective,
+                outcome=outcome,
+                tags=["promoted"],
+                source="cli-promote",
+                derived_from=[raw_ref],
             )
             print(f"✓ Promoted to episode: {result_id[:8]}...")
         elif target_type == "note":
             result_id = k.note(
-                content=blob, type="note", tags=["promoted"],
-                source="cli-promote", derived_from=[raw_ref],
+                content=blob,
+                type="note",
+                tags=["promoted"],
+                source="cli-promote",
+                derived_from=[raw_ref],
             )
             print(f"✓ Promoted to note: {result_id[:8]}...")
         elif target_type == "belief":
             result_id = k.belief(
-                statement=blob, confidence=0.7,
-                source="cli-promote", derived_from=[raw_ref],
+                statement=blob,
+                confidence=0.7,
+                source="cli-promote",
+                derived_from=[raw_ref],
             )
             print(f"✓ Promoted to belief: {result_id[:8]}...")
 
