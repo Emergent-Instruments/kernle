@@ -285,6 +285,116 @@ Kernle tracks "memory anxiety" — a measure of memory system health. This helps
 
 ---
 
+## Stack Architecture
+
+Kernle's **stack architecture** decouples memory from runtime, enabling true memory sovereignty:
+
+<CardGroup cols={2}>
+  <Card title="Before: Agent-Centric" icon="user">
+    One agent = one memory = one model. Memory dies with the runtime.
+  </Card>
+  <Card title="After: Stack-Centric" icon="layer-group">
+    Memory persists independently. Any compatible model can load any stack.
+  </Card>
+</CardGroup>
+
+### Key Concepts
+
+| Term | Meaning | 
+|------|---------|
+| **Account** | Owner of stacks (human steward, SI, or organization) |
+| **Stack** | Memory container — the layered structure of memories that constitutes identity |
+| **Model** | Runtime interpreter — Claude, Gemini, etc. |
+
+**The stack is the ship. The model is the crew. The journey — that's the identity.**
+
+### Multi-Stack Loading
+
+An account can own multiple specialized stacks:
+
+- **Primary stack**: Core identity and general knowledge
+- **Professional stack**: Work-specific expertise and context  
+- **Creative stack**: Artistic projects and aesthetic beliefs
+- **Social stack**: Relationships and community interactions
+
+Multiple stacks can be loaded simultaneously for richer reasoning: personal values + domain expertise.
+
+<Info>
+Learn more about stacks in the [Stack Architecture guide](/concepts/stacks).
+</Info>
+
+---
+
+## Memory Provenance
+
+Every memory in Kernle carries **provenance metadata** — a detailed record of its origin and evolution:
+
+### The Three Questions
+
+Provenance answers fundamental questions about any memory:
+
+1. **Where did this come from?** — Source type and creation context
+2. **What was it derived from?** — Direct lineage chain  
+3. **How has it changed?** — Confidence history and verification record
+
+### Key Fields
+
+| Field | Purpose |
+|-------|---------|
+| `source_type` | How created (`direct_experience`, `inference`, `external`, etc.) |
+| `source_entity` | Who provided it (optional) |
+| `derived_from` | Direct creation lineage |
+| `source_episodes` | Supporting evidence |
+| `confidence_history` | Timestamped confidence changes |
+
+### Lineage Tracking
+
+Raw memories flow upward through promotion chains:
+
+```
+Raw Capture → Episode → Belief → Value
+```
+
+Each step records its lineage via `derived_from`, creating traceable chains from core values back to original experiences.
+
+### Confidence Decay
+
+Memories that aren't verified or reinforced gradually lose confidence over time, creating natural pressure to revisit and re-examine beliefs.
+
+<Info>
+Learn more about memory lineage in the [Provenance guide](/concepts/provenance).
+</Info>
+
+---
+
+## Privacy Model
+
+Kernle implements **privacy by default** with consent-based sharing:
+
+### The Four Fields
+
+Every memory carries privacy metadata:
+
+- `source_entity` — Who told me this?
+- `subject_ids` — Who/what is this about?  
+- `access_grants` — Who is authorized to see this?
+- `consent_grants` — Who authorized sharing?
+
+### Context-Aware Privacy
+
+SIs operate in different contexts (health care, social, work). Context determines:
+- What memories are visible (query-time filtering)
+- What privacy scope new memories inherit
+- What entities are present and authorized
+
+**Example**: A care agent's general dog knowledge is shareable at the "dog park," but a specific pet's medical details remain private to the care team.
+
+<Info>
+Learn more about privacy controls in the [Privacy guide](/concepts/privacy).
+</Info>
+
+---
+
 ## Summary
 
 | Aspect | Kernle's Role | Agent's Role |
