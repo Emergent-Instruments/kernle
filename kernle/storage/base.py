@@ -229,6 +229,10 @@ class Episode:
     # Context/scope fields for project-specific memories
     context: Optional[str] = None  # e.g., "project:api-service", "repo:myorg/myrepo"
     context_tags: Optional[List[str]] = None  # Additional context tags for filtering
+    # Privacy fields (Phase 8a)
+    subject_ids: Optional[List[str]] = None  # Who/what is this about
+    access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
+    consent_grants: Optional[List[str]] = None  # Who authorized sharing
 
 
 @dataclass
@@ -269,6 +273,10 @@ class Belief:
     # Context/scope fields for project-specific memories
     context: Optional[str] = None  # e.g., "project:api-service", "repo:myorg/myrepo"
     context_tags: Optional[List[str]] = None  # Additional context tags for filtering
+    # Privacy fields (Phase 8a)
+    subject_ids: Optional[List[str]] = None  # Who/what is this about
+    access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
+    consent_grants: Optional[List[str]] = None  # Who authorized sharing
 
 
 @dataclass
@@ -304,6 +312,10 @@ class Value:
     # Context/scope fields for project-specific memories
     context: Optional[str] = None
     context_tags: Optional[List[str]] = None
+    # Privacy fields (Phase 8a)
+    subject_ids: Optional[List[str]] = None  # Who/what is this about
+    access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
+    consent_grants: Optional[List[str]] = None  # Who authorized sharing
 
 
 @dataclass
@@ -340,6 +352,10 @@ class Goal:
     # Context/scope fields for project-specific memories
     context: Optional[str] = None
     context_tags: Optional[List[str]] = None
+    # Privacy fields (Phase 8a)
+    subject_ids: Optional[List[str]] = None  # Who/what is this about
+    access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
+    consent_grants: Optional[List[str]] = None  # Who authorized sharing
 
 
 @dataclass
@@ -378,6 +394,10 @@ class Note:
     # Context/scope fields for project-specific memories
     context: Optional[str] = None  # e.g., "project:api-service", "repo:myorg/myrepo"
     context_tags: Optional[List[str]] = None  # Additional context tags for filtering
+    # Privacy fields (Phase 8a)
+    subject_ids: Optional[List[str]] = None  # Who/what is this about
+    access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
+    consent_grants: Optional[List[str]] = None  # Who authorized sharing
 
 
 @dataclass
@@ -414,6 +434,10 @@ class Drive:
     # Context/scope fields for project-specific memories
     context: Optional[str] = None
     context_tags: Optional[List[str]] = None
+    # Privacy fields (Phase 8a)
+    subject_ids: Optional[List[str]] = None  # Who/what is this about
+    access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
+    consent_grants: Optional[List[str]] = None  # Who authorized sharing
 
 
 @dataclass
@@ -453,6 +477,10 @@ class Relationship:
     # Context/scope fields for project-specific memories
     context: Optional[str] = None
     context_tags: Optional[List[str]] = None
+    # Privacy fields (Phase 8a)
+    subject_ids: Optional[List[str]] = None  # Who/what is this about
+    access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
+    consent_grants: Optional[List[str]] = None  # Who authorized sharing
 
 
 @dataclass
@@ -481,6 +509,13 @@ class Playbook:
     confidence: float = 0.8
     last_used: Optional[datetime] = None
     created_at: Optional[datetime] = None
+    # Context/scope fields for project-specific memories
+    context: Optional[str] = None
+    context_tags: Optional[List[str]] = None
+    # Privacy fields (Phase 8a)
+    subject_ids: Optional[List[str]] = None  # Who/what is this about
+    access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
+    consent_grants: Optional[List[str]] = None  # Who authorized sharing
     # Sync metadata
     local_updated_at: Optional[datetime] = None
     cloud_synced_at: Optional[datetime] = None
