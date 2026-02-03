@@ -8,6 +8,64 @@ if TYPE_CHECKING:
     from kernle import Kernle
 
 
+def cmd_promote(args, k: "Kernle"):
+    """Promote recurring patterns from episodes into beliefs."""
+    result = k.promote(
+        auto=getattr(args, "auto", False),
+        min_occurrences=getattr(args, "min_occurrences", 2),
+        min_episodes=getattr(args, "min_episodes", 3),
+        confidence=getattr(args, "confidence", 0.7),
+        limit=getattr(args, "limit", 50),
+    )
+
+    if getattr(args, "json", False):
+        print(json.dumps(result, indent=2, default=str))
+        return
+
+    print(f"## Promotion Results")
+    print(f"Episodes scanned: {result['episodes_scanned']}")
+    print(f"Patterns found: {result['patterns_found']}")
+    print()
+
+    if result.get("message"):
+        print(result["message"])
+        return
+
+    if not result["suggestions"]:
+        print("No recurring patterns found. Keep building experiences!")
+        return
+
+    auto = getattr(args, "auto", False)
+    if auto:
+        print(f"Beliefs created: {result['beliefs_created']}")
+        print()
+
+    for i, s in enumerate(result["suggestions"], 1):
+        status = ""
+        if s.get("promoted"):
+            status = f" ✅ → belief {s['belief_id'][:8]}"
+        elif s.get("skipped"):
+            status = " ⏭️  (similar belief exists)"
+
+        print(f'{i}. "{s["lesson"]}" (×{s["count"]}){status}')
+        if s["source_episodes"]:
+            ep_refs = ", ".join(eid[:8] for eid in s["source_episodes"])
+            print(f"   Source episodes: {ep_refs}")
+
+    if not auto and result["suggestions"]:
+        # Show how to promote manually
+        print()
+        print("---")
+        print("To promote automatically:")
+        print(f"  kernle -a {k.agent_id} promote --auto")
+        print()
+        print("Or promote specific patterns manually:")
+        print(
+            f'  kernle -a {k.agent_id} belief add "<statement>" '
+            f"--confidence 0.7 --source promotion"
+        )
+
+
 def cmd_consolidate(args, k: "Kernle"):
     """Output guided reflection prompt for memory consolidation.
 

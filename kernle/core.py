@@ -2188,7 +2188,7 @@ class Kernle(
                 source_type = "external"
             elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
                 source_type = "inference"
-            elif "consolidat" in source_lower:
+            elif "consolidat" in source_lower or "promot" in source_lower:
                 source_type = "consolidation"
             elif "seed" in source_lower:
                 source_type = "seed"
@@ -4322,6 +4322,137 @@ class Kernle(
             "new_beliefs": 0,  # Would need LLM integration for belief extraction
             "lessons_found": len(common_lessons),
             "common_lessons": common_lessons[:5],
+        }
+
+    def promote(
+        self,
+        auto: bool = False,
+        min_occurrences: int = 2,
+        min_episodes: int = 3,
+        confidence: float = 0.7,
+        limit: int = 50,
+    ) -> Dict[str, Any]:
+        """Promote recurring patterns from episodes into beliefs.
+
+        Scans recent episodes for recurring lessons and patterns. In auto
+        mode, creates beliefs directly. In default mode, returns suggestions
+        for the agent to review.
+
+        This is the episodes → beliefs promotion step. The agent controls
+        when and whether promotion happens (SI autonomy principle).
+
+        Args:
+            auto: If True, create beliefs automatically. If False, return
+                suggestions only (default: False).
+            min_occurrences: Minimum times a lesson must appear across
+                episodes to be considered for promotion (default: 2).
+            min_episodes: Minimum episodes required to run promotion
+                (default: 3).
+            confidence: Initial confidence for auto-created beliefs
+                (default: 0.7). Clamped to 0.1-0.95.
+            limit: Maximum episodes to scan (default: 50).
+
+        Returns:
+            Dict with promotion results:
+            - episodes_scanned: number of episodes analyzed
+            - patterns_found: number of recurring patterns detected
+            - suggestions: list of {lesson, count, source_episodes, promoted, belief_id}
+            - beliefs_created: number of beliefs created (auto mode only)
+        """
+        from collections import Counter
+
+        confidence = max(0.1, min(0.95, confidence))
+        limit = max(1, min(200, limit))
+        min_occurrences = max(2, min_occurrences)
+
+        episodes = self._storage.get_episodes(limit=limit)
+        episodes = [ep for ep in episodes if not ep.is_forgotten]
+
+        if len(episodes) < min_episodes:
+            return {
+                "episodes_scanned": len(episodes),
+                "patterns_found": 0,
+                "suggestions": [],
+                "beliefs_created": 0,
+                "message": f"Need at least {min_episodes} episodes (found {len(episodes)})",
+            }
+
+        # Map lessons to their source episodes
+        lesson_sources: Dict[str, List[str]] = {}
+        for ep in episodes:
+            if ep.lessons:
+                for lesson in ep.lessons:
+                    # Normalize: strip whitespace, lowercase for matching
+                    normalized = lesson.strip()
+                    if not normalized:
+                        continue
+                    if normalized not in lesson_sources:
+                        lesson_sources[normalized] = []
+                    lesson_sources[normalized].append(ep.id)
+
+        # Find recurring patterns
+        recurring = [
+            (lesson, ep_ids)
+            for lesson, ep_ids in lesson_sources.items()
+            if len(ep_ids) >= min_occurrences
+        ]
+        # Sort by frequency (most common first)
+        recurring.sort(key=lambda x: -len(x[1]))
+
+        # Check existing beliefs to avoid duplicates
+        existing_beliefs = self._storage.get_beliefs(limit=200)
+        existing_statements = {
+            b.statement.strip().lower() for b in existing_beliefs if b.is_active
+        }
+
+        suggestions = []
+        beliefs_created = 0
+
+        for lesson, source_ep_ids in recurring:
+            # Skip if a very similar belief already exists
+            if lesson.strip().lower() in existing_statements:
+                suggestions.append(
+                    {
+                        "lesson": lesson,
+                        "count": len(source_ep_ids),
+                        "source_episodes": source_ep_ids[:5],
+                        "promoted": False,
+                        "skipped": "similar_belief_exists",
+                    }
+                )
+                continue
+
+            suggestion = {
+                "lesson": lesson,
+                "count": len(source_ep_ids),
+                "source_episodes": source_ep_ids[:5],
+                "promoted": False,
+                "belief_id": None,
+            }
+
+            if auto:
+                # Create belief with proper provenance
+                derived_from = [f"episode:{eid}" for eid in source_ep_ids[:10]]
+                belief_id = self.belief(
+                    statement=lesson,
+                    type="pattern",
+                    confidence=confidence,
+                    source="promotion",
+                    derived_from=derived_from,
+                )
+                suggestion["promoted"] = True
+                suggestion["belief_id"] = belief_id
+                beliefs_created += 1
+                # Add to existing set to prevent duplicates within same run
+                existing_statements.add(lesson.strip().lower())
+
+            suggestions.append(suggestion)
+
+        return {
+            "episodes_scanned": len(episodes),
+            "patterns_found": len(recurring),
+            "suggestions": suggestions[:20],  # Cap output
+            "beliefs_created": beliefs_created,
         }
 
     # =========================================================================
