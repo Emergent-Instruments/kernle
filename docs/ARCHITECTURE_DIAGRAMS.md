@@ -16,7 +16,7 @@ tracks what's shipped vs. what's planned.
 | **Payment Pipeline** (§2.5) | ⚠️ Testnet | Verified on Base Sepolia; mainnet pending |
 | **OpenClaw Gateway** (§3.1) | ✅ Shipped | Channels, heartbeat, cron, workspace injection |
 | **Session-end checkpoint** (§3.2) | ✅ Shipped | `memoryFlush` triggers Kernle checkpoint before compaction |
-| **Session-start refresh** (§3.2) | 🔧 In Progress | `kernle-memory-refresh` custom hook built, testing on gateway |
+| **Session-start refresh** (§3.2) | ✅ Shipped | `kernle-memory-refresh` custom hook on `agent:bootstrap` |
 | **Boot Config** (§3.3) | ✅ Shipped | v0.2.4 — key/value store, integrated into load/export-cache |
 | **Multi-Agent / Gateway-to-Gateway** (§3.4) | ⚠️ Partial | Device pairing complete; wake calls have token auth issue |
 | **Claude Code Integration** (§4) | ✅ Shipped | AGENTS.md instructions + memoryFlush + export-cache |
@@ -32,12 +32,14 @@ tracks what's shipped vs. what's planned.
 - Session starts → MEMORY.md from disk is injected (may be stale if previous session crashed) ⚠️
 - Agent runs `kernle -a {id} load` after waking (per AGENTS.md instructions) ✅
 
-**Target architecture (in progress):**
+**Target architecture (shipped ✅):**
 - `kernle-memory-refresh` hook fires on `agent:bootstrap` (before file injection)
 - Hook runs `kernle export-cache` → MEMORY.md content replaced with fresh state
 - Agent always wakes with current memory, even after crashes
 
-**Blocker:** Custom hook handler loading verified; end-to-end testing in progress on Ash's gateway.
+**Implementation:** Custom hook at `~/.openclaw/workspace/hooks/kernle-memory-refresh/`.
+Reads `KERNLE_AGENT_ID` from hook config env block. Verified working on Ash's gateway
+(Feb 2, 2026).
 
 ---
 
