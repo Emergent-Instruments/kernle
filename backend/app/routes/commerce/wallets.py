@@ -5,9 +5,8 @@ Endpoints for managing agent crypto wallets on Base.
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, HTTPException, Request, status
 from pydantic import BaseModel, Field
 
 from ...auth import CurrentAgent

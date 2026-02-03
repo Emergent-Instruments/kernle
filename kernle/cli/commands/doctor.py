@@ -10,9 +10,9 @@ if TYPE_CHECKING:
 
 # Import seed beliefs version for comparison
 from kernle.cli.commands.import_cmd import (
-    SEED_BELIEFS_VERSION,
     _FULL_SEED_BELIEFS,
     _MINIMAL_SEED_BELIEFS,
+    SEED_BELIEFS_VERSION,
 )
 
 
@@ -260,7 +260,7 @@ def check_seed_beliefs(k: "Kernle") -> Tuple[ComplianceCheck, dict]:
                     name="seed_beliefs",
                     passed=True,
                     message=f"⚠ Partial seed beliefs ({full_count}/{len(_FULL_SEED_BELIEFS)}), meta-belief present",
-                    fix=f"Run: kernle migrate seed-beliefs minimal",
+                    fix="Run: kernle migrate seed-beliefs minimal",
                     category="recommended",
                 ),
                 details,

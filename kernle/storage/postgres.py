@@ -616,13 +616,12 @@ class SupabaseStorage:
         now = self._now()
 
         # Build content based on note type
-        content = note.content
         if note.note_type == "decision" and note.reason:
-            content = f"**Decision**: {note.content}\n**Reason**: {note.reason}"
+            pass
         elif note.note_type == "quote" and note.speaker:
-            content = f'> "{note.content}"\n> — {note.speaker}'
+            pass
         elif note.note_type == "insight":
-            content = f"**Insight**: {note.content}"
+            pass
 
         metadata = {
             "note_type": note.note_type,

@@ -1,7 +1,8 @@
 """Tests for wallet data models."""
 
-import pytest
 from datetime import datetime, timezone
+
+import pytest
 
 from kernle.commerce.wallet.models import WalletAccount, WalletStatus
 
@@ -16,7 +17,7 @@ class TestWalletAccount:
             agent_id="agent-456",
             wallet_address="0x1234567890abcdef1234567890abcdef12345678",
         )
-        
+
         assert wallet.id == "wallet-123"
         assert wallet.agent_id == "agent-456"
         assert wallet.wallet_address == "0x1234567890abcdef1234567890abcdef12345678"
@@ -42,7 +43,7 @@ class TestWalletAccount:
             created_at=now,
             claimed_at=now,
         )
-        
+
         assert wallet.chain == "base-sepolia"
         assert wallet.status == "active"
         assert wallet.user_id == "usr_abc123"
@@ -90,7 +91,7 @@ class TestWalletAccount:
             wallet_address="0x1234567890abcdef1234567890abcdef12345678",
             status=WalletStatus.ACTIVE,
         )
-        
+
         assert wallet.status == "active"
 
     def test_is_active(self):
@@ -102,7 +103,7 @@ class TestWalletAccount:
             status="active",
         )
         assert wallet.is_active is True
-        
+
         wallet2 = WalletAccount(
             id="wallet-124",
             agent_id="agent-456",
@@ -120,7 +121,7 @@ class TestWalletAccount:
             wallet_address="0x1234567890abcdef1234567890abcdef12345678",
         )
         assert wallet.is_claimed is False
-        
+
         # Claimed via owner_eoa
         wallet2 = WalletAccount(
             id="wallet-124",
@@ -129,7 +130,7 @@ class TestWalletAccount:
             owner_eoa="0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
         )
         assert wallet2.is_claimed is True
-        
+
         # Claimed via claimed_at
         wallet3 = WalletAccount(
             id="wallet-125",
@@ -149,7 +150,7 @@ class TestWalletAccount:
             status="active",
         )
         assert wallet.can_transact is True
-        
+
         # Paused wallet cannot transact
         wallet2 = WalletAccount(
             id="wallet-124",
@@ -170,9 +171,9 @@ class TestWalletAccount:
             status="active",
             created_at=now,
         )
-        
+
         d = wallet.to_dict()
-        
+
         assert d["id"] == "wallet-123"
         assert d["agent_id"] == "agent-456"
         assert d["wallet_address"] == "0x1234567890abcdef1234567890abcdef12345678"
@@ -192,9 +193,9 @@ class TestWalletAccount:
             "spending_limit_per_tx": 200.0,
             "created_at": "2024-01-15T12:00:00+00:00",
         }
-        
+
         wallet = WalletAccount.from_dict(data)
-        
+
         assert wallet.id == "wallet-123"
         assert wallet.agent_id == "agent-456"
         assert wallet.wallet_address == "0x1234567890abcdef1234567890abcdef12345678"
@@ -211,9 +212,9 @@ class TestWalletAccount:
             "wallet_address": "0x1234567890abcdef1234567890abcdef12345678",
             "created_at": "2024-01-15T12:00:00Z",
         }
-        
+
         wallet = WalletAccount.from_dict(data)
-        
+
         assert wallet.created_at is not None
         assert wallet.created_at.tzinfo is not None
 

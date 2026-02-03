@@ -33,10 +33,12 @@ from kernle.core import Kernle
 # Commerce tools (optional - may not be installed)
 try:
     from kernle.commerce.mcp import (
-        get_commerce_tools,
-        call_commerce_tool,
-        set_commerce_agent_id,
         TOOL_HANDLERS as COMMERCE_TOOL_HANDLERS,
+    )
+    from kernle.commerce.mcp import (
+        call_commerce_tool,
+        get_commerce_tools,
+        set_commerce_agent_id,
     )
     COMMERCE_AVAILABLE = True
 except ImportError:
@@ -1282,7 +1284,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
     # Check if this is a commerce tool
     if COMMERCE_AVAILABLE and name in COMMERCE_TOOL_HANDLERS:
         return await call_commerce_tool(name, arguments)
-    
+
     try:
         # Validate and sanitize all inputs
         sanitized_args = validate_tool_input(name, arguments)

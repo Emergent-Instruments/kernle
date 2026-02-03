@@ -6,12 +6,13 @@ Verifies that a USDC transfer actually occurred on-chain by:
 3. Validating amount, sender, and recipient
 """
 
-import httpx
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
+
+import httpx
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ CHAIN_CONFIG = {
         "explorer": "https://basescan.org",
     },
     "base_sepolia": {
-        "rpc_url": "https://sepolia.base.org", 
+        "rpc_url": "https://sepolia.base.org",
         "usdc_address": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",  # Circle's testnet USDC
         "usdc_decimals": 6,
         "chain_id": 84532,
@@ -52,26 +53,26 @@ class PaymentVerificationError(Exception):
 @dataclass
 class TransferVerificationResult:
     """Result of verifying a USDC transfer."""
-    
+
     success: bool
     tx_hash: str
     chain: str
-    
+
     # Transfer details (populated if success=True)
     from_address: Optional[str] = None
     to_address: Optional[str] = None
     amount: Optional[Decimal] = None  # Human-readable (e.g., 5.00 for $5 USDC)
     amount_raw: Optional[int] = None  # Raw units (e.g., 5000000 for $5 USDC)
-    
+
     # Block info
     block_number: Optional[int] = None
     block_timestamp: Optional[datetime] = None
     confirmations: Optional[int] = None
-    
+
     # Error info (populated if success=False)
     error: Optional[str] = None
     error_code: Optional[str] = None
-    
+
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -105,10 +106,10 @@ async def _rpc_call(rpc_url: str, method: str, params: list, timeout: float = 30
         )
         response.raise_for_status()
         result = response.json()
-        
+
         if "error" in result:
             raise PaymentVerificationError(f"RPC error: {result['error']}")
-        
+
         return result.get("result")
 
 
@@ -127,7 +128,7 @@ def _normalize_address(address: str) -> str:
 
 def _parse_transfer_log(log: dict, usdc_decimals: int) -> Optional[dict]:
     """Parse an ERC20 Transfer event log.
-    
+
     Transfer event: Transfer(address indexed from, address indexed to, uint256 value)
     - topics[0]: event signature
     - topics[1]: from address (indexed, padded to 32 bytes)
@@ -135,22 +136,22 @@ def _parse_transfer_log(log: dict, usdc_decimals: int) -> Optional[dict]:
     - data: value (uint256)
     """
     topics = log.get("topics", [])
-    
+
     if len(topics) < 3:
         return None
-    
+
     # Verify this is a Transfer event
     if topics[0].lower() != TRANSFER_EVENT_SIGNATURE.lower():
         return None
-    
+
     from_address = _normalize_address(topics[1])
     to_address = _normalize_address(topics[2])
-    
+
     # Parse the value from data field
     data = log.get("data", "0x0")
     amount_raw = int(data, 16)
     amount = Decimal(amount_raw) / Decimal(10 ** usdc_decimals)
-    
+
     return {
         "from_address": from_address,
         "to_address": to_address,
@@ -169,19 +170,19 @@ async def verify_usdc_transfer(
     tolerance: Decimal = Decimal("0.01"),  # Allow 1 cent tolerance for rounding
 ) -> TransferVerificationResult:
     """Verify a USDC transfer on-chain.
-    
+
     Args:
         tx_hash: Transaction hash to verify
         expected_amount: Expected USDC amount (human-readable, e.g., 5.00 for $5)
         expected_from: Expected sender address
-        expected_to: Expected recipient address  
+        expected_to: Expected recipient address
         chain: Chain to verify on ("base", "base_sepolia", "ethereum")
         min_confirmations: Minimum confirmations required
         tolerance: Amount tolerance for matching (default 1 cent)
-    
+
     Returns:
         TransferVerificationResult with success status and transfer details
-    
+
     Raises:
         PaymentVerificationError: If RPC calls fail
     """
@@ -193,23 +194,23 @@ async def verify_usdc_transfer(
             error=f"Unknown chain: {chain}",
             error_code="UNKNOWN_CHAIN",
         )
-    
+
     config = CHAIN_CONFIG[chain]
     rpc_url = config["rpc_url"]
     usdc_address = _normalize_address(config["usdc_address"])
     usdc_decimals = config["usdc_decimals"]
-    
+
     # Normalize inputs
     tx_hash = tx_hash.lower() if tx_hash.startswith("0x") else "0x" + tx_hash.lower()
     if expected_from:
         expected_from = _normalize_address(expected_from)
     if expected_to:
         expected_to = _normalize_address(expected_to)
-    
+
     try:
         # Get transaction receipt
         receipt = await _rpc_call(rpc_url, "eth_getTransactionReceipt", [tx_hash])
-        
+
         if not receipt:
             return TransferVerificationResult(
                 success=False,
@@ -218,7 +219,7 @@ async def verify_usdc_transfer(
                 error="Transaction not found or not yet mined",
                 error_code="TX_NOT_FOUND",
             )
-        
+
         # Check transaction status (1 = success, 0 = reverted)
         status = int(receipt.get("status", "0x0"), 16)
         if status != 1:
@@ -229,13 +230,13 @@ async def verify_usdc_transfer(
                 error="Transaction reverted",
                 error_code="TX_REVERTED",
             )
-        
+
         # Get block number and current block for confirmations
         block_number = int(receipt.get("blockNumber", "0x0"), 16)
         current_block = await _rpc_call(rpc_url, "eth_blockNumber", [])
         current_block_num = int(current_block, 16)
         confirmations = current_block_num - block_number
-        
+
         if confirmations < min_confirmations:
             return TransferVerificationResult(
                 success=False,
@@ -246,27 +247,27 @@ async def verify_usdc_transfer(
                 error=f"Insufficient confirmations: {confirmations} < {min_confirmations}",
                 error_code="INSUFFICIENT_CONFIRMATIONS",
             )
-        
+
         # Get block timestamp
         block = await _rpc_call(rpc_url, "eth_getBlockByNumber", [hex(block_number), False])
         block_timestamp = None
         if block and "timestamp" in block:
             timestamp_int = int(block["timestamp"], 16)
             block_timestamp = datetime.fromtimestamp(timestamp_int, tz=timezone.utc)
-        
+
         # Find USDC Transfer events in logs
         logs = receipt.get("logs", [])
         usdc_transfers = []
-        
+
         for log in logs:
             log_address = _normalize_address(log.get("address", ""))
             if log_address != usdc_address:
                 continue
-            
+
             transfer = _parse_transfer_log(log, usdc_decimals)
             if transfer:
                 usdc_transfers.append(transfer)
-        
+
         if not usdc_transfers:
             return TransferVerificationResult(
                 success=False,
@@ -278,23 +279,23 @@ async def verify_usdc_transfer(
                 error="No USDC transfer found in transaction",
                 error_code="NO_USDC_TRANSFER",
             )
-        
+
         # Find matching transfer
         for transfer in usdc_transfers:
             # Check from address
             if expected_from and transfer["from_address"] != expected_from:
                 continue
-            
+
             # Check to address
             if expected_to and transfer["to_address"] != expected_to:
                 continue
-            
+
             # Check amount (with tolerance)
             if expected_amount is not None:
                 diff = abs(transfer["amount"] - expected_amount)
                 if diff > tolerance:
                     continue
-            
+
             # Found matching transfer!
             return TransferVerificationResult(
                 success=True,
@@ -308,7 +309,7 @@ async def verify_usdc_transfer(
                 block_timestamp=block_timestamp,
                 confirmations=confirmations,
             )
-        
+
         # No matching transfer found
         # Return details of what we found for debugging
         found_transfer = usdc_transfers[0] if usdc_transfers else None
@@ -319,7 +320,7 @@ async def verify_usdc_transfer(
             error_details.append(f"to mismatch: expected {expected_to}, got {found_transfer['to_address']}")
         if expected_amount and found_transfer:
             error_details.append(f"amount: expected {expected_amount}, got {found_transfer['amount']}")
-        
+
         return TransferVerificationResult(
             success=False,
             tx_hash=tx_hash,
@@ -334,7 +335,7 @@ async def verify_usdc_transfer(
             error=f"Transfer found but doesn't match: {'; '.join(error_details)}",
             error_code="TRANSFER_MISMATCH",
         )
-        
+
     except httpx.HTTPError as e:
         logger.error(f"HTTP error verifying transfer {tx_hash}: {e}")
         return TransferVerificationResult(

@@ -10,9 +10,9 @@ Memory defines WHO the agent is.
 Commerce defines WHAT they can do economically.
 """
 
-from kernle.commerce.wallet.models import WalletAccount, WalletStatus
-from kernle.commerce.jobs.models import Job, JobApplication, JobStatus, ApplicationStatus
+from kernle.commerce.jobs.models import ApplicationStatus, Job, JobApplication, JobStatus
 from kernle.commerce.skills.models import Skill
+from kernle.commerce.wallet.models import WalletAccount, WalletStatus
 
 __all__ = [
     # Wallet

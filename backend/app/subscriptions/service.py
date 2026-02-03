@@ -8,6 +8,7 @@ On-chain payment verification uses the payments.verification module
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Literal
@@ -15,8 +16,6 @@ from typing import Literal
 from supabase import Client
 
 from .models import (
-    TIER_CONFIGS,
-    OverflowPricing,
     PaymentInfo,
     PaymentStatus,
     QuotaCheckResult,
@@ -24,7 +23,6 @@ from .models import (
     SubscriptionPayment,
     SubscriptionStatus,
     SubscriptionTier,
-    TierConfig,
     UsageRecord,
     get_tier_config,
     is_downgrade,
@@ -43,8 +41,6 @@ USAGE_RECORDS_TABLE = "usage_records"
 
 # Kernle treasury address on Base (receives subscription payments)
 # Loaded from environment — MUST be set before production deployment
-import os
-
 TREASURY_ADDRESS = os.environ.get(
     "KERNLE_TREASURY_ADDRESS",
     "0x0000000000000000000000000000000000000000",  # Default: zero address (testnet only)
@@ -1090,6 +1086,7 @@ async def confirm_payment(
         )
     except Exception as e:
         logger.exception("On-chain verification error for payment %s", payment_id)
+        error_str = str(e)  # Capture before exception variable is deleted
         # Mark intent as needing retry, don't fail permanently on network errors
         def _mark_error():
             return (
@@ -1097,7 +1094,7 @@ async def confirm_payment(
                 .update({
                     "status": "verification_error",
                     "tx_hash": tx_hash,
-                    "error": str(e),
+                    "error": error_str,
                     "updated_at": now.isoformat(),
                 })
                 .eq("id", payment_id)
@@ -1107,7 +1104,7 @@ async def confirm_payment(
         await asyncio.to_thread(_mark_error)
         return {
             "status": "pending_verification",
-            "message": f"Verification temporarily unavailable: {e}. Will retry.",
+            "message": f"Verification temporarily unavailable: {error_str}. Will retry.",
         }
 
     if not result.success:
@@ -1161,18 +1158,19 @@ async def confirm_payment(
         await SubscriptionService.confirm_payment(db, tx_hash)
     except Exception as e:
         # Payment recording failed (likely duplicate tx_hash) — roll back intent
-        logger.warning("Payment recording failed for %s: %s", payment_id, e)
+        error_str = str(e)  # Capture before exception variable is deleted
+        logger.warning("Payment recording failed for %s: %s", payment_id, error_str)
         def _rollback():
             return (
                 db.table(PAYMENT_INTENTS_TABLE)
-                .update({"status": "failed", "error": str(e), "updated_at": now.isoformat()})
+                .update({"status": "failed", "error": error_str, "updated_at": now.isoformat()})
                 .eq("id", payment_id)
                 .execute()
             )
         await asyncio.to_thread(_rollback)
         return {
             "status": "failed",
-            "message": f"Payment recording failed: {e}. Tier not upgraded.",
+            "message": f"Payment recording failed: {error_str}. Tier not upgraded.",
         }
 
     # Payment recorded successfully — NOW upgrade the tier
@@ -1183,7 +1181,6 @@ async def confirm_payment(
     except ValueError as e:
         # Edge case: tier already upgraded (e.g. duplicate confirm)
         logger.warning("Tier upgrade skipped for %s: %s", user_id, e)
-        upgraded_sub = sub
 
     # Update payment intent to confirmed
     def _confirm_intent():

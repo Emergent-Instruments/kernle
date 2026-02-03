@@ -12,14 +12,15 @@ Provides command-line interface for subscription/tier management:
 import json
 import logging
 import sys
-import urllib.request
 import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     import argparse
+
     from kernle import Kernle
 
 logger = logging.getLogger(__name__)

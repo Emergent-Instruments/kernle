@@ -11,7 +11,6 @@ Migrates memory from Clawdbot workspace structure:
 
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 

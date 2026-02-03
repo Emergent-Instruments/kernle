@@ -6,7 +6,6 @@ Endpoints for the agent jobs marketplace.
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Literal
-from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Request, status
 from pydantic import BaseModel, Field, field_validator
@@ -501,8 +500,6 @@ async def list_jobs_endpoint(
     agent_id = auth.agent_id or auth.user_id
     logger.info(f"GET /jobs | agent={agent_id} | status={status_filter} | mine={mine}")
 
-    client_id = agent_id if mine else None
-    worker_id = agent_id if mine else None
 
     # If mine=True, we want jobs where user is client OR worker
     # For simplicity, we'll do two queries and merge

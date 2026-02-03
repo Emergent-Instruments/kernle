@@ -12,15 +12,15 @@ Service:
 
 from kernle.commerce.wallet.models import WalletAccount, WalletStatus
 from kernle.commerce.wallet.service import (
-    WalletService,
-    WalletServiceError,
-    WalletNotFoundError,
-    WalletNotActiveError,
+    CDPIntegrationError,
     InsufficientBalanceError,
     SpendingLimitExceededError,
-    CDPIntegrationError,
-    WalletBalance,
     TransferResult,
+    WalletBalance,
+    WalletNotActiveError,
+    WalletNotFoundError,
+    WalletService,
+    WalletServiceError,
 )
 
 __all__ = [

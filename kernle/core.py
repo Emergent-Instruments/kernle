@@ -4359,7 +4359,6 @@ class Kernle(
             - suggestions: list of {lesson, count, source_episodes, promoted, belief_id}
             - beliefs_created: number of beliefs created (auto mode only)
         """
-        from collections import Counter
 
         confidence = max(0.1, min(0.95, confidence))
         limit = max(1, min(200, limit))
