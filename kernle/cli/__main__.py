@@ -32,6 +32,7 @@ from kernle.cli.commands import (
     cmd_init_md,
     cmd_meta,
     cmd_playbook,
+    cmd_promote,
     cmd_raw,
     cmd_stats,
     cmd_subscription,
@@ -2791,7 +2792,42 @@ def main():
     drive_satisfy.add_argument("type", help="Drive type")
     drive_satisfy.add_argument("--amount", "-a", type=float, default=0.2)
 
-    # consolidate
+    # promote (episodes → beliefs)
+    p_promote = subparsers.add_parser(
+        "promote", help="Promote recurring patterns from episodes into beliefs"
+    )
+    p_promote.add_argument(
+        "--auto",
+        action="store_true",
+        help="Create beliefs automatically (default: suggestions only)",
+    )
+    p_promote.add_argument(
+        "--min-occurrences",
+        type=int,
+        default=2,
+        help="Minimum times a lesson must appear to be promoted (default: 2)",
+    )
+    p_promote.add_argument(
+        "--min-episodes",
+        type=int,
+        default=3,
+        help="Minimum episodes required to run (default: 3)",
+    )
+    p_promote.add_argument(
+        "--confidence",
+        type=float,
+        default=0.7,
+        help="Initial confidence for auto-created beliefs (default: 0.7)",
+    )
+    p_promote.add_argument(
+        "--limit",
+        type=int,
+        default=50,
+        help="Maximum episodes to scan (default: 50)",
+    )
+    p_promote.add_argument("--json", action="store_true", help="Output JSON")
+
+    # consolidate (kept as alias / legacy guided reflection)
     p_consolidate = subparsers.add_parser("consolidate", help="Output guided reflection prompt")
     p_consolidate.add_argument(
         "--min-episodes",
@@ -3957,6 +3993,8 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_relation(args, k)
         elif args.command == "drive":
             cmd_drive(args, k)
+        elif args.command == "promote":
+            cmd_promote(args, k)
         elif args.command == "consolidate":
             cmd_consolidate(args, k)
         elif args.command == "when":
