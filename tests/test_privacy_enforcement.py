@@ -88,7 +88,7 @@ class TestPrivacyFields:
         )
         
         value_id = self.storage.save_value(value)
-        retrieved = self.storage.get_value(value_id)
+        retrieved = next((v for v in self.storage.get_values() if v.id == value_id), None)
         
         assert retrieved is not None
         assert retrieved.subject_ids == ["user123"]
@@ -108,7 +108,7 @@ class TestPrivacyFields:
         )
         
         goal_id = self.storage.save_goal(goal)
-        retrieved = self.storage.get_goal(goal_id)
+        retrieved = next((g for g in self.storage.get_goals(status=None) if g.id == goal_id), None)
         
         assert retrieved is not None
         assert retrieved.subject_ids is None
@@ -127,7 +127,7 @@ class TestPrivacyFields:
         )
         
         note_id = self.storage.save_note(note)
-        retrieved = self.storage.get_note(note_id)
+        retrieved = next((n for n in self.storage.get_notes() if n.id == note_id), None)
         
         assert retrieved is not None
         assert retrieved.subject_ids == ["user123", "user456"]
@@ -310,14 +310,14 @@ class TestAccessControl:
     def test_search_respects_privacy_filters(self):
         """Test that search operations respect privacy filters."""
         # Self search sees everything
-        results = self.storage.search("episode", requesting_entity=None)
+        results = self.storage.search("episode", requesting_entity=None, prefer_cloud=False)
         result_ids = [r.record.id for r in results if hasattr(r.record, 'id')]
         
         # Should see all episodes
         assert len([rid for rid in result_ids if rid.startswith("episode_")]) == 4
         
         # External search is filtered  
-        results = self.storage.search("episode", requesting_entity="team_lead")
+        results = self.storage.search("episode", requesting_entity="team_lead", prefer_cloud=False)
         result_ids = [r.record.id for r in results if hasattr(r.record, 'id')]
         
         # Should only see accessible episodes
@@ -399,7 +399,7 @@ class TestAllMemoryTypes:
             subject_ids=["s3"], access_grants=["a3"], consent_grants=["c3"]
         )
         value_id = self.storage.save_value(value)
-        retrieved_value = self.storage.get_value(value_id)
+        retrieved_value = next((v for v in self.storage.get_values() if v.id == value_id), None)
         assert retrieved_value.subject_ids == ["s3"]
         
         # Goal
@@ -409,7 +409,7 @@ class TestAllMemoryTypes:
             subject_ids=["s4"], access_grants=["a4"], consent_grants=["c4"]
         )
         goal_id = self.storage.save_goal(goal)
-        retrieved_goal = self.storage.get_goal(goal_id)
+        retrieved_goal = next((g for g in self.storage.get_goals(status=None) if g.id == goal_id), None)
         assert retrieved_goal.subject_ids == ["s4"]
         
         # Note
@@ -419,7 +419,7 @@ class TestAllMemoryTypes:
             subject_ids=["s5"], access_grants=["a5"], consent_grants=["c5"]
         )
         note_id = self.storage.save_note(note)
-        retrieved_note = self.storage.get_note(note_id)
+        retrieved_note = next((n for n in self.storage.get_notes() if n.id == note_id), None)
         assert retrieved_note.subject_ids == ["s5"]
         
         # Drive
