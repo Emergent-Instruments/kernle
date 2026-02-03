@@ -8,12 +8,13 @@ should be fixed before production.
 Run with: uv run pytest tests/commerce/test_edge_cases.py -v
 """
 
-import pytest
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
-from kernle.commerce.wallet.models import WalletAccount, WalletStatus
-from kernle.commerce.jobs.models import Job, JobApplication, JobStatus, ApplicationStatus
-from kernle.commerce.skills.models import Skill, SkillCategory
+import pytest
+
+from kernle.commerce.jobs.models import Job, JobApplication, JobStatus
+from kernle.commerce.skills.models import Skill
+from kernle.commerce.wallet.models import WalletAccount
 
 
 class TestWalletEdgeCases:
@@ -321,11 +322,11 @@ class TestRoundTripSerialization:
             created_at=now,
             claimed_at=now,
         )
-        
+
         # Use include_internal=True to include cdp_wallet_id for full round-trip
         data = original.to_dict(include_internal=True)
         restored = WalletAccount.from_dict(data)
-        
+
         assert restored.id == original.id
         assert restored.agent_id == original.agent_id
         assert restored.wallet_address == original.wallet_address
@@ -341,7 +342,7 @@ class TestRoundTripSerialization:
         """Job should survive serialization round-trip."""
         now = datetime.now(timezone.utc)
         deadline = now + timedelta(days=7)
-        
+
         original = Job(
             id="j1",
             client_id="a1",
@@ -358,10 +359,10 @@ class TestRoundTripSerialization:
             funded_at=now,
             accepted_at=now,
         )
-        
+
         data = original.to_dict()
         restored = Job.from_dict(data)
-        
+
         assert restored.id == original.id
         assert restored.client_id == original.client_id
         assert restored.title == original.title
@@ -372,7 +373,7 @@ class TestRoundTripSerialization:
     def test_skill_round_trip(self):
         """Skill should survive serialization round-trip."""
         now = datetime.now(timezone.utc)
-        
+
         original = Skill(
             id="s1",
             name="coding",
@@ -381,10 +382,10 @@ class TestRoundTripSerialization:
             usage_count=42,
             created_at=now,
         )
-        
+
         data = original.to_dict()
         restored = Skill.from_dict(data)
-        
+
         assert restored.id == original.id
         assert restored.name == original.name
         assert restored.description == original.description
@@ -406,7 +407,7 @@ class TestStateMachineEdgeCases:
             deadline=datetime.now(timezone.utc) + timedelta(days=7),
             status="completed",
         )
-        
+
         for status in JobStatus:
             assert job.can_transition_to(status) is False
 
@@ -421,7 +422,7 @@ class TestStateMachineEdgeCases:
             deadline=datetime.now(timezone.utc) + timedelta(days=7),
             status="cancelled",
         )
-        
+
         for status in JobStatus:
             assert job.can_transition_to(status) is False
 
@@ -436,7 +437,7 @@ class TestStateMachineEdgeCases:
             deadline=datetime.now(timezone.utc) + timedelta(days=7),
             status="disputed",
         )
-        
+
         assert job.can_transition_to(JobStatus.COMPLETED) is True
         assert job.can_transition_to(JobStatus.CANCELLED) is False
         assert job.can_transition_to(JobStatus.OPEN) is False

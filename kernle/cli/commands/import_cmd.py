@@ -1057,7 +1057,7 @@ def _migrate_from_clawdbot(args: "argparse.Namespace", k: "Kernle") -> None:
     print("\n--- Post-migration suggestions ---")
     print("1. Consider replacing flat files with stubs:")
     print(f"   echo '# Memory managed by Kernle. Run: kernle -a {k.agent_id} load' > {workspace}/MEMORY.md")
-    print(f"\n2. Keep SOUL.md and AGENTS.md as-is (they're boot instructions)")
+    print("\n2. Keep SOUL.md and AGENTS.md as-is (they're boot instructions)")
     print(f"\n3. Archive daily notes: mv {workspace}/memory {workspace}/memory-archived")
 
 
@@ -1248,7 +1248,7 @@ def _migrate_seed_beliefs(args: "argparse.Namespace", k: "Kernle") -> None:
             print("# Minimal Seed Beliefs (for existing agents)")
             print("=" * 60)
             print("\nEssential meta-framework without overwriting developed beliefs:\n")
-            
+
             for belief in beliefs_to_add:
                 conf_bar = "█" * int(belief["confidence"] * 10) + "░" * (10 - int(belief["confidence"] * 10))
                 tier_label = "[Meta]" if belief["tier"] == 0 else f"[Tier {belief['tier']}]"
@@ -1257,8 +1257,8 @@ def _migrate_seed_beliefs(args: "argparse.Namespace", k: "Kernle") -> None:
                 print()
 
             print(f"Total: {len(beliefs_to_add)} beliefs")
-            print(f"\nTo add: kernle migrate seed-beliefs")
-            print(f"For full set: kernle migrate seed-beliefs full --list")
+            print("\nTo add: kernle migrate seed-beliefs")
+            print("For full set: kernle migrate seed-beliefs full --list")
         else:
             print("# Full Seed Beliefs (for fresh agents)")
             print("=" * 60)
@@ -1288,8 +1288,8 @@ def _migrate_seed_beliefs(args: "argparse.Namespace", k: "Kernle") -> None:
                     print(f"  Tags: {', '.join(belief['tags'])}")
 
             print(f"\n\nTotal: {len(beliefs_to_add)} beliefs")
-            print(f"\nTo add full set: kernle migrate seed-beliefs full")
-            print(f"For minimal set: kernle migrate seed-beliefs --list")
+            print("\nTo add full set: kernle migrate seed-beliefs full")
+            print("For minimal set: kernle migrate seed-beliefs --list")
         return
 
     # Get existing beliefs to check for duplicates
@@ -1370,7 +1370,7 @@ def _migrate_seed_beliefs(args: "argparse.Namespace", k: "Kernle") -> None:
     if level == "minimal":
         print(f"3. For full foundation: kernle -a {k.agent_id} migrate seed-beliefs full")
     else:
-        print(f"3. The meta-belief encourages questioning — that's by design!")
+        print("3. The meta-belief encourages questioning — that's by design!")
 
 
 def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> None:

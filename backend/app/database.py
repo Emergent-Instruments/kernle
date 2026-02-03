@@ -3,6 +3,7 @@
 from typing import Annotated
 
 from fastapi import Depends
+
 from supabase import Client, create_client
 
 from .config import Settings, get_settings

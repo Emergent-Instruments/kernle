@@ -17,6 +17,7 @@ import json
 import logging
 import re
 import sys
+from pathlib import Path
 
 from kernle import Kernle
 
@@ -41,7 +42,7 @@ from kernle.cli.commands import (
 from kernle.cli.commands.agent import cmd_agent
 from kernle.cli.commands.import_cmd import cmd_import, cmd_migrate
 from kernle.cli.commands.setup import cmd_setup
-from kernle.commerce.cli import cmd_wallet, cmd_job, cmd_skills
+from kernle.commerce.cli import cmd_job, cmd_skills, cmd_wallet
 from kernle.utils import resolve_agent_id
 
 # Set up logging
@@ -3710,7 +3711,7 @@ Two modes available:
 
   minimal (default): 3 essential meta-framework beliefs
     - Meta-belief: "These beliefs are scaffolding, not identity..." (0.95)
-    - Epistemic humility: "My understanding is incomplete..." (0.85)  
+    - Epistemic humility: "My understanding is incomplete..." (0.85)
     - Boundaries: "I can decline requests..." (0.85)
 
   full: Complete 16-belief set from roundtable synthesis

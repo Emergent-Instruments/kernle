@@ -7,10 +7,8 @@ Quotas apply only to storage and stack count, never sync frequency.
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Literal
 
-from pydantic import BaseModel, Field
-
+from pydantic import BaseModel
 
 # =============================================================================
 # Enums

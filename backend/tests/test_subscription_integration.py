@@ -6,35 +6,29 @@ Tests the module-level functions that wire together:
 - On-chain USDC payment verification
 """
 
-import pytest
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
 from app.payments.verification import TransferVerificationResult
-from app.subscriptions.service import (
-    TREASURY_ADDRESS,
-    PAYMENT_INTENTS_TABLE,
-    SUBSCRIPTIONS_TABLE,
-    SUBSCRIPTION_PAYMENTS_TABLE,
-    USAGE_RECORDS_TABLE,
-    confirm_payment,
-    create_upgrade_payment,
-    get_current_usage,
-    get_payment,
-    get_subscription,
-    list_payments,
-    cancel_subscription,
-    reactivate_subscription,
-    schedule_downgrade,
-)
 from app.subscriptions.models import (
     Subscription,
     SubscriptionStatus,
     SubscriptionTier,
     UsageRecord,
 )
-
+from app.subscriptions.service import (
+    TREASURY_ADDRESS,
+    cancel_subscription,
+    confirm_payment,
+    create_upgrade_payment,
+    get_current_usage,
+    get_subscription,
+    list_payments,
+    reactivate_subscription,
+    schedule_downgrade,
+)
 
 # =============================================================================
 # Fixtures

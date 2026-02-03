@@ -22,7 +22,7 @@ def cmd_promote(args, k: "Kernle"):
         print(json.dumps(result, indent=2, default=str))
         return
 
-    print(f"## Promotion Results")
+    print("## Promotion Results")
     print(f"Episodes scanned: {result['episodes_scanned']}")
     print(f"Patterns found: {result['patterns_found']}")
     print()

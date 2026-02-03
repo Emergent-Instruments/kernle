@@ -4,7 +4,6 @@ Phase 9: Boot layer provides instant config access without full memory load.
 """
 
 import json
-import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -293,8 +292,9 @@ class TestBootInExportCache:
         """Boot config should appear before values in export-cache."""
         kernle_instance.boot_set("key", "val")
         # Add a value for ordering check
-        from kernle.storage.base import Value
         from datetime import datetime, timezone
+
+        from kernle.storage.base import Value
         val = Value(
             id="test-val",
             agent_id="test-agent",
@@ -357,7 +357,7 @@ class TestBootSchemaMigration:
     def test_table_created_on_init(self, tmp_db):
         """boot_config table should exist after storage init."""
         import sqlite3
-        storage = SQLiteStorage(agent_id="test", db_path=tmp_db)
+        SQLiteStorage(agent_id="test", db_path=tmp_db)
         conn = sqlite3.connect(tmp_db)
         tables = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='boot_config'"

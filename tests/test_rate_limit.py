@@ -5,7 +5,7 @@ Tests the core proxy-trust logic directly, without importing slowapi
 """
 
 import ipaddress
-import os
+
 import pytest
 
 

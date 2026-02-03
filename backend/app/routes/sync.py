@@ -9,7 +9,6 @@ from ..database import (
     Database,
     delete_memory,
     ensure_agent_exists,
-    get_agent_by_user_and_name,
     get_changes_since,
     update_agent_last_sync,
     upsert_memory,
