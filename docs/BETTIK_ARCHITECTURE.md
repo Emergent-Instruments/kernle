@@ -518,3 +518,169 @@ AISD goes from building ~6 services to calling one endpoint. That's the pitch.
 
 > *"A bettik is a servant whose purpose is to make the complex simple — to handle the logistics so the master can focus on the journey."*
 > — Loosely inspired by Dan Simmons, *Endymion*
+
+---
+
+## 9. Compliance Framework
+
+Bettik provides built-in compliance templates for common regulatory requirements.
+
+### 9.1 Supported Frameworks
+
+| Framework | Domain | Key Requirements |
+|-----------|--------|------------------|
+| **FERPA** | Education | Student record privacy, parental consent, directory info rules |
+| **HIPAA** | Healthcare | PHI protection, minimum necessary, audit trails |
+| **GDPR** | EU General | Right to erasure, consent, data portability |
+| **COPPA** | Children | Parental consent for <13, data minimization |
+| **SOC 2** | Enterprise | Access controls, encryption, monitoring |
+
+### 9.2 Policy Templates
+
+```yaml
+# Example: FERPA-compliant AISD policy
+policy:
+  name: aisd-ferpa
+  framework: FERPA
+  
+  data_classification:
+    directory_info:
+      - name
+      - grade_level
+      - enrollment_status
+    protected:
+      - grades
+      - test_scores
+      - disciplinary_records
+      - learning_disabilities
+      - counselor_notes
+  
+  access_rules:
+    - role: teacher
+      can_read: [directory_info, grades, test_scores]
+      can_write: [grades, notes]
+      scope: own_students
+    
+    - role: parent
+      can_read: [directory_info, grades, test_scores]
+      scope: own_children
+      requires_consent: true
+    
+    - role: counselor
+      can_read: [all]
+      can_write: [counselor_notes]
+      audit_required: true
+  
+  retention:
+    active_student: indefinite
+    after_graduation: 7_years
+    after_transfer: 5_years
+  
+  deletion:
+    method: hard_delete  # not tombstone
+    audit_trail: 10_years
+```
+
+### 9.3 Session-Oriented API (Detailed)
+
+For customers who want a conversational interface rather than raw endpoints:
+
+#### Start Session
+```http
+POST /v1/sessions
+{
+  "app_id": "aisd",
+  "user_id": "student-4521",
+  "context_hints": {
+    "include_rag": true,
+    "rag_scope": "algebra-curriculum",
+    "live_data_endpoints": {
+      "grades": "https://aisd.edu/api/grades/4521"
+    }
+  },
+  "compliance": "ferpa",
+  "model_preference": "claude-sonnet-4"
+}
+
+Response:
+{
+  "session_id": "sess_abc123",
+  "stack_id": "stk_xyz789",
+  "context_summary": {
+    "memory_tokens": 2400,
+    "rag_tokens": 1200,
+    "live_data_tokens": 300,
+    "compliance_overhead": 50,
+    "total": 3950
+  },
+  "model_selected": "claude-sonnet-4",
+  "expires_at": "2026-02-02T18:00:00Z"
+}
+```
+
+#### Chat (with auto memory capture)
+```http
+POST /v1/sessions/{session_id}/chat
+{
+  "message": "Can you explain the quadratic formula?",
+  "auto_capture": {
+    "enabled": true,
+    "type": "raw",
+    "tags": ["tutoring", "algebra"]
+  }
+}
+
+Response:
+{
+  "response": "The quadratic formula solves ax² + bx + c = 0...",
+  "model": "claude-sonnet-4",
+  "usage": {
+    "input_tokens": 4200,
+    "output_tokens": 450,
+    "cost_usd": 0.023
+  },
+  "memory_captured": {
+    "id": "raw_def456",
+    "type": "raw",
+    "content_preview": "Student asked about quadratic formula..."
+  }
+}
+```
+
+#### End Session (with checkpoint)
+```http
+POST /v1/sessions/{session_id}/end
+{
+  "checkpoint": {
+    "task": "Algebra tutoring - quadratic formula",
+    "progress": "Explained formula, student understood discriminant",
+    "next": "Practice problems with real examples",
+    "student_sentiment": "engaged"
+  },
+  "promote_observations": true  // auto-promote raw → episodes if significant
+}
+
+Response:
+{
+  "session_duration_ms": 847293,
+  "messages_exchanged": 12,
+  "memories_captured": 4,
+  "memories_promoted": 1,
+  "checkpoint_saved": true,
+  "compliance_audit_id": "audit_789xyz"
+}
+```
+
+---
+
+## 10. Open Questions
+
+1. **Multi-region deployment?** GDPR may require EU data to stay in EU.
+2. **Model fallback chain?** If Claude is down, auto-switch to GPT?
+3. **Offline mode?** Can Bettik work with local models for air-gapped deployments?
+4. **White-labeling?** Can customers rebrand Bettik as their own service?
+5. **Webhook notifications?** Alert customers when significant memories form?
+
+---
+
+*Combined spec by Claire + Ash — feedback welcome*
