@@ -31,6 +31,9 @@ class Settings(BaseSettings):
 
     # App
     debug: bool = False
+    # Trusted proxy CIDRs for rate limiter (comma-separated, e.g. "10.0.0.0/8,172.16.0.0/12")
+    # Defaults to Railway/Docker/localhost ranges if not set
+    trusted_proxy_cidrs: str = ""
     # CORS: Production origins only - localhost added dynamically when debug=True
     cors_origins: list[str] = [
         "https://kernle.ai",
