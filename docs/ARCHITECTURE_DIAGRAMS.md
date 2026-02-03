@@ -606,6 +606,23 @@ The memory lifecycle uses a **belt-and-suspenders** pattern: MEMORY.md is refres
 both at session start (guaranteed) and session end (best-effort). SQLite is always
 the source of truth; MEMORY.md is a read-only projection.
 
+> **⚠️ Implementation Status**
+>
+> | Feature | Status | Notes |
+> |---------|--------|-------|
+> | Session END refresh | ✅ Working | `memoryFlush` triggers checkpoint before compaction |
+> | `kernle export-cache` | ✅ Working | CLI command generates MEMORY.md |
+> | `kernle load` in AGENTS.md | ✅ Working | Model runs on session start |
+> | Session START auto-refresh | ⏳ Planned | Requires `kernle-memory-refresh` hook |
+>
+> **Blocker:** OpenClaw doesn't have a bundled `kernle-memory-refresh` hook yet.
+> Custom hooks need an `agent:bootstrap` event (before context injection) which
+> may not be available. See [issue #82](https://github.com/emergent-instruments/kernle/issues/82)
+> for implementation tracking.
+>
+> **Current workaround:** Model calls `kernle load` at session start (per AGENTS.md).
+> This works but means the model sees slightly stale MEMORY.md until load completes.
+
 ```mermaid
 sequenceDiagram
     participant GW as OpenClaw Gateway
