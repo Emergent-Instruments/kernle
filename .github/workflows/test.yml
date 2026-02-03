@@ -34,9 +34,11 @@ jobs:
         run: |
           black --check .
 
-      - name: Run tests
+      - name: Run tests with coverage
         run: |
-          pytest tests/ -v --tb=short --ignore=tests/test_postgres_storage.py
+          pytest tests/ -v --tb=short --ignore=tests/test_postgres_storage.py \
+            --cov=kernle --cov-report=xml --cov-report=term-missing \
+            --cov-fail-under=70
 
       - name: Upload coverage (Python 3.11 only)
         if: matrix.python-version == '3.11'
