@@ -413,7 +413,7 @@ graph TB
         SYNC_PUSH["POST /sync/push"]
         SYNC_PULL["POST /sync/pull"]
         EMBED["Embeddings Module<br/>(OpenAI 1536-dim)"]
-        RL["Rate Limiter<br/>(60/min push, 30/min pull)"]
+        RL["Rate Limiter<br/>(60/min push, 60/min pull)"]
 
         ROUTER --> AUTH
         AUTH --> SYNC_PUSH
@@ -1407,7 +1407,7 @@ graph TB
 graph LR
     subgraph "Rate Limits"
         RL_PUSH["POST /sync/push<br/>60 requests/minute"]
-        RL_PULL["POST /sync/pull<br/>30 requests/minute"]
+        RL_PULL["POST /sync/pull<br/>60 requests/minute"]
         RL_REG["POST /auth/register<br/>5 requests/minute"]
     end
 
