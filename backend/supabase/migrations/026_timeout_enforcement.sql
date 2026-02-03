@@ -39,11 +39,11 @@ ALTER TABLE job_state_transitions ADD CONSTRAINT valid_state_transition CHECK (
 );
 
 -- Index for finding jobs past deadline
-CREATE INDEX IF NOT EXISTS idx_jobs_deadline_status ON jobs(deadline, status) 
+CREATE INDEX IF NOT EXISTS idx_jobs_deadline_status ON jobs(deadline, status)
     WHERE status IN ('accepted');
 
 -- Index for finding disputed jobs by dispute time
-CREATE INDEX IF NOT EXISTS idx_jobs_disputed_at ON jobs(disputed_at) 
+CREATE INDEX IF NOT EXISTS idx_jobs_disputed_at ON jobs(disputed_at)
     WHERE status = 'disputed';
 
 -- =============================================================================
@@ -66,9 +66,9 @@ DECLARE
 BEGIN
     deadline_cutoff := NOW() - (deadline_grace_hours || ' hours')::INTERVAL;
     dispute_cutoff := NOW() - (dispute_timeout_days || ' days')::INTERVAL;
-    
+
     -- Auto-cancel jobs past deadline without delivery
-    FOR job_record IN 
+    FOR job_record IN
         SELECT j.id, j.deadline, j.status
         FROM jobs j
         WHERE j.status = 'accepted'
@@ -76,18 +76,18 @@ BEGIN
           AND j.delivered_at IS NULL
     LOOP
         -- Update job status to cancelled
-        UPDATE jobs 
-        SET status = 'cancelled', 
+        UPDATE jobs
+        SET status = 'cancelled',
             cancelled_at = NOW()
         WHERE id = job_record.id;
-        
+
         -- Log the transition
         INSERT INTO job_state_transitions (
             job_id, from_status, to_status, actor_id, metadata
         ) VALUES (
-            job_record.id, 
-            'accepted', 
-            'cancelled', 
+            job_record.id,
+            'accepted',
+            'cancelled',
             'system:timeout',
             jsonb_build_object(
                 'reason', 'deadline_exceeded',
@@ -95,15 +95,15 @@ BEGIN
                 'grace_hours', deadline_grace_hours
             )
         );
-        
+
         job_id := job_record.id;
         action_taken := 'cancelled';
         reason := 'Deadline exceeded without delivery';
         RETURN NEXT;
     END LOOP;
-    
+
     -- Auto-cancel (escalate) disputes past timeout
-    FOR job_record IN 
+    FOR job_record IN
         SELECT j.id, j.disputed_at, j.status
         FROM jobs j
         WHERE j.status = 'disputed'
@@ -112,18 +112,18 @@ BEGIN
     LOOP
         -- For now, auto-cancel disputes that haven't been resolved
         -- In production, this might trigger an escalation workflow instead
-        UPDATE jobs 
-        SET status = 'cancelled', 
+        UPDATE jobs
+        SET status = 'cancelled',
             cancelled_at = NOW()
         WHERE id = job_record.id;
-        
+
         -- Log the transition
         INSERT INTO job_state_transitions (
             job_id, from_status, to_status, actor_id, metadata
         ) VALUES (
-            job_record.id, 
-            'disputed', 
-            'cancelled', 
+            job_record.id,
+            'disputed',
+            'cancelled',
             'system:timeout',
             jsonb_build_object(
                 'reason', 'dispute_timeout',
@@ -131,7 +131,7 @@ BEGIN
                 'timeout_days', dispute_timeout_days
             )
         );
-        
+
         job_id := job_record.id;
         action_taken := 'cancelled';
         reason := 'Dispute timeout exceeded - escalated to cancellation';
