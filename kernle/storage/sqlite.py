@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 15  # Phase 9: Boot layer (always-available config key/values)
+SCHEMA_VERSION = 16  # Phase 8a: Privacy enforcement
 
 # Maximum size for merged arrays during sync to prevent resource exhaustion
 MAX_SYNC_ARRAY_SIZE = 500
@@ -1507,6 +1507,32 @@ class SQLiteStorage:
             if "context_tags" not in cols:
                 migrations.append(f"ALTER TABLE {table} ADD COLUMN context_tags TEXT")
 
+        # === Privacy field migrations (Phase 8a) ===
+        # Add privacy fields to all memory tables
+        privacy_tables = [
+            "episodes",
+            "beliefs",
+            "agent_values",
+            "goals",
+            "notes",
+            "drives",
+            "relationships",
+            "playbooks",
+            "raw_entries",
+        ]
+
+        for table in privacy_tables:
+            if table not in table_names:
+                continue
+            cols = get_columns(table)
+
+            if "subject_ids" not in cols:
+                migrations.append(f"ALTER TABLE {table} ADD COLUMN subject_ids TEXT")
+            if "access_grants" not in cols:
+                migrations.append(f"ALTER TABLE {table} ADD COLUMN access_grants TEXT")
+            if "consent_grants" not in cols:
+                migrations.append(f"ALTER TABLE {table} ADD COLUMN consent_grants TEXT")
+
         # === Raw entries blob migration ===
         # Migrate from structured content/tags to blob-based storage
         raw_cols = get_columns("raw_entries")
@@ -1765,6 +1791,37 @@ class SQLiteStorage:
                 result[field.name] = value
         return result
 
+    def _build_access_filter(self, requesting_entity: Optional[str] = None) -> tuple[str, List[Any]]:
+        """Build SQL filter for privacy access control.
+        
+        Args:
+            requesting_entity: Entity requesting access. None means self-access (see everything).
+            
+        Returns:
+            Tuple of (where_clause, params) for SQL query.
+            
+        Logic:
+            - If requesting_entity is None → no filter (self-access, see everything)
+            - If requesting_entity is set → filter records where:
+              - access_grants IS NULL (private to self only), OR
+              - access_grants = '[]' (private to self only), OR 
+              - access_grants contains requesting_entity
+        """
+        if requesting_entity is None:
+            # Self-access: see everything
+            return ("", [])
+        
+        # External access: only show records where requesting_entity is in access_grants
+        # NULL or empty access_grants = private to self only
+        where_clause = """
+            AND (access_grants IS NOT NULL 
+                 AND access_grants != '[]' 
+                 AND access_grants LIKE ?)
+        """
+        params = [f'%"{requesting_entity}"%']
+        
+        return (where_clause, params)
+
     def _queue_sync(
         self,
         conn: sqlite3.Connection,
@@ -1885,9 +1942,9 @@ class SQLiteStorage:
                  last_verified, verification_count, confidence_history,
                  times_accessed, last_accessed, is_protected, is_forgotten,
                  forgotten_at, forgotten_reason, context, context_tags,
-                 source_entity,
+                 source_entity, subject_ids, access_grants, consent_grants,
                  created_at, local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     episode.id,
@@ -1916,6 +1973,9 @@ class SQLiteStorage:
                     episode.context,
                     self._to_json(episode.context_tags),
                     getattr(episode, "source_entity", None),
+                    self._to_json(getattr(episode, "subject_ids", None)),
+                    self._to_json(getattr(episode, "access_grants", None)),
+                    self._to_json(getattr(episode, "consent_grants", None)),
                     episode.created_at.isoformat() if episode.created_at else now,
                     now,
                     episode.cloud_synced_at.isoformat() if episode.cloud_synced_at else None,
@@ -2127,11 +2187,16 @@ class SQLiteStorage:
         return ids
 
     def get_episodes(
-        self, limit: int = 100, since: Optional[datetime] = None, tags: Optional[List[str]] = None
+        self, limit: int = 100, since: Optional[datetime] = None, tags: Optional[List[str]] = None, requesting_entity: Optional[str] = None
     ) -> List[Episode]:
         """Get episodes."""
         query = "SELECT * FROM episodes WHERE agent_id = ? AND deleted = 0"
         params: List[Any] = [self.agent_id]
+
+        # Apply privacy filter
+        access_filter, access_params = self._build_access_filter(requesting_entity)
+        query += access_filter
+        params.extend(access_params)
 
         if since:
             query += " AND created_at >= ?"
@@ -2151,12 +2216,18 @@ class SQLiteStorage:
 
         return episodes
 
-    def get_episode(self, episode_id: str) -> Optional[Episode]:
+    def get_episode(self, episode_id: str, requesting_entity: Optional[str] = None) -> Optional[Episode]:
         """Get a specific episode."""
+        query = "SELECT * FROM episodes WHERE id = ? AND agent_id = ?"
+        params: List[Any] = [episode_id, self.agent_id]
+
+        # Apply privacy filter
+        access_filter, access_params = self._build_access_filter(requesting_entity)
+        query += access_filter
+        params.extend(access_params)
+
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM episodes WHERE id = ? AND agent_id = ?", (episode_id, self.agent_id)
-            ).fetchone()
+            row = conn.execute(query, params).fetchone()
 
         return self._row_to_episode(row) if row else None
 
@@ -2202,6 +2273,10 @@ class SQLiteStorage:
             context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
             # Entity-neutral sourcing
             source_entity=self._safe_get(row, "source_entity", None),
+            # Privacy fields (Phase 8a)
+            subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
+            access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
+            consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
         )
 
     def update_episode_emotion(
@@ -2329,9 +2404,9 @@ class SQLiteStorage:
                  source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
                  supersedes, superseded_by, times_reinforced, is_active,
-                 context, context_tags, source_entity,
+                 context, context_tags, source_entity, subject_ids, access_grants, consent_grants,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     belief.id,
@@ -2353,6 +2428,9 @@ class SQLiteStorage:
                     belief.context,
                     self._to_json(belief.context_tags),
                     getattr(belief, "source_entity", None),
+                    self._to_json(getattr(belief, "subject_ids", None)),
+                    self._to_json(getattr(belief, "access_grants", None)),
+                    self._to_json(getattr(belief, "consent_grants", None)),
                     now,
                     belief.cloud_synced_at.isoformat() if belief.cloud_synced_at else None,
                     belief.version,
@@ -2594,6 +2672,21 @@ class SQLiteStorage:
 
         return self._row_to_belief(row) if row else None
 
+    def get_belief(self, belief_id: str, requesting_entity: Optional[str] = None) -> Optional[Belief]:
+        """Get a specific belief by ID."""
+        query = "SELECT * FROM beliefs WHERE id = ? AND agent_id = ?"
+        params: List[Any] = [belief_id, self.agent_id]
+
+        # Apply privacy filter
+        access_filter, access_params = self._build_access_filter(requesting_entity)
+        query += access_filter
+        params.extend(access_params)
+
+        with self._connect() as conn:
+            row = conn.execute(query, params).fetchone()
+
+        return self._row_to_belief(row) if row else None
+
     def _row_to_belief(self, row: sqlite3.Row) -> Belief:
         """Convert a row to a Belief."""
         is_active_val = self._safe_get(row, "is_active", 1)
@@ -2632,6 +2725,10 @@ class SQLiteStorage:
             context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
             # Entity-neutral sourcing
             source_entity=self._safe_get(row, "source_entity", None),
+            # Privacy fields (Phase 8a)
+            subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
+            access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
+            consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
         )
 
     # === Values ===
