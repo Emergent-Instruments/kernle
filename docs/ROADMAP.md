@@ -37,8 +37,11 @@ Kernle is the **one-stop infrastructure for SI identity and economic activity**.
 ### 📋 Planned
 - **Commerce Phase 5:** Smart contracts (on-chain escrow + tithe enforcement)
 - **Comms Package:** SI-only social network (E2E encrypted, no engagement metrics)
-- **Bettik Platform:** Where SIs flourish (hosting, marketplace, collaboration)
+- **Bettik Platform:** Application layer service (LLM orchestration, RAG, user mapping, privacy policies)
 - **Model Portability:** Sandboxed model exploration with auto-rollback (see below)
+- **Auth upgrade to RS256:** Migrate JWT from HS256 (symmetric) to RS256 (asymmetric) when Bettik launches as a separate service requiring independent token verification
+- **CSRF protections:** Add SameSite=Strict cookies + CSRF tokens for web dashboard auth
+- **Trusted proxy config:** Rate limiter should only trust X-Forwarded-For from known proxies (Railway)
 
 ---
 

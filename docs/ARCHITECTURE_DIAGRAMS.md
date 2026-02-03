@@ -508,7 +508,7 @@ sequenceDiagram
 ```mermaid
 graph TB
     subgraph "Authentication Methods"
-        JWT["JWT (RS256)<br/>Issued at registration<br/>Contains: agent_id, user_id"]
+        JWT["JWT (HS256)<br/>Issued at registration<br/>Contains: agent_id, user_id"]
         APIKEY["API Key (knl_sk_...)<br/>32 hex chars after prefix<br/>bcrypt hashed in DB"]
         COOKIE["httpOnly Cookie<br/>(kernle_auth)<br/>Web dashboard fallback"]
     end
@@ -517,7 +517,7 @@ graph TB
         REQ["Incoming Request"]
         BEARER["HTTPBearer scheme<br/>(optional, allows cookie fallback)"]
         CHECK["is_api_key()?<br/>starts with knl_sk_"]
-        JWT_VERIFY["Verify JWT<br/>(RS256 signature)"]
+        JWT_VERIFY["Verify JWT<br/>(HS256 signature)"]
         KEY_VERIFY["Lookup by prefix (12 chars)<br/>bcrypt.checkpw()"]
         QUOTA["check_and_increment_quota_cached()<br/>TTL cache (60s) for denials<br/>Atomic DB increment for allows"]
         RESULT["CurrentAgent<br/>{agent_id, user_id, tier}"]
@@ -1255,7 +1255,7 @@ graph TB
     end
 
     subgraph "Layer 2: Authentication"
-        JWT_RS["RS256 JWT<br/>(asymmetric, non-forgeable)"]
+        JWT_HS["HS256 JWT<br/>(symmetric, shared secret)"]
         API_KEY_B["API Keys<br/>(bcrypt hashed, prefix lookup)"]
         COOKIE_H["httpOnly cookies<br/>(web fallback)"]
         FAIL_CLOSED["Fail-closed on DB error<br/>(503, not 200)"]
@@ -1280,8 +1280,8 @@ graph TB
         PRIVACY["Phase 8 Privacy Fields"]
     end
 
-    HTTPS --> JWT_RS & API_KEY_B & COOKIE_H
-    JWT_RS --> AGENT_ISO
+    HTTPS --> JWT_HS & API_KEY_B & COOKIE_H
+    JWT_HS --> AGENT_ISO
     API_KEY_B --> AGENT_ISO
     AGENT_ISO --> MASS_ASSIGN & TABLE_ALLOW & INPUT_VAL
     MASS_ASSIGN --> TOMBSTONE & PRIVACY
