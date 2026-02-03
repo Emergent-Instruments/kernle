@@ -87,7 +87,8 @@
         "cli/overview",
         "cli/memory-commands",
         "cli/sync-commands",
-        "cli/utility-commands"
+        "cli/utility-commands",
+        "cli/additional-commands"
       ]
     },
     {
@@ -124,7 +125,8 @@
         "api-reference/sync",
         "api-reference/search",
         "api-reference/embeddings",
-        "api-reference/subscriptions"
+        "api-reference/subscriptions",
+        "api-reference/commerce"
       ]
     }
   ],

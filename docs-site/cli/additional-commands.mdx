@@ -1,0 +1,258 @@
+---
+title: Additional Commands
+description: "Context extraction, session resumption, caching, migration, and setup"
+---
+
+# Additional Commands
+
+Commands for context extraction, session management, caching, migration, and platform integration.
+
+---
+
+## extract
+
+Extract and record context from a conversation or session.
+
+```bash
+kernle extract "Discussed API design" \
+  --topic "architecture" \
+  --participant "Sean" \
+  --participant "Claire" \
+  --outcome "Agreed on REST endpoints" \
+  --decision "Use FastAPI"
+```
+
+### Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `summary` | Summary of what happened (required) |
+| `--topic, -t` | Conversation topic |
+| `--participant, -p` | Participant name (repeatable) |
+| `--outcome, -o` | Outcome or result |
+| `--decision, -d` | Decision made |
+
+---
+
+## resume
+
+Quick view of your last task, next step, and time since checkpoint. Useful for session start.
+
+```bash
+kernle resume
+```
+
+**Output:**
+```
+Last task: Implementing privacy fields
+Next step: Add access filtering to search
+Time since checkpoint: 2h 15m
+```
+
+---
+
+## boot
+
+Manage boot config — instant key/value settings available before `kernle load`.
+
+Boot config is useful for settings that need to be available immediately at agent startup,
+before the full memory load completes.
+
+### boot set
+
+```bash
+kernle boot set preferred_model "claude-3-opus"
+kernle boot set timezone "America/Los_Angeles"
+```
+
+### boot get
+
+```bash
+kernle boot get preferred_model
+# Output: claude-3-opus
+```
+
+### boot list
+
+```bash
+kernle boot list
+# Output:
+# preferred_model: claude-3-opus
+# timezone: America/Los_Angeles
+```
+
+### boot delete
+
+```bash
+kernle boot delete preferred_model
+```
+
+### boot clear
+
+```bash
+kernle boot clear  # Remove all boot config
+```
+
+### boot export
+
+```bash
+kernle boot export --output boot-backup.json
+```
+
+---
+
+## export-cache
+
+Export a curated MEMORY.md cache from beliefs, values, goals, and checkpoint.
+
+This is **not** a full memory dump — it's a read-only summary designed to give
+agents immediate context before `kernle load` runs. The file is auto-generated
+and should never be manually edited.
+
+```bash
+kernle export-cache --output MEMORY.md
+```
+
+### Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--output, -o` | stdout | Write to file |
+| `--min-confidence` | 0.4 | Minimum belief confidence to include |
+| `--max-beliefs` | 50 | Maximum number of beliefs |
+| `--no-checkpoint` | false | Exclude checkpoint from cache |
+
+### Typical Usage
+
+In a `memoryFlush` hook (runs before context compaction):
+
+```bash
+kernle -a $AGENT_ID export-cache --output /workspace/MEMORY.md
+```
+
+---
+
+## subscription (sub)
+
+Manage your Kernle cloud subscription tier.
+
+### sub tier
+
+Show current tier, usage, and renewal info.
+
+```bash
+kernle sub tier
+# Output:
+# Tier: pro
+# Usage: 45,000 / 100,000 tokens
+# Renewal: 2026-03-01
+```
+
+### sub upgrade
+
+Upgrade to a higher tier.
+
+```bash
+kernle sub upgrade unlimited
+```
+
+### sub downgrade
+
+Downgrade to a lower tier (effective next billing period).
+
+```bash
+kernle sub downgrade free
+```
+
+### sub cancel
+
+Cancel auto-renewal.
+
+```bash
+kernle sub cancel
+```
+
+### sub usage
+
+Show detailed usage for current billing period.
+
+```bash
+kernle sub usage
+```
+
+### sub payments
+
+List payment history.
+
+```bash
+kernle sub payments
+```
+
+---
+
+## migrate
+
+Migrate memories from other platforms or seed initial data.
+
+### migrate from-clawdbot
+
+Import memories from a Clawdbot/Moltbot workspace.
+
+```bash
+kernle migrate from-clawdbot /path/to/workspace
+```
+
+### migrate seed-beliefs
+
+Add foundational seed beliefs to a new agent.
+
+```bash
+kernle migrate seed-beliefs --preset minimal
+kernle migrate seed-beliefs --preset curious
+```
+
+### migrate backfill-provenance
+
+Backfill provenance metadata (source_type, derived_from) on existing memories.
+
+```bash
+kernle migrate backfill-provenance
+```
+
+---
+
+## setup
+
+Install platform hooks for automatic memory loading.
+
+### Clawdbot
+
+```bash
+kernle setup clawdbot --enable
+```
+
+Installs hooks for:
+- `kernle-memory-refresh` on agent bootstrap
+- `memoryFlush` checkpoint on context compaction
+
+### Claude Code
+
+```bash
+kernle setup claude-code --global
+```
+
+Adds Kernle instructions to CLAUDE.md for proper memory integration.
+
+### Cowork
+
+```bash
+kernle setup cowork --global
+```
+
+### Options
+
+| Option | Description |
+|--------|-------------|
+| `--force, -f` | Overwrite existing hook installation |
+| `--enable, -e` | Auto-enable hook in config (Clawdbot only) |
+| `--global, -g` | Install globally (Claude Code/Cowork) |
