@@ -1,7 +1,43 @@
 # Kernle Architecture Diagrams
 
-> **Auto-generated architecture reference.** All diagrams use Mermaid syntax.
-> Source of truth: the codebase at `/tmp/kernle-fix/`.
+> **Architecture reference.** All diagrams use Mermaid syntax.
+> Source of truth: the codebase at `emergent-instruments/kernle`.
+
+## Implementation Status
+
+This document describes both **current** and **target** architecture. The table below
+tracks what's shipped vs. what's planned.
+
+| Component | Status | Notes |
+|-----------|--------|-------|
+| **Kernle Core** (§1) | ✅ Shipped | v0.2.4 — memory types, storage, priority scoring, boot config |
+| **Cloud Sync** (§2.1–2.3) | ✅ Shipped | Push/pull working, schema aligned (PR #78) |
+| **Authentication** (§2.4) | ✅ Shipped | JWT + API keys, fail-closed, rate limiting |
+| **Payment Pipeline** (§2.5) | ⚠️ Testnet | Verified on Base Sepolia; mainnet pending |
+| **OpenClaw Gateway** (§3.1) | ✅ Shipped | Channels, heartbeat, cron, workspace injection |
+| **Session-end checkpoint** (§3.2) | ✅ Shipped | `memoryFlush` triggers Kernle checkpoint before compaction |
+| **Session-start refresh** (§3.2) | 🔧 In Progress | `kernle-memory-refresh` custom hook built, testing on gateway |
+| **Boot Config** (§3.3) | ✅ Shipped | v0.2.4 — key/value store, integrated into load/export-cache |
+| **Multi-Agent / Gateway-to-Gateway** (§3.4) | ⚠️ Partial | Device pairing complete; wake calls have token auth issue |
+| **Claude Code Integration** (§4) | ✅ Shipped | AGENTS.md instructions + memoryFlush + export-cache |
+| **AISD Integration** (§5) | 📋 Spec Only | Architecture defined; no AISD client exists yet |
+| **Bettik** (separate doc) | 📋 Spec Only | Application layer service — architecture drafted |
+| **Privacy Fields** (§7.4) | 📋 Spec Only | Phase 8 spec complete (PR #53); implementation pending |
+| **Forgetting** (§7.3) | ✅ Shipped | Salience decay + tombstoning implemented |
+
+### Session-Start Refresh: Current vs. Target
+
+**Current architecture:**
+- Session ends → `memoryFlush` fires → agent runs `kernle checkpoint` → MEMORY.md updated via `export-cache` ✅
+- Session starts → MEMORY.md from disk is injected (may be stale if previous session crashed) ⚠️
+- Agent runs `kernle -a {id} load` after waking (per AGENTS.md instructions) ✅
+
+**Target architecture (in progress):**
+- `kernle-memory-refresh` hook fires on `agent:bootstrap` (before file injection)
+- Hook runs `kernle export-cache` → MEMORY.md content replaced with fresh state
+- Agent always wakes with current memory, even after crashes
+
+**Blocker:** Custom hook handler loading verified; end-to-end testing in progress on Ash's gateway.
 
 ---
 
