@@ -1,7 +1,10 @@
 """Anxiety tracking commands for Kernle CLI."""
 
 import json
+import logging
 from typing import TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from kernle import Kernle
@@ -51,8 +54,8 @@ def cmd_anxiety(args, k: "Kernle"):
         k._storage.log_health_check(
             anxiety_score=report.get("overall_score"), source=source, triggered_by=triggered_by
         )
-    except Exception:
-        pass  # Don't fail the command if logging fails
+    except Exception as e:
+        logger.debug(f"Failed to log health check event: {e}")
 
     if args.json:
         print(json.dumps(report, indent=2, default=str))

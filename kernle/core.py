@@ -3671,8 +3671,8 @@ class Kernle(
                         age_warning = f"\n⚠ _Checkpoint is {age.days}+ days old - may be stale_"
                     elif age.total_seconds() > 6 * 3600:
                         age_warning = f"\n⚠ _Checkpoint is {age.seconds // 3600}+ hours old_"
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to parse checkpoint age: {e}")
 
             lines.append("## Continue With")
             lines.append(f"**Current task**: {cp.get('current_task', 'unknown')}")

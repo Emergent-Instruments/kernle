@@ -1,6 +1,7 @@
 """Tests for the import functionality."""
 
 import json
+import logging
 
 import pytest
 
@@ -14,6 +15,8 @@ from kernle.cli.commands.import_cmd import (
     _parse_raw,
     _parse_values,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class TestMarkdownParsing:
@@ -289,7 +292,8 @@ class TestImportIntegration:
         """Create a Kernle instance with temp storage."""
         try:
             return Kernle(agent_id="test-import")
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Kernle instance creation failed: {e}")
             pytest.skip("Could not create Kernle instance - schema may be changing")
 
     def test_import_markdown_beliefs(self, kernle_instance, tmp_path):
