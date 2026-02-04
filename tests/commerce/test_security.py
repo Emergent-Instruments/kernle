@@ -558,12 +558,12 @@ class TestDataExposure:
         assert "spending_limit_per_tx" not in public_data
         assert "wallet_address" in public_data
 
-    def test_no_pii_filtering(self, job_service):
-        """Test that PII in job descriptions is not filtered."""
+    def test_pii_filtering_enabled_by_default(self, job_service):
+        """Test that PII in job descriptions is automatically redacted."""
         pii_content = """
         Contact me at john.doe@example.com
         Phone: 555-123-4567
-        SSN: 123-45-6789
+        SSN: 456-78-9012
         Credit Card: 4111-1111-1111-1111
         """
 
@@ -575,9 +575,13 @@ class TestDataExposure:
             deadline=datetime.now(timezone.utc) + timedelta(days=7),
         )
 
-        # PII is stored as-is - no filtering
-        assert "john.doe@example.com" in job.description
-        assert "555-123-4567" in job.description
+        # PII should be redacted by default
+        assert "john.doe@example.com" not in job.description
+        assert "[REDACTED-EMAIL]" in job.description
+        assert "555-123-4567" not in job.description
+        assert "[REDACTED-PHONE]" in job.description
+        assert "4111-1111-1111-1111" not in job.description
+        assert "[REDACTED-CC]" in job.description
 
     def test_spending_limits_visible_to_all(self, wallet_service):
         """Test that spending limits are visible (may be sensitive)."""

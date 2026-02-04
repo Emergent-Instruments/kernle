@@ -279,6 +279,8 @@ class JobService:
         budget_usdc: float,
         deadline: datetime,
         skills_required: Optional[List[str]] = None,
+        *,
+        redact_pii: bool = True,
     ) -> Job:
         """Create a new job listing.
 
@@ -289,6 +291,7 @@ class JobService:
             budget_usdc: Payment amount in USDC
             deadline: When the work must be delivered
             skills_required: Optional list of required skill names
+            redact_pii: If True, automatically redact detected PII (default: True)
 
         Returns:
             Job: The newly created job
@@ -309,6 +312,21 @@ class JobService:
             raise JobServiceError(f"Budget must be at least ${self.MIN_BUDGET_USDC}")
         if budget_usdc > self.MAX_BUDGET_USDC:
             raise JobServiceError(f"Budget cannot exceed ${self.MAX_BUDGET_USDC:,}")
+
+        # SECURITY: PII detection and redaction
+        from kernle.commerce.pii import detect_pii as pii_detect
+        from kernle.commerce.pii import redact_pii as pii_redact
+
+        pii_findings = pii_detect(description)
+        if pii_findings:
+            pii_types = set(f.pii_type.value for f in pii_findings)
+            logger.warning(
+                f"PII detected in job description: {pii_types} "
+                f"(job by {client_id}, redact={redact_pii})"
+            )
+            if redact_pii:
+                description = pii_redact(description)
+                logger.info("PII redacted from job description")
 
         job = Job(
             id=self._generate_id(),
