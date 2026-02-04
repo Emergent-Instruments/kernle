@@ -592,7 +592,11 @@ CREATE TABLE IF NOT EXISTS sync_queue (
     local_updated_at TEXT NOT NULL,
     synced INTEGER DEFAULT 0,  -- 0 = pending, 1 = synced
     payload TEXT,  -- Legacy: JSON payload (kept for backward compatibility)
-    queued_at TEXT  -- Legacy: kept for backward compatibility
+    queued_at TEXT,  -- Legacy: kept for backward compatibility
+    -- Retry tracking for resilient sync (v0.2.5)
+    retry_count INTEGER DEFAULT 0,
+    last_error TEXT,
+    last_attempt_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_sync_queue_table ON sync_queue(table_name);
 CREATE INDEX IF NOT EXISTS idx_sync_queue_record ON sync_queue(record_id);
@@ -1450,6 +1454,13 @@ class SQLiteStorage:
                 migrations.append("ALTER TABLE sync_queue ADD COLUMN local_updated_at TEXT")
             if "synced" not in sync_cols:
                 migrations.append("ALTER TABLE sync_queue ADD COLUMN synced INTEGER DEFAULT 0")
+            # Retry tracking for resilient sync (v0.2.5)
+            if "retry_count" not in sync_cols:
+                migrations.append("ALTER TABLE sync_queue ADD COLUMN retry_count INTEGER DEFAULT 0")
+            if "last_error" not in sync_cols:
+                migrations.append("ALTER TABLE sync_queue ADD COLUMN last_error TEXT")
+            if "last_attempt_at" not in sync_cols:
+                migrations.append("ALTER TABLE sync_queue ADD COLUMN last_attempt_at TEXT")
 
         # === Forgetting field migrations ===
         # Add forgetting fields to all memory tables
@@ -5877,22 +5888,28 @@ class SQLiteStorage:
             count = conn.execute("SELECT COUNT(*) FROM sync_queue WHERE synced = 0").fetchone()[0]
         return count
 
-    def get_queued_changes(self, limit: int = 100) -> List[QueuedChange]:
-        """Get queued changes for sync (legacy method, returns unsynced items).
+    def get_queued_changes(self, limit: int = 100, max_retries: int = 5) -> List[QueuedChange]:
+        """Get queued changes for sync (returns unsynced items with retries < max).
 
         Uses COALESCE to read from either `payload` or `data` column,
         handling the historical inconsistency where some entries only
         populated one column.
+
+        Args:
+            limit: Maximum number of changes to return.
+            max_retries: Skip records with retry_count >= this value.
         """
         with self._connect() as conn:
             rows = conn.execute(
                 """SELECT id, table_name, record_id, operation,
-                          COALESCE(payload, data) as payload, queued_at
+                          COALESCE(payload, data) as payload, queued_at,
+                          COALESCE(retry_count, 0) as retry_count,
+                          last_error, last_attempt_at
                    FROM sync_queue
-                   WHERE synced = 0
+                   WHERE synced = 0 AND COALESCE(retry_count, 0) < ?
                    ORDER BY id
                    LIMIT ?""",
-                (limit,),
+                (max_retries, limit),
             ).fetchall()
 
         return [
@@ -5903,6 +5920,9 @@ class SQLiteStorage:
                 operation=row["operation"],
                 payload=row["payload"],
                 queued_at=self._parse_datetime(row["queued_at"]),
+                retry_count=row["retry_count"] or 0,
+                last_error=row["last_error"],
+                last_attempt_at=self._parse_datetime(row["last_attempt_at"]),
             )
             for row in rows
         ]
@@ -5910,6 +5930,85 @@ class SQLiteStorage:
     def _clear_queued_change(self, conn: sqlite3.Connection, queue_id: int):
         """Mark a change as synced (legacy behavior kept for compatibility)."""
         conn.execute("UPDATE sync_queue SET synced = 1 WHERE id = ?", (queue_id,))
+
+    def _record_sync_failure(self, conn: sqlite3.Connection, queue_id: int, error: str) -> int:
+        """Record a sync failure and increment retry count.
+
+        Returns:
+            The new retry count.
+        """
+        now = self._now()
+        conn.execute(
+            """UPDATE sync_queue
+               SET retry_count = COALESCE(retry_count, 0) + 1,
+                   last_error = ?,
+                   last_attempt_at = ?
+               WHERE id = ?""",
+            (error[:500], now, queue_id),  # Truncate error to 500 chars
+        )
+        row = conn.execute(
+            "SELECT retry_count FROM sync_queue WHERE id = ?", (queue_id,)
+        ).fetchone()
+        return row["retry_count"] if row else 0
+
+    def get_failed_sync_records(self, min_retries: int = 5) -> List[QueuedChange]:
+        """Get sync records that have exceeded max retries (dead letter queue).
+
+        Args:
+            min_retries: Minimum retry count to include.
+        """
+        with self._connect() as conn:
+            rows = conn.execute(
+                """SELECT id, table_name, record_id, operation,
+                          COALESCE(payload, data) as payload, queued_at,
+                          COALESCE(retry_count, 0) as retry_count,
+                          last_error, last_attempt_at
+                   FROM sync_queue
+                   WHERE synced = 0 AND COALESCE(retry_count, 0) >= ?
+                   ORDER BY last_attempt_at DESC
+                   LIMIT 100""",
+                (min_retries,),
+            ).fetchall()
+
+        return [
+            QueuedChange(
+                id=row["id"],
+                table_name=row["table_name"],
+                record_id=row["record_id"],
+                operation=row["operation"],
+                payload=row["payload"],
+                queued_at=self._parse_datetime(row["queued_at"]),
+                retry_count=row["retry_count"] or 0,
+                last_error=row["last_error"],
+                last_attempt_at=self._parse_datetime(row["last_attempt_at"]),
+            )
+            for row in rows
+        ]
+
+    def clear_failed_sync_records(self, older_than_days: int = 7) -> int:
+        """Clear failed sync records older than the specified days.
+
+        Returns:
+            Number of records cleared.
+        """
+        from datetime import timedelta
+
+        cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
+        cutoff_str = cutoff.isoformat()
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """UPDATE sync_queue
+                   SET synced = 1
+                   WHERE synced = 0
+                     AND COALESCE(retry_count, 0) >= 5
+                     AND last_attempt_at < ?""",
+                (cutoff_str,),
+            )
+            count = cursor.rowcount
+            conn.commit()
+
+        return count
 
     def _get_sync_meta(self, key: str) -> Optional[str]:
         """Get a sync metadata value."""
@@ -6148,33 +6247,63 @@ class SQLiteStorage:
             result.errors.append("Offline - cannot reach cloud storage")
             return result
 
-        # Phase 1: Push queued changes
-        queued = self.get_queued_changes()
+        # Phase 1: Push queued changes (resilient - continues on failures)
+        queued = self.get_queued_changes(limit=100, max_retries=5)
+        failed_count = len(self.get_failed_sync_records(min_retries=5))
+        if failed_count > 0:
+            logger.info(f"Skipping {failed_count} records that exceeded max retries")
+
         logger.debug(f"Pushing {len(queued)} queued changes")
 
         with self._connect() as conn:
             for change in queued:
-                # Get the current record
-                record = self._get_record_for_push(change.table_name, change.record_id)
+                try:
+                    # Get the current record
+                    record = self._get_record_for_push(change.table_name, change.record_id)
 
-                if record is None:
-                    # Record was deleted or doesn't exist
-                    if change.operation == "delete":
-                        # TODO: Handle soft delete in cloud
+                    if record is None:
+                        # Record was deleted or doesn't exist
+                        if change.operation == "delete":
+                            # TODO: Handle soft delete in cloud
+                            self._clear_queued_change(conn, change.id)
+                            result.pushed += 1
+                        else:
+                            # Record no longer exists locally, clear from queue
+                            self._clear_queued_change(conn, change.id)
+                        continue
+
+                    # Push to cloud
+                    if self._push_record(change.table_name, record):
+                        self._mark_synced(conn, change.table_name, change.record_id)
                         self._clear_queued_change(conn, change.id)
                         result.pushed += 1
                     else:
-                        # Record no longer exists locally, clear from queue
-                        self._clear_queued_change(conn, change.id)
-                    continue
+                        # Record failure and continue with next record
+                        retry_count = self._record_sync_failure(
+                            conn, change.id, "Push failed - cloud returned error"
+                        )
+                        if retry_count >= 5:
+                            logger.warning(
+                                f"Record {change.table_name}:{change.record_id} "
+                                f"exceeded max retries, moving to dead letter queue"
+                            )
+                        result.errors.append(
+                            f"Failed to push {change.table_name}:{change.record_id} "
+                            f"(retry {retry_count}/5)"
+                        )
 
-                # Push to cloud
-                if self._push_record(change.table_name, record):
-                    self._mark_synced(conn, change.table_name, change.record_id)
-                    self._clear_queued_change(conn, change.id)
-                    result.pushed += 1
-                else:
-                    result.errors.append(f"Failed to push {change.table_name}:{change.record_id}")
+                except Exception as e:
+                    # Unexpected error - record and continue
+                    error_msg = str(e)[:500]
+                    retry_count = self._record_sync_failure(conn, change.id, error_msg)
+                    logger.error(
+                        f"Error pushing {change.table_name}:{change.record_id}: {e} "
+                        f"(retry {retry_count}/5)"
+                    )
+                    result.errors.append(
+                        f"Error pushing {change.table_name}:{change.record_id}: {error_msg}"
+                    )
+                    # Continue with next record instead of stopping
 
             conn.commit()
 

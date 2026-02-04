@@ -1137,3 +1137,101 @@ class TestMergeArrayFieldsUnit:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestSyncQueueResilience:
+    """Tests for resilient sync queue behavior (v0.2.5)."""
+
+    def test_failed_record_increments_retry_count(self, storage):
+        """Test that failed sync records get retry count incremented."""
+        # Create a test record
+        storage.save_note(Note(id="n1", agent_id="test-agent", content="Test note"))
+
+        # Get the queued change
+        queued = storage.get_queued_changes(limit=10)
+        assert len(queued) >= 1
+        change = queued[0]
+        assert change.retry_count == 0
+
+        # Simulate a failure
+        with storage._connect() as conn:
+            new_count = storage._record_sync_failure(conn, change.id, "Test error")
+            conn.commit()
+
+        assert new_count == 1
+
+        # Check the record has the error
+        queued = storage.get_queued_changes(limit=10)
+        change = next((c for c in queued if c.id == change.id), None)
+        assert change is not None
+        assert change.retry_count == 1
+        assert change.last_error == "Test error"
+
+    def test_max_retries_excludes_from_queue(self, storage):
+        """Test that records exceeding max retries are skipped."""
+        # Create a test record
+        storage.save_note(Note(id="n2", agent_id="test-agent", content="Test note 2"))
+
+        # Get the queued change
+        queued = storage.get_queued_changes(limit=10)
+        change = next((c for c in queued if c.record_id == "n2"), None)
+        assert change is not None
+
+        # Simulate 5 failures to exceed max
+        with storage._connect() as conn:
+            for i in range(5):
+                storage._record_sync_failure(conn, change.id, f"Error {i+1}")
+            conn.commit()
+
+        # Now it should not appear in normal queue
+        queued = storage.get_queued_changes(limit=10, max_retries=5)
+        assert not any(c.id == change.id for c in queued)
+
+        # But should appear in failed records
+        failed = storage.get_failed_sync_records(min_retries=5)
+        assert any(c.id == change.id for c in failed)
+
+    def test_sync_continues_after_individual_failure(self, storage):
+        """Test that sync continues processing after individual record failures."""
+        # Create multiple test records
+        storage.save_note(Note(id="n3", agent_id="test-agent", content="Note 3"))
+        storage.save_note(Note(id="n4", agent_id="test-agent", content="Note 4"))
+        storage.save_note(Note(id="n5", agent_id="test-agent", content="Note 5"))
+
+        queued = storage.get_queued_changes(limit=10)
+        assert len(queued) >= 3
+
+        # All records should be present
+        ids = {c.record_id for c in queued}
+        assert "n3" in ids
+        assert "n4" in ids
+        assert "n5" in ids
+
+    def test_clear_failed_sync_records(self, storage):
+        """Test clearing old failed records."""
+        # Create a test record
+        storage.save_note(Note(id="n6", agent_id="test-agent", content="Test note 6"))
+
+        queued = storage.get_queued_changes(limit=10)
+        change = next((c for c in queued if c.record_id == "n6"), None)
+        assert change is not None
+
+        # Simulate failures and set old timestamp
+        with storage._connect() as conn:
+            for _ in range(5):
+                storage._record_sync_failure(conn, change.id, "Old error")
+            # Set last_attempt_at to 10 days ago
+            old_time = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+            conn.execute(
+                "UPDATE sync_queue SET last_attempt_at = ? WHERE id = ?",
+                (old_time, change.id),
+            )
+            conn.commit()
+
+        # Clear old failed records
+        cleared = storage.clear_failed_sync_records(older_than_days=7)
+        assert cleared == 1
+
+        # Should no longer appear in failed records
+        failed = storage.get_failed_sync_records(min_retries=5)
+        assert not any(c.id == change.id for c in failed)
