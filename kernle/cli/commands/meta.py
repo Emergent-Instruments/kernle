@@ -171,7 +171,7 @@ def cmd_meta(args, k: "Kernle"):
                 print(f"✓ All references healthy ({total} refs checked, all valid)")
                 return
 
-            print(f"Reference Health Check")
+            print("Reference Health Check")
             print("=" * 60)
             print(f"Total references: {total}")
             print(f"Valid: {valid}")

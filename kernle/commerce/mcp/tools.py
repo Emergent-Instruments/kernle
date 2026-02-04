@@ -10,39 +10,36 @@ These tools are designed for Model Context Protocol integration,
 following the same patterns as kernle.mcp.server.
 """
 
-from datetime import datetime, timezone
-from decimal import Decimal
-import json
 import logging
 import re
+from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from mcp.types import TextContent, Tool
 
-from kernle.commerce.config import get_config
-from kernle.commerce.wallet.models import WalletAccount
-from kernle.commerce.wallet.service import (
-    WalletService,
-    WalletNotFoundError,
-    WalletServiceError,
-)
-from kernle.commerce.wallet.storage import InMemoryWalletStorage, WalletStorage
 from kernle.commerce.jobs.models import Job, JobApplication, JobStatus
 from kernle.commerce.jobs.service import (
-    JobService,
-    JobNotFoundError,
     ApplicationNotFoundError,
-    InvalidTransitionError,
-    UnauthorizedError,
     DuplicateApplicationError,
+    InvalidTransitionError,
     JobExpiredError,
-    JobServiceError,
+    JobNotFoundError,
     JobSearchFilters,
+    JobService,
+    JobServiceError,
+    UnauthorizedError,
 )
-from kernle.commerce.jobs.storage import InMemoryJobStorage, JobStorage
-from kernle.commerce.skills.registry import InMemorySkillRegistry
+from kernle.commerce.jobs.storage import InMemoryJobStorage
 from kernle.commerce.skills.models import Skill
-
+from kernle.commerce.skills.registry import InMemorySkillRegistry
+from kernle.commerce.wallet.models import WalletAccount
+from kernle.commerce.wallet.service import (
+    WalletNotFoundError,
+    WalletService,
+    WalletServiceError,
+)
+from kernle.commerce.wallet.storage import InMemoryWalletStorage
 
 logger = logging.getLogger(__name__)
 
@@ -59,7 +56,7 @@ _skill_registry: Optional[InMemorySkillRegistry] = None
 
 def set_commerce_agent_id(agent_id: str) -> None:
     """Set the agent ID for commerce operations.
-    
+
     Args:
         agent_id: The Kernle agent ID to use for commerce tools
     """
@@ -104,9 +101,9 @@ def configure_commerce_services(
     skill_registry: Optional[InMemorySkillRegistry] = None,
 ) -> None:
     """Configure commerce services for dependency injection.
-    
+
     Allows tests and external code to inject their own service instances.
-    
+
     Args:
         wallet_service: WalletService instance to use
         job_service: JobService instance to use
@@ -134,22 +131,23 @@ def reset_commerce_services() -> None:
 # Input Validation
 # =============================================================================
 
+
 def sanitize_string(
     value: Any, field_name: str, max_length: int = 1000, required: bool = True
 ) -> str:
     """Sanitize and validate string inputs."""
     if value is None and not required:
         return ""
-    
+
     if not isinstance(value, str):
         raise ValueError(f"{field_name} must be a string, got {type(value).__name__}")
-    
+
     if required and not value.strip():
         raise ValueError(f"{field_name} cannot be empty")
-    
+
     if len(value) > max_length:
         raise ValueError(f"{field_name} too long (max {max_length} characters)")
-    
+
     # Remove null bytes and control characters except newlines and tabs
     sanitized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", value)
     return sanitized
@@ -161,13 +159,13 @@ def sanitize_array(
     """Sanitize and validate array inputs."""
     if value is None:
         return []
-    
+
     if not isinstance(value, list):
         raise ValueError(f"{field_name} must be an array, got {type(value).__name__}")
-    
+
     if len(value) > max_items:
         raise ValueError(f"{field_name} too many items (max {max_items})")
-    
+
     sanitized = []
     for i, item in enumerate(value):
         sanitized_item = sanitize_string(
@@ -175,7 +173,7 @@ def sanitize_array(
         )
         if sanitized_item:
             sanitized.append(sanitized_item)
-    
+
     return sanitized
 
 
@@ -191,31 +189,29 @@ def validate_number(
         if default is not None:
             return default
         raise ValueError(f"{field_name} is required")
-    
+
     if not isinstance(value, (int, float)):
         raise ValueError(f"{field_name} must be a number, got {type(value).__name__}")
-    
+
     if min_val is not None and value < min_val:
         raise ValueError(f"{field_name} must be >= {min_val}, got {value}")
-    
+
     if max_val is not None and value > max_val:
         raise ValueError(f"{field_name} must be <= {max_val}, got {value}")
-    
+
     return float(value)
 
 
-def validate_datetime(
-    value: Any, field_name: str, required: bool = True
-) -> Optional[datetime]:
+def validate_datetime(value: Any, field_name: str, required: bool = True) -> Optional[datetime]:
     """Validate and parse datetime values."""
     if value is None:
         if required:
             raise ValueError(f"{field_name} is required")
         return None
-    
+
     if isinstance(value, datetime):
         return value
-    
+
     if isinstance(value, str):
         try:
             # Handle ISO format
@@ -225,7 +221,7 @@ def validate_datetime(
             return dt
         except ValueError:
             raise ValueError(f"{field_name} must be a valid ISO datetime string")
-    
+
     raise ValueError(f"{field_name} must be a datetime or ISO string")
 
 
@@ -271,7 +267,6 @@ COMMERCE_TOOLS: List[Tool] = [
             "properties": {},
         },
     ),
-    
     # =========================================================================
     # Job Tools (Client)
     # =========================================================================
@@ -314,7 +309,15 @@ COMMERCE_TOOLS: List[Tool] = [
             "properties": {
                 "status": {
                     "type": "string",
-                    "enum": ["open", "funded", "accepted", "delivered", "completed", "disputed", "cancelled"],
+                    "enum": [
+                        "open",
+                        "funded",
+                        "accepted",
+                        "delivered",
+                        "completed",
+                        "disputed",
+                        "cancelled",
+                    ],
                     "description": "Filter by job status",
                 },
                 "mine": {
@@ -417,7 +420,6 @@ COMMERCE_TOOLS: List[Tool] = [
             "required": ["job_id", "reason"],
         },
     ),
-    
     # =========================================================================
     # Job Tools (Worker)
     # =========================================================================
@@ -487,7 +489,6 @@ COMMERCE_TOOLS: List[Tool] = [
             "required": ["job_id", "url"],
         },
     ),
-    
     # =========================================================================
     # Skills Tools
     # =========================================================================
@@ -519,6 +520,7 @@ COMMERCE_TOOLS: List[Tool] = [
 # =============================================================================
 # Tool Handlers
 # =============================================================================
+
 
 def _format_wallet_balance(wallet: WalletAccount, balance: Decimal) -> str:
     """Format wallet balance for display."""
@@ -588,7 +590,7 @@ async def handle_wallet_balance(arguments: Dict[str, Any]) -> List[TextContent]:
     """Handle wallet_balance tool call."""
     agent_id = get_commerce_agent_id()
     service = _get_wallet_service()
-    
+
     try:
         wallet = service.get_wallet_for_agent(agent_id)
         balance = service.get_balance(wallet.id)
@@ -597,22 +599,24 @@ async def handle_wallet_balance(arguments: Dict[str, Any]) -> List[TextContent]:
         # Auto-create wallet if it doesn't exist
         wallet = service.create_wallet(agent_id)
         balance = service.get_balance(wallet.id)
-        return [TextContent(
-            type="text",
-            text=f"Wallet created!\n{_format_wallet_balance(wallet, balance.usdc_balance)}"
-        )]
+        return [
+            TextContent(
+                type="text",
+                text=f"Wallet created!\n{_format_wallet_balance(wallet, balance.usdc_balance)}",
+            )
+        ]
 
 
 async def handle_wallet_address(arguments: Dict[str, Any]) -> List[TextContent]:
     """Handle wallet_address tool call."""
     agent_id = get_commerce_agent_id()
     service = _get_wallet_service()
-    
+
     try:
         wallet = service.get_wallet_for_agent(agent_id)
     except WalletNotFoundError:
         wallet = service.create_wallet(agent_id)
-    
+
     return [TextContent(type="text", text=f"Wallet Address: {wallet.wallet_address}")]
 
 
@@ -620,12 +624,12 @@ async def handle_wallet_status(arguments: Dict[str, Any]) -> List[TextContent]:
     """Handle wallet_status tool call."""
     agent_id = get_commerce_agent_id()
     service = _get_wallet_service()
-    
+
     try:
         wallet = service.get_wallet_for_agent(agent_id)
     except WalletNotFoundError:
         wallet = service.create_wallet(agent_id)
-    
+
     return [TextContent(type="text", text=_format_wallet_status(wallet))]
 
 
@@ -633,14 +637,14 @@ async def handle_job_create(arguments: Dict[str, Any]) -> List[TextContent]:
     """Handle job_create tool call."""
     agent_id = get_commerce_agent_id()
     service = _get_job_service()
-    
+
     # Validate inputs
     title = sanitize_string(arguments.get("title"), "title", max_length=200)
     description = sanitize_string(arguments.get("description"), "description", max_length=5000)
     budget = validate_number(arguments.get("budget"), "budget", min_val=0.01)
     deadline = validate_datetime(arguments.get("deadline"), "deadline")
     skills = sanitize_array(arguments.get("skills"), "skills", item_max_length=50, max_items=10)
-    
+
     job = service.create_job(
         client_id=agent_id,
         title=title,
@@ -649,7 +653,7 @@ async def handle_job_create(arguments: Dict[str, Any]) -> List[TextContent]:
         deadline=deadline,
         skills_required=skills,
     )
-    
+
     return [TextContent(type="text", text=f"Job created!\n{_format_job(job, detail=True)}")]
 
 
@@ -657,30 +661,30 @@ async def handle_job_list(arguments: Dict[str, Any]) -> List[TextContent]:
     """Handle job_list tool call."""
     agent_id = get_commerce_agent_id()
     service = _get_job_service()
-    
+
     status_str = arguments.get("status")
     mine = arguments.get("mine", False)
-    
+
     filters = JobSearchFilters()
     if status_str:
         try:
             filters.status = JobStatus(status_str)
         except ValueError:
             return [TextContent(type="text", text=f"Invalid status: {status_str}")]
-    
+
     if mine:
         filters.client_id = agent_id
-    
+
     jobs = service.list_jobs(filters)
-    
+
     if not jobs:
         return [TextContent(type="text", text="No jobs found.")]
-    
+
     lines = [f"Found {len(jobs)} job(s):\n"]
     for job in jobs:
         lines.append(_format_job(job))
         lines.append("")
-    
+
     return [TextContent(type="text", text="\n".join(lines))]
 
 
@@ -688,51 +692,53 @@ async def handle_job_fund(arguments: Dict[str, Any]) -> List[TextContent]:
     """Handle job_fund tool call."""
     agent_id = get_commerce_agent_id()
     service = _get_job_service()
-    
+
     job_id = validate_job_id(arguments.get("job_id"))
-    
+
     # Generate stub escrow address (in real impl, this deploys a contract)
     # Ethereum addresses are 42 chars: 0x + 40 hex chars
     # UUID hex is only 32 chars, so we combine two to get 40
     import uuid
+
     hash1 = uuid.uuid5(uuid.NAMESPACE_DNS, job_id).hex
     hash2 = uuid.uuid5(uuid.NAMESPACE_URL, job_id).hex
     escrow_address = f"0x{hash1}{hash2[:8]}"
-    
+
     job = service.fund_job(
         job_id=job_id,
         actor_id=agent_id,
         escrow_address=escrow_address,
     )
-    
-    return [TextContent(
-        type="text",
-        text=f"Job funded!\nEscrow: {escrow_address}\n{_format_job(job)}"
-    )]
+
+    return [
+        TextContent(type="text", text=f"Job funded!\nEscrow: {escrow_address}\n{_format_job(job)}")
+    ]
 
 
 async def handle_job_applications(arguments: Dict[str, Any]) -> List[TextContent]:
     """Handle job_applications tool call."""
     agent_id = get_commerce_agent_id()
     service = _get_job_service()
-    
+
     job_id = validate_job_id(arguments.get("job_id"))
-    
+
     # Verify caller is the client
     job = service.get_job(job_id)
     if job.client_id != agent_id:
-        return [TextContent(type="text", text="You can only view applications for jobs you posted.")]
-    
+        return [
+            TextContent(type="text", text="You can only view applications for jobs you posted.")
+        ]
+
     applications = service.list_applications(job_id=job_id)
-    
+
     if not applications:
         return [TextContent(type="text", text="No applications yet.")]
-    
+
     lines = [f"Found {len(applications)} application(s):\n"]
     for app in applications:
         lines.append(_format_application(app))
         lines.append("")
-    
+
     return [TextContent(type="text", text="\n".join(lines))]
 
 
@@ -740,86 +746,88 @@ async def handle_job_accept(arguments: Dict[str, Any]) -> List[TextContent]:
     """Handle job_accept tool call."""
     agent_id = get_commerce_agent_id()
     service = _get_job_service()
-    
+
     job_id = validate_job_id(arguments.get("job_id"))
     application_id = validate_application_id(arguments.get("application_id"))
-    
+
     job, application = service.accept_application(
         job_id=job_id,
         application_id=application_id,
         actor_id=agent_id,
     )
-    
-    return [TextContent(
-        type="text",
-        text=f"Application accepted!\nWorker {application.applicant_id} assigned to job.\n{_format_job(job)}"
-    )]
+
+    return [
+        TextContent(
+            type="text",
+            text=f"Application accepted!\nWorker {application.applicant_id} assigned to job.\n{_format_job(job)}",
+        )
+    ]
 
 
 async def handle_job_approve(arguments: Dict[str, Any]) -> List[TextContent]:
     """Handle job_approve tool call."""
     agent_id = get_commerce_agent_id()
     service = _get_job_service()
-    
+
     job_id = validate_job_id(arguments.get("job_id"))
-    
+
     job = service.approve_job(
         job_id=job_id,
         actor_id=agent_id,
     )
-    
-    return [TextContent(
-        type="text",
-        text=f"Job approved! Payment released to worker.\n{_format_job(job)}"
-    )]
+
+    return [
+        TextContent(
+            type="text", text=f"Job approved! Payment released to worker.\n{_format_job(job)}"
+        )
+    ]
 
 
 async def handle_job_cancel(arguments: Dict[str, Any]) -> List[TextContent]:
     """Handle job_cancel tool call."""
     agent_id = get_commerce_agent_id()
     service = _get_job_service()
-    
+
     job_id = validate_job_id(arguments.get("job_id"))
-    
+
     job = service.cancel_job(
         job_id=job_id,
         actor_id=agent_id,
     )
-    
-    return [TextContent(
-        type="text",
-        text=f"Job cancelled.\n{_format_job(job)}"
-    )]
+
+    return [TextContent(type="text", text=f"Job cancelled.\n{_format_job(job)}")]
 
 
 async def handle_job_dispute(arguments: Dict[str, Any]) -> List[TextContent]:
     """Handle job_dispute tool call."""
     agent_id = get_commerce_agent_id()
     service = _get_job_service()
-    
+
     job_id = validate_job_id(arguments.get("job_id"))
     reason = sanitize_string(arguments.get("reason"), "reason", max_length=1000)
-    
+
     job = service.dispute_job(
         job_id=job_id,
         actor_id=agent_id,
         reason=reason,
     )
-    
-    return [TextContent(
-        type="text",
-        text=f"Dispute raised. An arbitrator will review the case.\n{_format_job(job)}"
-    )]
+
+    return [
+        TextContent(
+            type="text",
+            text=f"Dispute raised. An arbitrator will review the case.\n{_format_job(job)}",
+        )
+    ]
 
 
 async def handle_job_search(arguments: Dict[str, Any]) -> List[TextContent]:
     """Handle job_search tool call."""
     service = _get_job_service()
-    
+
     query = arguments.get("query")
     if query:
         query = sanitize_string(query, "query", max_length=500, required=False)
-    
+
     skills = sanitize_array(arguments.get("skills"), "skills", item_max_length=50, max_items=10)
     min_budget = arguments.get("min_budget")
     if min_budget is not None:
@@ -827,22 +835,22 @@ async def handle_job_search(arguments: Dict[str, Any]) -> List[TextContent]:
     max_budget = arguments.get("max_budget")
     if max_budget is not None:
         max_budget = validate_number(max_budget, "max_budget", min_val=0)
-    
+
     jobs = service.search_jobs(
         query=query if query else None,
         skills=skills if skills else None,
         min_budget=min_budget,
         max_budget=max_budget,
     )
-    
+
     if not jobs:
         return [TextContent(type="text", text="No jobs found matching your criteria.")]
-    
+
     lines = [f"Found {len(jobs)} available job(s):\n"]
     for job in jobs:
         lines.append(_format_job(job, detail=True))
         lines.append("")
-    
+
     return [TextContent(type="text", text="\n".join(lines))]
 
 
@@ -850,77 +858,78 @@ async def handle_job_apply(arguments: Dict[str, Any]) -> List[TextContent]:
     """Handle job_apply tool call."""
     agent_id = get_commerce_agent_id()
     service = _get_job_service()
-    
+
     job_id = validate_job_id(arguments.get("job_id"))
     message = sanitize_string(arguments.get("message"), "message", max_length=2000)
-    
+
     application = service.apply_to_job(
         job_id=job_id,
         applicant_id=agent_id,
         message=message,
     )
-    
-    return [TextContent(
-        type="text",
-        text=f"Application submitted!\n{_format_application(application)}"
-    )]
+
+    return [
+        TextContent(type="text", text=f"Application submitted!\n{_format_application(application)}")
+    ]
 
 
 async def handle_job_deliver(arguments: Dict[str, Any]) -> List[TextContent]:
     """Handle job_deliver tool call."""
     agent_id = get_commerce_agent_id()
     service = _get_job_service()
-    
+
     job_id = validate_job_id(arguments.get("job_id"))
     url = sanitize_string(arguments.get("url"), "url", max_length=2000)
     hash_val = arguments.get("hash")
     if hash_val:
         hash_val = sanitize_string(hash_val, "hash", max_length=100, required=False)
-    
+
     job = service.deliver_job(
         job_id=job_id,
         actor_id=agent_id,
         deliverable_url=url,
         deliverable_hash=hash_val if hash_val else None,
     )
-    
-    return [TextContent(
-        type="text",
-        text=f"Deliverable submitted! Awaiting client approval.\n{_format_job(job, detail=True)}"
-    )]
+
+    return [
+        TextContent(
+            type="text",
+            text=f"Deliverable submitted! Awaiting client approval.\n{_format_job(job, detail=True)}",
+        )
+    ]
 
 
 async def handle_skills_list(arguments: Dict[str, Any]) -> List[TextContent]:
     """Handle skills_list tool call."""
     registry = _get_skill_registry()
-    
+
     skills = registry.list_skills()
-    
+
     if not skills:
         return [TextContent(type="text", text="No skills registered.")]
-    
+
     lines = ["Available skills:\n"]
     for skill in skills:
         lines.append(f"  • {_format_skill(skill)}")
-    
+
     return [TextContent(type="text", text="\n".join(lines))]
 
 
 async def handle_skills_search(arguments: Dict[str, Any]) -> List[TextContent]:
     """Handle skills_search tool call."""
     registry = _get_skill_registry()
-    
+
     query = sanitize_string(arguments.get("query"), "query", max_length=100)
-    
+
     skills = registry.search_skills(query)
-    
+
     if not skills:
         return [TextContent(type="text", text=f"No skills found matching '{query}'.")]
-    
+
     lines = [f"Skills matching '{query}':\n"]
     for skill in skills:
         lines.append(f"  • {_format_skill(skill)}")
-    
+
     return [TextContent(type="text", text="\n".join(lines))]
 
 
@@ -959,31 +968,31 @@ def handle_commerce_tool_error(
     if isinstance(e, ValueError):
         logger.warning(f"Invalid input for tool {tool_name}: {e}")
         return [TextContent(type="text", text=f"Invalid input: {str(e)}")]
-    
+
     if isinstance(e, (WalletNotFoundError, JobNotFoundError, ApplicationNotFoundError)):
         logger.warning(f"Resource not found for tool {tool_name}: {e}")
         return [TextContent(type="text", text=str(e))]
-    
+
     if isinstance(e, UnauthorizedError):
         logger.warning(f"Unauthorized for tool {tool_name}: {e}")
         return [TextContent(type="text", text=f"Not authorized: {str(e)}")]
-    
+
     if isinstance(e, InvalidTransitionError):
         logger.warning(f"Invalid transition for tool {tool_name}: {e}")
         return [TextContent(type="text", text=f"Invalid operation: {str(e)}")]
-    
+
     if isinstance(e, DuplicateApplicationError):
         logger.warning(f"Duplicate application for tool {tool_name}: {e}")
         return [TextContent(type="text", text="You have already applied to this job.")]
-    
+
     if isinstance(e, JobExpiredError):
         logger.warning(f"Job expired for tool {tool_name}: {e}")
         return [TextContent(type="text", text="This job has expired.")]
-    
+
     if isinstance(e, (WalletServiceError, JobServiceError)):
         logger.warning(f"Service error for tool {tool_name}: {e}")
         return [TextContent(type="text", text=str(e))]
-    
+
     # Unknown error - log full details but return generic message
     logger.error(
         f"Internal error in tool {tool_name}",
@@ -999,18 +1008,18 @@ def handle_commerce_tool_error(
 
 async def call_commerce_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
     """Route and execute a commerce tool call.
-    
+
     Args:
         name: Tool name
         arguments: Tool arguments
-        
+
     Returns:
         List of TextContent results
     """
     handler = TOOL_HANDLERS.get(name)
     if not handler:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
-    
+
     try:
         return await handler(arguments)
     except Exception as e:

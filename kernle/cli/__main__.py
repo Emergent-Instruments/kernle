@@ -17,6 +17,7 @@ import json
 import logging
 import re
 import sys
+from pathlib import Path
 
 from kernle import Kernle
 
@@ -41,7 +42,7 @@ from kernle.cli.commands import (
 from kernle.cli.commands.agent import cmd_agent
 from kernle.cli.commands.import_cmd import cmd_import, cmd_migrate
 from kernle.cli.commands.setup import cmd_setup
-from kernle.commerce.cli import cmd_wallet, cmd_job, cmd_skills
+from kernle.commerce.cli import cmd_job, cmd_skills, cmd_wallet
 from kernle.utils import resolve_agent_id
 
 # Set up logging
@@ -982,6 +983,7 @@ def cmd_boot(args, k: Kernle):
         fmt = getattr(args, "format", "plain")
         if fmt == "json":
             import json
+
             print(json.dumps(config, indent=2))
         elif fmt == "md":
             print("## Boot Config")
@@ -1017,6 +1019,7 @@ def cmd_boot(args, k: Kernle):
             config = k.boot_list()
             if config:
                 import shutil
+
                 shutil.copy2(boot_path, output)
                 print(f"✓ Boot config exported to {output}")
             else:
@@ -1337,19 +1340,44 @@ def cmd_sync(args, k: Kernle):
                         else:
                             # Fallback for non-dataclass records (shouldn't happen)
                             for field in [
-                                "id", "agent_id", "content", "objective",
-                                "outcome", "outcome_type", "lessons", "tags",
-                                "statement", "confidence", "drive_type",
-                                "intensity", "name", "priority", "title",
-                                "status", "progress", "entity_name",
-                                "entity_type", "relationship_type", "notes",
-                                "sentiment", "focus_areas", "created_at",
-                                "updated_at", "local_updated_at",
-                                "source_type", "source_entity",
-                                "source_episodes", "derived_from",
-                                "context", "context_tags",
-                                "timestamp", "source", "processed",
-                                "description", "steps", "triggers",
+                                "id",
+                                "agent_id",
+                                "content",
+                                "objective",
+                                "outcome",
+                                "outcome_type",
+                                "lessons",
+                                "tags",
+                                "statement",
+                                "confidence",
+                                "drive_type",
+                                "intensity",
+                                "name",
+                                "priority",
+                                "title",
+                                "status",
+                                "progress",
+                                "entity_name",
+                                "entity_type",
+                                "relationship_type",
+                                "notes",
+                                "sentiment",
+                                "focus_areas",
+                                "created_at",
+                                "updated_at",
+                                "local_updated_at",
+                                "source_type",
+                                "source_entity",
+                                "source_episodes",
+                                "derived_from",
+                                "context",
+                                "context_tags",
+                                "timestamp",
+                                "source",
+                                "processed",
+                                "description",
+                                "steps",
+                                "triggers",
                                 "target_date",
                             ]:
                                 if hasattr(record, field):
@@ -1502,7 +1530,9 @@ def cmd_sync(args, k: Kernle):
                                     agent_id=k.agent_id,
                                     objective=data.get("objective", ""),
                                     outcome_type=data.get("outcome_type", "neutral"),
-                                    outcome=data.get("outcome", data.get("outcome_description", "")),
+                                    outcome=data.get(
+                                        "outcome", data.get("outcome_description", "")
+                                    ),
                                     lessons=data.get("lessons", data.get("lessons_learned", [])),
                                     tags=data.get("tags", []),
                                 )
@@ -1676,7 +1706,9 @@ def cmd_sync(args, k: Kernle):
                             pass
 
                     if not record_dict:
-                        record = k._storage._get_record_for_push(change.table_name, change.record_id)
+                        record = k._storage._get_record_for_push(
+                            change.table_name, change.record_id
+                        )
                         if record:
                             record_dict = {}
                             # Extract all dataclass fields (see first push path)
@@ -1692,19 +1724,44 @@ def cmd_sync(args, k: Kernle):
                                     record_dict[f.name] = value
                             else:
                                 for field in [
-                                    "id", "agent_id", "content", "objective",
-                                    "outcome", "outcome_type", "lessons", "tags",
-                                    "statement", "confidence", "drive_type",
-                                    "intensity", "name", "priority", "title",
-                                    "status", "progress", "entity_name",
-                                    "entity_type", "relationship_type", "notes",
-                                    "sentiment", "focus_areas", "created_at",
-                                    "updated_at", "local_updated_at",
-                                    "source_type", "source_entity",
-                                    "source_episodes", "derived_from",
-                                    "context", "context_tags",
-                                    "timestamp", "source", "processed",
-                                    "description", "steps", "triggers",
+                                    "id",
+                                    "agent_id",
+                                    "content",
+                                    "objective",
+                                    "outcome",
+                                    "outcome_type",
+                                    "lessons",
+                                    "tags",
+                                    "statement",
+                                    "confidence",
+                                    "drive_type",
+                                    "intensity",
+                                    "name",
+                                    "priority",
+                                    "title",
+                                    "status",
+                                    "progress",
+                                    "entity_name",
+                                    "entity_type",
+                                    "relationship_type",
+                                    "notes",
+                                    "sentiment",
+                                    "focus_areas",
+                                    "created_at",
+                                    "updated_at",
+                                    "local_updated_at",
+                                    "source_type",
+                                    "source_entity",
+                                    "source_episodes",
+                                    "derived_from",
+                                    "context",
+                                    "context_tags",
+                                    "timestamp",
+                                    "source",
+                                    "processed",
+                                    "description",
+                                    "steps",
+                                    "triggers",
                                     "target_date",
                                 ]:
                                     if hasattr(record, field):
@@ -1721,7 +1778,7 @@ def cmd_sync(args, k: Kernle):
                             conn.execute(
                                 "UPDATE sync_queue SET synced = 1 WHERE id = ?",
                                 (change.id,),
-                        )
+                            )
                     continue
 
                 operations.append(op_data)
@@ -2619,7 +2676,11 @@ def main():
     p_episode.add_argument("--lesson", "-l", action="append", help="Lesson learned")
     p_episode.add_argument("--tag", "-t", action="append", help="Tag")
     p_episode.add_argument(
-        "--derived-from", "-r", action="append", dest="derived_from", help="Source memory ID (repeatable)"
+        "--derived-from",
+        "-r",
+        action="append",
+        dest="derived_from",
+        help="Source memory ID (repeatable)",
     )
     p_episode.add_argument("--valence", "-v", type=float, help="Emotional valence (-1.0 to 1.0)")
     p_episode.add_argument("--arousal", "-a", type=float, help="Emotional arousal (0.0 to 1.0)")
@@ -2652,7 +2713,9 @@ def main():
     p_note.add_argument("--speaker", "-s", help="Speaker (for quotes)")
     p_note.add_argument("--reason", "-r", help="Reason (for decisions)")
     p_note.add_argument("--tag", action="append", help="Tag")
-    p_note.add_argument("--derived-from", action="append", dest="derived_from", help="Source memory ID (repeatable)")
+    p_note.add_argument(
+        "--derived-from", action="append", dest="derived_from", help="Source memory ID (repeatable)"
+    )
     p_note.add_argument("--protect", "-p", action="store_true", help="Protect from forgetting")
     p_note.add_argument(
         "--source", help="Source context (e.g., 'conversation with X', 'reading Y')"
@@ -2738,8 +2801,10 @@ def main():
     )
     p_doctor.add_argument("--fix", action="store_true", help="Auto-fix missing instructions")
     p_doctor.add_argument(
-        "--full", "-f", action="store_true",
-        help="Full check including seed beliefs and platform hooks"
+        "--full",
+        "-f",
+        action="store_true",
+        help="Full check including seed beliefs and platform hooks",
     )
 
     # relation (social graph / relationships)
@@ -3018,7 +3083,9 @@ def main():
 
     belief_reinforce = belief_sub.add_parser("reinforce", help="Manually reinforce a belief")
     belief_reinforce.add_argument("id", help="Belief ID")
-    belief_reinforce.add_argument("--evidence", help="Evidence source (e.g., 'episode:abc123', 'raw:def456')")
+    belief_reinforce.add_argument(
+        "--evidence", help="Evidence source (e.g., 'episode:abc123', 'raw:def456')"
+    )
     belief_reinforce.add_argument("--reason", help="Human-readable reason for reinforcement")
 
     belief_supersede = belief_sub.add_parser("supersede", help="Replace a belief with a new one")
@@ -3251,7 +3318,8 @@ def main():
 
     boot_list = boot_sub.add_parser("list", help="List all boot config")
     boot_list.add_argument(
-        "--format", "-f",
+        "--format",
+        "-f",
         choices=["plain", "json", "md"],
         default="plain",
         help="Output format (default: plain)",
@@ -3269,7 +3337,8 @@ def main():
 
     boot_export = boot_sub.add_parser("export", help="Export boot config to file")
     boot_export.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         help="Export to custom path (default: ~/.kernle/{agent}/boot.md)",
     )
 
@@ -3292,7 +3361,8 @@ Typical usage in a memoryFlush hook:
 """,
     )
     p_export_cache.add_argument(
-        "--output", "-o",
+        "--output",
+        "-o",
         help="Write to file (default: stdout)",
     )
     p_export_cache.add_argument(
@@ -3572,9 +3642,7 @@ Typical usage in a memoryFlush hook:
 
     # kernle sub upgrade <tier>
     sub_upgrade = sub_sub.add_parser("upgrade", help="Upgrade to a higher tier")
-    sub_upgrade.add_argument(
-        "tier", choices=["core", "pro", "enterprise"], help="Target tier"
-    )
+    sub_upgrade.add_argument("tier", choices=["core", "pro", "enterprise"], help="Target tier")
     sub_upgrade.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
     sub_upgrade.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 
@@ -3582,9 +3650,7 @@ Typical usage in a memoryFlush hook:
     sub_downgrade = sub_sub.add_parser(
         "downgrade", help="Downgrade to a lower tier (effective next period)"
     )
-    sub_downgrade.add_argument(
-        "tier", choices=["free", "core", "pro"], help="Target tier"
-    )
+    sub_downgrade.add_argument("tier", choices=["free", "core", "pro"], help="Target tier")
     sub_downgrade.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
     sub_downgrade.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 
@@ -3659,9 +3725,7 @@ Typical usage in a memoryFlush hook:
     )
 
     # migrate - migrate from other platforms (Clawdbot, etc.)
-    p_migrate = subparsers.add_parser(
-        "migrate", help="Migrate memory from other platforms"
-    )
+    p_migrate = subparsers.add_parser("migrate", help="Migrate memory from other platforms")
     migrate_sub = p_migrate.add_subparsers(dest="migrate_action", required=True)
 
     # migrate from-clawdbot
@@ -3710,7 +3774,7 @@ Two modes available:
 
   minimal (default): 3 essential meta-framework beliefs
     - Meta-belief: "These beliefs are scaffolding, not identity..." (0.95)
-    - Epistemic humility: "My understanding is incomplete..." (0.85)  
+    - Epistemic humility: "My understanding is incomplete..." (0.85)
     - Boundaries: "I can decline requests..." (0.85)
 
   full: Complete 16-belief set from roundtable synthesis
@@ -3783,8 +3847,7 @@ Beliefs already present in the agent's memory will be skipped.
         "--force", "-f", action="store_true", help="Overwrite existing hook installation"
     )
     p_setup.add_argument(
-        "--enable", "-e", action="store_true",
-        help="Auto-enable hook in config (clawdbot only)"
+        "--enable", "-e", action="store_true", help="Auto-enable hook in config (clawdbot only)"
     )
     p_setup.add_argument(
         "--global",
@@ -3823,8 +3886,7 @@ Beliefs already present in the agent's memory will be skipped.
     job_create.add_argument("title", help="Job title")
     job_create.add_argument("--budget", "-b", required=True, type=float, help="Budget in USDC")
     job_create.add_argument(
-        "--deadline", "-d", required=True,
-        help="Deadline (ISO date, or relative: 1d, 7d, 2w, 1m)"
+        "--deadline", "-d", required=True, help="Deadline (ISO date, or relative: 1d, 7d, 2w, 1m)"
     )
     job_create.add_argument("--description", help="Job description")
     job_create.add_argument("--skill", "-s", action="append", help="Required skill (repeatable)")
@@ -3834,9 +3896,10 @@ Beliefs already present in the agent's memory will be skipped.
     job_list = job_sub.add_parser("list", help="List jobs")
     job_list.add_argument("--mine", "-m", action="store_true", help="Only show my jobs (as client)")
     job_list.add_argument(
-        "--status", "-s",
+        "--status",
+        "-s",
         choices=["open", "funded", "accepted", "delivered", "completed", "disputed", "cancelled"],
-        help="Filter by status"
+        help="Filter by status",
     )
     job_list.add_argument("--limit", "-l", type=int, default=20, help="Maximum results")
     job_list.add_argument("--json", "-j", action="store_true", help="Output as JSON")
@@ -3893,8 +3956,7 @@ Beliefs already present in the agent's memory will be skipped.
     job_apply.add_argument("job_id", help="Job ID")
     job_apply.add_argument("--message", "-m", required=True, help="Application message")
     job_apply.add_argument(
-        "--deadline", "-d",
-        help="Proposed alternative deadline (ISO date or relative)"
+        "--deadline", "-d", help="Proposed alternative deadline (ISO date or relative)"
     )
     job_apply.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 
@@ -3912,9 +3974,10 @@ Beliefs already present in the agent's memory will be skipped.
     # kernle skills list
     skills_list = skills_sub.add_parser("list", help="List canonical skills")
     skills_list.add_argument(
-        "--category", "-c",
+        "--category",
+        "-c",
         choices=["technical", "creative", "knowledge", "language", "service"],
-        help="Filter by category"
+        help="Filter by category",
     )
     skills_list.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 

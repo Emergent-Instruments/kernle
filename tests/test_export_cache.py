@@ -1,4 +1,5 @@
 """Tests for export_cache functionality."""
+
 import os
 import tempfile
 from pathlib import Path
@@ -48,7 +49,9 @@ class TestExportCache:
 
         content = k.export_cache(max_beliefs=3)
         # Count belief lines specifically (format: "- [NN%] ...")
-        belief_lines = [l for l in content.split("\n") if l.startswith("- [") and "%]" in l]
+        belief_lines = [
+            line for line in content.split("\n") if line.startswith("- [") and "%]" in line
+        ]
         assert len(belief_lines) == 3
 
     def test_values_included(self, k):
@@ -141,8 +144,6 @@ class TestExportCache:
 
         # Remove timestamp lines for comparison
         def strip_timestamp(s):
-            return "\n".join(
-                l for l in s.split("\n") if "AUTO-GENERATED" not in l
-            )
+            return "\n".join(line for line in s.split("\n") if "AUTO-GENERATED" not in line)
 
         assert strip_timestamp(content1) == strip_timestamp(content2)

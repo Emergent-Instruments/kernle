@@ -15,7 +15,6 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
-
 # Chain configurations
 CHAIN_BASE = "base"
 CHAIN_BASE_SEPOLIA = "base-sepolia"
@@ -43,32 +42,32 @@ DEFAULT_APPROVAL_TIMEOUT_DAYS = 7
 @dataclass
 class CommerceConfig:
     """Commerce subsystem configuration."""
-    
+
     # CDP (Coinbase Developer Platform) settings
     cdp_api_key: Optional[str] = None
     cdp_api_secret: Optional[str] = None
-    
+
     # Blockchain settings
     chain: str = CHAIN_BASE_SEPOLIA  # Default to testnet
     rpc_url: Optional[str] = None
-    
+
     # Contract addresses
     usdc_address: Optional[str] = None
     escrow_factory_address: Optional[str] = None
     arbitrator_address: Optional[str] = None
-    
+
     # Wallet defaults
     spending_limit_per_tx: float = DEFAULT_SPENDING_LIMIT_PER_TX
     spending_limit_daily: float = DEFAULT_SPENDING_LIMIT_DAILY
-    
+
     # Job defaults
     approval_timeout_days: int = DEFAULT_APPROVAL_TIMEOUT_DAYS
-    
+
     @classmethod
     def from_env(cls) -> "CommerceConfig":
         """Load configuration from environment variables."""
         chain = os.getenv("KERNLE_COMMERCE_CHAIN", CHAIN_BASE_SEPOLIA)
-        
+
         return cls(
             cdp_api_key=os.getenv("CDP_API_KEY"),
             cdp_api_secret=os.getenv("CDP_API_SECRET"),
@@ -90,12 +89,12 @@ class CommerceConfig:
                 os.getenv("KERNLE_APPROVAL_TIMEOUT_DAYS", DEFAULT_APPROVAL_TIMEOUT_DAYS)
             ),
         )
-    
+
     @property
     def is_mainnet(self) -> bool:
         """Check if configured for mainnet."""
         return self.chain == CHAIN_BASE
-    
+
     @property
     def has_cdp_credentials(self) -> bool:
         """Check if CDP credentials are configured."""

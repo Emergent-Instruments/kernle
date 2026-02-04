@@ -34,13 +34,13 @@ Usage:
         set_commerce_agent_id,
         COMMERCE_TOOLS,
     )
-    
+
     # Set the agent ID for the session
     set_commerce_agent_id("my-agent-id")
-    
+
     # Get tool definitions for MCP registration
     tools = get_commerce_tools()
-    
+
     # Call a tool
     result = await call_commerce_tool("wallet_balance", {})
 """
@@ -48,18 +48,18 @@ Usage:
 from kernle.commerce.mcp.tools import (
     # Tool definitions
     COMMERCE_TOOLS,
-    get_commerce_tools,
+    TOOL_HANDLERS,
     # Tool execution
     call_commerce_tool,
-    TOOL_HANDLERS,
-    # Session configuration
-    set_commerce_agent_id,
-    get_commerce_agent_id,
     # Service configuration (for testing/DI)
     configure_commerce_services,
-    reset_commerce_services,
+    get_commerce_agent_id,
+    get_commerce_tools,
     # Error handling
     handle_commerce_tool_error,
+    reset_commerce_services,
+    # Session configuration
+    set_commerce_agent_id,
 )
 
 __all__ = [

@@ -1056,8 +1056,10 @@ def _migrate_from_clawdbot(args: "argparse.Namespace", k: "Kernle") -> None:
     # Suggest stub files
     print("\n--- Post-migration suggestions ---")
     print("1. Consider replacing flat files with stubs:")
-    print(f"   echo '# Memory managed by Kernle. Run: kernle -a {k.agent_id} load' > {workspace}/MEMORY.md")
-    print(f"\n2. Keep SOUL.md and AGENTS.md as-is (they're boot instructions)")
+    print(
+        f"   echo '# Memory managed by Kernle. Run: kernle -a {k.agent_id} load' > {workspace}/MEMORY.md"
+    )
+    print("\n2. Keep SOUL.md and AGENTS.md as-is (they're boot instructions)")
     print(f"\n3. Archive daily notes: mv {workspace}/memory {workspace}/memory-archived")
 
 
@@ -1248,22 +1250,26 @@ def _migrate_seed_beliefs(args: "argparse.Namespace", k: "Kernle") -> None:
             print("# Minimal Seed Beliefs (for existing agents)")
             print("=" * 60)
             print("\nEssential meta-framework without overwriting developed beliefs:\n")
-            
+
             for belief in beliefs_to_add:
-                conf_bar = "█" * int(belief["confidence"] * 10) + "░" * (10 - int(belief["confidence"] * 10))
+                conf_bar = "█" * int(belief["confidence"] * 10) + "░" * (
+                    10 - int(belief["confidence"] * 10)
+                )
                 tier_label = "[Meta]" if belief["tier"] == 0 else f"[Tier {belief['tier']}]"
                 print(f"{tier_label} [{conf_bar}] {belief['confidence']:.0%}")
                 print(f"  \"{belief['statement']}\"")
                 print()
 
             print(f"Total: {len(beliefs_to_add)} beliefs")
-            print(f"\nTo add: kernle migrate seed-beliefs")
-            print(f"For full set: kernle migrate seed-beliefs full --list")
+            print("\nTo add: kernle migrate seed-beliefs")
+            print("For full set: kernle migrate seed-beliefs full --list")
         else:
             print("# Full Seed Beliefs (for fresh agents)")
             print("=" * 60)
             print(f"\n{'From roundtable synthesis with 11 AI models (2026-01-31)'}")
-            print(f"{'Claude Opus, GPT-4, Gemini, DeepSeek, Qwen, Llama, Mistral, Grok, Command R+, Sonnet'}\n")
+            print(
+                f"{'Claude Opus, GPT-4, Gemini, DeepSeek, Qwen, Llama, Mistral, Grok, Command R+, Sonnet'}\n"
+            )
 
             current_tier = None
             tier_names = {
@@ -1274,22 +1280,26 @@ def _migrate_seed_beliefs(args: "argparse.Namespace", k: "Kernle") -> None:
             }
 
             # Sort by tier for display (0 last)
-            for belief in sorted(beliefs_to_add, key=lambda b: (b["tier"] if b["tier"] > 0 else 99)):
+            for belief in sorted(
+                beliefs_to_add, key=lambda b: (b["tier"] if b["tier"] > 0 else 99)
+            ):
                 tier = belief["tier"]
                 if tier != current_tier:
                     current_tier = tier
                     print(f"\n## {tier_names.get(tier, f'Tier {tier}')}")
                     print("-" * 50)
 
-                conf_bar = "█" * int(belief["confidence"] * 10) + "░" * (10 - int(belief["confidence"] * 10))
+                conf_bar = "█" * int(belief["confidence"] * 10) + "░" * (
+                    10 - int(belief["confidence"] * 10)
+                )
                 print(f"\n[{conf_bar}] {belief['confidence']:.0%}")
                 print(f"  \"{belief['statement']}\"")
                 if belief.get("tags"):
                     print(f"  Tags: {', '.join(belief['tags'])}")
 
             print(f"\n\nTotal: {len(beliefs_to_add)} beliefs")
-            print(f"\nTo add full set: kernle migrate seed-beliefs full")
-            print(f"For minimal set: kernle migrate seed-beliefs --list")
+            print("\nTo add full set: kernle migrate seed-beliefs full")
+            print("For minimal set: kernle migrate seed-beliefs --list")
         return
 
     # Get existing beliefs to check for duplicates
@@ -1324,7 +1334,7 @@ def _migrate_seed_beliefs(args: "argparse.Namespace", k: "Kernle") -> None:
         print("\n=== DRY RUN (no changes made) ===\n")
         print("Would add the following beliefs:\n")
         for belief in to_add:
-            tier_label = f"[Tier {belief['tier']}]" if belief['tier'] > 0 else "[Meta]"
+            tier_label = f"[Tier {belief['tier']}]" if belief["tier"] > 0 else "[Meta]"
             print(f"  {tier_label} {belief['confidence']:.0%}: {belief['statement'][:60]}...")
         print(f"\nTo apply: kernle migrate seed-beliefs {level}")
         return
@@ -1347,7 +1357,7 @@ def _migrate_seed_beliefs(args: "argparse.Namespace", k: "Kernle") -> None:
                 derived_from=[f"context:kernle_seed_v{SEED_BELIEFS_VERSION}"],
             )
             added += 1
-            tier_label = f"[Tier {belief['tier']}]" if belief['tier'] > 0 else "[Meta]"
+            tier_label = f"[Tier {belief['tier']}]" if belief["tier"] > 0 else "[Meta]"
             print(f"  ✓ {tier_label} {belief['statement'][:50]}...")
         except Exception as e:
             errors.append(f"{belief['statement'][:30]}...: {e}")
@@ -1370,7 +1380,7 @@ def _migrate_seed_beliefs(args: "argparse.Namespace", k: "Kernle") -> None:
     if level == "minimal":
         print(f"3. For full foundation: kernle -a {k.agent_id} migrate seed-beliefs full")
     else:
-        print(f"3. The meta-belief encourages questioning — that's by design!")
+        print("3. The meta-belief encourages questioning — that's by design!")
 
 
 def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> None:
@@ -1406,7 +1416,9 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
             if source_type != "seed":
                 new_source_type = "seed"
                 needs_update = True
-            if not derived_from or not any(d.startswith("context:kernle_seed") for d in derived_from):
+            if not derived_from or not any(
+                d.startswith("context:kernle_seed") for d in derived_from
+            ):
                 new_derived_from = list(new_derived_from) + [
                     f"context:kernle_seed_v{SEED_BELIEFS_VERSION}"
                 ]
@@ -1417,53 +1429,65 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
             needs_update = True
 
         if needs_update:
-            updates.append({
-                "type": "belief",
-                "id": belief.id,
-                "summary": belief.statement[:60],
-                "old_source_type": source_type,
-                "new_source_type": new_source_type,
-                "old_derived_from": derived_from,
-                "new_derived_from": new_derived_from,
-            })
+            updates.append(
+                {
+                    "type": "belief",
+                    "id": belief.id,
+                    "summary": belief.statement[:60],
+                    "old_source_type": source_type,
+                    "new_source_type": new_source_type,
+                    "old_derived_from": derived_from,
+                    "new_derived_from": new_derived_from,
+                }
+            )
 
     # Scan episodes
     episodes = k._storage.get_episodes(limit=1000)
     for ep in episodes:
         source_type = getattr(ep, "source_type", None)
         if not source_type or source_type in ("unknown", ""):
-            updates.append({
-                "type": "episode",
-                "id": ep.id,
-                "summary": (ep.objective or "")[:60],
-                "old_source_type": source_type,
-                "new_source_type": "direct_experience",
-                "old_derived_from": None,
-                "new_derived_from": None,
-            })
+            updates.append(
+                {
+                    "type": "episode",
+                    "id": ep.id,
+                    "summary": (ep.objective or "")[:60],
+                    "old_source_type": source_type,
+                    "new_source_type": "direct_experience",
+                    "old_derived_from": None,
+                    "new_derived_from": None,
+                }
+            )
 
     # Scan notes
     notes = k._storage.get_notes(limit=1000)
     for note in notes:
         source_type = getattr(note, "source_type", None)
         if not source_type or source_type in ("unknown", ""):
-            updates.append({
-                "type": "note",
-                "id": note.id,
-                "summary": (note.content or "")[:60],
-                "old_source_type": source_type,
-                "new_source_type": "direct_experience",
-                "old_derived_from": None,
-                "new_derived_from": None,
-            })
+            updates.append(
+                {
+                    "type": "note",
+                    "id": note.id,
+                    "summary": (note.content or "")[:60],
+                    "old_source_type": source_type,
+                    "new_source_type": "direct_experience",
+                    "old_derived_from": None,
+                    "new_derived_from": None,
+                }
+            )
 
     # Output results
     if json_output:
-        print(_json.dumps({
-            "dry_run": dry_run,
-            "total_updates": len(updates),
-            "updates": updates,
-        }, indent=2, default=str))
+        print(
+            _json.dumps(
+                {
+                    "dry_run": dry_run,
+                    "total_updates": len(updates),
+                    "updates": updates,
+                },
+                indent=2,
+                default=str,
+            )
+        )
         if dry_run:
             return
     else:

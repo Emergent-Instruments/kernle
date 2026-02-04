@@ -55,7 +55,6 @@ KERNLE_ESCROW_ABI: ABI = [
             {"name": "deadline", "type": "uint256"},
         ],
     },
-    
     # === State Variables (view functions) ===
     {
         "type": "function",
@@ -127,9 +126,7 @@ KERNLE_ESCROW_ABI: ABI = [
         "outputs": [{"name": "", "type": "uint256"}],
         "stateMutability": "view",
     },
-    
     # === State Machine Functions ===
-    
     # Fund the escrow (client deposits USDC)
     {
         "type": "function",
@@ -138,7 +135,6 @@ KERNLE_ESCROW_ABI: ABI = [
         "outputs": [],
         "stateMutability": "nonpayable",
     },
-    
     # Assign worker after accepting application
     {
         "type": "function",
@@ -147,7 +143,6 @@ KERNLE_ESCROW_ABI: ABI = [
         "outputs": [],
         "stateMutability": "nonpayable",
     },
-    
     # Worker submits deliverable
     {
         "type": "function",
@@ -156,7 +151,6 @@ KERNLE_ESCROW_ABI: ABI = [
         "outputs": [],
         "stateMutability": "nonpayable",
     },
-    
     # Client releases payment to worker
     {
         "type": "function",
@@ -165,7 +159,6 @@ KERNLE_ESCROW_ABI: ABI = [
         "outputs": [],
         "stateMutability": "nonpayable",
     },
-    
     # Auto-release after timeout (anyone can call)
     {
         "type": "function",
@@ -174,7 +167,6 @@ KERNLE_ESCROW_ABI: ABI = [
         "outputs": [],
         "stateMutability": "nonpayable",
     },
-    
     # Client cancels and gets refund (only before worker assigned)
     {
         "type": "function",
@@ -183,7 +175,6 @@ KERNLE_ESCROW_ABI: ABI = [
         "outputs": [],
         "stateMutability": "nonpayable",
     },
-    
     # Raise dispute (client or worker)
     {
         "type": "function",
@@ -192,7 +183,6 @@ KERNLE_ESCROW_ABI: ABI = [
         "outputs": [],
         "stateMutability": "nonpayable",
     },
-    
     # Arbitrator resolves dispute
     {
         "type": "function",
@@ -201,9 +191,7 @@ KERNLE_ESCROW_ABI: ABI = [
         "outputs": [],
         "stateMutability": "nonpayable",
     },
-    
     # === Events ===
-    
     {
         "type": "event",
         "name": "Funded",
@@ -258,9 +246,7 @@ KERNLE_ESCROW_ABI: ABI = [
             {"name": "amount", "type": "uint256", "indexed": False},
         ],
     },
-    
     # === Errors ===
-    
     {
         "type": "error",
         "name": "Unauthorized",
@@ -299,7 +285,6 @@ KERNLE_ESCROW_FACTORY_ABI: ABI = [
             {"name": "defaultApprovalTimeout", "type": "uint256"},
         ],
     },
-    
     # === State Variables ===
     {
         "type": "function",
@@ -329,7 +314,6 @@ KERNLE_ESCROW_FACTORY_ABI: ABI = [
         "outputs": [{"name": "", "type": "uint256"}],
         "stateMutability": "view",
     },
-    
     # === Create Escrow ===
     {
         "type": "function",
@@ -342,7 +326,6 @@ KERNLE_ESCROW_FACTORY_ABI: ABI = [
         "outputs": [{"name": "escrow", "type": "address"}],
         "stateMutability": "nonpayable",
     },
-    
     # === Getters ===
     {
         "type": "function",
@@ -358,7 +341,6 @@ KERNLE_ESCROW_FACTORY_ABI: ABI = [
         "outputs": [{"name": "", "type": "address"}],
         "stateMutability": "view",
     },
-    
     # === Admin Functions ===
     {
         "type": "function",
@@ -374,7 +356,6 @@ KERNLE_ESCROW_FACTORY_ABI: ABI = [
         "outputs": [],
         "stateMutability": "nonpayable",
     },
-    
     # === Events ===
     {
         "type": "event",
@@ -480,7 +461,6 @@ ERC20_ABI: ABI = [
         "outputs": [{"name": "", "type": "bool"}],
         "stateMutability": "nonpayable",
     },
-    
     # === ERC20 Events ===
     {
         "type": "event",
@@ -508,16 +488,17 @@ ERC20_ABI: ABI = [
 # =============================================================================
 # Maps to the Solidity enum in KernleEscrow.sol
 
+
 class EscrowStatus:
     """Escrow contract status values (maps to Solidity enum)."""
-    
-    CREATED = 0      # Contract created but not funded
-    FUNDED = 1       # Client deposited USDC
-    ACCEPTED = 2     # Worker assigned
-    DELIVERED = 3    # Worker submitted deliverable
-    RELEASED = 4     # Payment released to worker
-    REFUNDED = 5     # Payment refunded to client
-    DISPUTED = 6     # Dispute raised
+
+    CREATED = 0  # Contract created but not funded
+    FUNDED = 1  # Client deposited USDC
+    ACCEPTED = 2  # Worker assigned
+    DELIVERED = 3  # Worker submitted deliverable
+    RELEASED = 4  # Payment released to worker
+    REFUNDED = 5  # Payment refunded to client
+    DISPUTED = 6  # Dispute raised
 
     _NAMES = {
         0: "created",
@@ -528,7 +509,7 @@ class EscrowStatus:
         5: "refunded",
         6: "disputed",
     }
-    
+
     @classmethod
     def name(cls, value: int) -> str:
         """Get human-readable name for status value."""
@@ -539,16 +520,17 @@ class EscrowStatus:
 # Helper Functions
 # =============================================================================
 
+
 def get_event_signature(event_name: str, abi: ABI) -> str:
     """Get the keccak256 event signature for an event name.
-    
+
     Args:
         event_name: Name of the event
         abi: Contract ABI
-        
+
     Returns:
         Event signature string (e.g., "Funded(address,uint256)")
-        
+
     TODO: Add keccak256 hashing when web3 is available
     """
     for entry in abi:
@@ -561,14 +543,14 @@ def get_event_signature(event_name: str, abi: ABI) -> str:
 
 def get_function_selector(function_name: str, abi: ABI) -> str:
     """Get the 4-byte function selector for a function name.
-    
+
     Args:
         function_name: Name of the function
         abi: Contract ABI
-        
+
     Returns:
         Function selector string (e.g., "fund()")
-        
+
     TODO: Add keccak256 hashing when web3 is available
     """
     for entry in abi:
