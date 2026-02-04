@@ -403,7 +403,9 @@ class EmotionsMixin:
             confidence=0.8,
             source_type=source_type,
             source_episodes=derived_from,  # Link to source memories
-            derived_from=[f"context:{source}"] if source else (derived_from if derived_from else None),
+            derived_from=(
+                [f"context:{source}"] if source else (derived_from if derived_from else None)
+            ),
             # Context/scope fields
             context=context,
             context_tags=context_tags,

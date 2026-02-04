@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import argparse
+
     from kernle import Kernle
 
 
@@ -21,13 +22,13 @@ logger = logging.getLogger(__name__)
 
 def _get_wallet_service():
     """Get a wallet service instance.
-    
+
     For now, returns an InMemory storage-backed service.
     In production, this will use Supabase storage.
     """
     from kernle.commerce.wallet.service import WalletService
     from kernle.commerce.wallet.storage import InMemoryWalletStorage
-    
+
     storage = InMemoryWalletStorage()
     return WalletService(storage)
 
@@ -35,7 +36,7 @@ def _get_wallet_service():
 def cmd_wallet(args: "argparse.Namespace", k: "Kernle") -> None:
     """Handle wallet subcommands."""
     action = args.wallet_action
-    
+
     if action == "balance":
         _wallet_balance(args, k)
     elif action == "address":
@@ -51,11 +52,11 @@ def _wallet_balance(args: "argparse.Namespace", k: "Kernle") -> None:
     """Show USDC balance for the agent's wallet."""
     agent_id = k.agent_id
     output_json = getattr(args, "json", False)
-    
+
     try:
         service = _get_wallet_service()
         balance = service.get_balance_for_agent(agent_id)
-        
+
         if output_json:
             result = {
                 "agent_id": agent_id,
@@ -73,7 +74,7 @@ def _wallet_balance(args: "argparse.Namespace", k: "Kernle") -> None:
             print(f"  ETH:     {balance.eth_balance:.6f}")
             print(f"  Chain:   {balance.chain}")
             print(f"  Address: {balance.wallet_address}")
-    
+
     except Exception as e:
         if output_json:
             print(json.dumps({"error": str(e)}, indent=2))
@@ -91,11 +92,11 @@ def _wallet_address(args: "argparse.Namespace", k: "Kernle") -> None:
     """Show wallet address for the agent."""
     agent_id = k.agent_id
     output_json = getattr(args, "json", False)
-    
+
     try:
         service = _get_wallet_service()
         wallet = service.get_wallet_for_agent(agent_id)
-        
+
         if output_json:
             result = {
                 "agent_id": agent_id,
@@ -105,7 +106,7 @@ def _wallet_address(args: "argparse.Namespace", k: "Kernle") -> None:
             print(json.dumps(result, indent=2))
         else:
             print(wallet.wallet_address)
-    
+
     except Exception as e:
         if output_json:
             print(json.dumps({"error": str(e)}, indent=2))
@@ -120,11 +121,11 @@ def _wallet_status(args: "argparse.Namespace", k: "Kernle") -> None:
     """Show full wallet status including limits."""
     agent_id = k.agent_id
     output_json = getattr(args, "json", False)
-    
+
     try:
         service = _get_wallet_service()
         wallet = service.get_wallet_for_agent(agent_id)
-        
+
         if output_json:
             result = wallet.to_dict()
             result["is_active"] = wallet.is_active
@@ -138,7 +139,7 @@ def _wallet_status(args: "argparse.Namespace", k: "Kernle") -> None:
                 "paused": "🟠",
                 "frozen": "🔴",
             }.get(wallet.status, "⚪")
-            
+
             print(f"💳 Wallet Status for {agent_id}")
             print("=" * 50)
             print(f"  Address:         {wallet.wallet_address}")
@@ -149,18 +150,18 @@ def _wallet_status(args: "argparse.Namespace", k: "Kernle") -> None:
             print("Spending Limits:")
             print(f"  Per Transaction: ${wallet.spending_limit_per_tx:.2f} USDC")
             print(f"  Daily:           ${wallet.spending_limit_daily:.2f} USDC")
-            
+
             if wallet.owner_eoa:
                 print("")
                 print(f"Owner (EOA):       {wallet.owner_eoa}")
-            
+
             if wallet.created_at:
                 print("")
                 print(f"Created:           {wallet.created_at.strftime('%Y-%m-%d %H:%M UTC')}")
-            
+
             if wallet.claimed_at:
                 print(f"Claimed:           {wallet.claimed_at.strftime('%Y-%m-%d %H:%M UTC')}")
-    
+
     except Exception as e:
         if output_json:
             print(json.dumps({"error": str(e)}, indent=2))

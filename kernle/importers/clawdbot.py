@@ -11,7 +11,6 @@ Migrates memory from Clawdbot workspace structure:
 
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
@@ -143,7 +142,11 @@ class ClawdbotImporter:
         episodes = self.kernle._storage.get_episodes(limit=500)
         for ep in episodes:
             # Episodes may be dataclass or dict depending on storage
-            objective = getattr(ep, "objective", "") if hasattr(ep, "objective") else ep.get("objective", "")
+            objective = (
+                getattr(ep, "objective", "")
+                if hasattr(ep, "objective")
+                else ep.get("objective", "")
+            )
             self._existing_content.add(self._normalize(objective))
 
     def _normalize(self, text: str) -> str:
@@ -454,13 +457,19 @@ class ClawdbotImporter:
             if key_lower == "name":
                 items.append(
                     ImportItem(
-                        type="note", content=f"My name is {value}", note_type="note", source="MEMORY.md"
+                        type="note",
+                        content=f"My name is {value}",
+                        note_type="note",
+                        source="MEMORY.md",
                     )
                 )
             elif key_lower in ("nature", "creature", "what i am"):
                 items.append(
                     ImportItem(
-                        type="note", content=f"Nature: {value}", note_type="note", source="MEMORY.md"
+                        type="note",
+                        content=f"Nature: {value}",
+                        note_type="note",
+                        source="MEMORY.md",
                     )
                 )
             elif key_lower == "philosophy":
@@ -498,7 +507,14 @@ class ClawdbotImporter:
                 # Pattern-like statements become beliefs
                 if any(
                     p in bullet.lower()
-                    for p in ["works well", "is effective", "are effective", "should", "need", "require"]
+                    for p in [
+                        "works well",
+                        "is effective",
+                        "are effective",
+                        "should",
+                        "need",
+                        "require",
+                    ]
                 ):
                     items.append(
                         ImportItem(

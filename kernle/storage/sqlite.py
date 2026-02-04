@@ -1701,9 +1701,7 @@ class SQLiteStorage:
                     UNIQUE(agent_id, key)
                 )
             """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_boot_agent ON boot_config(agent_id)"
-            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_boot_agent ON boot_config(agent_id)")
             logger.info("Created boot_config table")
             conn.commit()
 
@@ -1791,35 +1789,37 @@ class SQLiteStorage:
                 result[field.name] = value
         return result
 
-    def _build_access_filter(self, requesting_entity: Optional[str] = None) -> tuple[str, List[Any]]:
+    def _build_access_filter(
+        self, requesting_entity: Optional[str] = None
+    ) -> tuple[str, List[Any]]:
         """Build SQL filter for privacy access control.
-        
+
         Args:
             requesting_entity: Entity requesting access. None means self-access (see everything).
-            
+
         Returns:
             Tuple of (where_clause, params) for SQL query.
-            
+
         Logic:
             - If requesting_entity is None → no filter (self-access, see everything)
             - If requesting_entity is set → filter records where:
               - access_grants IS NULL (private to self only), OR
-              - access_grants = '[]' (private to self only), OR 
+              - access_grants = '[]' (private to self only), OR
               - access_grants contains requesting_entity
         """
         if requesting_entity is None:
             # Self-access: see everything
             return ("", [])
-        
+
         # External access: only show records where requesting_entity is in access_grants
         # NULL or empty access_grants = private to self only
         where_clause = """
-            AND (access_grants IS NOT NULL 
-                 AND access_grants != '[]' 
+            AND (access_grants IS NOT NULL
+                 AND access_grants != '[]'
                  AND access_grants LIKE ?)
         """
         params = [f'%"{requesting_entity}"%']
-        
+
         return (where_clause, params)
 
     def _queue_sync(
@@ -2187,7 +2187,11 @@ class SQLiteStorage:
         return ids
 
     def get_episodes(
-        self, limit: int = 100, since: Optional[datetime] = None, tags: Optional[List[str]] = None, requesting_entity: Optional[str] = None
+        self,
+        limit: int = 100,
+        since: Optional[datetime] = None,
+        tags: Optional[List[str]] = None,
+        requesting_entity: Optional[str] = None,
     ) -> List[Episode]:
         """Get episodes."""
         query = "SELECT * FROM episodes WHERE agent_id = ? AND deleted = 0"
@@ -2216,7 +2220,9 @@ class SQLiteStorage:
 
         return episodes
 
-    def get_episode(self, episode_id: str, requesting_entity: Optional[str] = None) -> Optional[Episode]:
+    def get_episode(
+        self, episode_id: str, requesting_entity: Optional[str] = None
+    ) -> Optional[Episode]:
         """Get a specific episode."""
         query = "SELECT * FROM episodes WHERE id = ? AND agent_id = ?"
         params: List[Any] = [episode_id, self.agent_id]
@@ -2641,7 +2647,12 @@ class SQLiteStorage:
         except Exception as e:
             logger.warning(f"Failed to sync beliefs to file: {e}")
 
-    def get_beliefs(self, limit: int = 100, include_inactive: bool = False, requesting_entity: Optional[str] = None) -> List[Belief]:
+    def get_beliefs(
+        self,
+        limit: int = 100,
+        include_inactive: bool = False,
+        requesting_entity: Optional[str] = None,
+    ) -> List[Belief]:
         """Get beliefs.
 
         Args:
@@ -2674,7 +2685,9 @@ class SQLiteStorage:
 
         return self._row_to_belief(row) if row else None
 
-    def get_belief(self, belief_id: str, requesting_entity: Optional[str] = None) -> Optional[Belief]:
+    def get_belief(
+        self, belief_id: str, requesting_entity: Optional[str] = None
+    ) -> Optional[Belief]:
         """Get a specific belief by ID."""
         query = "SELECT * FROM beliefs WHERE id = ? AND agent_id = ?"
         params: List[Any] = [belief_id, self.agent_id]
@@ -2946,7 +2959,12 @@ class SQLiteStorage:
         except Exception as e:
             logger.warning(f"Failed to sync goals to file: {e}")
 
-    def get_goals(self, status: Optional[str] = "active", limit: int = 100, requesting_entity: Optional[str] = None) -> List[Goal]:
+    def get_goals(
+        self,
+        status: Optional[str] = "active",
+        limit: int = 100,
+        requesting_entity: Optional[str] = None,
+    ) -> List[Goal]:
         """Get goals."""
         query = "SELECT * FROM goals WHERE agent_id = ? AND deleted = 0"
         params: List[Any] = [self.agent_id]
@@ -3124,7 +3142,10 @@ class SQLiteStorage:
         return ids
 
     def get_notes(
-        self, limit: int = 100, since: Optional[datetime] = None, note_type: Optional[str] = None,
+        self,
+        limit: int = 100,
+        since: Optional[datetime] = None,
+        note_type: Optional[str] = None,
         requesting_entity: Optional[str] = None,
     ) -> List[Note]:
         """Get notes."""
@@ -3493,7 +3514,9 @@ class SQLiteStorage:
         except Exception as e:
             logger.warning(f"Failed to sync relationships to file: {e}")
 
-    def get_relationships(self, entity_type: Optional[str] = None, requesting_entity: Optional[str] = None) -> List[Relationship]:
+    def get_relationships(
+        self, entity_type: Optional[str] = None, requesting_entity: Optional[str] = None
+    ) -> List[Relationship]:
         """Get relationships."""
         query = "SELECT * FROM relationships WHERE agent_id = ? AND deleted = 0"
         params: List[Any] = [self.agent_id]
@@ -4576,7 +4599,9 @@ class SQLiteStorage:
         # Fall back to local search
         return self._local_search(query, limit, types, requesting_entity=requesting_entity)
 
-    def _local_search(self, query: str, limit: int, types: List[str], requesting_entity: Optional[str] = None) -> List[SearchResult]:
+    def _local_search(
+        self, query: str, limit: int, types: List[str], requesting_entity: Optional[str] = None
+    ) -> List[SearchResult]:
         """Local search using sqlite-vec or text matching.
 
         Args:
@@ -4695,7 +4720,9 @@ class SQLiteStorage:
             return converter(row), record_type
         return None, None
 
-    def _text_search(self, query: str, limit: int, types: List[str], requesting_entity: Optional[str] = None) -> List[SearchResult]:
+    def _text_search(
+        self, query: str, limit: int, types: List[str], requesting_entity: Optional[str] = None
+    ) -> List[SearchResult]:
         """Fallback text-based search using LIKE."""
         results = []
         search_term = f"%{query}%"
@@ -4708,7 +4735,9 @@ class SQLiteStorage:
                        WHERE agent_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
                        AND (objective LIKE ? OR outcome LIKE ? OR lessons LIKE ?){access_filter}
                        LIMIT ?""",
-                    [self.agent_id, search_term, search_term, search_term] + access_params + [limit],
+                    [self.agent_id, search_term, search_term, search_term]
+                    + access_params
+                    + [limit],
                 ).fetchall()
                 for row in rows:
                     results.append(

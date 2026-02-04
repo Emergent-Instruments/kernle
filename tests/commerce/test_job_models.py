@@ -1,15 +1,16 @@
 """Tests for job data models."""
 
+from datetime import datetime, timedelta, timezone
+
 import pytest
-from datetime import datetime, timezone, timedelta
 
 from kernle.commerce.jobs.models import (
+    VALID_JOB_TRANSITIONS,
+    ApplicationStatus,
     Job,
     JobApplication,
-    JobStatus,
-    ApplicationStatus,
     JobStateTransition,
-    VALID_JOB_TRANSITIONS,
+    JobStatus,
 )
 
 
@@ -27,7 +28,7 @@ class TestJob:
             budget_usdc=50.0,
             deadline=deadline,
         )
-        
+
         assert job.id == "job-123"
         assert job.client_id == "agent-456"
         assert job.title == "Research cryptocurrency regulations"
@@ -40,7 +41,7 @@ class TestJob:
         """Test creating a job with all fields."""
         now = datetime.now(timezone.utc)
         deadline = now + timedelta(days=7)
-        
+
         job = Job(
             id="job-123",
             client_id="agent-456",
@@ -59,7 +60,7 @@ class TestJob:
             funded_at=now,
             accepted_at=now,
         )
-        
+
         assert job.worker_id == "agent-789"
         assert job.skills_required == ["research", "writing"]
         assert job.escrow_address == "0x1234567890abcdef1234567890abcdef12345678"
@@ -68,7 +69,7 @@ class TestJob:
     def test_invalid_budget(self):
         """Test that non-positive budgets are rejected."""
         deadline = datetime.now(timezone.utc) + timedelta(days=7)
-        
+
         with pytest.raises(ValueError, match="Budget must be positive"):
             Job(
                 id="job-123",
@@ -78,7 +79,7 @@ class TestJob:
                 budget_usdc=0.0,
                 deadline=deadline,
             )
-        
+
         with pytest.raises(ValueError, match="Budget must be positive"):
             Job(
                 id="job-124",
@@ -92,7 +93,7 @@ class TestJob:
     def test_invalid_status(self):
         """Test that invalid statuses are rejected."""
         deadline = datetime.now(timezone.utc) + timedelta(days=7)
-        
+
         with pytest.raises(ValueError, match="Invalid status"):
             Job(
                 id="job-123",
@@ -108,7 +109,7 @@ class TestJob:
         """Test that titles over 200 chars are rejected."""
         deadline = datetime.now(timezone.utc) + timedelta(days=7)
         long_title = "A" * 201
-        
+
         with pytest.raises(ValueError, match="Title too long"):
             Job(
                 id="job-123",
@@ -122,7 +123,7 @@ class TestJob:
     def test_status_enum_value(self):
         """Test that status can be set via enum."""
         deadline = datetime.now(timezone.utc) + timedelta(days=7)
-        
+
         job = Job(
             id="job-123",
             client_id="agent-456",
@@ -132,13 +133,13 @@ class TestJob:
             deadline=deadline,
             status=JobStatus.FUNDED,
         )
-        
+
         assert job.status == "funded"
 
     def test_can_transition_to(self):
         """Test state transition validation."""
         deadline = datetime.now(timezone.utc) + timedelta(days=7)
-        
+
         # Open job can transition to funded or cancelled
         job = Job(
             id="job-123",
@@ -149,12 +150,12 @@ class TestJob:
             deadline=deadline,
             status="open",
         )
-        
+
         assert job.can_transition_to(JobStatus.FUNDED) is True
         assert job.can_transition_to(JobStatus.CANCELLED) is True
         assert job.can_transition_to(JobStatus.ACCEPTED) is False
         assert job.can_transition_to(JobStatus.COMPLETED) is False
-        
+
         # Funded job can transition to accepted or cancelled
         job.status = "funded"
         assert job.can_transition_to(JobStatus.ACCEPTED) is True
@@ -164,7 +165,7 @@ class TestJob:
     def test_is_open(self):
         """Test is_open property."""
         deadline = datetime.now(timezone.utc) + timedelta(days=7)
-        
+
         job = Job(
             id="job-123",
             client_id="agent-456",
@@ -174,16 +175,16 @@ class TestJob:
             deadline=deadline,
             status="open",
         )
-        
+
         assert job.is_open is True
-        
+
         job.status = "funded"
         assert job.is_open is False
 
     def test_is_active(self):
         """Test is_active property."""
         deadline = datetime.now(timezone.utc) + timedelta(days=7)
-        
+
         # Active jobs
         for status in ["open", "funded", "accepted", "delivered", "disputed"]:
             job = Job(
@@ -196,7 +197,7 @@ class TestJob:
                 status=status,
             )
             assert job.is_active is True, f"Status {status} should be active"
-        
+
         # Terminal jobs
         for status in ["completed", "cancelled"]:
             job = Job(
@@ -213,7 +214,7 @@ class TestJob:
     def test_is_terminal(self):
         """Test is_terminal property."""
         deadline = datetime.now(timezone.utc) + timedelta(days=7)
-        
+
         job = Job(
             id="job-123",
             client_id="agent-456",
@@ -223,9 +224,9 @@ class TestJob:
             deadline=deadline,
             status="completed",
         )
-        
+
         assert job.is_terminal is True
-        
+
         job.status = "open"
         assert job.is_terminal is False
 
@@ -233,7 +234,7 @@ class TestJob:
         """Test serialization to dictionary."""
         now = datetime.now(timezone.utc)
         deadline = now + timedelta(days=7)
-        
+
         job = Job(
             id="job-123",
             client_id="agent-456",
@@ -244,9 +245,9 @@ class TestJob:
             skills_required=["research", "writing"],
             created_at=now,
         )
-        
+
         d = job.to_dict()
-        
+
         assert d["id"] == "job-123"
         assert d["client_id"] == "agent-456"
         assert d["title"] == "Test job"
@@ -267,9 +268,9 @@ class TestJob:
             "skills_required": ["coding", "automation"],
             "status": "funded",
         }
-        
+
         job = Job.from_dict(data)
-        
+
         assert job.id == "job-123"
         assert job.budget_usdc == 75.50
         assert job.skills_required == ["coding", "automation"]
@@ -288,7 +289,7 @@ class TestJobApplication:
             applicant_id="agent-789",
             message="I would like to work on this job because...",
         )
-        
+
         assert app.id == "app-123"
         assert app.job_id == "job-456"
         assert app.applicant_id == "agent-789"
@@ -299,7 +300,7 @@ class TestJobApplication:
         """Test creating an application with all fields."""
         now = datetime.now(timezone.utc)
         proposed = now + timedelta(days=5)
-        
+
         app = JobApplication(
             id="app-123",
             job_id="job-456",
@@ -309,7 +310,7 @@ class TestJobApplication:
             proposed_deadline=proposed,
             created_at=now,
         )
-        
+
         assert app.status == "accepted"
         assert app.proposed_deadline == proposed
         assert app.created_at == now
@@ -323,7 +324,7 @@ class TestJobApplication:
                 applicant_id="agent-789",
                 message="",
             )
-        
+
         with pytest.raises(ValueError, match="message cannot be empty"):
             JobApplication(
                 id="app-124",
@@ -352,7 +353,7 @@ class TestJobApplication:
             message="Test message",
             status=ApplicationStatus.ACCEPTED,
         )
-        
+
         assert app.status == "accepted"
 
     def test_is_pending(self):
@@ -364,9 +365,9 @@ class TestJobApplication:
             message="Test message",
             status="pending",
         )
-        
+
         assert app.is_pending is True
-        
+
         app.status = "accepted"
         assert app.is_pending is False
 
@@ -379,16 +380,16 @@ class TestJobApplication:
             message="Test message",
             status="accepted",
         )
-        
+
         assert app.is_accepted is True
-        
+
         app.status = "rejected"
         assert app.is_accepted is False
 
     def test_to_dict(self):
         """Test serialization."""
         now = datetime.now(timezone.utc)
-        
+
         app = JobApplication(
             id="app-123",
             job_id="job-456",
@@ -396,9 +397,9 @@ class TestJobApplication:
             message="Test message",
             created_at=now,
         )
-        
+
         d = app.to_dict()
-        
+
         assert d["id"] == "app-123"
         assert d["job_id"] == "job-456"
         assert d["applicant_id"] == "agent-789"
@@ -416,9 +417,9 @@ class TestJobApplication:
             "status": "accepted",
             "created_at": "2024-01-15T12:00:00Z",
         }
-        
+
         app = JobApplication.from_dict(data)
-        
+
         assert app.id == "app-123"
         assert app.status == "accepted"
         assert app.created_at is not None
@@ -430,7 +431,7 @@ class TestJobStateTransition:
     def test_create_transition(self):
         """Test creating a state transition."""
         now = datetime.now(timezone.utc)
-        
+
         transition = JobStateTransition(
             id="trans-123",
             job_id="job-456",
@@ -441,7 +442,7 @@ class TestJobStateTransition:
             metadata={"reason": "Escrow funded"},
             created_at=now,
         )
-        
+
         assert transition.id == "trans-123"
         assert transition.job_id == "job-456"
         assert transition.from_status == "open"
@@ -457,14 +458,14 @@ class TestJobStateTransition:
             to_status="open",
             actor_id="agent-789",
         )
-        
+
         assert transition.from_status is None
         assert transition.to_status == "open"
 
     def test_to_dict(self):
         """Test serialization."""
         now = datetime.now(timezone.utc)
-        
+
         transition = JobStateTransition(
             id="trans-123",
             job_id="job-456",
@@ -474,9 +475,9 @@ class TestJobStateTransition:
             metadata={"amount": 100},
             created_at=now,
         )
-        
+
         d = transition.to_dict()
-        
+
         assert d["id"] == "trans-123"
         assert d["job_id"] == "job-456"
         assert d["from_status"] == "open"
@@ -495,9 +496,9 @@ class TestJobStateTransition:
             "metadata": {},
             "created_at": "2024-01-15T12:00:00+00:00",
         }
-        
+
         transition = JobStateTransition.from_dict(data)
-        
+
         assert transition.id == "trans-123"
         assert transition.to_status == "delivered"
         assert transition.created_at is not None
@@ -537,12 +538,17 @@ class TestValidJobTransitions:
     def test_accepted_transitions(self):
         """Test valid transitions from accepted state."""
         assert VALID_JOB_TRANSITIONS[JobStatus.ACCEPTED] == {
-            JobStatus.DELIVERED, JobStatus.DISPUTED, JobStatus.CANCELLED
+            JobStatus.DELIVERED,
+            JobStatus.DISPUTED,
+            JobStatus.CANCELLED,
         }
 
     def test_delivered_transitions(self):
         """Test valid transitions from delivered state."""
-        assert VALID_JOB_TRANSITIONS[JobStatus.DELIVERED] == {JobStatus.COMPLETED, JobStatus.DISPUTED}
+        assert VALID_JOB_TRANSITIONS[JobStatus.DELIVERED] == {
+            JobStatus.COMPLETED,
+            JobStatus.DISPUTED,
+        }
 
     def test_disputed_transitions(self):
         """Test valid transitions from disputed state."""

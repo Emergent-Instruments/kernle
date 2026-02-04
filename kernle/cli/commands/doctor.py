@@ -10,9 +10,9 @@ if TYPE_CHECKING:
 
 # Import seed beliefs version for comparison
 from kernle.cli.commands.import_cmd import (
-    SEED_BELIEFS_VERSION,
     _FULL_SEED_BELIEFS,
     _MINIMAL_SEED_BELIEFS,
+    SEED_BELIEFS_VERSION,
 )
 
 
@@ -204,9 +204,7 @@ def check_seed_beliefs(k: "Kernle") -> Tuple[ComplianceCheck, dict]:
         existing_statements = {b.statement for b in existing}
 
         # Count how many seed beliefs exist
-        full_count = sum(
-            1 for b in _FULL_SEED_BELIEFS if b["statement"] in existing_statements
-        )
+        full_count = sum(1 for b in _FULL_SEED_BELIEFS if b["statement"] in existing_statements)
         minimal_count = sum(
             1 for b in _MINIMAL_SEED_BELIEFS if b["statement"] in existing_statements
         )
@@ -215,9 +213,7 @@ def check_seed_beliefs(k: "Kernle") -> Tuple[ComplianceCheck, dict]:
         missing_minimal = [
             b for b in _MINIMAL_SEED_BELIEFS if b["statement"] not in existing_statements
         ]
-        missing_full = [
-            b for b in _FULL_SEED_BELIEFS if b["statement"] not in existing_statements
-        ]
+        missing_full = [b for b in _FULL_SEED_BELIEFS if b["statement"] not in existing_statements]
 
         details = {
             "total_beliefs": len(existing),
@@ -260,7 +256,7 @@ def check_seed_beliefs(k: "Kernle") -> Tuple[ComplianceCheck, dict]:
                     name="seed_beliefs",
                     passed=True,
                     message=f"⚠ Partial seed beliefs ({full_count}/{len(_FULL_SEED_BELIEFS)}), meta-belief present",
-                    fix=f"Run: kernle migrate seed-beliefs minimal",
+                    fix="Run: kernle migrate seed-beliefs minimal",
                     category="recommended",
                 ),
                 details,
@@ -595,7 +591,9 @@ def cmd_doctor(args, k: "Kernle"):
     print("INSTRUCTION FILE CHECKS")
     print("─" * 50)
     instruction_checks = [
-        c for c in all_checks if c.name in ["instruction_file", *required_names[1:], *recommended_names[:3]]
+        c
+        for c in all_checks
+        if c.name in ["instruction_file", *required_names[1:], *recommended_names[:3]]
     ]
     for check in instruction_checks:
         is_required = check.name in required_names
@@ -646,7 +644,9 @@ def cmd_doctor(args, k: "Kernle"):
 
                     content = file_path.read_text()
                     if not has_kernle_section(content):
-                        section = generate_section(agent_id, style="combined", include_per_message=True)
+                        section = generate_section(
+                            agent_id, style="combined", include_per_message=True
+                        )
                         new_content = content.rstrip() + "\n\n" + section
                         file_path.write_text(new_content)
                         print(f"  ✓ Added Kernle instructions to {file_path}")

@@ -14,9 +14,9 @@ This module provides the command handlers that are registered
 in the main CLI (__main__.py).
 """
 
-from kernle.commerce.cli.wallet import cmd_wallet
 from kernle.commerce.cli.job import cmd_job
 from kernle.commerce.cli.skills import cmd_skills
+from kernle.commerce.cli.wallet import cmd_wallet
 
 __all__ = [
     "cmd_wallet",

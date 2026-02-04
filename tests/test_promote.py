@@ -1,9 +1,8 @@
 """Tests for the promote (episodes → beliefs) feature."""
 
 import tempfile
-import os
-import json
 from pathlib import Path
+
 import pytest
 
 from kernle import Kernle

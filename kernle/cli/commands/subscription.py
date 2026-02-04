@@ -12,14 +12,15 @@ Provides command-line interface for subscription/tier management:
 import json
 import logging
 import sys
-import urllib.request
 import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     import argparse
+
     from kernle import Kernle
 
 logger = logging.getLogger(__name__)
@@ -179,9 +180,9 @@ def _format_bytes(b: int) -> str:
     """Human-readable byte size."""
     if b < 1024:
         return f"{b} B"
-    elif b < 1024 ** 2:
+    elif b < 1024**2:
         return f"{b / 1024:.1f} KB"
-    elif b < 1024 ** 3:
+    elif b < 1024**3:
         return f"{b / (1024 ** 2):.1f} MB"
     else:
         return f"{b / (1024 ** 3):.2f} GB"
@@ -255,7 +256,9 @@ def _cmd_tier(args: "argparse.Namespace", k: "Kernle") -> None:
     storage_used = data.get("storage_used", 0)
     storage_limit = data.get("storage_limit", TIERS.get(tier, {}).get("storage_bytes", 0) or 0)
     stacks_used = data.get("agents_used", data.get("stacks_used", 0))
-    stacks_limit = data.get("agents_limit", data.get("stacks_limit", TIERS.get(tier, {}).get("stacks") or 0))
+    stacks_limit = data.get(
+        "agents_limit", data.get("stacks_limit", TIERS.get(tier, {}).get("stacks") or 0)
+    )
 
     print()
     print("  Kernle Cloud Subscription")
@@ -362,12 +365,12 @@ def _cmd_upgrade(args: "argparse.Namespace", k: "Kernle") -> None:
         print(header)
         print("  " + "─" * 46)
         print(f"  {'Tier':<18} {cur_info['name']:>12}  →  {tgt_info['name']:>12}")
-        cur_price = f"${cur_info['price']}" if cur_info['price'] else "Free"
+        cur_price = f"${cur_info['price']}" if cur_info["price"] else "Free"
         tgt_price = f"${tgt_info['price']}/mo"
         print(f"  {'Price':<18} {cur_price:>12}  →  {tgt_price:>12}")
         print(f"  {'Storage':<18} {cur_info['storage']:>12}  →  {tgt_info['storage']:>12}")
-        cur_stacks = str(cur_info['stacks']) if cur_info['stacks'] else "∞"
-        tgt_stacks = str(tgt_info['stacks']) if tgt_info['stacks'] else "∞"
+        cur_stacks = str(cur_info["stacks"]) if cur_info["stacks"] else "∞"
+        tgt_stacks = str(tgt_info["stacks"]) if tgt_info["stacks"] else "∞"
         print(f"  {'Stacks':<18} {cur_stacks:>12}  →  {tgt_stacks:>12}")
         print(f"  {'Sync':<18} {'Unlimited':>12}  →  {'Unlimited':>12}")
         print()
@@ -388,7 +391,11 @@ def _cmd_upgrade(args: "argparse.Namespace", k: "Kernle") -> None:
     yes_flag = getattr(args, "yes", False)
     if not yes_flag and not output_json:
         try:
-            answer = input(f"  Confirm upgrade to {tgt_info['name']} (${price:.2f} USDC)? [y/N] ").strip().lower()
+            answer = (
+                input(f"  Confirm upgrade to {tgt_info['name']} (${price:.2f} USDC)? [y/N] ")
+                .strip()
+                .lower()
+            )
         except (EOFError, KeyboardInterrupt):
             print("\n  Aborted.")
             sys.exit(0)
@@ -397,7 +404,9 @@ def _cmd_upgrade(args: "argparse.Namespace", k: "Kernle") -> None:
             sys.exit(0)
 
     # ── Call API ─────────────────────────────────────────────────────────
-    result = _api_request("POST", "/api/v1/subscriptions/upgrade", creds, body={"tier": target_tier})
+    result = _api_request(
+        "POST", "/api/v1/subscriptions/upgrade", creds, body={"tier": target_tier}
+    )
 
     if output_json:
         print(json.dumps(result, indent=2))
@@ -471,15 +480,19 @@ def _cmd_downgrade(args: "argparse.Namespace", k: "Kernle") -> None:
         tgt_limit = tgt_info.get("storage_bytes") or 0
         if tgt_limit and storage_used > tgt_limit:
             print()
-            print(f"  ⚠ WARNING: You're using {_format_bytes(storage_used)} but "
-                  f"{tgt_info['name']} only allows {tgt_info['storage']}.")
+            print(
+                f"  ⚠ WARNING: You're using {_format_bytes(storage_used)} but "
+                f"{tgt_info['name']} only allows {tgt_info['storage']}."
+            )
             print("    You may need to clean up data before the downgrade takes effect.")
 
         stacks_used = current.get("agents_used", current.get("stacks_used", 0))
         tgt_stacks = tgt_info.get("stacks") or 0
         if tgt_stacks and stacks_used > tgt_stacks:
-            print(f"  ⚠ WARNING: You have {stacks_used} active stacks but "
-                  f"{tgt_info['name']} allows {tgt_stacks}.")
+            print(
+                f"  ⚠ WARNING: You have {stacks_used} active stacks but "
+                f"{tgt_info['name']} allows {tgt_stacks}."
+            )
         print()
 
     yes_flag = getattr(args, "yes", False)
@@ -493,7 +506,9 @@ def _cmd_downgrade(args: "argparse.Namespace", k: "Kernle") -> None:
             print("  Aborted.")
             sys.exit(0)
 
-    result = _api_request("POST", "/api/v1/subscriptions/downgrade", creds, body={"tier": target_tier})
+    result = _api_request(
+        "POST", "/api/v1/subscriptions/downgrade", creds, body={"tier": target_tier}
+    )
 
     if output_json:
         print(json.dumps(result, indent=2))
@@ -618,10 +633,14 @@ def _cmd_usage(args: "argparse.Namespace", k: "Kernle") -> None:
         print("  💸 Overflow (estimated)")
         if overflow_agents > 0:
             cost_per = data.get("overflow_agent_cost", 1.00)
-            print(f"     +{overflow_agents} extra stacks × ${cost_per:.2f} = ${overflow_agents * cost_per:.2f}")
+            print(
+                f"     +{overflow_agents} extra stacks × ${cost_per:.2f} = ${overflow_agents * cost_per:.2f}"
+            )
         if overflow_storage > 0:
             scost = data.get("overflow_storage_cost", 0.50)
-            print(f"     +{overflow_storage:.2f} GB extra × ${scost:.2f} = ${overflow_storage * scost:.2f}")
+            print(
+                f"     +{overflow_storage:.2f} GB extra × ${scost:.2f} = ${overflow_storage * scost:.2f}"
+            )
         print()
 
 

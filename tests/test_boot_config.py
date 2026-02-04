@@ -4,7 +4,6 @@ Phase 9: Boot layer provides instant config access without full memory load.
 """
 
 import json
-import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -293,8 +292,10 @@ class TestBootInExportCache:
         """Boot config should appear before values in export-cache."""
         kernle_instance.boot_set("key", "val")
         # Add a value for ordering check
-        from kernle.storage.base import Value
         from datetime import datetime, timezone
+
+        from kernle.storage.base import Value
+
         val = Value(
             id="test-val",
             agent_id="test-agent",
@@ -357,7 +358,8 @@ class TestBootSchemaMigration:
     def test_table_created_on_init(self, tmp_db):
         """boot_config table should exist after storage init."""
         import sqlite3
-        storage = SQLiteStorage(agent_id="test", db_path=tmp_db)
+
+        SQLiteStorage(agent_id="test", db_path=tmp_db)
         conn = sqlite3.connect(tmp_db)
         tables = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='boot_config'"
@@ -395,16 +397,19 @@ class TestBootCLI:
     def _make_args(self, **kwargs):
         """Create a mock args namespace."""
         import argparse
+
         return argparse.Namespace(**kwargs)
 
     def test_boot_get(self, cli_k, capsys):
         from kernle.cli.__main__ import cmd_boot
+
         args = self._make_args(boot_action="get", key="chat_id")
         cmd_boot(args, cli_k)
         assert capsys.readouterr().out.strip() == "4"
 
     def test_boot_get_missing(self, cli_k):
         from kernle.cli.__main__ import cmd_boot
+
         args = self._make_args(boot_action="get", key="nonexistent")
         with pytest.raises(SystemExit) as exc_info:
             cmd_boot(args, cli_k)
@@ -412,6 +417,7 @@ class TestBootCLI:
 
     def test_boot_list_plain(self, cli_k, capsys):
         from kernle.cli.__main__ import cmd_boot
+
         args = self._make_args(boot_action="list", format="plain")
         cmd_boot(args, cli_k)
         output = capsys.readouterr().out
@@ -420,6 +426,7 @@ class TestBootCLI:
 
     def test_boot_list_json(self, cli_k, capsys):
         from kernle.cli.__main__ import cmd_boot
+
         args = self._make_args(boot_action="list", format="json")
         cmd_boot(args, cli_k)
         data = json.loads(capsys.readouterr().out)
@@ -428,6 +435,7 @@ class TestBootCLI:
 
     def test_boot_list_md(self, cli_k, capsys):
         from kernle.cli.__main__ import cmd_boot
+
         args = self._make_args(boot_action="list", format="md")
         cmd_boot(args, cli_k)
         output = capsys.readouterr().out
@@ -436,6 +444,7 @@ class TestBootCLI:
 
     def test_boot_set(self, cli_k, capsys):
         from kernle.cli.__main__ import cmd_boot
+
         args = self._make_args(boot_action="set", key="new_key", value="new_value")
         cmd_boot(args, cli_k)
         output = capsys.readouterr().out
@@ -444,6 +453,7 @@ class TestBootCLI:
 
     def test_boot_delete(self, cli_k, capsys):
         from kernle.cli.__main__ import cmd_boot
+
         args = self._make_args(boot_action="delete", key="chat_id")
         cmd_boot(args, cli_k)
         output = capsys.readouterr().out
@@ -452,6 +462,7 @@ class TestBootCLI:
 
     def test_boot_delete_missing(self, cli_k):
         from kernle.cli.__main__ import cmd_boot
+
         args = self._make_args(boot_action="delete", key="nonexistent")
         with pytest.raises(SystemExit) as exc_info:
             cmd_boot(args, cli_k)
@@ -459,6 +470,7 @@ class TestBootCLI:
 
     def test_boot_clear_requires_confirm(self, cli_k):
         from kernle.cli.__main__ import cmd_boot
+
         args = self._make_args(boot_action="clear", confirm=False)
         with pytest.raises(SystemExit) as exc_info:
             cmd_boot(args, cli_k)
@@ -466,6 +478,7 @@ class TestBootCLI:
 
     def test_boot_clear_with_confirm(self, cli_k, capsys):
         from kernle.cli.__main__ import cmd_boot
+
         args = self._make_args(boot_action="clear", confirm=True)
         cmd_boot(args, cli_k)
         output = capsys.readouterr().out
@@ -474,6 +487,7 @@ class TestBootCLI:
 
     def test_boot_list_empty(self, tmp_path, capsys):
         from kernle.cli.__main__ import cmd_boot
+
         db_path = tmp_path / "empty.db"
         checkpoint_dir = tmp_path / "cp"
         checkpoint_dir.mkdir()
