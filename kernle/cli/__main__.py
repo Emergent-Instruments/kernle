@@ -195,8 +195,8 @@ def cmd_checkpoint(args, k: Kernle):
                         if age.total_seconds() > 6 * 3600:
                             print("⚠ Checkpoint is stale - consider saving a fresh one")
                             print()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Failed to parse checkpoint timestamp: {e}")
 
                 print("## Last Checkpoint")
                 print(f"**Task**: {cp.get('current_task', 'unknown')}{age_str}")
@@ -746,7 +746,8 @@ def cmd_resume(args, k: Kernle):
                 age_str = f"{age.seconds // 60}m ago"
             else:
                 age_str = "just now"
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to calculate checkpoint age: {e}")
         age_str = "unknown"
 
     # Parse context for structured fields
@@ -774,7 +775,8 @@ def cmd_resume(args, k: Kernle):
             anxiety_indicator = " 🟡"
         else:
             anxiety_indicator = ""
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to get anxiety score: {e}")
         anxiety_indicator = ""
 
     # Display
@@ -806,8 +808,8 @@ def cmd_resume(args, k: Kernle):
             age = now - cp_time
             if age.total_seconds() > 6 * 3600:
                 print(f"\n⚠ Checkpoint is stale ({age_str}). Consider saving a fresh one.")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Failed to check checkpoint staleness: {e}")
 
 
 def cmd_relation(args, k: Kernle):
@@ -1081,8 +1083,9 @@ def cmd_sync(args, k: Kernle):
                 # Support multiple auth token field names
                 auth_token = creds.get("auth_token") or creds.get("token") or creds.get("api_key")
                 user_id = creds.get("user_id")
-        except Exception:
-            pass  # Fall through to env vars
+        except Exception as e:
+            logger.debug(f"Failed to load credentials file: {e}")
+            # Fall through to env vars
 
     # Fall back to environment variables
     if not backend_url:
@@ -1102,8 +1105,8 @@ def cmd_sync(args, k: Kernle):
                 config = json_module.load(f)
                 backend_url = backend_url or config.get("backend_url")
                 auth_token = auth_token or config.get("auth_token")
-        except Exception:
-            pass  # Ignore config read errors
+        except Exception as e:
+            logger.debug(f"Failed to load legacy config file: {e}")
 
     def get_local_project_name():
         """Extract the local project name from agent_id (without namespace)."""
@@ -2391,7 +2394,8 @@ def cmd_auth_keys(args):
                 try:
                     error = response.json().get("detail", response.text)
                     print(f"  {error[:200]}")
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Failed to parse error response as JSON: {e}")
                     print(f"  {response.text[:200]}")
                 sys.exit(1)
 
@@ -2455,7 +2459,8 @@ def cmd_auth_keys(args):
                 try:
                     error = response.json().get("detail", response.text)
                     print(f"  {error[:200]}")
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Failed to parse error response as JSON: {e}")
                     print(f"  {response.text[:200]}")
                 sys.exit(1)
 
@@ -2516,7 +2521,8 @@ def cmd_auth_keys(args):
                 try:
                     error = response.json().get("detail", response.text)
                     print(f"  {error[:200]}")
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Failed to parse error response as JSON: {e}")
                     print(f"  {response.text[:200]}")
                 sys.exit(1)
 
@@ -2590,7 +2596,8 @@ def cmd_auth_keys(args):
                 try:
                     error = response.json().get("detail", response.text)
                     print(f"  {error[:200]}")
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Failed to parse error response as JSON: {e}")
                     print(f"  {response.text[:200]}")
                 sys.exit(1)
 

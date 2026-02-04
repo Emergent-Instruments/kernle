@@ -1,6 +1,7 @@
 """Doctor command for Kernle CLI - validates boot sequence compliance and system health."""
 
 import json
+import logging
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Optional, Tuple
@@ -14,6 +15,8 @@ from kernle.cli.commands.import_cmd import (
     _MINIMAL_SEED_BELIEFS,
     SEED_BELIEFS_VERSION,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class ComplianceCheck:
@@ -397,7 +400,8 @@ def check_claude_code_hook(agent_id: str) -> ComplianceCheck:
                     message=f"✓ Claude Code hook configured ({location})",
                     category="recommended",
                 )
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to read config at {config_path}: {e}")
             continue
 
     return ComplianceCheck(

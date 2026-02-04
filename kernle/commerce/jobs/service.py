@@ -849,7 +849,8 @@ class JobService:
 
         try:
             parsed = urlparse(url)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"URL parse error for '{url[:100]}': {e}")
             raise JobServiceError("Invalid URL format")
 
         # Only allow safe schemes

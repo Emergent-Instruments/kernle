@@ -351,7 +351,8 @@ class MetaMemoryMixin:
                         records = self._storage.get_notes(limit=500)
                     else:
                         continue  # Skip types without bulk getters for now
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Failed to get records for type '{mem_type}': {e}")
                     continue
 
                 for record in records:
@@ -407,7 +408,8 @@ class MetaMemoryMixin:
                     records = self._storage.get_notes(limit=1000)
                 else:
                     continue
-            except Exception:
+            except Exception as e:
+                logger.debug(f"Failed to get records for provenance audit (type '{mem_type}'): {e}")
                 continue
 
             for record in records:

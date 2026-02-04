@@ -819,7 +819,8 @@ class SQLiteStorage:
         try:
             yield conn
             conn.commit()
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Transaction failed, rolling back: {e}")
             conn.rollback()
             raise
         finally:
@@ -6553,7 +6554,8 @@ class SQLiteStorage:
                 if isinstance(v, datetime):
                     d[k] = v.isoformat()
             return d
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to serialize record, using fallback: {e}")
             return {"id": getattr(record, "id", "unknown")}
 
     def _save_from_cloud(self, table: str, record: Any):

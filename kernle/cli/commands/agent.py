@@ -1,10 +1,13 @@
 """Agent management commands (list, delete)."""
 
+import logging
 import shutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from kernle.storage.sqlite import validate_table_name
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     import argparse
@@ -49,8 +52,8 @@ def _list_agents(args: "argparse.Namespace", k: "Kernle") -> None:
             for row in cursor:
                 agents.append(row[0])
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to query agents from database: {e}")
 
     # Also check for per-agent directories (for raw layer)
     for item in kernle_dir.iterdir():
@@ -97,8 +100,8 @@ def _list_agents(args: "argparse.Namespace", k: "Kernle") -> None:
                     "SELECT COUNT(*) FROM beliefs WHERE agent_id = ?", (agent_id,)
                 ).fetchone()[0]
                 conn.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to get counts for agent '{agent_id}': {e}")
 
         # Mark current agent
         marker = " ← current" if agent_id == k.agent_id else ""
@@ -136,8 +139,8 @@ def _delete_agent(args: "argparse.Namespace", k: "Kernle") -> None:
             ).fetchone()[0]
             has_db_data = count > 0
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to check agent in database: {e}")
 
     if not has_db_data and not has_dir:
         print(f"❌ Agent '{agent_id}' not found")
@@ -166,8 +169,8 @@ def _delete_agent(args: "argparse.Namespace", k: "Kernle") -> None:
                 "SELECT COUNT(*) FROM agent_values WHERE agent_id = ?", (agent_id,)
             ).fetchone()[0]
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to get deletion counts: {e}")
 
     total_records = episode_count + note_count + belief_count + goal_count + value_count
 
@@ -212,14 +215,14 @@ def _delete_agent(args: "argparse.Namespace", k: "Kernle") -> None:
                     cursor = conn.execute(f"DELETE FROM {table} WHERE agent_id = ?", (agent_id,))
                     if cursor.rowcount > 0:
                         deleted_tables.append(f"{table}: {cursor.rowcount}")
-                except Exception:
-                    pass  # Table might not exist
+                except Exception as e:
+                    logger.debug(f"Failed to delete from table '{table}': {e}")
 
             # Also delete from vec_embeddings if exists
             try:
                 conn.execute("DELETE FROM vec_embeddings WHERE id LIKE ?", (f"%:{agent_id}:%",))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Failed to delete embeddings: {e}")
 
             conn.commit()
             conn.close()

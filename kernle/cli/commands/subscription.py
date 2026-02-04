@@ -142,7 +142,8 @@ def _api_request(
         try:
             err_body = json.loads(e.read().decode("utf-8"))
             detail = err_body.get("detail") or err_body.get("error") or str(err_body)
-        except Exception:
+        except Exception as parse_err:
+            logger.debug(f"Failed to parse error response: {parse_err}")
             detail = e.reason
         print(f"✗ API error ({e.code}): {detail}")
         sys.exit(1)
@@ -195,7 +196,8 @@ def _format_date(iso_str: Optional[str]) -> str:
     try:
         dt = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
         return dt.strftime("%Y-%m-%d %H:%M UTC")
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to parse date '{iso_str}': {e}")
         return iso_str[:19]
 
 
@@ -219,7 +221,8 @@ def _relative_time(iso_str: Optional[str]) -> str:
         if hours >= 1:
             return f"{int(hours)}h {suffix}"
         return f"{int(minutes)}m {suffix}"
-    except Exception:
+    except Exception as e:
+        logger.debug(f"Failed to compute relative time for '{iso_str}': {e}")
         return iso_str[:10]
 
 

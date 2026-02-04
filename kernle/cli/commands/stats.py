@@ -1,8 +1,11 @@
 """Stats commands for Kernle CLI."""
 
 import json
+import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from kernle import Kernle
@@ -53,7 +56,8 @@ def _health_checks_stats(args, k: "Kernle"):
                 elapsed_str = "just now"
 
             print(f"Last Check:       {elapsed_str}")
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to compute elapsed time: {e}")
             print(f"Last Check:       {last_at[:19]}")
 
         if last_score is not None:

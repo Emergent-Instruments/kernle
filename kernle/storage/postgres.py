@@ -837,8 +837,8 @@ class SupabaseStorage:
             )
 
             return [self._row_to_relationship(row) for row in result.data]
-        except Exception:
-            # Table might not exist
+        except Exception as e:
+            logger.debug(f"Failed to get relationships (table may not exist): {e}")
             return []
 
     def get_relationship(self, entity_name: str) -> Optional[Relationship]:
@@ -854,8 +854,8 @@ class SupabaseStorage:
 
             if result.data:
                 return self._row_to_relationship(result.data[0])
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Failed to get relationship '{entity_name}': {e}")
         return None
 
     def _row_to_relationship(self, row: Dict[str, Any]) -> Relationship:
@@ -1039,7 +1039,8 @@ class SupabaseStorage:
                 .execute()
             )
             stats["relationships"] = result.count or 0
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to count relationships: {e}")
             stats["relationships"] = 0
 
         return stats
@@ -1178,7 +1179,8 @@ class SupabaseStorage:
             # Simple connectivity test
             self.client.table("episodes").select("id").limit(1).execute()
             return True
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Connectivity check failed: {e}")
             return False
 
     # === Meta-Memory ===
