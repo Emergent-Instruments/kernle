@@ -118,6 +118,10 @@ class QueuedChange:
     operation: str  # 'insert', 'update', 'delete'
     payload: Optional[str] = None  # JSON payload for the change
     queued_at: Optional[datetime] = None
+    # Retry tracking for resilient sync
+    retry_count: int = 0
+    last_error: Optional[str] = None
+    last_attempt_at: Optional[datetime] = None
 
 
 @dataclass
