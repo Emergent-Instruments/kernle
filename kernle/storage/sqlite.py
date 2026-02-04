@@ -1875,7 +1875,8 @@ class SQLiteStorage:
             return
 
         content_hash = self._content_hash(content)
-        vec_id = f"{table}:{record_id}"
+        # Include agent_id in vec_id for isolation (security: prevents cross-agent timing leaks)
+        vec_id = f"{self.agent_id}:{table}:{record_id}"
 
         # Check if embedding exists and is current
         existing = conn.execute(
@@ -4667,14 +4668,22 @@ class SQLiteStorage:
                 return self._text_search(query, limit, types)
 
             # Fetch actual records
+            # Security: filter by agent_id prefix first to prevent timing side-channel
+            agent_prefix = f"{self.agent_id}:"
             for row in rows:
                 vec_id = row["id"]
                 distance = row["distance"]
 
-                # Parse table:record_id format
-                if ":" not in vec_id:
+                # Security: only process embeddings for this agent
+                if not vec_id.startswith(agent_prefix):
                     continue
-                table_name, record_id = vec_id.split(":", 1)
+
+                # Parse agent_id:table:record_id format
+                parts = vec_id.split(":", 2)
+                if len(parts) != 3:
+                    # Legacy format (table:record_id) - skip for security
+                    continue
+                _, table_name, record_id = parts
 
                 # Filter by requested types
                 if table_name not in table_prefixes:
