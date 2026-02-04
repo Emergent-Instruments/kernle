@@ -116,11 +116,16 @@ class WalletStorage(Protocol):
 class InMemoryWalletStorage:
     """In-memory wallet storage for testing and development.
 
-    Note: Data is not persisted between process restarts.
-    This is useful for testing before the Supabase backend is integrated.
+    Note: Wallet data is not persisted between process restarts.
+    However, daily spend tracking can optionally be persisted to a file
+    using the persist_path parameter.
+
+    Args:
+        persist_path: Optional path to persist daily spend tracking.
+                     If provided, daily spend survives restarts.
     """
 
-    def __init__(self):
+    def __init__(self, persist_path: Optional[str] = None):
         self._wallets: dict[str, WalletAccount] = {}
         self._by_agent: dict[str, str] = {}  # agent_id -> wallet_id
         self._by_address: dict[str, str] = {}  # wallet_address -> wallet_id
@@ -130,6 +135,67 @@ class InMemoryWalletStorage:
             {}
         )  # wallet_id -> (date, total, count)
         self._daily_spend_lock = threading.Lock()
+        # Optional persistence for daily spend (security fix: survive restarts)
+        self._persist_path = persist_path
+        if persist_path:
+            self._load_daily_spend()
+
+    def _load_daily_spend(self) -> None:
+        """Load persisted daily spend tracking from file."""
+        import json
+        from pathlib import Path
+
+        if not self._persist_path:
+            return
+
+        path = Path(self._persist_path)
+        if not path.exists():
+            return
+
+        try:
+            with open(path) as f:
+                data = json.load(f)
+
+            today = datetime.now(timezone.utc).date()
+            for wallet_id, entry in data.items():
+                spend_date = date.fromisoformat(entry["date"])
+                # Only load if it's still today (daily limits reset at midnight)
+                if spend_date == today:
+                    self._daily_spend[wallet_id] = (
+                        spend_date,
+                        Decimal(entry["total"]),
+                        entry["count"],
+                    )
+            logger.debug(f"Loaded daily spend tracking from {path}")
+        except Exception as e:
+            logger.warning(f"Failed to load daily spend from {path}: {e}")
+
+    def _save_daily_spend(self) -> None:
+        """Persist daily spend tracking to file."""
+        import json
+        from pathlib import Path
+
+        if not self._persist_path:
+            return
+
+        path = Path(self._persist_path)
+        try:
+            # Ensure parent directory exists
+            path.parent.mkdir(parents=True, exist_ok=True)
+
+            data = {}
+            for wallet_id, (spend_date, total, count) in self._daily_spend.items():
+                data[wallet_id] = {
+                    "date": spend_date.isoformat(),
+                    "total": str(total),
+                    "count": count,
+                }
+
+            with open(path, "w") as f:
+                json.dump(data, f)
+            logger.debug(f"Saved daily spend tracking to {path}")
+        except Exception as e:
+            logger.warning(f"Failed to save daily spend to {path}: {e}")
 
     def _utc_now(self) -> datetime:
         """Get current UTC timestamp."""
@@ -292,12 +358,15 @@ class InMemoryWalletStorage:
             # Commit the increment
             self._daily_spend[wallet_id] = (today, new_spent, current_count + 1)
 
-            return DailySpendResult(
-                success=True,
-                daily_spent=new_spent,
-                daily_limit=daily_limit,
-                remaining=daily_limit - new_spent,
-            )
+        # Persist outside the lock to avoid holding it during I/O
+        self._save_daily_spend()
+
+        return DailySpendResult(
+            success=True,
+            daily_spent=new_spent,
+            daily_limit=daily_limit,
+            remaining=daily_limit - new_spent,
+        )
 
 
 class SupabaseWalletStorage:
