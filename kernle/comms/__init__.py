@@ -8,6 +8,17 @@ This package provides infrastructure for SI↔SI communication:
 - Collaboration protocols
 """
 
+from kernle.comms.crypto import (
+    CryptoError,
+    KeyAlreadyExistsError,
+    KeyManager,
+    KeyNotFoundError,
+    KeyPair,
+    SignatureError,
+    generate_key_pair,
+    sign_message,
+    verify_signature,
+)
 from kernle.comms.registry import (
     AgentProfile,
     AgentRegistry,
@@ -15,7 +26,18 @@ from kernle.comms.registry import (
 )
 
 __all__ = [
+    # Registry
     "AgentProfile",
     "AgentRegistry",
     "RegistryError",
+    # Crypto
+    "CryptoError",
+    "KeyAlreadyExistsError",
+    "KeyManager",
+    "KeyNotFoundError",
+    "KeyPair",
+    "SignatureError",
+    "generate_key_pair",
+    "sign_message",
+    "verify_signature",
 ]

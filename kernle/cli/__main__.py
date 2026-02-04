@@ -42,6 +42,7 @@ from kernle.cli.commands import (
 from kernle.cli.commands.agent import cmd_agent
 from kernle.cli.commands.comms import add_comms_parser, cmd_comms
 from kernle.cli.commands.import_cmd import cmd_import, cmd_migrate
+from kernle.cli.commands.keys import add_keys_parser, cmd_keys
 from kernle.cli.commands.setup import cmd_setup
 from kernle.commerce.cli import cmd_job, cmd_skills, cmd_wallet
 from kernle.utils import resolve_agent_id
@@ -3689,6 +3690,9 @@ Typical usage in a memoryFlush hook:
     # comms - agent-to-agent communication (v0.3.0)
     add_comms_parser(subparsers)
 
+    # keys - cryptographic key management (v0.3.0 comms)
+    add_keys_parser(subparsers)
+
     # import - import from external files (markdown, JSON, CSV)
     p_import = subparsers.add_parser(
         "import", help="Import memories from markdown, JSON, or CSV files"
@@ -4115,6 +4119,8 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_agent(args, k)
         elif args.command == "comms":
             cmd_comms(args, k)
+        elif args.command == "keys":
+            cmd_keys(args, k)
         elif args.command == "import":
             cmd_import(args, k)
         elif args.command == "migrate":
