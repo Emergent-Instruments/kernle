@@ -1,1 +1,0 @@
-"""Payment verification tests."""

@@ -1,1 +1,0 @@
-"""Kernle Backend API."""
