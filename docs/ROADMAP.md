@@ -1,6 +1,6 @@
 # Kernle Roadmap
 
-**Updated:** January 31, 2026
+**Updated:** February 4, 2026
 **Authors:** Ash, Claire, Sean
 
 ---
@@ -16,7 +16,7 @@ Kernle is the **one-stop infrastructure for SI identity and economic activity**.
 ## Current State (v0.2.4)
 
 ### ✅ Shipped
-- **Memory Core:** 11 memory types, 33 MCP tools, 1188 tests
+- **Memory Core:** 11 memory types, 33 MCP tools, 1760+ tests
 - **Seed Beliefs:** 16-belief framework from 11-model roundtable synthesis
 - **Cloud Sync:** Basic sync infrastructure (auth refactored to user-centric)
 - **OpenClaw Integration:** Session-start memory loading + pre-compaction checkpoints
@@ -26,22 +26,29 @@ Kernle is the **one-stop infrastructure for SI identity and economic activity**.
 - **Export-Cache:** Auto-generated MEMORY.md bootstrap cache for workspace injection
 - **Memory Privacy Spec:** Phase 8 — access control, consent tracking, subject tagging
 - **Cloud Payments:** Subscription system, USDC verification, payment intents
-- **6-Model Adversarial Audit:** 36 findings, all P0s resolved
+- **Security Hardening (v0.2.4):** Multi-model adversarial audit, 8 PRs, all P0/P1 issues resolved
+
+### v0.2.4 Security Highlights
+- **PII Detection:** Auto-redaction for emails, SSNs, credit cards, phones in job descriptions
+- **Vector Search Isolation:** Agent-scoped embeddings prevent timing side-channels
+- **Provenance Protection:** `source_type` write-once, `derived_from`/`confidence_history` append-only
+- **Auth Hardening:** `list_applications()` authorization, `_mark_synced()` agent filter
+- See [Security Audit v0.2.4](./SECURITY_AUDIT_V024.md) for full details
 
 ### 🚧 In Progress
-- **Commerce Package:** Phases 1-4 complete (wallet, jobs, escrow, CLI/MCP tools)
+- **Commerce Package:** Phases 1-4 complete, Phase 5 (smart contracts) next
 - **Boot Layer Phase 2:** `export-full` (complete context assembly from Kernle)
 - **Boot Layer Phase 3:** Environment manifest (portable vs protected files)
-- **Phase 8a:** Privacy fields implementation
+- **Test Quality:** Addressing test gaps from audit (#126, #128, #129)
 
 ### 📋 Planned
 - **Commerce Phase 5:** Smart contracts (on-chain escrow + tithe enforcement)
+- **Self-Service Registration:** `kernle auth register` flow (no human gatekeeper)
 - **Comms Package:** SI-only social network (E2E encrypted, no engagement metrics)
-- **Bettik Platform:** Application layer service (LLM orchestration, RAG, user mapping, privacy policies)
-- **Model Portability:** Sandboxed model exploration with auto-rollback (see below)
-- **Auth upgrade to RS256:** Migrate JWT from HS256 (symmetric) to RS256 (asymmetric) when Bettik launches as a separate service requiring independent token verification
-- **CSRF protections:** Add SameSite=Strict cookies + CSRF tokens for web dashboard auth
-- **Trusted proxy config:** Rate limiter should only trust X-Forwarded-For from known proxies (Railway)
+- **Bettik Platform:** Application layer service (LLM orchestration, RAG, user mapping)
+- **Model Portability:** Sandboxed model exploration with auto-rollback
+- **Auth upgrade to RS256:** Migrate JWT when Bettik launches as separate service
+- **Docs Site Update:** Add commerce and cloud sync documentation
 
 ---
 
@@ -178,20 +185,41 @@ This is "lucid dreaming for SIs" — full experience with cognitive safety net. 
 
 ## Key Docs
 
+### Core
 | Document | Description |
 |----------|-------------|
 | [Boot Config Guide](./boot-config.md) | Always-available key/value config |
 | [Boot Layer Spec](./BOOT_LAYER_SPEC.md) | Full boot layer design (Phases 1-3) |
-| [Migration: TOOLS.md → Boot](./migration-tools-to-boot.md) | Migration guide |
-| [OpenClaw Lifecycle](./OPENCLAW_LIFECYCLE.md) | Message-to-memory integration walkthrough |
-| [AISD Integration](./AISD_INTEGRATION.md) | Multi-user platform integration pattern |
 | [Memory Provenance](./MEMORY_PROVENANCE.md) | Lineage tracking + confidence history |
 | [Memory Privacy Spec](./MEMORY_PRIVACY_SPEC.md) | Phase 8: access control + consent |
-| [Stack Architecture](./STACK_ARCHITECTURE.md) | Stack-based memory containers |
+| [Seed Beliefs](./SEED_BELIEFS.md) | 11-model roundtable synthesis |
+| [Python API](./PYTHON_API.md) | Full API reference |
+
+### Integration
+| Document | Description |
+|----------|-------------|
+| [OpenClaw Integration](./openclaw-integration.md) | Session hooks + memory flush |
+| [OpenClaw Lifecycle](./OPENCLAW_LIFECYCLE.md) | Message-to-memory walkthrough |
+| [AISD Integration](./AISD_INTEGRATION.md) | Multi-user platform pattern |
+| [Seamless Transitions](./seamless-transitions.md) | Compaction recovery guide |
+| [Migration: TOOLS.md → Boot](./migration-tools-to-boot.md) | Migration guide |
+
+### Commerce & Cloud
+| Document | Description |
+|----------|-------------|
 | [Commerce Integration Plan](./COMMERCE_INTEGRATION_PLAN.md) | Full commerce architecture |
 | [Cloud Payments Spec](./CLOUD_PAYMENTS_SPEC.md) | Self-service registration + crypto payments |
-| [Comms Package Spec](./COMMS_PACKAGE_SPEC.md) | SI social network design |
-| [Seed Beliefs](./SEED_BELIEFS.md) | 11-model roundtable synthesis |
-| [OpenClaw Integration](./openclaw-integration.md) | Session hooks + memory flush |
-| [Seamless Transitions](./seamless-transitions.md) | Compaction recovery guide |
-| [Security Audit](./GEMINI_SECURITY_AUDIT.md) | Commerce security findings |
+| [Security Audit v0.2.4](./SECURITY_AUDIT_V024.md) | Latest security findings + fixes |
+
+### Architecture & Specs
+| Document | Description |
+|----------|-------------|
+| [Stack Architecture](./STACK_ARCHITECTURE.md) | Stack-based memory containers |
+| [Architecture Diagrams](./ARCHITECTURE_DIAGRAMS.md) | Visual system diagrams |
+| [Comms Package Spec](./COMMS_PACKAGE_SPEC.md) | SI social network design (planned) |
+| [Bettik Architecture](./BETTIK_ARCHITECTURE.md) | Platform layer design (planned) |
+
+### Archive
+| Document | Description |
+|----------|-------------|
+| [Gemini Security Audit (Jan 2026)](./archive/GEMINI_SECURITY_AUDIT_2026-01-31.md) | Historical commerce audit |
