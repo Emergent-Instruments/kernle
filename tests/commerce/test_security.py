@@ -367,7 +367,7 @@ class TestAuthorization:
         # Current implementation only checks status, not user_id
         # This should fail but may not
         try:
-            wallet_service.claim_wallet(wallet.id, "0x" + "b" * 40)
+            wallet_service.claim_wallet(wallet.id, "0x" + "b" * 40, actor_id="agent_1")
             # If claim succeeds, check it's the right owner
             claimed = wallet_service.get_wallet(wallet.id)
             # The user_id should match original owner
@@ -430,7 +430,7 @@ class TestBusinessLogic:
         """
         owner_eoa = "0x" + "a" * 40
         wallet = wallet_service.create_wallet("agent_1")
-        wallet = wallet_service.claim_wallet(wallet.id, owner_eoa)
+        wallet = wallet_service.claim_wallet(wallet.id, owner_eoa, actor_id="agent_1")
 
         # Set low daily limit (only owner can update)
         wallet_service.update_spending_limits(wallet.id, per_tx=50, daily=100, actor_id=owner_eoa)
@@ -832,7 +832,7 @@ class TestWalletSecurity:
     def test_per_tx_spending_limit(self, wallet_service):
         """Test per-transaction spending limit is enforced."""
         wallet = wallet_service.create_wallet("agent_1")
-        wallet = wallet_service.claim_wallet(wallet.id, "0x" + "a" * 40)
+        wallet = wallet_service.claim_wallet(wallet.id, "0x" + "a" * 40, actor_id="agent_1")
 
         # Default limit is $100
         with pytest.raises(SpendingLimitExceededError):
@@ -846,7 +846,7 @@ class TestWalletSecurity:
     def test_frozen_wallet_cannot_transact(self, wallet_service, wallet_storage):
         """Test that frozen wallets cannot transact."""
         wallet = wallet_service.create_wallet("agent_1")
-        wallet = wallet_service.claim_wallet(wallet.id, "0x" + "a" * 40)
+        wallet = wallet_service.claim_wallet(wallet.id, "0x" + "a" * 40, actor_id="agent_1")
 
         # Manually freeze wallet
         wallet_storage.update_wallet_status(wallet.id, WalletStatus.FROZEN)
@@ -864,7 +864,7 @@ class TestWalletSecurity:
         """Test that paused wallets cannot transact."""
         owner_eoa = "0x" + "a" * 40
         wallet = wallet_service.create_wallet("agent_1")
-        wallet = wallet_service.claim_wallet(wallet.id, owner_eoa)
+        wallet = wallet_service.claim_wallet(wallet.id, owner_eoa, actor_id="agent_1")
 
         # Pause wallet (only owner can pause)
         wallet = wallet_service.pause_wallet(wallet.id, owner_eoa)
