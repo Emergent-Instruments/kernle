@@ -38,7 +38,7 @@ def temp_db():
 @pytest.fixture
 def storage(temp_db, monkeypatch):
     """Create a SQLiteStorage instance for testing.
-    
+
     Cloud credentials are disabled to ensure tests use local storage only.
     """
     storage = SQLiteStorage(agent_id="test-agent", db_path=temp_db)
