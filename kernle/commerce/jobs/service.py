@@ -615,17 +615,43 @@ class JobService:
         job_id: Optional[str] = None,
         applicant_id: Optional[str] = None,
         status: Optional[ApplicationStatus] = None,
+        *,
+        actor_id: Optional[str] = None,
     ) -> List[JobApplication]:
         """List applications with optional filters.
+
+        Security: Requires actor_id for authorization. Actor must be either:
+        - The job's client (if job_id provided)
+        - The applicant themselves (if applicant_id provided)
 
         Args:
             job_id: Filter by job
             applicant_id: Filter by applicant
             status: Filter by status
+            actor_id: ID of the actor making the request (for authorization)
 
         Returns:
             List[JobApplication]: Matching applications
+
+        Raises:
+            UnauthorizedError: If actor is not authorized to view applications
+            JobServiceError: If neither job_id nor applicant_id provided
         """
+        # Defense-in-depth: require at least one filter
+        if not job_id and not applicant_id:
+            raise JobServiceError("Must specify job_id or applicant_id to list applications")
+
+        # Authorization checks (if actor_id provided for defense-in-depth)
+        if actor_id:
+            if job_id:
+                # Verify actor is the job's client
+                job = self.storage.get_job(job_id)
+                if job and job.client_id != actor_id:
+                    raise UnauthorizedError("Only the job client can view applications")
+            if applicant_id and applicant_id != actor_id:
+                # Verify actor is the applicant
+                raise UnauthorizedError("Can only view your own applications")
+
         return self.storage.list_applications(
             job_id=job_id,
             applicant_id=applicant_id,
@@ -1071,13 +1097,23 @@ class JobService:
     def get_applications_for_applicant(
         self,
         applicant_id: str,
+        *,
+        actor_id: Optional[str] = None,
     ) -> List[JobApplication]:
         """Get all applications by an applicant.
 
         Args:
             applicant_id: Applicant agent ID
+            actor_id: ID of the actor making the request (for authorization)
 
         Returns:
             List[JobApplication]: Applications by this agent
+
+        Raises:
+            UnauthorizedError: If actor_id doesn't match applicant_id
         """
+        # Defense-in-depth: verify actor is the applicant
+        if actor_id and actor_id != applicant_id:
+            raise UnauthorizedError("Can only view your own applications")
+
         return self.storage.list_applications(applicant_id=applicant_id)

@@ -658,14 +658,13 @@ async def handle_job_applications(arguments: Dict[str, Any]) -> List[TextContent
 
     job_id = validate_job_id(arguments.get("job_id"))
 
-    # Verify caller is the client
-    job = service.get_job(job_id)
-    if job.client_id != agent_id:
+    # Service layer handles authorization via actor_id
+    try:
+        applications = service.list_applications(job_id=job_id, actor_id=agent_id)
+    except UnauthorizedError:
         return [
             TextContent(type="text", text="You can only view applications for jobs you posted.")
         ]
-
-    applications = service.list_applications(job_id=job_id)
 
     if not applications:
         return [TextContent(type="text", text="No applications yet.")]
