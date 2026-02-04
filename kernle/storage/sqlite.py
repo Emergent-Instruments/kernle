@@ -2007,6 +2007,11 @@ class SQLiteStorage:
         2. Increments the version atomically
         3. Updates all other fields
 
+        Security: Provenance fields have special handling:
+        - source_type: Write-once (preserved from original)
+        - derived_from: Append-only (merged with original)
+        - confidence_history: Append-only (merged with original)
+
         Args:
             episode: The episode with updated fields
             expected_version: The version we expect the record to have.
@@ -2024,9 +2029,10 @@ class SQLiteStorage:
         now = self._now()
 
         with self._connect() as conn:
-            # First check current version to provide better error message
+            # First check current version and get original provenance fields
             current = conn.execute(
-                "SELECT version FROM episodes WHERE id = ? AND agent_id = ?",
+                """SELECT version, source_type, derived_from, confidence_history
+                   FROM episodes WHERE id = ? AND agent_id = ?""",
                 (episode.id, self.agent_id),
             ).fetchone()
 
@@ -2038,6 +2044,23 @@ class SQLiteStorage:
                 raise VersionConflictError(
                     "episodes", episode.id, expected_version, current_version
                 )
+
+            # Security: Preserve provenance fields (write-once / append-only)
+            # source_type is write-once - always use original
+            original_source_type = current["source_type"] or episode.source_type
+
+            # derived_from is append-only - merge lists
+            original_derived = self._from_json(current["derived_from"]) or []
+            new_derived = episode.derived_from or []
+            merged_derived = list(set(original_derived) | set(new_derived))
+
+            # confidence_history is append-only - merge lists
+            original_history = self._from_json(current["confidence_history"]) or []
+            new_history = episode.confidence_history or []
+            # For history, append new entries that aren't already present
+            merged_history = original_history + [
+                h for h in new_history if h not in original_history
+            ]
 
             # Atomic update with version increment
             cursor = conn.execute(
@@ -2080,12 +2103,12 @@ class SQLiteStorage:
                     episode.emotional_arousal,
                     self._to_json(episode.emotional_tags),
                     episode.confidence,
-                    episode.source_type,
+                    original_source_type,  # Write-once: preserve original
                     self._to_json(episode.source_episodes),
-                    self._to_json(episode.derived_from),
+                    self._to_json(merged_derived),  # Append-only: merged
                     episode.last_verified.isoformat() if episode.last_verified else None,
                     episode.verification_count,
-                    self._to_json(episode.confidence_history),
+                    self._to_json(merged_history),  # Append-only: merged
                     episode.times_accessed,
                     episode.last_accessed.isoformat() if episode.last_accessed else None,
                     1 if episode.is_protected else 0,
