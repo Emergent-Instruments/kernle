@@ -92,3 +92,8 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W"]
 ignore = ["E501"]
+
+[tool.pytest.ini_options]
+markers = [
+    "stub: marks tests that verify stub behavior (will need replacement with integration tests)",
+]
