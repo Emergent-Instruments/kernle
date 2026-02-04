@@ -1,6 +1,5 @@
 """Tests for PII detection and redaction."""
 
-
 from kernle.commerce.pii import (
     PIIType,
     contains_pii,

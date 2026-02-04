@@ -50,9 +50,7 @@ class PIIFinding:
 # Note: These are intentionally conservative to reduce false positives
 
 # Email: standard format, requires @ and domain
-EMAIL_PATTERN = re.compile(
-    r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b"
-)
+EMAIL_PATTERN = re.compile(r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b")
 
 # SSN: xxx-xx-xxxx or xxx xx xxxx or xxxxxxxxx (9 digits)
 # Excludes obviously fake ones like 000-00-0000, 123-45-6789
@@ -66,9 +64,7 @@ SSN_PATTERN = re.compile(
 
 # Credit card: 13-19 digits, optionally separated by spaces or dashes
 # Validates using Luhn algorithm
-CREDIT_CARD_PATTERN = re.compile(
-    r"\b(?:\d{4}[-\s]?){3,4}\d{1,4}\b"
-)
+CREDIT_CARD_PATTERN = re.compile(r"\b(?:\d{4}[-\s]?){3,4}\d{1,4}\b")
 
 # Phone: various US formats
 # (xxx) xxx-xxxx, xxx-xxx-xxxx, xxx.xxx.xxxx, +1xxxxxxxxxx
