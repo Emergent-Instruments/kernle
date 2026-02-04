@@ -347,6 +347,7 @@ def _job_applications(args: "argparse.Namespace", k: "Kernle") -> None:
     """List applications for a job."""
     job_id = args.job_id
     output_json = getattr(args, "json", False)
+    agent_id = k.agent_id
 
     try:
         service = _get_job_service()
@@ -354,7 +355,8 @@ def _job_applications(args: "argparse.Namespace", k: "Kernle") -> None:
         # Verify job exists and user is the client
         job = service.get_job(job_id)
 
-        applications = service.list_applications(job_id=job_id)
+        # Service layer handles authorization via actor_id
+        applications = service.list_applications(job_id=job_id, actor_id=agent_id)
 
         if output_json:
             result = [app.to_dict() for app in applications]
