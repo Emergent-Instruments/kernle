@@ -124,6 +124,7 @@ ALLOWED_TABLES = frozenset(
         "embeddings",
         "health_check_events",
         "boot_config",
+        "agent_registry",  # Comms package (v0.3.0)
     }
 )
 
@@ -638,6 +639,24 @@ CREATE TABLE IF NOT EXISTS boot_config (
     UNIQUE(agent_id, key)
 );
 CREATE INDEX IF NOT EXISTS idx_boot_agent ON boot_config(agent_id);
+
+-- Agent registry for comms package (v0.3.0)
+CREATE TABLE IF NOT EXISTS agent_registry (
+    agent_id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    display_name TEXT,
+    capabilities TEXT,  -- JSON array
+    public_key TEXT,
+    endpoints TEXT,  -- JSON object
+    trust_level TEXT DEFAULT 'unverified',
+    reputation_score REAL DEFAULT 0.0,
+    is_public INTEGER DEFAULT 0,
+    registered_at TEXT,
+    last_seen_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_agent_registry_user ON agent_registry(user_id);
+CREATE INDEX IF NOT EXISTS idx_agent_registry_public ON agent_registry(is_public);
+CREATE INDEX IF NOT EXISTS idx_agent_registry_trust ON agent_registry(trust_level);
 
 -- Embedding metadata (tracks what's been embedded)
 CREATE TABLE IF NOT EXISTS embedding_meta (
