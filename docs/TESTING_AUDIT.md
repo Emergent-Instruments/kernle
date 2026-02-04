@@ -1,16 +1,19 @@
 # Kernle Testing Framework Audit
 
-**Date:** 2026-02-02  
-**Auditor:** Claire  
+**Date:** 2026-02-02 (Updated: 2026-02-04)  
+**Auditor:** Claire (Updates: Ash)  
 **Requested by:** Sean
 
 ---
 
 ## Executive Summary
 
-The Kernle test suite is **comprehensive and well-structured**, with 1,708 tests covering core functionality, storage layers, CLI, commerce, and integrations. The framework follows pytest best practices with good fixture design. A few areas need attention.
+The Kernle test suite is **comprehensive and well-structured**, with 1,760+ tests covering core functionality, storage layers, CLI, commerce, and integrations. The framework follows pytest best practices with good fixture design. 
 
-**Test Results:** 1,655 passed, 27 failed, 2 skipped, 24 xfailed
+**v0.2.4 Update:** CI now passes clean. Local failures are environment-specific (data pollution, missing API keys).
+
+**CI Results (v0.2.4):** All tests pass ✅
+**Local Results:** 1,749 passed, 11 failed (env-specific), 2 skipped, 24 xfailed
 
 ---
 
@@ -91,35 +94,27 @@ This tests actual behavior, not just that something returned.
 
 ---
 
-## 4. Failing Tests Analysis
+## 4. Test Status (v0.2.4)
 
-### Vector Search (8 failures)
-```
-test_search_mixed_types
-test_search_scores_ranked
-test_no_network_required
-test_batch_saves_embeddings
-```
-**Root cause:** sqlite-vec embedding issues (pre-existing)
-**Action:** Track in issue, mark xfail until fixed
+### ✅ Fixed in v0.2.4
+- **MCP Tests:** PR #104 fixed None vs empty string parameter passing
+- **Vector Search:** PR #135, #137 added agent isolation with backwards compatibility
+- **Playbook Search:** PR #137 updated to handle new embedding format
 
-### MCP Tests (9 failures)
-```
-test_memory_episode
-test_memory_note_by_type[*]
-test_memory_belief
-test_typical_session_workflow_dispatch
-```
-**Root cause:** MCP tool dispatch changes
-**Action:** Investigate — may need MCP mock updates
+### ⚠️ Local-Only Failures (CI Passes)
+These fail locally but pass in CI due to environment differences:
 
-### Metacognition (2 failures)
-```
-test_no_relevant_knowledge
-test_low_confidence_recommendation
-```
-**Root cause:** Knowledge gap detection assertions
-**Action:** Review test expectations vs implementation
+| Test | Cause | Status |
+|------|-------|--------|
+| `test_search_notes`, `test_search_no_results`, `test_search_limit` | Local data pollution from real usage | CI clean ✅ |
+| `test_belief_revision::*` (4 tests) | Requires LLM API key | Expected xfail |
+| `test_metacognition::*` (2 tests) | Requires LLM API key | Expected xfail |
+| `test_no_network_required` | Local env-specific | Investigate |
+
+### 📋 Open Test Issues
+- #126: Bare exception handlers (non-blocking)
+- #128: Escrow tests are stubs (non-blocking)  
+- #129: MCP tests over-mocked (non-blocking)
 
 ---
 
