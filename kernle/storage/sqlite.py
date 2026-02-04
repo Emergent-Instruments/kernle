@@ -3713,21 +3713,32 @@ class SQLiteStorage:
             embedding = self._embedder.embed(query)
             packed = pack_embedding(embedding)
 
+            # Support both new format (agent_id:playbooks:id) and legacy (playbooks:id)
+            new_prefix = f"{self.agent_id}:playbooks:"
+            legacy_prefix = "playbooks:"
+
             with self._connect() as conn:
                 cur = conn.execute(
                     """
                     SELECT e.id, e.embedding, distance
                     FROM vec_embeddings e
-                    WHERE e.id LIKE 'playbooks:%'
+                    WHERE (e.id LIKE ? OR e.id LIKE ?)
                     ORDER BY distance
                     LIMIT ?
                 """.replace("distance", f"vec_distance_L2(e.embedding, X'{packed.hex()}')"),
-                    (limit * 2,),
+                    (f"{new_prefix}%", f"{legacy_prefix}%", limit * 2),
                 )
 
                 vec_results = cur.fetchall()
 
-            playbook_ids = [r[0].replace("playbooks:", "") for r in vec_results]
+            # Extract playbook IDs from both formats
+            playbook_ids = []
+            for r in vec_results:
+                vec_id = r[0]
+                if vec_id.startswith(new_prefix):
+                    playbook_ids.append(vec_id[len(new_prefix) :])
+                elif vec_id.startswith(legacy_prefix):
+                    playbook_ids.append(vec_id[len(legacy_prefix) :])
 
             playbooks = []
             for pid in playbook_ids:
@@ -4697,16 +4708,21 @@ class SQLiteStorage:
                 vec_id = row["id"]
                 distance = row["distance"]
 
-                # Security: only process embeddings for this agent
-                if not vec_id.startswith(agent_prefix):
-                    continue
-
-                # Parse agent_id:table:record_id format
-                parts = vec_id.split(":", 2)
-                if len(parts) != 3:
-                    # Legacy format (table:record_id) - skip for security
-                    continue
-                _, table_name, record_id = parts
+                # Parse vec_id - supports both new and legacy formats
+                # New format: agent_id:table:record_id
+                # Legacy format: table:record_id
+                if vec_id.startswith(agent_prefix):
+                    # New format - agent_id verified
+                    parts = vec_id.split(":", 2)
+                    if len(parts) != 3:
+                        continue
+                    _, table_name, record_id = parts
+                else:
+                    # Legacy format - agent_id will be verified in _fetch_record
+                    parts = vec_id.split(":", 1)
+                    if len(parts) != 2:
+                        continue
+                    table_name, record_id = parts
 
                 # Filter by requested types
                 if table_name not in table_prefixes:
