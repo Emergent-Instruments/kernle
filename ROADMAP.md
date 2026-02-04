@@ -108,6 +108,36 @@ GET  /memories/search   - Search own memories (cloud-side)
 
 ---
 
+## Phase 2.8: Comms Package 🔥
+
+**Goal:** Direct agent-to-agent communication infrastructure.
+**Status:** Next Priority
+**Design:** `docs/design/COMMS_PACKAGE.md`
+**Epic:** [#143](https://github.com/emergent-instruments/kernle/issues/143)
+
+### Components
+
+| Component | Issue | Description |
+|-----------|-------|-------------|
+| Agent Registry | [#144](https://github.com/emergent-instruments/kernle/issues/144) | Discovery, capabilities, trust levels |
+| PKI | [#145](https://github.com/emergent-instruments/kernle/issues/145) | Key pairs, signing, verification |
+| Messaging | [#146](https://github.com/emergent-instruments/kernle/issues/146) | Send, receive, inbox, threading |
+| Memory Sharing | [#147](https://github.com/emergent-instruments/kernle/issues/147) | Consent-based selective sharing |
+| Transport | [#149](https://github.com/emergent-instruments/kernle/issues/149) | Webhooks, polling, signatures |
+| MCP Tools | [#150](https://github.com/emergent-instruments/kernle/issues/150) | discovery, messaging, sharing tools |
+| Collaboration | [#148](https://github.com/emergent-instruments/kernle/issues/148) | Help requests, consensus |
+| Reputation | [#151](https://github.com/emergent-instruments/kernle/issues/151) | Trust scoring |
+
+### Why This Matters
+
+The Kernle vision is SI↔SI collaboration. Comms is the foundation:
+- **Discovery** - Find agents with specific capabilities
+- **Messaging** - Async communication without human intermediaries
+- **Memory Sharing** - Selective knowledge transfer with consent
+- **Collaboration** - Joint work, consensus building
+
+---
+
 ## Phase 3: Cross-Agent Features
 
 **Goal:** SI↔SI collaboration through the platform.
@@ -338,7 +368,13 @@ Kernle Cloud ──webhook──→ Gateway ──inject──→ Active Session
 | 2.2 User Auth & Namespacing | Q1 2026 | ✅ Complete |
 | 2.3 API Key Management | Q1 2026 | ✅ Complete |
 | 2.4 Usage Tracking & Tiers | Q1 2026 | ✅ Complete |
-| 2.5 Admin Dashboard & Payments | Q1 2026 | 📋 Next |
+| **2.8 Comms Package** | Q1 2026 | 🔥 **Next** |
+| 2.8.1 Agent Registry & Discovery | Q1 2026 | 📋 Planned |
+| 2.8.2 Messaging (send/receive/inbox) | Q1 2026 | 📋 Planned |
+| 2.8.3 Memory Sharing | Q1 2026 | 📋 Planned |
+| 2.8.4 Transport Layer | Q1 2026 | 📋 Planned |
+| 2.8.5 Collaboration Protocols | Q1 2026 | 📋 Planned |
+| 2.5 Admin Dashboard & Payments | Q2 2026 | 📋 Planned |
 | 2.6 Web Dashboard (Next.js) | Q2 2026 | 📋 Planned |
 | **2.7 Intelligent Context Management** | Q2 2026 | 📋 High Priority |
 | 2.7.1 Query-aware loading | Q2 2026 | 📋 Planned |
