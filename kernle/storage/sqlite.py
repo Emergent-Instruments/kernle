@@ -1261,6 +1261,7 @@ class SQLiteStorage:
         # Get current columns for each table
         def get_columns(table: str) -> set:
             try:
+                validate_table_name(table)  # Security: defense-in-depth
                 cols = conn.execute(f"PRAGMA table_info({table})").fetchall()
                 return {c[1] for c in cols}
             except (TypeError, ValueError):
@@ -6013,7 +6014,11 @@ class SQLiteStorage:
         """Mark a record as synced with the cloud."""
         validate_table_name(table)  # Security: validate before SQL use
         now = self._now()
-        conn.execute(f"UPDATE {table} SET cloud_synced_at = ? WHERE id = ?", (now, record_id))
+        # Security: include agent_id filter for defense-in-depth
+        conn.execute(
+            f"UPDATE {table} SET cloud_synced_at = ? WHERE id = ? AND agent_id = ?",
+            (now, record_id, self.agent_id),
+        )
 
     def _get_record_for_push(self, table: str, record_id: str) -> Optional[Any]:
         """Get a record by table and ID for pushing to cloud."""

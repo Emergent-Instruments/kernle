@@ -11,7 +11,6 @@ following the same patterns as kernle.mcp.server.
 """
 
 import logging
-import re
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
@@ -40,6 +39,11 @@ from kernle.commerce.wallet.service import (
     WalletServiceError,
 )
 from kernle.commerce.wallet.storage import InMemoryWalletStorage
+from kernle.mcp.sanitize import (
+    sanitize_array,
+    sanitize_string,
+    validate_number,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -130,76 +134,8 @@ def reset_commerce_services() -> None:
 # =============================================================================
 # Input Validation
 # =============================================================================
-
-
-def sanitize_string(
-    value: Any, field_name: str, max_length: int = 1000, required: bool = True
-) -> str:
-    """Sanitize and validate string inputs."""
-    if value is None and not required:
-        return ""
-
-    if not isinstance(value, str):
-        raise ValueError(f"{field_name} must be a string, got {type(value).__name__}")
-
-    if required and not value.strip():
-        raise ValueError(f"{field_name} cannot be empty")
-
-    if len(value) > max_length:
-        raise ValueError(f"{field_name} too long (max {max_length} characters)")
-
-    # Remove null bytes and control characters except newlines and tabs
-    sanitized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", value)
-    return sanitized
-
-
-def sanitize_array(
-    value: Any, field_name: str, item_max_length: int = 100, max_items: int = 20
-) -> List[str]:
-    """Sanitize and validate array inputs."""
-    if value is None:
-        return []
-
-    if not isinstance(value, list):
-        raise ValueError(f"{field_name} must be an array, got {type(value).__name__}")
-
-    if len(value) > max_items:
-        raise ValueError(f"{field_name} too many items (max {max_items})")
-
-    sanitized = []
-    for i, item in enumerate(value):
-        sanitized_item = sanitize_string(
-            item, f"{field_name}[{i}]", item_max_length, required=False
-        )
-        if sanitized_item:
-            sanitized.append(sanitized_item)
-
-    return sanitized
-
-
-def validate_number(
-    value: Any,
-    field_name: str,
-    min_val: Optional[float] = None,
-    max_val: Optional[float] = None,
-    default: Optional[float] = None,
-) -> float:
-    """Validate numeric values."""
-    if value is None:
-        if default is not None:
-            return default
-        raise ValueError(f"{field_name} is required")
-
-    if not isinstance(value, (int, float)):
-        raise ValueError(f"{field_name} must be a number, got {type(value).__name__}")
-
-    if min_val is not None and value < min_val:
-        raise ValueError(f"{field_name} must be >= {min_val}, got {value}")
-
-    if max_val is not None and value > max_val:
-        raise ValueError(f"{field_name} must be <= {max_val}, got {value}")
-
-    return float(value)
+# Note: sanitize_string, sanitize_array, validate_number are imported
+# from kernle.mcp.sanitize to avoid duplication
 
 
 def validate_datetime(value: Any, field_name: str, required: bool = True) -> Optional[datetime]:
