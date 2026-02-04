@@ -839,3 +839,68 @@ class TestBatchInsertion:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestProvenanceProtection:
+    """Test that provenance fields are write-once/append-only."""
+
+    def test_source_type_is_write_once(self, storage):
+        """source_type should not change on update."""
+        episode = Episode(
+            id="prov_test_1",
+            agent_id="test_agent",
+            objective="Test objective",
+            outcome="Test outcome",
+            source_type="direct_experience",
+        )
+        storage.save_episode(episode)
+
+        # Try to change source_type
+        episode.source_type = "inference"
+        storage.update_episode_atomic(episode, expected_version=1)
+
+        # Verify source_type is preserved
+        retrieved = storage.get_episode("prov_test_1")
+        assert retrieved.source_type == "direct_experience"
+
+    def test_derived_from_is_append_only(self, storage):
+        """derived_from should only allow adding, not removing."""
+        episode = Episode(
+            id="prov_test_2",
+            agent_id="test_agent",
+            objective="Test objective",
+            outcome="Test outcome",
+            derived_from=["episode:orig_1", "episode:orig_2"],
+        )
+        storage.save_episode(episode)
+
+        # Try to replace derived_from (removing orig_1)
+        episode.derived_from = ["episode:orig_3"]
+        storage.update_episode_atomic(episode, expected_version=1)
+
+        # Verify all originals are preserved and new one added
+        retrieved = storage.get_episode("prov_test_2")
+        assert "episode:orig_1" in retrieved.derived_from
+        assert "episode:orig_2" in retrieved.derived_from
+        assert "episode:orig_3" in retrieved.derived_from
+
+    def test_confidence_history_is_append_only(self, storage):
+        """confidence_history should only allow appending."""
+        episode = Episode(
+            id="prov_test_3",
+            agent_id="test_agent",
+            objective="Test objective",
+            outcome="Test outcome",
+            confidence_history=["0.8@2024-01-01", "0.9@2024-01-02"],
+        )
+        storage.save_episode(episode)
+
+        # Try to replace history
+        episode.confidence_history = ["0.7@2024-01-03"]
+        storage.update_episode_atomic(episode, expected_version=1)
+
+        # Verify original history preserved and new entry added
+        retrieved = storage.get_episode("prov_test_3")
+        assert "0.8@2024-01-01" in retrieved.confidence_history
+        assert "0.9@2024-01-02" in retrieved.confidence_history
+        assert "0.7@2024-01-03" in retrieved.confidence_history
