@@ -40,6 +40,7 @@ from kernle.cli.commands import (
     cmd_suggestions,
 )
 from kernle.cli.commands.agent import cmd_agent
+from kernle.cli.commands.comms import add_comms_parser, cmd_comms
 from kernle.cli.commands.import_cmd import cmd_import, cmd_migrate
 from kernle.cli.commands.setup import cmd_setup
 from kernle.commerce.cli import cmd_job, cmd_skills, cmd_wallet
@@ -3685,6 +3686,9 @@ Typical usage in a memoryFlush hook:
     agent_delete.add_argument("name", help="Agent ID to delete")
     agent_delete.add_argument("--force", "-f", action="store_true", help="Skip confirmation prompt")
 
+    # comms - agent-to-agent communication (v0.3.0)
+    add_comms_parser(subparsers)
+
     # import - import from external files (markdown, JSON, CSV)
     p_import = subparsers.add_parser(
         "import", help="Import memories from markdown, JSON, or CSV files"
@@ -4109,6 +4113,8 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_mcp(args)
         elif args.command == "agent":
             cmd_agent(args, k)
+        elif args.command == "comms":
+            cmd_comms(args, k)
         elif args.command == "import":
             cmd_import(args, k)
         elif args.command == "migrate":
