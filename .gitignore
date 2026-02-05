@@ -25,26 +25,50 @@ wheels/
 venv/
 ENV/
 
+# Node
+node_modules/
+.next/
+out/
+.npm
+*.tsbuildinfo
+
 # IDE
 .idea/
 .vscode/
 *.swp
 *.swo
+*~
 
 # Testing
 .pytest_cache/
 .coverage
 htmlcov/
 
+# Linting / type checking
+.mypy_cache/
+.ruff_cache/
+
 # Environment
 .env
 .env.local
-*.local
+.env.*.local
+
+# Logs
+*.log
 
 # OS
 .DS_Store
 Thumbs.db
 
+# Obsidian
+.obsidian/
+
+# Supabase
+supabase/.temp/
+supabase/.branches
+supabase/.env.keys
+supabase/.env.local
+supabase/.env.*.local
+
 # Kernle local data
 .kernle/
-supabase/.temp/
