@@ -19,6 +19,16 @@ from kernle.comms.crypto import (
     sign_message,
     verify_signature,
 )
+from kernle.comms.messaging import (
+    DeliveryError,
+    Message,
+    MessageNotFoundError,
+    MessagePriority,
+    MessageStatus,
+    MessageStore,
+    Messenger,
+    MessagingError,
+)
 from kernle.comms.registry import (
     AgentProfile,
     AgentRegistry,
@@ -40,4 +50,13 @@ __all__ = [
     "generate_key_pair",
     "sign_message",
     "verify_signature",
+    # Messaging
+    "DeliveryError",
+    "Message",
+    "MessageNotFoundError",
+    "MessagePriority",
+    "MessageStatus",
+    "MessageStore",
+    "Messenger",
+    "MessagingError",
 ]
