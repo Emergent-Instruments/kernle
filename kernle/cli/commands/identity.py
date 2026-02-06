@@ -160,6 +160,13 @@ def cmd_consolidate(args, k: "Kernle"):
     reflection and pattern identification. The AGENT does the
     reasoning - Kernle just provides the data and structure.
     """
+    # Advanced consolidation mode
+    if getattr(args, "advanced", False):
+        limit = getattr(args, "limit", 100) or 100
+        result = k.scaffold_advanced_consolidation(episode_limit=limit)
+        print(result["scaffold"])
+        return
+
     # Get episode limit from args (default 20)
     limit = getattr(args, "limit", 20) or 20
 

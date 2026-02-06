@@ -13,8 +13,15 @@ from pathlib import Path
 from typing import Literal, Optional
 
 from .base import (
+    # Dynamic trust constants
+    DEFAULT_TRUST,
+    SELF_TRUST_FLOOR,
+    TRUST_DECAY_RATE,
+    TRUST_DEPTH_DECAY,
     Belief,
     ConfidenceChange,
+    DiagnosticReport,
+    DiagnosticSession,
     Drive,
     EntityModel,
     Episode,
@@ -153,6 +160,13 @@ __all__ = [
     "MemorySuggestion",
     "TrustAssessment",
     "Epoch",
+    "DiagnosticSession",
+    "DiagnosticReport",
+    # Dynamic trust constants
+    "DEFAULT_TRUST",
+    "TRUST_DECAY_RATE",
+    "TRUST_DEPTH_DECAY",
+    "SELF_TRUST_FLOOR",
     # Meta-memory types
     "SourceType",
     "ConfidenceChange",

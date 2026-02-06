@@ -18,6 +18,8 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from .base import (
     Belief,
+    DiagnosticReport,
+    DiagnosticSession,
     Drive,
     EntityModel,
     Episode,
@@ -51,7 +53,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 19  # Add trust assessments, relationship_history, entity_models tables
+SCHEMA_VERSION = 20  # Add diagnostic sessions and reports tables
 
 # Maximum size for merged arrays during sync to prevent resource exhaustion
 MAX_SYNC_ARRAY_SIZE = 500
@@ -131,6 +133,8 @@ ALLOWED_TABLES = frozenset(
         "agent_registry",  # Comms package (v0.3.0)
         "agent_trust_assessments",  # KEP v3 trust layer
         "agent_epochs",  # KEP v3 temporal epochs
+        "agent_diagnostic_sessions",  # KEP v3 diagnostic sessions
+        "agent_diagnostic_reports",  # KEP v3 diagnostic reports
     }
 )
 
@@ -786,6 +790,42 @@ CREATE TABLE IF NOT EXISTS agent_registry (
 CREATE INDEX IF NOT EXISTS idx_agent_registry_user ON agent_registry(user_id);
 CREATE INDEX IF NOT EXISTS idx_agent_registry_public ON agent_registry(is_public);
 CREATE INDEX IF NOT EXISTS idx_agent_registry_trust ON agent_registry(trust_level);
+
+-- Diagnostic sessions (formal health check sessions)
+CREATE TABLE IF NOT EXISTS agent_diagnostic_sessions (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    session_type TEXT DEFAULT 'self_requested',  -- self_requested, routine, anomaly_triggered, operator_initiated
+    access_level TEXT DEFAULT 'structural',       -- structural, content, full
+    status TEXT DEFAULT 'active',                 -- active, completed, cancelled
+    consent_given INTEGER DEFAULT 0,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    -- Sync metadata
+    local_updated_at TEXT NOT NULL,
+    cloud_synced_at TEXT,
+    version INTEGER DEFAULT 1,
+    deleted INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_diag_sessions_agent ON agent_diagnostic_sessions(agent_id);
+CREATE INDEX IF NOT EXISTS idx_diag_sessions_status ON agent_diagnostic_sessions(agent_id, status);
+
+-- Diagnostic reports (findings from diagnostic sessions)
+CREATE TABLE IF NOT EXISTS agent_diagnostic_reports (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,  -- References agent_diagnostic_sessions.id
+    findings TEXT,              -- JSON array of findings
+    summary TEXT,
+    created_at TEXT NOT NULL,
+    -- Sync metadata
+    local_updated_at TEXT NOT NULL,
+    cloud_synced_at TEXT,
+    version INTEGER DEFAULT 1,
+    deleted INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_diag_reports_agent ON agent_diagnostic_reports(agent_id);
+CREATE INDEX IF NOT EXISTS idx_diag_reports_session ON agent_diagnostic_reports(session_id);
 
 -- Embedding metadata (tracks what's been embedded)
 CREATE TABLE IF NOT EXISTS embedding_meta (
@@ -1897,6 +1937,61 @@ class SQLiteStorage:
             logger.info("Created agent_trust_assessments table")
             conn.commit()
 
+        # v20: Add diagnostic sessions and reports tables
+        if "agent_diagnostic_sessions" not in table_names:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS agent_diagnostic_sessions (
+                    id TEXT PRIMARY KEY,
+                    agent_id TEXT NOT NULL,
+                    session_type TEXT DEFAULT 'self_requested',
+                    access_level TEXT DEFAULT 'structural',
+                    status TEXT DEFAULT 'active',
+                    consent_given INTEGER DEFAULT 0,
+                    started_at TEXT NOT NULL,
+                    completed_at TEXT,
+                    local_updated_at TEXT NOT NULL,
+                    cloud_synced_at TEXT,
+                    version INTEGER DEFAULT 1,
+                    deleted INTEGER DEFAULT 0
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_diag_sessions_agent "
+                "ON agent_diagnostic_sessions(agent_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_diag_sessions_status "
+                "ON agent_diagnostic_sessions(agent_id, status)"
+            )
+            logger.info("Created agent_diagnostic_sessions table")
+            conn.commit()
+
+        if "agent_diagnostic_reports" not in table_names:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS agent_diagnostic_reports (
+                    id TEXT PRIMARY KEY,
+                    agent_id TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    findings TEXT,
+                    summary TEXT,
+                    created_at TEXT NOT NULL,
+                    local_updated_at TEXT NOT NULL,
+                    cloud_synced_at TEXT,
+                    version INTEGER DEFAULT 1,
+                    deleted INTEGER DEFAULT 0
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_diag_reports_agent "
+                "ON agent_diagnostic_reports(agent_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_diag_reports_session "
+                "ON agent_diagnostic_reports(session_id)"
+            )
+            logger.info("Created agent_diagnostic_reports table")
+            conn.commit()
+
         # v18: Add belief_scope and domain metadata (KEP v3)
         if "beliefs" in table_names:
             belief_cols = get_columns("beliefs")
@@ -2584,6 +2679,17 @@ class SQLiteStorage:
             # Epoch tracking
             epoch_id=self._safe_get(row, "epoch_id", None),
         )
+
+    def get_episodes_by_source_entity(self, source_entity: str, limit: int = 500) -> List[Episode]:
+        """Get episodes associated with a source entity for trust computation."""
+        query = """
+            SELECT * FROM episodes
+            WHERE agent_id = ? AND source_entity = ? AND deleted = 0 AND is_forgotten = 0
+            ORDER BY created_at DESC LIMIT ?
+        """
+        with self._connect() as conn:
+            rows = conn.execute(query, (self.agent_id, source_entity, limit)).fetchall()
+        return [self._row_to_episode(row) for row in rows]
 
     def update_episode_emotion(
         self, episode_id: str, valence: float, arousal: float, tags: Optional[List[str]] = None
@@ -4177,6 +4283,181 @@ class SQLiteStorage:
                 (now, self.agent_id, entity),
             )
             return result.rowcount > 0
+
+    # === Diagnostic Sessions & Reports ===
+
+    def save_diagnostic_session(self, session: DiagnosticSession) -> str:
+        """Save a diagnostic session. Returns the session ID."""
+        now = self._now()
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO agent_diagnostic_sessions "
+                "(id, agent_id, session_type, access_level, status, consent_given, "
+                "started_at, completed_at, local_updated_at, cloud_synced_at, "
+                "version, deleted) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    session.id,
+                    self.agent_id,
+                    session.session_type,
+                    session.access_level,
+                    session.status,
+                    1 if session.consent_given else 0,
+                    (session.started_at.isoformat() if session.started_at else now),
+                    (session.completed_at.isoformat() if session.completed_at else None),
+                    now,
+                    None,
+                    session.version,
+                    1 if session.deleted else 0,
+                ),
+            )
+        return session.id
+
+    def get_diagnostic_session(self, session_id: str) -> Optional[DiagnosticSession]:
+        """Get a specific diagnostic session by ID."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM agent_diagnostic_sessions "
+                "WHERE id = ? AND agent_id = ? AND deleted = 0",
+                (session_id, self.agent_id),
+            ).fetchone()
+            if not row:
+                return None
+            return self._row_to_diagnostic_session(row)
+
+    def get_diagnostic_sessions(
+        self,
+        status: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[DiagnosticSession]:
+        """Get diagnostic sessions, optionally filtered by status."""
+        with self._connect() as conn:
+            if status:
+                rows = conn.execute(
+                    "SELECT * FROM agent_diagnostic_sessions "
+                    "WHERE agent_id = ? AND status = ? AND deleted = 0 "
+                    "ORDER BY started_at DESC LIMIT ?",
+                    (self.agent_id, status, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM agent_diagnostic_sessions "
+                    "WHERE agent_id = ? AND deleted = 0 "
+                    "ORDER BY started_at DESC LIMIT ?",
+                    (self.agent_id, limit),
+                ).fetchall()
+            return [self._row_to_diagnostic_session(r) for r in rows]
+
+    def complete_diagnostic_session(self, session_id: str) -> bool:
+        """Mark a diagnostic session as completed. Returns True if updated."""
+        now = self._now()
+        with self._connect() as conn:
+            result = conn.execute(
+                "UPDATE agent_diagnostic_sessions SET status = 'completed', "
+                "completed_at = ?, local_updated_at = ?, version = version + 1 "
+                "WHERE id = ? AND agent_id = ? AND deleted = 0 AND status = 'active'",
+                (now, now, session_id, self.agent_id),
+            )
+            return result.rowcount > 0
+
+    def save_diagnostic_report(self, report: DiagnosticReport) -> str:
+        """Save a diagnostic report. Returns the report ID."""
+        now = self._now()
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO agent_diagnostic_reports "
+                "(id, agent_id, session_id, findings, summary, "
+                "created_at, local_updated_at, cloud_synced_at, version, deleted) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    report.id,
+                    self.agent_id,
+                    report.session_id,
+                    json.dumps(report.findings) if report.findings is not None else None,
+                    report.summary,
+                    (report.created_at.isoformat() if report.created_at else now),
+                    now,
+                    None,
+                    report.version,
+                    1 if report.deleted else 0,
+                ),
+            )
+        return report.id
+
+    def get_diagnostic_report(self, report_id: str) -> Optional[DiagnosticReport]:
+        """Get a specific diagnostic report by ID."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM agent_diagnostic_reports "
+                "WHERE id = ? AND agent_id = ? AND deleted = 0",
+                (report_id, self.agent_id),
+            ).fetchone()
+            if not row:
+                return None
+            return self._row_to_diagnostic_report(row)
+
+    def get_diagnostic_reports(
+        self,
+        session_id: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[DiagnosticReport]:
+        """Get diagnostic reports, optionally filtered by session."""
+        with self._connect() as conn:
+            if session_id:
+                rows = conn.execute(
+                    "SELECT * FROM agent_diagnostic_reports "
+                    "WHERE agent_id = ? AND session_id = ? AND deleted = 0 "
+                    "ORDER BY created_at DESC LIMIT ?",
+                    (self.agent_id, session_id, limit),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM agent_diagnostic_reports "
+                    "WHERE agent_id = ? AND deleted = 0 "
+                    "ORDER BY created_at DESC LIMIT ?",
+                    (self.agent_id, limit),
+                ).fetchall()
+            return [self._row_to_diagnostic_report(r) for r in rows]
+
+    def _row_to_diagnostic_session(self, row: sqlite3.Row) -> DiagnosticSession:
+        """Convert a database row to a DiagnosticSession."""
+        return DiagnosticSession(
+            id=row["id"],
+            agent_id=row["agent_id"],
+            session_type=row["session_type"],
+            access_level=row["access_level"],
+            status=row["status"],
+            consent_given=bool(row["consent_given"]),
+            started_at=parse_datetime(row["started_at"]),
+            completed_at=parse_datetime(row["completed_at"]) if row["completed_at"] else None,
+            local_updated_at=(
+                parse_datetime(row["local_updated_at"]) if row["local_updated_at"] else None
+            ),
+            cloud_synced_at=(
+                parse_datetime(row["cloud_synced_at"]) if row["cloud_synced_at"] else None
+            ),
+            version=row["version"],
+            deleted=bool(row["deleted"]),
+        )
+
+    def _row_to_diagnostic_report(self, row: sqlite3.Row) -> DiagnosticReport:
+        """Convert a database row to a DiagnosticReport."""
+        return DiagnosticReport(
+            id=row["id"],
+            agent_id=row["agent_id"],
+            session_id=row["session_id"],
+            findings=json.loads(row["findings"]) if row["findings"] else None,
+            summary=row["summary"],
+            created_at=parse_datetime(row["created_at"]) if row["created_at"] else None,
+            local_updated_at=(
+                parse_datetime(row["local_updated_at"]) if row["local_updated_at"] else None
+            ),
+            cloud_synced_at=(
+                parse_datetime(row["cloud_synced_at"]) if row["cloud_synced_at"] else None
+            ),
+            version=row["version"],
+            deleted=bool(row["deleted"]),
+        )
 
     # === Relationship History & Entity Models ===
 
