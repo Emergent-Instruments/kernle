@@ -66,6 +66,16 @@ all = [
 kernle = "kernle.cli.__main__:main"
 kernle-mcp = "kernle.mcp.server:main"
 
+# Entry point groups for plugin/component discovery.
+# External packages register here; these are empty placeholders.
+[project.entry-points."kernle.plugins"]
+
+[project.entry-points."kernle.stacks"]
+
+[project.entry-points."kernle.models"]
+
+[project.entry-points."kernle.stack_components"]
+
 [project.urls]
 Homepage = "https://kernle.ai"
 Documentation = "https://docs.kernle.ai"
