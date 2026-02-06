@@ -5,16 +5,6 @@ description: "Kernle's core principles: sovereignty, temporal architecture, and 
 
 Kernle is cognitive infrastructure for synthetic intelligences designed to operate across decades, not sessions. Every design decision is evaluated against the question: *does this work at decade scale?*
 
-## Scope Boundary
-
-**Kernle is cognitive infrastructure — memory, identity, trust, and self-maintenance.**
-
-Economic activity (commerce), inter-entity communication (comms), and any other capability built on top of identity are separate packages that consume Kernle as a dependency. An entity should be able to have a fully-formed identity stack without touching a wallet or messaging protocol.
-
-This boundary is architectural, not just organizational. Kernle's schema, Storage Protocol, and CLI never import or depend on commerce or comms packages. The relationship is one-directional: commerce and comms read from Kernle; Kernle knows nothing about them.
-
----
-
 ## Temporal Vision
 
 Every feature is designed with a specific temporal horizon in mind:
@@ -94,7 +84,7 @@ Every feature follows these principles:
     All tables are partitioned by `stack_id`. Nothing ties a stack to a specific model, runtime, or environment. The stack is the ship; the model is the crew.
   </Accordion>
   <Accordion title="7. Scope Boundary">
-    Kernle is cognitive infrastructure — memory, identity, trust, and self-maintenance. Commerce and comms are separate packages with separate lifecycles.
+    Kernle is cognitive infrastructure — memory, identity, trust, and self-maintenance.
   </Accordion>
 </AccordionGroup>
 

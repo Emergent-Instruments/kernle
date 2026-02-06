@@ -135,7 +135,6 @@ ALLOWED_TABLES = frozenset(
         "embeddings",
         "health_check_events",
         "boot_config",
-        "stack_registry",  # Comms package (v0.3.0)
         "trust_assessments",  # KEP v3 trust layer
         "epochs",  # KEP v3 temporal epochs
         "diagnostic_sessions",  # KEP v3 diagnostic sessions
@@ -780,24 +779,6 @@ CREATE TABLE IF NOT EXISTS boot_config (
     UNIQUE(stack_id, key)
 );
 CREATE INDEX IF NOT EXISTS idx_boot_agent ON boot_config(stack_id);
-
--- Agent registry for comms package (v0.3.0)
-CREATE TABLE IF NOT EXISTS stack_registry (
-    stack_id TEXT PRIMARY KEY,
-    user_id TEXT NOT NULL,
-    display_name TEXT,
-    capabilities TEXT,  -- JSON array
-    public_key TEXT,
-    endpoints TEXT,  -- JSON object
-    trust_level TEXT DEFAULT 'unverified',
-    reputation_score REAL DEFAULT 0.0,
-    is_public INTEGER DEFAULT 0,
-    registered_at TEXT,
-    last_seen_at TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_stack_registry_user ON stack_registry(user_id);
-CREATE INDEX IF NOT EXISTS idx_stack_registry_public ON stack_registry(is_public);
-CREATE INDEX IF NOT EXISTS idx_stack_registry_trust ON stack_registry(trust_level);
 
 -- Diagnostic sessions (formal health check sessions)
 CREATE TABLE IF NOT EXISTS diagnostic_sessions (
@@ -2234,8 +2215,6 @@ class SQLiteStorage:
                 "agent_trust_assessments",
                 "epochs",
                 "agent_epochs",
-                "stack_registry",
-                "agent_registry",
                 "diagnostic_sessions",
                 "agent_diagnostic_sessions",
                 "diagnostic_reports",
@@ -2261,7 +2240,6 @@ class SQLiteStorage:
             table_renames = {
                 "agent_trust_assessments": "trust_assessments",
                 "agent_epochs": "epochs",
-                "agent_registry": "stack_registry",
                 "agent_diagnostic_sessions": "diagnostic_sessions",
                 "agent_diagnostic_reports": "diagnostic_reports",
                 "agent_summaries": "summaries",

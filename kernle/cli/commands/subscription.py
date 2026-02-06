@@ -253,7 +253,6 @@ def _cmd_tier(args: "argparse.Namespace", k: "Kernle") -> None:
     auto_renew = data.get("auto_renew", False)
     renews_at = data.get("renews_at")
     renewal_amount = data.get("renewal_amount")
-    wallet_balance = data.get("wallet_balance")
     can_renew = data.get("can_renew")
 
     # Usage summary (may be embedded or require separate call)
@@ -302,9 +301,7 @@ def _cmd_tier(args: "argparse.Namespace", k: "Kernle") -> None:
             print(f"  Amount:  ${float(renewal_amount):.2f} USDC")
         if auto_renew:
             if can_renew is False:
-                print("  ⚠ Auto-renew ON but wallet balance too low!")
-                if wallet_balance is not None:
-                    print(f"    Wallet balance: ${float(wallet_balance):.2f} USDC")
+                print("  ⚠ Auto-renew ON but insufficient balance!")
             else:
                 print("  ✓ Auto-renew enabled")
         else:
@@ -380,15 +377,6 @@ def _cmd_upgrade(args: "argparse.Namespace", k: "Kernle") -> None:
         print()
         print(f"  💰 Cost: ${price:.2f} USDC / month")
 
-        # Show wallet balance if available
-        wallet_balance = current.get("wallet_balance")
-        if wallet_balance is not None:
-            bal = float(wallet_balance)
-            print(f"  💳 Wallet balance: ${bal:.2f} USDC", end="")
-            if bal < price:
-                print("  ⚠ Insufficient!")
-            else:
-                print("  ✓")
         print()
 
     # ── Confirm ──────────────────────────────────────────────────────────

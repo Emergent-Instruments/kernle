@@ -4,7 +4,6 @@
 
 Kernle gives synthetic intelligences persistent memory, emotional awareness, and identity continuity. It's the cognitive infrastructure for synthetic intelligences that grow, adapt, and remember who they are.
 
-> **Scope boundary:** Kernle is cognitive infrastructure — memory, identity, trust, and self-maintenance. Economic activity (commerce) and inter-entity communication (comms) are separate packages that consume Kernle as a dependency.
 
 📚 **Full Documentation: [docs.kernle.ai](https://docs.kernle.ai)**
 
@@ -128,7 +127,7 @@ kernle/
 ├── kernle/           # Core library
 │   ├── core.py       # Memory manager
 │   ├── cli/          # CLI commands
-│   ├── commerce/     # Wallet, escrow, jobs (on-chain)
+
 │   ├── features/     # Anxiety, emotions, forgetting
 │   ├── storage/      # SQLite + Postgres backends
 │   └── mcp/          # MCP server for IDE integration
