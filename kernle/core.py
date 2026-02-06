@@ -449,8 +449,60 @@ class Kernle(
 
     @property
     def storage(self) -> "StorageProtocol":
-        """Get the storage backend."""
+        """Get the storage backend.
+
+        .. deprecated:: 0.4.0
+            Direct storage access will be deprecated in a future release.
+            Prefer :attr:`entity` and :attr:`stack` for the new architecture.
+        """
         return self._storage
+
+    @property
+    def entity(self):
+        """Access the Entity (CoreProtocol) for new-style composition.
+
+        The Entity is lazily created on first access. It provides the
+        coordinator/bus for the new component architecture (v0.4.0+).
+
+        Returns:
+            Entity: The CoreProtocol implementation.
+        """
+        if not hasattr(self, "_entity"):
+            from kernle.entity import Entity
+
+            self._entity = Entity(core_id=self.stack_id)
+        return self._entity
+
+    @property
+    def stack(self):
+        """Access the SQLiteStack (StackProtocol) wrapper.
+
+        The SQLiteStack is lazily created on first access. It wraps a
+        *separate* SQLiteStorage pointing at the same database file,
+        providing the StackProtocol interface.
+
+        If the Entity has already been created, the stack is automatically
+        attached as the active stack.
+
+        Returns:
+            SQLiteStack: The StackProtocol implementation, or None if the
+            underlying storage is not SQLite-based.
+        """
+        if not hasattr(self, "_stack"):
+            from kernle.storage.sqlite import SQLiteStorage as _SQLiteStorage
+
+            if not isinstance(self._storage, _SQLiteStorage):
+                return None
+
+            from kernle.stack.sqlite_stack import SQLiteStack
+
+            self._stack = SQLiteStack(
+                stack_id=self.stack_id,
+                db_path=self._storage.db_path,
+            )
+            if hasattr(self, "_entity"):
+                self._entity.attach_stack(self._stack, alias="default", set_active=True)
+        return self._stack
 
     @property
     def client(self):
