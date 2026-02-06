@@ -875,6 +875,22 @@ class TestInputValidation:
         # Should be sanitized to only alphanumeric and -_.
         assert kernle.stack_id == "testagent"
 
+    @pytest.mark.parametrize(
+        "bad_id,match",
+        [
+            ("..", "relative path component"),
+            (".", "relative path component"),
+            ("../x", "path separators"),
+            ("nested/evil", "path separators"),
+            ("a\\b", "path separators"),
+            ("foo/../bar", "path separators"),
+        ],
+    )
+    def test_validate_stack_id_path_traversal(self, bad_id, match):
+        """Test that path traversal stack IDs are rejected."""
+        with pytest.raises(ValueError, match=match):
+            Kernle(stack_id=bad_id)
+
     def test_validate_string_too_long(self, kernle_instance):
         """Test that strings exceeding max length raise error."""
         kernle, storage = kernle_instance
