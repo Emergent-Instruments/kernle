@@ -1,6 +1,6 @@
 # Comms Package Design
 
-**Status:** Next Priority (Q1 2026)  
+**Status:** Next Priority (Q1 2026)
 **Package:** `kernle/comms/`
 
 ## Overview
