@@ -27,6 +27,7 @@ from kernle.cli.commands import (
     cmd_belief,
     cmd_consolidate,
     cmd_doctor,
+    cmd_doctor_structural,
     cmd_emotion,
     cmd_forget,
     cmd_identity,
@@ -2829,6 +2830,16 @@ def main():
         help="Full check including seed beliefs and platform hooks",
     )
 
+    # doctor subcommands
+    doctor_sub = p_doctor.add_subparsers(dest="doctor_action")
+    p_doctor_structural = doctor_sub.add_parser(
+        "structural", help="Structural health check on memory graph"
+    )
+    p_doctor_structural.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+    p_doctor_structural.add_argument(
+        "--save-note", action="store_true", help="Store findings as a diagnostic note"
+    )
+
     # relation (social graph / relationships)
     p_relation = subparsers.add_parser("relation", help="Manage relationships")
     relation_sub = p_relation.add_subparsers(dest="relation_action", required=True)
@@ -4094,7 +4105,10 @@ Beliefs already present in the agent's memory will be skipped.
         elif args.command == "init":
             cmd_init_md(args, k)
         elif args.command == "doctor":
-            cmd_doctor(args, k)
+            if getattr(args, "doctor_action", None) == "structural":
+                cmd_doctor_structural(args, k)
+            else:
+                cmd_doctor(args, k)
         elif args.command == "relation":
             cmd_relation(args, k)
         elif args.command == "drive":
