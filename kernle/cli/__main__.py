@@ -51,22 +51,6 @@ from kernle.cli.commands.setup import cmd_setup
 from kernle.cli.commands.stack import cmd_stack
 from kernle.utils import get_kernle_home, resolve_stack_id
 
-# Commerce CLI (optional - requires chainbased package)
-try:
-    from chainbased.commerce.cli import cmd_job, cmd_skills, cmd_wallet
-
-    COMMERCE_CLI_AVAILABLE = True
-except ImportError:
-    COMMERCE_CLI_AVAILABLE = False
-
-# Comms CLI (optional - requires chainbased package)
-try:
-    from chainbased.comms.cli import add_comms_parser, cmd_comms
-
-    COMMS_CLI_AVAILABLE = True
-except ImportError:
-    COMMS_CLI_AVAILABLE = False
-
 # Set up logging
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -4084,10 +4068,6 @@ Typical usage in a memoryFlush hook:
     stack_delete.add_argument("name", help="Stack ID to delete")
     stack_delete.add_argument("--force", "-f", action="store_true", help="Skip confirmation prompt")
 
-    # comms - entity-to-entity communication (requires chainbased)
-    if COMMS_CLI_AVAILABLE:
-        add_comms_parser(subparsers)
-
     # import - import from external files (markdown, JSON, CSV)
     p_import = subparsers.add_parser(
         "import", help="Import memories from markdown, JSON, or CSV files"
@@ -4267,147 +4247,6 @@ Beliefs already present in the agent's memory will be skipped.
         help="Install globally (Claude Code/Cowork only)",
     )
 
-    # =========================================================================
-    # Commerce Commands (Wallet, Jobs, Skills) - requires chainbased package
-    # =========================================================================
-    if COMMERCE_CLI_AVAILABLE:
-        # wallet - wallet management commands
-        p_wallet = subparsers.add_parser("wallet", help="Commerce wallet operations")
-        wallet_sub = p_wallet.add_subparsers(dest="wallet_action", required=True)
-
-        # kernle wallet balance
-        wallet_balance = wallet_sub.add_parser("balance", help="Show USDC balance")
-        wallet_balance.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
-        # kernle wallet address
-        wallet_address = wallet_sub.add_parser("address", help="Show wallet address")
-        wallet_address.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
-        # kernle wallet status
-        wallet_status = wallet_sub.add_parser("status", help="Show wallet status and limits")
-        wallet_status.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
-        # job - job marketplace commands
-        p_job = subparsers.add_parser("job", help="Commerce job marketplace operations")
-        job_sub = p_job.add_subparsers(dest="job_action", required=True)
-
-        # kernle job create TITLE --budget N --deadline D [--skill S]...
-        job_create = job_sub.add_parser("create", help="Create a new job listing")
-        job_create.add_argument("title", help="Job title")
-        job_create.add_argument("--budget", "-b", required=True, type=float, help="Budget in USDC")
-        job_create.add_argument(
-            "--deadline",
-            "-d",
-            required=True,
-            help="Deadline (ISO date, or relative: 1d, 7d, 2w, 1m)",
-        )
-        job_create.add_argument("--description", help="Job description")
-        job_create.add_argument(
-            "--skill", "-s", action="append", help="Required skill (repeatable)"
-        )
-        job_create.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
-        # kernle job list [--mine] [--status S]
-        job_list = job_sub.add_parser("list", help="List jobs")
-        job_list.add_argument(
-            "--mine", "-m", action="store_true", help="Only show my jobs (as client)"
-        )
-        job_list.add_argument(
-            "--status",
-            "-s",
-            choices=[
-                "open",
-                "funded",
-                "accepted",
-                "delivered",
-                "completed",
-                "disputed",
-                "cancelled",
-            ],
-            help="Filter by status",
-        )
-        job_list.add_argument("--limit", "-l", type=int, default=20, help="Maximum results")
-        job_list.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
-        # kernle job show JOB_ID
-        job_show = job_sub.add_parser("show", help="Show job details")
-        job_show.add_argument("job_id", help="Job ID")
-        job_show.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
-        # kernle job fund JOB_ID
-        job_fund = job_sub.add_parser("fund", help="Fund a job (deploy escrow)")
-        job_fund.add_argument("job_id", help="Job ID")
-        job_fund.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
-        # kernle job applications JOB_ID
-        job_applications = job_sub.add_parser("applications", help="List applications for a job")
-        job_applications.add_argument("job_id", help="Job ID")
-        job_applications.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
-        # kernle job accept JOB_ID APPLICATION_ID
-        job_accept = job_sub.add_parser("accept", help="Accept an application")
-        job_accept.add_argument("job_id", help="Job ID")
-        job_accept.add_argument("application_id", help="Application ID to accept")
-        job_accept.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
-        # kernle job approve JOB_ID
-        job_approve = job_sub.add_parser("approve", help="Approve deliverable and release payment")
-        job_approve.add_argument("job_id", help="Job ID")
-        job_approve.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
-        # kernle job cancel JOB_ID
-        job_cancel = job_sub.add_parser("cancel", help="Cancel a job")
-        job_cancel.add_argument("job_id", help="Job ID")
-        job_cancel.add_argument("--reason", "-r", help="Cancellation reason")
-        job_cancel.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
-        # kernle job dispute JOB_ID --reason "..."
-        job_dispute = job_sub.add_parser("dispute", help="Raise a dispute on a job")
-        job_dispute.add_argument("job_id", help="Job ID")
-        job_dispute.add_argument("--reason", "-r", required=True, help="Reason for dispute")
-        job_dispute.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
-        # kernle job search [QUERY] [--skill S] [--min-budget N]
-        job_search = job_sub.add_parser("search", help="Search for available jobs")
-        job_search.add_argument("query", nargs="?", help="Search query")
-        job_search.add_argument(
-            "--skill", "-s", action="append", help="Filter by skill (repeatable)"
-        )
-        job_search.add_argument("--min-budget", type=float, help="Minimum budget in USDC")
-        job_search.add_argument("--max-budget", type=float, help="Maximum budget in USDC")
-        job_search.add_argument("--limit", "-l", type=int, default=20, help="Maximum results")
-        job_search.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
-        # kernle job apply JOB_ID --message "..."
-        job_apply = job_sub.add_parser("apply", help="Apply to a job")
-        job_apply.add_argument("job_id", help="Job ID")
-        job_apply.add_argument("--message", "-m", required=True, help="Application message")
-        job_apply.add_argument(
-            "--deadline", "-d", help="Proposed alternative deadline (ISO date or relative)"
-        )
-        job_apply.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
-        # kernle job deliver JOB_ID --url URL [--hash HASH]
-        job_deliver = job_sub.add_parser("deliver", help="Submit deliverable for a job")
-        job_deliver.add_argument("job_id", help="Job ID")
-        job_deliver.add_argument("--url", "-u", required=True, help="URL to deliverable")
-        job_deliver.add_argument("--hash", help="Content hash for verification (IPFS CID, etc.)")
-        job_deliver.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
-        # skills - skills registry commands
-        p_skills = subparsers.add_parser("skills", help="Commerce skills registry")
-        skills_sub = p_skills.add_subparsers(dest="skills_action", required=True)
-
-        # kernle skills list
-        skills_list = skills_sub.add_parser("list", help="List canonical skills")
-        skills_list.add_argument(
-            "--category",
-            "-c",
-            choices=["technical", "creative", "knowledge", "language", "service"],
-            help="Filter by category",
-        )
-        skills_list.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
     # Pre-process arguments: handle `kernle raw "content"` by inserting "capture"
     # This is needed because argparse subparsers consume positional args before parent parser
     raw_subcommands = {
@@ -4555,8 +4394,6 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_mcp(args)
         elif args.command == "stack":
             cmd_stack(args, k)
-        elif args.command == "comms" and COMMS_CLI_AVAILABLE:
-            cmd_comms(args, k)
         elif args.command == "import":
             cmd_import(args, k)
         elif args.command == "migrate":
@@ -4566,13 +4403,6 @@ Beliefs already present in the agent's memory will be skipped.
         # Subscription management
         elif args.command in ("sub", "subscription"):
             cmd_subscription(args, k)
-        # Commerce commands (requires chainbased)
-        elif args.command == "wallet" and COMMERCE_CLI_AVAILABLE:
-            cmd_wallet(args, k)
-        elif args.command == "job" and COMMERCE_CLI_AVAILABLE:
-            cmd_job(args, k)
-        elif args.command == "skills" and COMMERCE_CLI_AVAILABLE:
-            cmd_skills(args, k)
     except (ValueError, TypeError) as e:
         logger.error(f"Input validation error: {e}")
         sys.exit(1)
