@@ -731,6 +731,47 @@ def cmd_status(args, k: Kernle):
         print(f"Raw:        {status['raw']}")
     print(f"Checkpoint: {'Yes' if status['checkpoint'] else 'No'}")
 
+    # Composition info (v0.4.0 architecture)
+    try:
+        entity = k.entity
+        print()
+        print("Composition (v0.4.0)")
+        print("-" * 40)
+        print(f"Core ID:    {entity.core_id}")
+
+        stacks_info = entity.stacks
+        if stacks_info:
+            for alias, info in stacks_info.items():
+                active_marker = " (active)" if info.is_active else ""
+                print(
+                    f"Stack:      {info.stack_id} [{alias}]{active_marker} (schema v{info.schema_version})"
+                )
+        else:
+            # Show stack from compat layer if not yet attached
+            stack = k.stack
+            if stack is not None:
+                print(f"Stack:      {stack.stack_id} (detached, schema v{stack.schema_version})")
+            else:
+                print("Stack:      (none)")
+
+        plugins = entity.discover_plugins()
+        loaded_plugins = [p for p in plugins if p.is_loaded]
+        if loaded_plugins:
+            for p in loaded_plugins:
+                print(f"Plugin:     {p.name} v{p.version}")
+        elif plugins:
+            print(f"Plugins:    {len(plugins)} discovered, 0 loaded")
+        else:
+            print("Plugins:    (none)")
+
+        model = entity.model
+        if model is not None:
+            print(f"Model:      {model.model_id}")
+        else:
+            print("Model:      (none)")
+    except Exception as e:
+        logger.debug(f"Failed to show composition info: {e}")
+
 
 def cmd_resume(args, k: Kernle):
     """Quick 'where was I?' view - shows last task, next step, time since checkpoint."""
@@ -4281,6 +4322,24 @@ Beliefs already present in the agent's memory will be skipped.
                 argv.insert(i + 1, "capture")
             break
         i += 1
+
+    # Discover plugins and register their CLI commands before parsing args.
+    # This allows plugins to add subcommands that argparse recognizes.
+    _plugin_commands = {}
+    try:
+        from kernle.discovery import discover_plugins, load_component
+
+        for comp in discover_plugins():
+            try:
+                plugin_cls = load_component(comp)
+                plugin = plugin_cls()
+                if hasattr(plugin, "register_cli"):
+                    plugin.register_cli(subparsers)
+                    _plugin_commands[comp.name] = plugin
+            except Exception as e:
+                logger.debug(f"Plugin {comp.name} CLI registration failed: {e}")
+    except Exception as e:
+        logger.debug(f"Plugin discovery failed: {e}")
 
     args = parser.parse_args(argv)
 
