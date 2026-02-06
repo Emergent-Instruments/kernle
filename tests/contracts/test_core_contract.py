@@ -562,8 +562,11 @@ class TestModelBinding:
         entity.set_model(model)
 
         # Stack should have been notified via on_model_changed
-        # Since _get_inference_service returns None, inference is None
-        assert stack._inference is None  # Expected until v0.5.0
+        # with a real InferenceService wrapping the model (v0.5.0)
+        from kernle.protocols import InferenceService
+
+        assert stack._inference is not None
+        assert isinstance(stack._inference, InferenceService)
 
 
 # ============================================================================
