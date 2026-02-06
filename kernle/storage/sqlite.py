@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 from .base import (
     Belief,
     Drive,
+    EntityModel,
     Episode,
     Goal,
     MemorySuggestion,
@@ -27,6 +28,7 @@ from .base import (
     QueuedChange,
     RawEntry,
     Relationship,
+    RelationshipHistoryEntry,
     SearchResult,
     SyncConflict,
     SyncResult,
@@ -47,7 +49,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 17  # Add goal_type field to goals
+SCHEMA_VERSION = 18  # Add relationship_history and entity_models tables
 
 # Maximum size for merged arrays during sync to prevent resource exhaustion
 MAX_SYNC_ARRAY_SIZE = 500
@@ -477,6 +479,54 @@ CREATE INDEX IF NOT EXISTS idx_relationships_agent ON relationships(agent_id);
 CREATE INDEX IF NOT EXISTS idx_relationships_confidence ON relationships(confidence);
 CREATE INDEX IF NOT EXISTS idx_relationships_is_forgotten ON relationships(is_forgotten);
 CREATE INDEX IF NOT EXISTS idx_relationships_is_protected ON relationships(is_protected);
+
+-- Relationship history (tracking changes over time)
+CREATE TABLE IF NOT EXISTS relationship_history (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    relationship_id TEXT NOT NULL,
+    entity_name TEXT NOT NULL,
+    event_type TEXT NOT NULL,  -- interaction, trust_change, type_change, note
+    old_value TEXT,            -- JSON: previous state
+    new_value TEXT,            -- JSON: new state
+    episode_id TEXT,           -- Related episode if applicable
+    notes TEXT,
+    created_at TEXT NOT NULL,
+    -- Sync metadata
+    local_updated_at TEXT NOT NULL,
+    cloud_synced_at TEXT,
+    version INTEGER DEFAULT 1,
+    deleted INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_rel_history_agent ON relationship_history(agent_id);
+CREATE INDEX IF NOT EXISTS idx_rel_history_relationship ON relationship_history(relationship_id);
+CREATE INDEX IF NOT EXISTS idx_rel_history_entity ON relationship_history(entity_name);
+CREATE INDEX IF NOT EXISTS idx_rel_history_event_type ON relationship_history(event_type);
+
+-- Entity models (mental models of other entities)
+CREATE TABLE IF NOT EXISTS entity_models (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    entity_name TEXT NOT NULL,
+    model_type TEXT NOT NULL,  -- behavioral, preference, capability
+    observation TEXT NOT NULL,
+    confidence REAL DEFAULT 0.7,
+    source_episodes TEXT,      -- JSON array of episode IDs
+    created_at TEXT NOT NULL,
+    updated_at TEXT,
+    -- Privacy fields
+    subject_ids TEXT,          -- JSON array, auto-populated from entity_name
+    access_grants TEXT,
+    consent_grants TEXT,
+    -- Sync metadata
+    local_updated_at TEXT NOT NULL,
+    cloud_synced_at TEXT,
+    version INTEGER DEFAULT 1,
+    deleted INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_entity_models_agent ON entity_models(agent_id);
+CREATE INDEX IF NOT EXISTS idx_entity_models_entity ON entity_models(entity_name);
+CREATE INDEX IF NOT EXISTS idx_entity_models_type ON entity_models(model_type);
 
 -- Playbooks (procedural memory - "how I do things")
 CREATE TABLE IF NOT EXISTS playbooks (
@@ -3436,21 +3486,25 @@ class SQLiteStorage:
     # === Relationships ===
 
     def save_relationship(self, relationship: Relationship) -> str:
-        """Save or update a relationship."""
+        """Save or update a relationship. Logs history on changes."""
         if not relationship.id:
             relationship.id = str(uuid.uuid4())
 
         now = self._now()
 
         with self._connect() as conn:
-            # Check if exists
+            # Check if exists - fetch full row for change detection
             existing = conn.execute(
-                "SELECT id FROM relationships WHERE agent_id = ? AND entity_name = ?",
+                "SELECT * FROM relationships WHERE agent_id = ? AND entity_name = ?",
                 (self.agent_id, relationship.entity_name),
             ).fetchone()
 
             if existing:
                 relationship.id = existing["id"]
+
+                # Detect changes and log history
+                self._log_relationship_changes(conn, existing, relationship, now)
+
                 conn.execute(
                     """
                     UPDATE relationships SET
@@ -3649,6 +3703,316 @@ class SQLiteStorage:
             access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
             subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
             # Privacy fields (Phase 8a)
+        )
+
+    def _log_relationship_changes(
+        self,
+        conn: Any,
+        existing_row: sqlite3.Row,
+        new_rel: Relationship,
+        now: str,
+    ) -> None:
+        """Detect changes between existing and new relationship, log history entries."""
+        rel_id = existing_row["id"]
+        entity_name = existing_row["entity_name"]
+
+        # Check sentiment/trust change
+        old_sentiment = existing_row["sentiment"]
+        if new_rel.sentiment != old_sentiment:
+            entry_id = str(uuid.uuid4())
+            conn.execute(
+                """
+                INSERT INTO relationship_history
+                (id, agent_id, relationship_id, entity_name, event_type,
+                 old_value, new_value, notes, created_at,
+                 local_updated_at, version, deleted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    entry_id,
+                    self.agent_id,
+                    rel_id,
+                    entity_name,
+                    "trust_change",
+                    json.dumps({"sentiment": old_sentiment}),
+                    json.dumps({"sentiment": new_rel.sentiment}),
+                    None,
+                    now,
+                    now,
+                    1,
+                    0,
+                ),
+            )
+
+        # Check relationship_type change
+        old_type = existing_row["relationship_type"]
+        if new_rel.relationship_type != old_type:
+            entry_id = str(uuid.uuid4())
+            conn.execute(
+                """
+                INSERT INTO relationship_history
+                (id, agent_id, relationship_id, entity_name, event_type,
+                 old_value, new_value, notes, created_at,
+                 local_updated_at, version, deleted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    entry_id,
+                    self.agent_id,
+                    rel_id,
+                    entity_name,
+                    "type_change",
+                    json.dumps({"relationship_type": old_type}),
+                    json.dumps({"relationship_type": new_rel.relationship_type}),
+                    None,
+                    now,
+                    now,
+                    1,
+                    0,
+                ),
+            )
+
+        # Check notes change
+        old_notes = existing_row["notes"]
+        if new_rel.notes != old_notes and new_rel.notes is not None:
+            entry_id = str(uuid.uuid4())
+            conn.execute(
+                """
+                INSERT INTO relationship_history
+                (id, agent_id, relationship_id, entity_name, event_type,
+                 old_value, new_value, notes, created_at,
+                 local_updated_at, version, deleted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    entry_id,
+                    self.agent_id,
+                    rel_id,
+                    entity_name,
+                    "note",
+                    json.dumps({"notes": old_notes}) if old_notes else None,
+                    json.dumps({"notes": new_rel.notes}),
+                    None,
+                    now,
+                    now,
+                    1,
+                    0,
+                ),
+            )
+
+        # Check interaction count change (log interaction event)
+        old_count = existing_row["interaction_count"]
+        if new_rel.interaction_count > old_count:
+            entry_id = str(uuid.uuid4())
+            conn.execute(
+                """
+                INSERT INTO relationship_history
+                (id, agent_id, relationship_id, entity_name, event_type,
+                 old_value, new_value, notes, created_at,
+                 local_updated_at, version, deleted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    entry_id,
+                    self.agent_id,
+                    rel_id,
+                    entity_name,
+                    "interaction",
+                    json.dumps({"interaction_count": old_count}),
+                    json.dumps({"interaction_count": new_rel.interaction_count}),
+                    None,
+                    now,
+                    now,
+                    1,
+                    0,
+                ),
+            )
+
+    # === Relationship History ===
+
+    def save_relationship_history(self, entry: RelationshipHistoryEntry) -> str:
+        """Save a relationship history entry."""
+        if not entry.id:
+            entry.id = str(uuid.uuid4())
+
+        now = self._now()
+        if not entry.created_at:
+            entry.created_at = datetime.now(timezone.utc)
+
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO relationship_history
+                (id, agent_id, relationship_id, entity_name, event_type,
+                 old_value, new_value, episode_id, notes, created_at,
+                 local_updated_at, cloud_synced_at, version, deleted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    entry.id,
+                    self.agent_id,
+                    entry.relationship_id,
+                    entry.entity_name,
+                    entry.event_type,
+                    entry.old_value,
+                    entry.new_value,
+                    entry.episode_id,
+                    entry.notes,
+                    entry.created_at.isoformat() if entry.created_at else now,
+                    now,
+                    None,
+                    1,
+                    0,
+                ),
+            )
+            conn.commit()
+
+        return entry.id
+
+    def get_relationship_history(
+        self,
+        entity_name: str,
+        event_type: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[RelationshipHistoryEntry]:
+        """Get history entries for a relationship."""
+        query = (
+            "SELECT * FROM relationship_history "
+            "WHERE agent_id = ? AND entity_name = ? AND deleted = 0"
+        )
+        params: List[Any] = [self.agent_id, entity_name]
+
+        if event_type:
+            query += " AND event_type = ?"
+            params.append(event_type)
+
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+
+        return [self._row_to_relationship_history(row) for row in rows]
+
+    def _row_to_relationship_history(self, row: sqlite3.Row) -> RelationshipHistoryEntry:
+        """Convert a row to a RelationshipHistoryEntry."""
+        return RelationshipHistoryEntry(
+            id=row["id"],
+            agent_id=row["agent_id"],
+            relationship_id=row["relationship_id"],
+            entity_name=row["entity_name"],
+            event_type=row["event_type"],
+            old_value=row["old_value"],
+            new_value=row["new_value"],
+            episode_id=self._safe_get(row, "episode_id", None),
+            notes=self._safe_get(row, "notes", None),
+            created_at=self._parse_datetime(row["created_at"]),
+            local_updated_at=self._parse_datetime(row["local_updated_at"]),
+            cloud_synced_at=self._parse_datetime(self._safe_get(row, "cloud_synced_at", None)),
+            version=self._safe_get(row, "version", 1),
+            deleted=bool(self._safe_get(row, "deleted", 0)),
+        )
+
+    # === Entity Models ===
+
+    def save_entity_model(self, model: EntityModel) -> str:
+        """Save an entity model."""
+        if not model.id:
+            model.id = str(uuid.uuid4())
+
+        now = self._now()
+
+        # Auto-populate subject_ids from entity_name
+        if not model.subject_ids:
+            model.subject_ids = [model.entity_name]
+
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO entity_models
+                (id, agent_id, entity_name, model_type, observation, confidence,
+                 source_episodes, created_at, updated_at,
+                 subject_ids, access_grants, consent_grants,
+                 local_updated_at, cloud_synced_at, version, deleted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    model.id,
+                    self.agent_id,
+                    model.entity_name,
+                    model.model_type,
+                    model.observation,
+                    model.confidence,
+                    self._to_json(model.source_episodes),
+                    (model.created_at.isoformat() if model.created_at else now),
+                    now,
+                    self._to_json(model.subject_ids),
+                    self._to_json(model.access_grants),
+                    self._to_json(model.consent_grants),
+                    now,
+                    None,
+                    model.version,
+                    0,
+                ),
+            )
+            conn.commit()
+
+        return model.id
+
+    def get_entity_models(
+        self,
+        entity_name: Optional[str] = None,
+        model_type: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[EntityModel]:
+        """Get entity models, optionally filtered."""
+        query = "SELECT * FROM entity_models WHERE agent_id = ? AND deleted = 0"
+        params: List[Any] = [self.agent_id]
+
+        if entity_name:
+            query += " AND entity_name = ?"
+            params.append(entity_name)
+        if model_type:
+            query += " AND model_type = ?"
+            params.append(model_type)
+
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+
+        return [self._row_to_entity_model(row) for row in rows]
+
+    def get_entity_model(self, model_id: str) -> Optional[EntityModel]:
+        """Get a specific entity model by ID."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM entity_models WHERE id = ? AND agent_id = ? AND deleted = 0",
+                (model_id, self.agent_id),
+            ).fetchone()
+
+        return self._row_to_entity_model(row) if row else None
+
+    def _row_to_entity_model(self, row: sqlite3.Row) -> EntityModel:
+        """Convert a row to an EntityModel."""
+        return EntityModel(
+            id=row["id"],
+            agent_id=row["agent_id"],
+            entity_name=row["entity_name"],
+            model_type=row["model_type"],
+            observation=row["observation"],
+            confidence=self._safe_get(row, "confidence", 0.7),
+            source_episodes=self._from_json(self._safe_get(row, "source_episodes", None)),
+            created_at=self._parse_datetime(row["created_at"]),
+            updated_at=self._parse_datetime(self._safe_get(row, "updated_at", None)),
+            subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
+            access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
+            consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
+            local_updated_at=self._parse_datetime(row["local_updated_at"]),
+            cloud_synced_at=self._parse_datetime(self._safe_get(row, "cloud_synced_at", None)),
+            version=self._safe_get(row, "version", 1),
+            deleted=bool(self._safe_get(row, "deleted", 0)),
         )
 
     # === Playbooks (Procedural Memory) ===
