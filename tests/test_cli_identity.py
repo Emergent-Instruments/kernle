@@ -2,304 +2,226 @@
 
 import json
 from argparse import Namespace
-from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
-from kernle.cli.commands.identity import cmd_consolidate, cmd_identity
+from kernle.cli.commands.identity import cmd_consolidate, cmd_identity, cmd_promote
 
 
-class TestCmdConsolidate:
-    """Test the cmd_consolidate function."""
+class TestCmdPromote:
+    """Test the cmd_promote function (episode -> belief promotion)."""
 
-    def test_no_episodes(self, capsys):
-        """Test consolidation prompt with no episodes."""
+    def _make_promote_args(self, **overrides):
+        defaults = dict(
+            auto=False,
+            min_occurrences=2,
+            min_episodes=3,
+            confidence=0.7,
+            limit=50,
+            json=False,
+        )
+        defaults.update(overrides)
+        return Namespace(**defaults)
+
+    def test_no_patterns(self, capsys):
+        """Test promote with no patterns found."""
         k = MagicMock()
         k.agent_id = "test-agent"
-        k._storage.get_episodes.return_value = []
-        k._storage.get_beliefs.return_value = []
+        k.promote.return_value = {
+            "episodes_scanned": 5,
+            "patterns_found": 0,
+            "suggestions": [],
+            "beliefs_created": 0,
+        }
 
-        args = Namespace(limit=20)
+        cmd_promote(self._make_promote_args(), k)
+
+        captured = capsys.readouterr()
+        assert "Promotion Results" in captured.out
+        assert "Episodes scanned: 5" in captured.out
+        assert "No recurring patterns found" in captured.out
+
+    def test_with_suggestions(self, capsys):
+        """Test promote with suggestions found."""
+        k = MagicMock()
+        k.agent_id = "test-agent"
+        k.promote.return_value = {
+            "episodes_scanned": 10,
+            "patterns_found": 2,
+            "suggestions": [
+                {
+                    "lesson": "Always test first",
+                    "count": 3,
+                    "source_episodes": ["ep1", "ep2", "ep3"],
+                },
+                {
+                    "lesson": "Document changes",
+                    "count": 2,
+                    "source_episodes": ["ep1", "ep4"],
+                },
+            ],
+            "beliefs_created": 0,
+        }
+
+        cmd_promote(self._make_promote_args(), k)
+
+        captured = capsys.readouterr()
+        assert "Episodes scanned: 10" in captured.out
+        assert "Patterns found: 2" in captured.out
+        assert "Always test first" in captured.out
+        assert "Document changes" in captured.out
+
+    def test_auto_mode(self, capsys):
+        """Test promote in auto mode creates beliefs."""
+        k = MagicMock()
+        k.agent_id = "test-agent"
+        k.promote.return_value = {
+            "episodes_scanned": 10,
+            "patterns_found": 1,
+            "suggestions": [
+                {
+                    "lesson": "Always test first",
+                    "count": 3,
+                    "source_episodes": ["ep1", "ep2", "ep3"],
+                    "promoted": True,
+                    "belief_id": "belief-abc123",
+                },
+            ],
+            "beliefs_created": 1,
+        }
+
+        cmd_promote(self._make_promote_args(auto=True), k)
+
+        captured = capsys.readouterr()
+        assert "Beliefs created: 1" in captured.out
+        k.promote.assert_called_once_with(
+            auto=True,
+            min_occurrences=2,
+            min_episodes=3,
+            confidence=0.7,
+            limit=50,
+        )
+
+    def test_json_output(self, capsys):
+        """Test promote with JSON output."""
+        result = {
+            "episodes_scanned": 10,
+            "patterns_found": 1,
+            "suggestions": [],
+            "beliefs_created": 0,
+        }
+        k = MagicMock()
+        k.promote.return_value = result
+
+        cmd_promote(self._make_promote_args(json=True), k)
+
+        captured = capsys.readouterr()
+        parsed = json.loads(captured.out)
+        assert parsed["episodes_scanned"] == 10
+
+    def test_not_enough_episodes(self, capsys):
+        """Test promote when not enough episodes."""
+        k = MagicMock()
+        k.agent_id = "test-agent"
+        k.promote.return_value = {
+            "episodes_scanned": 1,
+            "patterns_found": 0,
+            "suggestions": [],
+            "beliefs_created": 0,
+            "message": "Need at least 3 episodes (found 1)",
+        }
+
+        cmd_promote(self._make_promote_args(), k)
+
+        captured = capsys.readouterr()
+        assert "Need at least 3 episodes" in captured.out
+
+    def test_manual_promote_hint(self, capsys):
+        """Test that manual promote hint is shown when not in auto mode."""
+        k = MagicMock()
+        k.agent_id = "test-agent"
+        k.promote.return_value = {
+            "episodes_scanned": 10,
+            "patterns_found": 1,
+            "suggestions": [
+                {
+                    "lesson": "Always test",
+                    "count": 2,
+                    "source_episodes": ["ep1", "ep2"],
+                },
+            ],
+            "beliefs_created": 0,
+        }
+
+        cmd_promote(self._make_promote_args(), k)
+
+        captured = capsys.readouterr()
+        assert "kernle" in captured.out
+        assert "promote --auto" in captured.out
+
+
+class TestCmdConsolidateDeprecated:
+    """Test that cmd_consolidate is a deprecated alias for cmd_promote."""
+
+    def test_deprecation_warning(self, capsys):
+        """Test consolidate prints deprecation warning to stderr."""
+        k = MagicMock()
+        k.agent_id = "test-agent"
+        k.promote.return_value = {
+            "episodes_scanned": 5,
+            "patterns_found": 0,
+            "suggestions": [],
+            "beliefs_created": 0,
+        }
+
+        args = Namespace(
+            auto=False,
+            min_occurrences=2,
+            min_episodes=3,
+            confidence=0.7,
+            limit=50,
+            json=False,
+        )
 
         cmd_consolidate(args, k)
 
         captured = capsys.readouterr()
-        assert "Memory Consolidation - Reflection Prompt" in captured.out
-        assert "0 recent episodes" in captured.out
-        assert "No episodes recorded yet" in captured.out
-        assert "No beliefs recorded yet" in captured.out
-        assert "Reflection Questions:" in captured.out
+        assert "deprecated" in captured.err.lower()
+        assert "promote" in captured.err
 
-    def test_with_episodes(self, capsys):
-        """Test consolidation prompt with episodes."""
+    def test_delegates_to_promote(self, capsys):
+        """Test consolidate delegates to promote and produces same output."""
         k = MagicMock()
         k.agent_id = "test-agent"
+        k.promote.return_value = {
+            "episodes_scanned": 10,
+            "patterns_found": 1,
+            "suggestions": [
+                {
+                    "lesson": "Always test first",
+                    "count": 3,
+                    "source_episodes": ["ep1", "ep2", "ep3"],
+                },
+            ],
+            "beliefs_created": 0,
+        }
 
-        # Create mock episodes
-        ep1 = MagicMock()
-        ep1.is_forgotten = False
-        ep1.objective = "Complete task A"
-        ep1.outcome = "Successfully completed"
-        ep1.outcome_type = "success"
-        ep1.lessons = ["Lesson 1", "Lesson 2"]
-        ep1.emotional_valence = 0.5
-        ep1.emotional_arousal = 0.7
-        ep1.emotional_tags = ["satisfaction", "pride"]
-        ep1.created_at = datetime(2026, 1, 15, tzinfo=timezone.utc)
-
-        ep2 = MagicMock()
-        ep2.is_forgotten = False
-        ep2.objective = "Complete task B"
-        ep2.outcome = "Partially completed"
-        ep2.outcome_type = "partial"
-        ep2.lessons = []
-        ep2.emotional_valence = 0
-        ep2.emotional_arousal = 0
-        ep2.emotional_tags = []
-        ep2.created_at = datetime(2026, 1, 14, tzinfo=timezone.utc)
-
-        k._storage.get_episodes.return_value = [ep1, ep2]
-        k._storage.get_beliefs.return_value = []
-
-        args = Namespace(limit=20)
+        args = Namespace(
+            auto=False,
+            min_occurrences=2,
+            min_episodes=3,
+            confidence=0.7,
+            limit=50,
+            json=False,
+        )
 
         cmd_consolidate(args, k)
 
         captured = capsys.readouterr()
-        assert "2 recent episodes" in captured.out
-        assert "Complete task A" in captured.out
-        assert "Complete task B" in captured.out
-        assert "Lesson 1" in captured.out
-        assert "positive" in captured.out  # emotional valence
-        assert "high" in captured.out  # emotional arousal
-        assert "satisfaction" in captured.out
-
-    def test_with_beliefs(self, capsys):
-        """Test consolidation prompt with existing beliefs."""
-        k = MagicMock()
-        k.agent_id = "test-agent"
-        k._storage.get_episodes.return_value = []
-
-        # Create mock beliefs
-        belief1 = MagicMock()
-        belief1.is_active = True
-        belief1.is_forgotten = False
-        belief1.statement = "Testing is important"
-        belief1.confidence = 0.85
-
-        belief2 = MagicMock()
-        belief2.is_active = True
-        belief2.is_forgotten = False
-        belief2.statement = "Simple code is better"
-        belief2.confidence = 0.9
-
-        k._storage.get_beliefs.return_value = [belief1, belief2]
-
-        args = Namespace(limit=20)
-
-        cmd_consolidate(args, k)
-
-        captured = capsys.readouterr()
-        assert "Current Beliefs (for context):" in captured.out
-        assert "Testing is important" in captured.out
-        assert "0.85" in captured.out
-        assert "Simple code is better" in captured.out
-
-    def test_with_repeated_lessons(self, capsys):
-        """Test consolidation prompt highlights repeated lessons."""
-        k = MagicMock()
-        k.agent_id = "test-agent"
-
-        # Create episodes with repeated lessons
-        ep1 = MagicMock()
-        ep1.is_forgotten = False
-        ep1.objective = "Task 1"
-        ep1.outcome = "Done"
-        ep1.outcome_type = "success"
-        ep1.lessons = ["Always test", "Document code"]
-        ep1.emotional_valence = 0
-        ep1.emotional_arousal = 0
-        ep1.emotional_tags = []
-        ep1.created_at = datetime(2026, 1, 15, tzinfo=timezone.utc)
-
-        ep2 = MagicMock()
-        ep2.is_forgotten = False
-        ep2.objective = "Task 2"
-        ep2.outcome = "Done"
-        ep2.outcome_type = "success"
-        ep2.lessons = ["Always test", "Review PRs"]
-        ep2.emotional_valence = 0
-        ep2.emotional_arousal = 0
-        ep2.emotional_tags = []
-        ep2.created_at = datetime(2026, 1, 14, tzinfo=timezone.utc)
-
-        ep3 = MagicMock()
-        ep3.is_forgotten = False
-        ep3.objective = "Task 3"
-        ep3.outcome = "Done"
-        ep3.outcome_type = "success"
-        ep3.lessons = ["Always test"]
-        ep3.emotional_valence = 0
-        ep3.emotional_arousal = 0
-        ep3.emotional_tags = []
-        ep3.created_at = datetime(2026, 1, 13, tzinfo=timezone.utc)
-
-        k._storage.get_episodes.return_value = [ep1, ep2, ep3]
-        k._storage.get_beliefs.return_value = []
-
-        args = Namespace(limit=20)
-
-        cmd_consolidate(args, k)
-
-        captured = capsys.readouterr()
-        assert "Patterns Detected:" in captured.out
-        assert "Always test" in captured.out
-        assert "appears 3 times" in captured.out
-
-    def test_filters_forgotten_episodes(self, capsys):
-        """Test that forgotten episodes are filtered out."""
-        k = MagicMock()
-        k.agent_id = "test-agent"
-
-        # Create a forgotten episode
-        forgotten_ep = MagicMock()
-        forgotten_ep.is_forgotten = True
-
-        # Create an active episode
-        active_ep = MagicMock()
-        active_ep.is_forgotten = False
-        active_ep.objective = "Active task"
-        active_ep.outcome = "Done"
-        active_ep.outcome_type = "success"
-        active_ep.lessons = []
-        active_ep.emotional_valence = 0
-        active_ep.emotional_arousal = 0
-        active_ep.emotional_tags = []
-        active_ep.created_at = datetime(2026, 1, 15, tzinfo=timezone.utc)
-
-        k._storage.get_episodes.return_value = [forgotten_ep, active_ep]
-        k._storage.get_beliefs.return_value = []
-
-        args = Namespace(limit=20)
-
-        cmd_consolidate(args, k)
-
-        captured = capsys.readouterr()
-        assert "1 recent episodes" in captured.out  # Only active episode counted
-
-    def test_filters_forgotten_beliefs(self, capsys):
-        """Test that forgotten beliefs are filtered out."""
-        k = MagicMock()
-        k.agent_id = "test-agent"
-        k._storage.get_episodes.return_value = []
-
-        # Create a forgotten belief
-        forgotten_belief = MagicMock()
-        forgotten_belief.is_active = True
-        forgotten_belief.is_forgotten = True
-
-        # Create an active belief
-        active_belief = MagicMock()
-        active_belief.is_active = True
-        active_belief.is_forgotten = False
-        active_belief.statement = "Active belief"
-        active_belief.confidence = 0.8
-
-        k._storage.get_beliefs.return_value = [forgotten_belief, active_belief]
-
-        args = Namespace(limit=20)
-
-        cmd_consolidate(args, k)
-
-        captured = capsys.readouterr()
-        assert "Active belief" in captured.out
-        # Only 1 belief should be shown
-
-    def test_outcome_icons(self, capsys):
-        """Test outcome type icons are correct."""
-        k = MagicMock()
-        k.agent_id = "test-agent"
-        k._storage.get_beliefs.return_value = []
-
-        # Create episodes with different outcome types
-        success = MagicMock()
-        success.is_forgotten = False
-        success.objective = "Success task"
-        success.outcome = "Done"
-        success.outcome_type = "success"
-        success.lessons = []
-        success.emotional_valence = 0
-        success.emotional_arousal = 0
-        success.emotional_tags = []
-        success.created_at = datetime(2026, 1, 15, tzinfo=timezone.utc)
-
-        failure = MagicMock()
-        failure.is_forgotten = False
-        failure.objective = "Failed task"
-        failure.outcome = "Failed"
-        failure.outcome_type = "failure"
-        failure.lessons = []
-        failure.emotional_valence = 0
-        failure.emotional_arousal = 0
-        failure.emotional_tags = []
-        failure.created_at = datetime(2026, 1, 14, tzinfo=timezone.utc)
-
-        k._storage.get_episodes.return_value = [success, failure]
-
-        args = Namespace(limit=20)
-
-        cmd_consolidate(args, k)
-
-        captured = capsys.readouterr()
-        # Check that success/failure markers are present
-        lines = captured.out.split("\n")
-        assert any("Success task" in line for line in lines)
-        assert any("Failed task" in line for line in lines)
-        # The actual icons depend on the terminal, but the logic should differentiate
-
-    def test_action_suggestions(self, capsys):
-        """Test that action suggestions are shown."""
-        k = MagicMock()
-        k.agent_id = "test-agent"
-        k._storage.get_episodes.return_value = []
-        k._storage.get_beliefs.return_value = []
-
-        args = Namespace(limit=20)
-
-        cmd_consolidate(args, k)
-
-        captured = capsys.readouterr()
-        assert "Actions:" in captured.out
-        assert f"kernle -a {k.agent_id} belief add" in captured.out
-        assert f"kernle -a {k.agent_id} belief reinforce" in captured.out
-        assert f"kernle -a {k.agent_id} belief revise" in captured.out
-
-    def test_emotional_context_negative_valence(self, capsys):
-        """Test negative emotional valence display."""
-        k = MagicMock()
-        k.agent_id = "test-agent"
-        k._storage.get_beliefs.return_value = []
-
-        ep = MagicMock()
-        ep.is_forgotten = False
-        ep.objective = "Frustrating task"
-        ep.outcome = "Failed"
-        ep.outcome_type = "failure"
-        ep.lessons = []
-        ep.emotional_valence = -0.5  # Negative
-        ep.emotional_arousal = 0.2  # Low
-        ep.emotional_tags = ["frustration"]
-        ep.created_at = datetime(2026, 1, 15, tzinfo=timezone.utc)
-
-        k._storage.get_episodes.return_value = [ep]
-
-        args = Namespace(limit=20)
-
-        cmd_consolidate(args, k)
-
-        captured = capsys.readouterr()
-        assert "negative" in captured.out
-        assert "low" in captured.out
-        assert "frustration" in captured.out
+        # Should produce promote output
+        assert "Promotion Results" in captured.out
+        assert "Always test first" in captured.out
+        # k.promote should have been called
+        k.promote.assert_called_once()
 
 
 class TestCmdIdentityShow:

@@ -3157,27 +3157,41 @@ def main():
     )
     p_promote.add_argument("--json", action="store_true", help="Output JSON")
 
-    # consolidate (kept as alias / legacy guided reflection)
-    p_consolidate = subparsers.add_parser("consolidate", help="Output guided reflection prompt")
+    # consolidate (deprecated alias for promote)
+    p_consolidate = subparsers.add_parser(
+        "consolidate",
+        help="(DEPRECATED: use 'promote') Promote recurring patterns into beliefs",
+    )
+    p_consolidate.add_argument(
+        "--auto",
+        action="store_true",
+        help="Create beliefs automatically (default: suggestions only)",
+    )
+    p_consolidate.add_argument(
+        "--min-occurrences",
+        type=int,
+        default=2,
+        help="Minimum times a lesson must appear to be promoted (default: 2)",
+    )
     p_consolidate.add_argument(
         "--min-episodes",
-        "-m",
         type=int,
         default=3,
-        help="(Legacy) Minimum episodes for old consolidation",
+        help="Minimum episodes required to run (default: 3)",
+    )
+    p_consolidate.add_argument(
+        "--confidence",
+        type=float,
+        default=0.7,
+        help="Initial confidence for auto-created beliefs (default: 0.7)",
     )
     p_consolidate.add_argument(
         "--limit",
-        "-n",
         type=int,
-        default=20,
-        help="Number of recent episodes to include (default: 20)",
+        default=50,
+        help="Maximum episodes to scan (default: 50)",
     )
-    p_consolidate.add_argument(
-        "--advanced",
-        action="store_true",
-        help="Run advanced consolidation scaffolds (cross-domain, belief->value, entity model->belief)",
-    )
+    p_consolidate.add_argument("--json", action="store_true", help="Output JSON")
 
     # temporal
     p_temporal = subparsers.add_parser("when", help="Query by time")

@@ -149,41 +149,64 @@ def _setup_kernle_mock(
 
 
 class TestRegularConsolidation:
-    """Regular consolidation (cmd_consolidate) should continue to work unchanged."""
+    """cmd_consolidate is now a deprecated alias for cmd_promote.
 
-    def test_regular_consolidation_output(self, capsys):
-        """Regular consolidation produces the standard reflection prompt."""
+    It prints a deprecation warning and delegates to the promote command.
+    """
+
+    def test_regular_consolidation_delegates_to_promote(self, capsys):
+        """cmd_consolidate delegates to cmd_promote with deprecation warning."""
         k = MagicMock()
         k.agent_id = "test-agent"
-        k._storage.get_episodes.return_value = [
-            _make_episode(
-                objective="Learned about patterns",
-                lessons=["Testing is important"],
-            ),
-        ]
-        k._storage.get_beliefs.return_value = []
-        k._storage.get_drives.return_value = []
-
-        args = Namespace(limit=20, advanced=False)
-        cmd_consolidate(args, k)
-
-        captured = capsys.readouterr()
-        assert "Memory Consolidation" in captured.out
-        assert "Reflection Questions" in captured.out
-        assert "Learned about patterns" in captured.out
-
-    def test_regular_advanced_consolidation(self, capsys):
-        """Advanced consolidation mode still works."""
-        k = MagicMock()
-        k.scaffold_advanced_consolidation.return_value = {
-            "scaffold": "# Advanced Consolidation Scaffold\n\nTest output"
+        k.promote.return_value = {
+            "episodes_scanned": 5,
+            "patterns_found": 1,
+            "suggestions": [
+                {
+                    "lesson": "Testing is important",
+                    "count": 2,
+                    "source_episodes": ["ep1", "ep2"],
+                },
+            ],
+            "beliefs_created": 0,
         }
 
-        args = Namespace(limit=100, advanced=True)
+        args = Namespace(
+            auto=False,
+            min_occurrences=2,
+            min_episodes=3,
+            confidence=0.7,
+            limit=50,
+            json=False,
+        )
         cmd_consolidate(args, k)
 
         captured = capsys.readouterr()
-        assert "Advanced Consolidation Scaffold" in captured.out
+        assert "deprecated" in captured.err.lower()
+        assert "Promotion Results" in captured.out
+        assert "Testing is important" in captured.out
+
+    def test_regular_consolidation_calls_promote(self, capsys):
+        """cmd_consolidate calls k.promote() under the hood."""
+        k = MagicMock()
+        k.agent_id = "test-agent"
+        k.promote.return_value = {
+            "episodes_scanned": 0,
+            "patterns_found": 0,
+            "suggestions": [],
+            "beliefs_created": 0,
+        }
+
+        args = Namespace(
+            auto=False,
+            min_occurrences=2,
+            min_episodes=3,
+            confidence=0.7,
+            limit=50,
+            json=False,
+        )
+        cmd_consolidate(args, k)
+        k.promote.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

@@ -52,134 +52,37 @@ def _make_drive(drive_type, intensity=0.5, focus_areas=None):
 
 
 class TestHighArousalEpisodes:
-    def test_high_arousal_section_shown(self, capsys):
-        """High-arousal episodes section appears when arousal > 0.6."""
+    """These tests previously tested the old cmd_consolidate guided-reflection
+    output. Since cmd_consolidate now delegates to cmd_promote, we test the
+    _print_drive_pattern_analysis helper directly for drive analysis, and
+    verify cmd_consolidate produces promotion output with deprecation warning.
+    """
+
+    def test_cmd_consolidate_is_deprecated_alias(self, capsys):
+        """cmd_consolidate prints deprecation warning and delegates to cmd_promote."""
         k = MagicMock()
         k.agent_id = "test-agent"
-        k._storage.get_episodes.return_value = [
-            _make_episode(
-                objective="Intense experience",
-                emotional_arousal=0.8,
-                emotional_valence=0.5,
-                emotional_tags=["excitement"],
-            ),
-        ]
-        k._storage.get_beliefs.return_value = []
-        k._storage.get_drives.return_value = []
+        k.promote.return_value = {
+            "episodes_scanned": 5,
+            "patterns_found": 0,
+            "suggestions": [],
+            "beliefs_created": 0,
+        }
 
-        args = Namespace(limit=20)
+        args = Namespace(
+            auto=False,
+            min_occurrences=2,
+            min_episodes=3,
+            confidence=0.7,
+            limit=50,
+            json=False,
+        )
         cmd_consolidate(args, k)
 
         captured = capsys.readouterr()
-        assert "HIGH-AROUSAL EPISODES" in captured.out
-        assert "Intense experience" in captured.out
-        assert "0.80" in captured.out
-        assert "excitement" in captured.out
-
-    def test_no_high_arousal_section_when_none(self, capsys):
-        """No high-arousal section when all episodes have low arousal."""
-        k = MagicMock()
-        k.agent_id = "test-agent"
-        k._storage.get_episodes.return_value = [
-            _make_episode(
-                objective="Calm task",
-                emotional_arousal=0.2,
-                emotional_valence=0.1,
-            ),
-        ]
-        k._storage.get_beliefs.return_value = []
-        k._storage.get_drives.return_value = []
-
-        args = Namespace(limit=20)
-        cmd_consolidate(args, k)
-
-        captured = capsys.readouterr()
-        assert "HIGH-AROUSAL EPISODES" not in captured.out
-
-    def test_high_arousal_sorted_by_arousal(self, capsys):
-        """High-arousal episodes are sorted by arousal (highest first)."""
-        k = MagicMock()
-        k.agent_id = "test-agent"
-        k._storage.get_episodes.return_value = [
-            _make_episode(
-                objective="Moderate intensity",
-                emotional_arousal=0.7,
-                emotional_valence=0.0,
-            ),
-            _make_episode(
-                objective="Maximum intensity",
-                emotional_arousal=0.95,
-                emotional_valence=-0.3,
-            ),
-        ]
-        k._storage.get_beliefs.return_value = []
-        k._storage.get_drives.return_value = []
-
-        args = Namespace(limit=20)
-        cmd_consolidate(args, k)
-
-        captured = capsys.readouterr()
-        # Extract just the high-arousal section
-        ha_start = captured.out.index("HIGH-AROUSAL EPISODES")
-        ha_section = captured.out[ha_start:]
-        lines = ha_section.split("\n")
-        # Maximum intensity should appear before Moderate intensity within section
-        max_idx = next(i for i, line in enumerate(lines) if "Maximum intensity" in line)
-        mod_idx = next(i for i, line in enumerate(lines) if "Moderate intensity" in line)
-        assert max_idx < mod_idx
-
-    def test_high_arousal_valence_labels(self, capsys):
-        """Valence labels are correct (positive, negative, neutral)."""
-        k = MagicMock()
-        k.agent_id = "test-agent"
-        k._storage.get_episodes.return_value = [
-            _make_episode(
-                objective="Positive high",
-                emotional_arousal=0.8,
-                emotional_valence=0.5,
-            ),
-            _make_episode(
-                objective="Negative high",
-                emotional_arousal=0.9,
-                emotional_valence=-0.5,
-            ),
-            _make_episode(
-                objective="Neutral high",
-                emotional_arousal=0.7,
-                emotional_valence=0.0,
-            ),
-        ]
-        k._storage.get_beliefs.return_value = []
-        k._storage.get_drives.return_value = []
-
-        args = Namespace(limit=20)
-        cmd_consolidate(args, k)
-
-        captured = capsys.readouterr()
-        # Check all three valence labels appear in the high-arousal section
-        assert "positive" in captured.out
-        assert "negative" in captured.out
-        assert "neutral" in captured.out
-
-    def test_high_arousal_boundary(self, capsys):
-        """Episodes with arousal exactly 0.6 are NOT included (> not >=)."""
-        k = MagicMock()
-        k.agent_id = "test-agent"
-        k._storage.get_episodes.return_value = [
-            _make_episode(
-                objective="Boundary case",
-                emotional_arousal=0.6,
-                emotional_valence=0.0,
-            ),
-        ]
-        k._storage.get_beliefs.return_value = []
-        k._storage.get_drives.return_value = []
-
-        args = Namespace(limit=20)
-        cmd_consolidate(args, k)
-
-        captured = capsys.readouterr()
-        assert "HIGH-AROUSAL EPISODES" not in captured.out
+        assert "deprecated" in captured.err.lower()
+        assert "promote" in captured.err
+        assert "Promotion Results" in captured.out
 
 
 # ---------------------------------------------------------------------------
@@ -355,119 +258,86 @@ class TestDrivePatternAnalysis:
 
 
 # ---------------------------------------------------------------------------
-# Integration: cmd_consolidate with both new sections
+# Integration: cmd_consolidate is now a deprecated alias for cmd_promote
 # ---------------------------------------------------------------------------
 
 
 class TestConsolidateIntegration:
-    def test_both_sections_appear(self, capsys):
-        """Both high-arousal and drive analysis appear in consolidation output."""
+    """Test that cmd_consolidate properly delegates to cmd_promote.
+
+    The old guided-reflection behavior has been replaced by the promote
+    command. cmd_consolidate now prints a deprecation warning and
+    delegates to cmd_promote.
+    """
+
+    def _make_consolidate_args(self, **overrides):
+        defaults = dict(
+            auto=False,
+            min_occurrences=2,
+            min_episodes=3,
+            confidence=0.7,
+            limit=50,
+            json=False,
+        )
+        defaults.update(overrides)
+        return Namespace(**defaults)
+
+    def test_consolidate_delegates_to_promote(self, capsys):
+        """cmd_consolidate calls k.promote() and outputs promotion results."""
         k = MagicMock()
         k.agent_id = "test-agent"
-        k._storage.get_beliefs.return_value = []
-        k._storage.get_drives.return_value = [
-            _make_drive("curiosity"),
-        ]
+        k.promote.return_value = {
+            "episodes_scanned": 10,
+            "patterns_found": 2,
+            "suggestions": [
+                {
+                    "lesson": "Always test first",
+                    "count": 3,
+                    "source_episodes": ["ep1", "ep2", "ep3"],
+                },
+            ],
+            "beliefs_created": 0,
+        }
 
-        k._storage.get_episodes.return_value = [
-            _make_episode(
-                objective="Exciting discovery",
-                emotional_arousal=0.9,
-                emotional_valence=0.7,
-                tags=["research", "breakthrough"],
-                emotional_tags=["excitement"],
-            ),
-            _make_episode(
-                objective="Follow-up research",
-                emotional_arousal=0.3,
-                tags=["research"],
-            ),
-        ]
-
-        args = Namespace(limit=20)
-        cmd_consolidate(args, k)
+        cmd_consolidate(self._make_consolidate_args(), k)
 
         captured = capsys.readouterr()
-        assert "HIGH-AROUSAL EPISODES" in captured.out
-        assert "DRIVE PATTERN ANALYSIS" in captured.out
-        assert "Reflection Questions" in captured.out
+        assert "Promotion Results" in captured.out
+        assert "Always test first" in captured.out
+        k.promote.assert_called_once()
 
-    def test_sections_order(self, capsys):
-        """Sections appear in correct order: episodes, beliefs, patterns,
-        high-arousal, drive analysis, reflection questions, actions."""
+    def test_consolidate_warns_deprecated(self, capsys):
+        """cmd_consolidate prints deprecation warning to stderr."""
         k = MagicMock()
         k.agent_id = "test-agent"
+        k.promote.return_value = {
+            "episodes_scanned": 0,
+            "patterns_found": 0,
+            "suggestions": [],
+            "beliefs_created": 0,
+        }
 
-        belief = MagicMock()
-        belief.is_active = True
-        belief.is_forgotten = False
-        belief.statement = "Test belief"
-        belief.confidence = 0.8
-        k._storage.get_beliefs.return_value = [belief]
-        k._storage.get_drives.return_value = []
-
-        k._storage.get_episodes.return_value = [
-            _make_episode(
-                objective="High energy task",
-                emotional_arousal=0.8,
-                tags=["coding", "coding"],
-                lessons=["repeated lesson"],
-            ),
-            _make_episode(
-                objective="Another task",
-                emotional_arousal=0.2,
-                tags=["coding"],
-                lessons=["repeated lesson"],
-            ),
-        ]
-
-        args = Namespace(limit=20)
-        cmd_consolidate(args, k)
+        cmd_consolidate(self._make_consolidate_args(), k)
 
         captured = capsys.readouterr()
-        out = captured.out
+        assert "deprecated" in captured.err.lower()
+        assert "promote" in captured.err
 
-        # Check ordering
-        episodes_pos = out.index("Recent Episodes:")
-        beliefs_pos = out.index("Current Beliefs")
-        patterns_pos = out.index("Patterns Detected:")
-        arousal_pos = out.index("HIGH-AROUSAL EPISODES")
-        drive_pos = out.index("DRIVE PATTERN ANALYSIS")
-        questions_pos = out.index("Reflection Questions:")
-        actions_pos = out.index("Actions:")
-
-        assert episodes_pos < beliefs_pos < patterns_pos
-        assert patterns_pos < arousal_pos < drive_pos
-        assert drive_pos < questions_pos < actions_pos
-
-    def test_no_episodes_no_new_sections(self, capsys):
-        """With no episodes, neither new section appears."""
+    def test_consolidate_json_delegates(self, capsys):
+        """cmd_consolidate --json delegates JSON output to cmd_promote."""
+        result = {
+            "episodes_scanned": 5,
+            "patterns_found": 0,
+            "suggestions": [],
+            "beliefs_created": 0,
+        }
         k = MagicMock()
-        k.agent_id = "test-agent"
-        k._storage.get_episodes.return_value = []
-        k._storage.get_beliefs.return_value = []
-        k._storage.get_drives.return_value = []
+        k.promote.return_value = result
 
-        args = Namespace(limit=20)
-        cmd_consolidate(args, k)
+        cmd_consolidate(self._make_consolidate_args(json=True), k)
 
         captured = capsys.readouterr()
-        assert "HIGH-AROUSAL EPISODES" not in captured.out
-        assert "DRIVE PATTERN ANALYSIS" not in captured.out
+        import json
 
-    def test_existing_sections_preserved(self, capsys):
-        """Existing consolidation sections (reflection questions, actions) still appear."""
-        k = MagicMock()
-        k.agent_id = "test-agent"
-        k._storage.get_episodes.return_value = []
-        k._storage.get_beliefs.return_value = []
-        k._storage.get_drives.return_value = []
-
-        args = Namespace(limit=20)
-        cmd_consolidate(args, k)
-
-        captured = capsys.readouterr()
-        assert "Memory Consolidation - Reflection Prompt" in captured.out
-        assert "Reflection Questions:" in captured.out
-        assert "Actions:" in captured.out
-        assert "the agent" in captured.out.lower() or "you (the agent)" in captured.out.lower()
+        parsed = json.loads(captured.out)
+        assert parsed["episodes_scanned"] == 5
