@@ -904,3 +904,24 @@ class TestProvenanceProtection:
         assert "0.8@2024-01-01" in retrieved.confidence_history
         assert "0.9@2024-01-02" in retrieved.confidence_history
         assert "0.7@2024-01-03" in retrieved.confidence_history
+
+    def test_update_episode_atomic_no_belief_columns(self, storage):
+        """Regression: update_episode_atomic must not reference belief-only columns."""
+        episode = Episode(
+            id="prov_test_regression",
+            stack_id="test_agent",
+            objective="Test objective",
+            outcome="Test outcome",
+            source_type="direct_experience",
+            derived_from=["episode:a"],
+            confidence_history=["0.8@2024-01-01"],
+        )
+        storage.save_episode(episode)
+
+        # This should succeed without 'table episodes has no column named belief_scope'
+        episode.objective = "Updated objective"
+        storage.update_episode_atomic(episode, expected_version=1)
+
+        retrieved = storage.get_episode("prov_test_regression")
+        assert retrieved.objective == "Updated objective"
+        assert retrieved.version == 2
