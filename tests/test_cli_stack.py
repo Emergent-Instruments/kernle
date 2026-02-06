@@ -631,3 +631,62 @@ class TestDeleteAgent:
 
         captured = capsys.readouterr()
         assert "Error deleting directory" in captured.out
+
+    def test_delete_cleans_up_vector_embeddings(self, capsys, tmp_path):
+        """Test that stack delete removes vec_embeddings and embedding_meta entries."""
+        k = self._make_kernle_mock()
+
+        args = Namespace(name="target-agent", force=True)
+
+        kernle_dir = tmp_path / ".kernle"
+        kernle_dir.mkdir()
+
+        db_path = kernle_dir / "memories.db"
+        conn = sqlite3.connect(str(db_path))
+        # Minimal schema for existence check
+        conn.execute("CREATE TABLE episodes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE notes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE beliefs (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE goals (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE agent_values (stack_id TEXT, id TEXT)")
+        conn.execute("INSERT INTO episodes VALUES ('target-agent', 'ep1')")
+
+        # Create embedding tables with stack-prefixed IDs (format: {stack_id}:{table}:{record_id})
+        conn.execute("CREATE TABLE vec_embeddings (id TEXT PRIMARY KEY, data BLOB)")
+        conn.execute("CREATE TABLE embedding_meta (id TEXT PRIMARY KEY, content_hash TEXT)")
+        conn.execute("INSERT INTO vec_embeddings VALUES ('target-agent:episodes:ep1', X'00')")
+        conn.execute("INSERT INTO vec_embeddings VALUES ('target-agent:notes:n1', X'00')")
+        conn.execute("INSERT INTO vec_embeddings VALUES ('other-agent:episodes:ep2', X'00')")
+        conn.execute("INSERT INTO embedding_meta VALUES ('target-agent:episodes:ep1', 'abc')")
+        conn.execute("INSERT INTO embedding_meta VALUES ('other-agent:episodes:ep2', 'def')")
+        conn.commit()
+        conn.close()
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            _delete_stack(args, k)
+
+        captured = capsys.readouterr()
+        assert "Stack 'target-agent' deleted" in captured.out
+
+        # Verify target-agent embeddings were deleted but other-agent's remain
+        conn = sqlite3.connect(str(db_path))
+        vec_count = conn.execute(
+            "SELECT COUNT(*) FROM vec_embeddings WHERE id LIKE 'target-agent:%'"
+        ).fetchone()[0]
+        assert vec_count == 0, "target-agent vec_embeddings should be deleted"
+
+        meta_count = conn.execute(
+            "SELECT COUNT(*) FROM embedding_meta WHERE id LIKE 'target-agent:%'"
+        ).fetchone()[0]
+        assert meta_count == 0, "target-agent embedding_meta should be deleted"
+
+        other_vec = conn.execute(
+            "SELECT COUNT(*) FROM vec_embeddings WHERE id LIKE 'other-agent:%'"
+        ).fetchone()[0]
+        assert other_vec == 1, "other-agent vec_embeddings should remain"
+
+        other_meta = conn.execute(
+            "SELECT COUNT(*) FROM embedding_meta WHERE id LIKE 'other-agent:%'"
+        ).fetchone()[0]
+        assert other_meta == 1, "other-agent embedding_meta should remain"
+        conn.close()

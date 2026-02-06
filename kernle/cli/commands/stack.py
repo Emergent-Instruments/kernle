@@ -222,11 +222,15 @@ def _delete_stack(args: "argparse.Namespace", k: "Kernle") -> None:
                 except Exception as e:
                     logger.debug(f"Failed to delete from table '{table}': {e}")
 
-            # Also delete from vec_embeddings if exists
-            try:
-                conn.execute("DELETE FROM vec_embeddings WHERE id LIKE ?", (f"%:{stack_id}:%",))
-            except Exception as e:
-                logger.debug(f"Failed to delete embeddings: {e}")
+            # Also delete from vec_embeddings and embedding_meta if they exist
+            for vec_table in ("vec_embeddings", "embedding_meta"):
+                try:
+                    conn.execute(
+                        f"DELETE FROM {vec_table} WHERE id LIKE ?",
+                        (f"{stack_id}:%",),
+                    )
+                except Exception as e:
+                    logger.debug(f"Failed to delete from {vec_table}: {e}")
 
             conn.commit()
             conn.close()
