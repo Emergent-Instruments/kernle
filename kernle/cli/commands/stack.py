@@ -113,7 +113,11 @@ def _list_stacks(args: "argparse.Namespace", k: "Kernle") -> None:
 
 def _delete_stack(args: "argparse.Namespace", k: "Kernle") -> None:
     """Delete an agent and all its data."""
-    stack_id = args.name
+    try:
+        stack_id = k._validate_stack_id(args.name)
+    except ValueError as e:
+        print(f"Invalid stack name: {e}")
+        return
     force = getattr(args, "force", False)
 
     if stack_id == k.stack_id:

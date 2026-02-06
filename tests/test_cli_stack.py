@@ -174,10 +174,16 @@ class TestListAgentsWithDatabase:
 class TestDeleteAgent:
     """Test _delete_stack function."""
 
+    def _make_kernle_mock(self, stack_id="current-agent"):
+        """Create a Kernle mock with working _validate_stack_id."""
+        k = MagicMock()
+        k.stack_id = stack_id
+        k._validate_stack_id = lambda name: name  # pass-through for valid names
+        return k
+
     def test_cannot_delete_current_agent(self, capsys):
         """Test error when trying to delete current agent."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock("current-agent")
 
         args = Namespace(name="current-agent", force=False)
 
@@ -187,10 +193,35 @@ class TestDeleteAgent:
         assert "Cannot delete current agent" in captured.out
         assert "Switch to a different stack" in captured.out
 
-    def test_agent_not_found(self, capsys, tmp_path):
-        """Test error when agent doesn't exist."""
+    def test_path_traversal_rejected(self, capsys):
+        """Test that path traversal attempts are rejected."""
         k = MagicMock()
         k.stack_id = "current-agent"
+        k._validate_stack_id.side_effect = ValueError("Stack ID must not contain path separators")
+
+        args = Namespace(name="../../../etc/passwd", force=True)
+
+        _delete_stack(args, k)
+
+        captured = capsys.readouterr()
+        assert "Invalid stack name" in captured.out
+
+    def test_dotdot_traversal_rejected(self, capsys):
+        """Test that .. traversal attempts are rejected."""
+        k = MagicMock()
+        k.stack_id = "current-agent"
+        k._validate_stack_id.side_effect = ValueError("Stack ID must not contain path separators")
+
+        args = Namespace(name="../../secret", force=True)
+
+        _delete_stack(args, k)
+
+        captured = capsys.readouterr()
+        assert "Invalid stack name" in captured.out
+
+    def test_agent_not_found(self, capsys, tmp_path):
+        """Test error when agent doesn't exist."""
+        k = self._make_kernle_mock()
 
         args = Namespace(name="nonexistent-agent", force=True)
 
@@ -206,8 +237,7 @@ class TestDeleteAgent:
 
     def test_delete_with_force(self, capsys, tmp_path):
         """Test deleting agent with --force flag."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="other-agent", force=True)
 
@@ -252,8 +282,7 @@ class TestDeleteAgent:
 
     def test_delete_cancelled_on_wrong_confirmation(self, capsys, tmp_path, monkeypatch):
         """Test deletion is cancelled when wrong name is entered."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="other-agent", force=False)
 
@@ -285,8 +314,7 @@ class TestDeleteAgent:
 
     def test_delete_confirmed_with_correct_name(self, capsys, tmp_path, monkeypatch):
         """Test deletion proceeds with correct confirmation."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="other-agent", force=False)
 
@@ -321,8 +349,7 @@ class TestDeleteAgent:
 
     def test_delete_shows_counts_in_confirmation(self, capsys, tmp_path, monkeypatch):
         """Test that confirmation message shows record counts."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="other-agent", force=False)
 
@@ -364,8 +391,7 @@ class TestDeleteAgent:
 
     def test_delete_db_only_agent(self, capsys, tmp_path):
         """Test deleting agent that only exists in database (no directory)."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="db-only-agent", force=True)
 
@@ -395,8 +421,7 @@ class TestDeleteAgent:
 
     def test_delete_dir_only_agent(self, capsys, tmp_path):
         """Test deleting agent that only exists as directory (no DB records)."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="dir-only-agent", force=True)
 
@@ -430,8 +455,7 @@ class TestDeleteAgent:
 
     def test_delete_handles_additional_tables(self, capsys, tmp_path):
         """Test deletion cleans up all related tables."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="full-agent", force=True)
 
@@ -478,8 +502,7 @@ class TestDeleteAgent:
 
     def test_delete_handles_db_error_checking_existence(self, capsys, tmp_path):
         """Test deletion handles DB error when checking if agent exists."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="other-agent", force=True)
 
@@ -504,8 +527,7 @@ class TestDeleteAgent:
 
     def test_delete_handles_db_error_getting_counts(self, capsys, tmp_path, monkeypatch):
         """Test deletion handles DB error when getting counts for confirmation."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="other-agent", force=False)
 
@@ -534,8 +556,7 @@ class TestDeleteAgent:
 
     def test_delete_handles_db_error_during_cleanup(self, capsys, tmp_path):
         """Test deletion handles DB error during cleanup."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="other-agent", force=True)
 
@@ -580,8 +601,7 @@ class TestDeleteAgent:
 
     def test_delete_handles_directory_deletion_error(self, capsys, tmp_path):
         """Test deletion handles error when deleting directory."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="other-agent", force=True)
 
