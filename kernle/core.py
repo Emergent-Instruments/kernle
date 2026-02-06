@@ -40,6 +40,7 @@ from kernle.storage import (
     Goal,
     Note,
     Relationship,
+    SelfNarrative,
     Summary,
     TrustAssessment,
     Value,
@@ -79,6 +80,7 @@ TOKEN_ESTIMATION_SAFETY_MARGIN = 1.3
 MEMORY_TYPE_PRIORITIES = {
     "checkpoint": 1.00,  # Always loaded first
     "value": 0.90,
+    "self_narrative": 0.90,  # Autobiographical identity — loads alongside values
     "summary_decade": 0.95,
     "summary_epoch": 0.85,
     "summary_year": 0.80,
@@ -304,6 +306,9 @@ def compute_priority_score(memory_type: str, record: Any) -> float:
         # Use sentiment as a factor
         sentiment = _get_record_attr(record, "sentiment", 0.0)
         type_factor = (sentiment + 1) / 2  # Normalize -1..1 to 0..1
+    elif memory_type == "self_narrative":
+        # Active narratives are always high priority
+        type_factor = 0.9
     elif memory_type.startswith("summary_"):
         # Summaries use scope-based priority directly
         type_factor = 0.8
@@ -724,6 +729,13 @@ class Kernle(
                     scope_key = f"summary_{s.scope}"
                     candidates.append((compute_priority_score(scope_key, s), "summary", s))
 
+            # Self-narratives - only active ones
+            active_narratives = self._storage.list_self_narratives(self.agent_id, active_only=True)
+            for n in active_narratives:
+                candidates.append(
+                    (compute_priority_score("self_narrative", n), "self_narrative", n)
+                )
+
             # Sort by priority descending
             candidates.sort(key=lambda x: x[0], reverse=True)
 
@@ -741,6 +753,7 @@ class Kernle(
                 "notes": [],
                 "relationships": [],
                 "summaries": [],
+                "self_narratives": [],
             }
 
             selected_indices = set()
@@ -762,6 +775,8 @@ class Kernle(
                     text = f"{record.entity_name}: {record.notes or ''}"
                 elif memory_type == "summary":
                     text = f"[{record.scope}] {record.content}"
+                elif memory_type == "self_narrative":
+                    text = f"[{record.narrative_type}] {record.content}"
                 else:
                     text = str(record)
 
@@ -790,6 +805,8 @@ class Kernle(
                         selected["relationships"].append(record)
                     elif memory_type == "summary":
                         selected["summaries"].append(record)
+                    elif memory_type == "self_narrative":
+                        selected["self_narratives"].append(record)
 
                     remaining_budget -= tokens
                     selected_count += 1
@@ -930,6 +947,20 @@ class Kernle(
                         "key_themes": s.key_themes,
                     }
                     for s in selected["summaries"]
+                ],
+                "self_narratives": [
+                    {
+                        "id": sn.id,
+                        "narrative_type": sn.narrative_type,
+                        "content": (
+                            truncate_at_word_boundary(sn.content, max_item_chars)
+                            if truncate
+                            else sn.content
+                        ),
+                        "key_themes": sn.key_themes,
+                        "unresolved_tensions": sn.unresolved_tensions,
+                    }
+                    for sn in selected["self_narratives"]
                 ],
                 "_meta": {
                     "budget_used": budget - remaining_budget,
@@ -3062,6 +3093,90 @@ class Kernle(
             if scope not in valid_scopes:
                 raise ValueError(f"scope must be one of: {', '.join(valid_scopes)}")
         return self._storage.list_summaries(self.agent_id, scope=scope)
+
+    # === Self-Narrative API ===
+
+    def narrative_save(
+        self,
+        content: str,
+        narrative_type: str = "identity",
+        key_themes: Optional[List[str]] = None,
+        unresolved_tensions: Optional[List[str]] = None,
+        epoch_id: Optional[str] = None,
+    ) -> str:
+        """Create or update a self-narrative.
+
+        Deactivates existing active narratives of the same type first,
+        then saves the new one as active.
+
+        Args:
+            content: The narrative content
+            narrative_type: 'identity', 'developmental', or 'aspirational'
+            key_themes: Key themes in the narrative
+            unresolved_tensions: Unresolved tensions or contradictions
+            epoch_id: Associated epoch ID
+
+        Returns:
+            The narrative ID
+        """
+        valid_types = ("identity", "developmental", "aspirational")
+        if narrative_type not in valid_types:
+            raise ValueError(f"narrative_type must be one of: {', '.join(valid_types)}")
+
+        content = self._validate_string_input(content, "content", 10000)
+
+        # Deactivate existing active narratives of the same type
+        self._storage.deactivate_self_narratives(self.agent_id, narrative_type)
+
+        narrative = SelfNarrative(
+            id=str(uuid.uuid4()),
+            agent_id=self.agent_id,
+            content=content,
+            narrative_type=narrative_type,
+            epoch_id=epoch_id,
+            key_themes=key_themes,
+            unresolved_tensions=unresolved_tensions,
+            is_active=True,
+            created_at=datetime.now(timezone.utc),
+        )
+
+        return self._storage.save_self_narrative(narrative)
+
+    def narrative_get_active(self, narrative_type: str = "identity") -> Optional[SelfNarrative]:
+        """Get the active self-narrative for a given type.
+
+        Args:
+            narrative_type: 'identity', 'developmental', or 'aspirational'
+
+        Returns:
+            The active narrative or None
+        """
+        narratives = self._storage.list_self_narratives(
+            self.agent_id, narrative_type=narrative_type, active_only=True
+        )
+        return narratives[0] if narratives else None
+
+    def narrative_list(
+        self,
+        narrative_type: Optional[str] = None,
+        active_only: bool = True,
+    ) -> List[SelfNarrative]:
+        """List self-narratives, optionally filtered.
+
+        Args:
+            narrative_type: Filter by type (identity, developmental, aspirational)
+            active_only: If True, only return active narratives
+
+        Returns:
+            List of matching narratives
+        """
+        if narrative_type:
+            valid_types = ("identity", "developmental", "aspirational")
+            if narrative_type not in valid_types:
+                raise ValueError(f"narrative_type must be one of: {', '.join(valid_types)}")
+        return self._storage.list_self_narratives(
+            self.agent_id, narrative_type=narrative_type, active_only=active_only
+        )
 
     def update_belief(
         self,

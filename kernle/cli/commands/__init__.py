@@ -18,6 +18,7 @@ from kernle.cli.commands.forget import cmd_forget
 from kernle.cli.commands.identity import cmd_consolidate, cmd_identity, cmd_promote
 from kernle.cli.commands.init import cmd_init as cmd_init_md
 from kernle.cli.commands.meta import cmd_meta
+from kernle.cli.commands.narrative import cmd_narrative
 from kernle.cli.commands.playbook import cmd_playbook
 from kernle.cli.commands.raw import cmd_raw, resolve_raw_id
 from kernle.cli.commands.stats import cmd_stats
@@ -41,6 +42,7 @@ __all__ = [
     "cmd_identity",
     "cmd_init_md",
     "cmd_meta",
+    "cmd_narrative",
     "cmd_playbook",
     "cmd_raw",
     "cmd_stats",

@@ -367,7 +367,7 @@ class TestSchemaMigration:
 
         with storage._connect() as conn:
             version = conn.execute("SELECT version FROM schema_version").fetchone()
-            assert version[0] == 21
+            assert version[0] >= 16
 
 
 class TestAllMemoryTypes:

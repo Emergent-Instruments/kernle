@@ -33,6 +33,7 @@ from .base import (
     Relationship,
     RelationshipHistoryEntry,
     SearchResult,
+    SelfNarrative,
     Summary,
     SyncConflict,
     SyncResult,
@@ -54,7 +55,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 21  # Add agent_summaries table (fractal summarization)
+SCHEMA_VERSION = 22  # Add agent_self_narrative table
 
 # Maximum size for merged arrays during sync to prevent resource exhaustion
 MAX_SYNC_ARRAY_SIZE = 500
@@ -137,6 +138,7 @@ ALLOWED_TABLES = frozenset(
         "agent_diagnostic_sessions",  # KEP v3 diagnostic sessions
         "agent_diagnostic_reports",  # KEP v3 diagnostic reports
         "agent_summaries",  # KEP v3 fractal summarization
+        "agent_self_narrative",  # KEP v3 self-narrative layer
     }
 )
 
@@ -850,6 +852,26 @@ CREATE TABLE IF NOT EXISTS agent_summaries (
 CREATE INDEX IF NOT EXISTS idx_summaries_agent ON agent_summaries(agent_id);
 CREATE INDEX IF NOT EXISTS idx_summaries_scope ON agent_summaries(agent_id, scope);
 CREATE INDEX IF NOT EXISTS idx_summaries_period ON agent_summaries(agent_id, period_start, period_end);
+
+-- Self-narrative (autobiographical identity model, KEP v3)
+CREATE TABLE IF NOT EXISTS agent_self_narrative (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    epoch_id TEXT,
+    narrative_type TEXT DEFAULT 'identity',   -- 'identity' | 'developmental' | 'aspirational'
+    content TEXT NOT NULL,
+    key_themes TEXT,                          -- JSON array
+    unresolved_tensions TEXT,                 -- JSON array
+    is_active INTEGER DEFAULT 1,
+    supersedes TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    cloud_synced_at TEXT,
+    version INTEGER DEFAULT 1,
+    deleted INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_narrative_agent ON agent_self_narrative(agent_id);
+CREATE INDEX IF NOT EXISTS idx_narrative_active ON agent_self_narrative(agent_id, narrative_type, is_active);
 
 -- Embedding metadata (tracks what's been embedded)
 CREATE TABLE IF NOT EXISTS embedding_meta (
@@ -2124,6 +2146,37 @@ class SQLiteStorage:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_epochs_active ON agent_epochs(ended_at)")
             logger.info("Created agent_epochs table")
         conn.commit()
+
+        # v22: Add agent_self_narrative table (self-narrative layer)
+        if "agent_self_narrative" not in table_names:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS agent_self_narrative (
+                    id TEXT PRIMARY KEY,
+                    agent_id TEXT NOT NULL,
+                    epoch_id TEXT,
+                    narrative_type TEXT DEFAULT 'identity',
+                    content TEXT NOT NULL,
+                    key_themes TEXT,
+                    unresolved_tensions TEXT,
+                    is_active INTEGER DEFAULT 1,
+                    supersedes TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    cloud_synced_at TEXT,
+                    version INTEGER DEFAULT 1,
+                    deleted INTEGER DEFAULT 0
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_narrative_agent "
+                "ON agent_self_narrative(agent_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_narrative_active "
+                "ON agent_self_narrative(agent_id, narrative_type, is_active)"
+            )
+            logger.info("Created agent_self_narrative table")
+            conn.commit()
 
     def _check_sqlite_vec(self) -> bool:
         """Check if sqlite-vec extension is available."""
@@ -4299,6 +4352,112 @@ class SQLiteStorage:
             key_themes=self._from_json(self._safe_get(row, "key_themes", None)),
             supersedes=self._from_json(self._safe_get(row, "supersedes", None)),
             is_protected=bool(self._safe_get(row, "is_protected", 1)),
+            created_at=self._parse_datetime(row["created_at"]),
+            updated_at=self._parse_datetime(row["updated_at"]),
+            cloud_synced_at=self._parse_datetime(self._safe_get(row, "cloud_synced_at", None)),
+            version=row["version"],
+            deleted=bool(row["deleted"]),
+        )
+
+    # === Self-Narratives (KEP v3) ===
+
+    def save_self_narrative(self, narrative: SelfNarrative) -> str:
+        """Save a self-narrative. Returns the narrative ID."""
+        if not narrative.id:
+            narrative.id = str(uuid.uuid4())
+
+        now = self._now()
+
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO agent_self_narrative
+                (id, agent_id, epoch_id, narrative_type, content,
+                 key_themes, unresolved_tensions, is_active, supersedes,
+                 created_at, updated_at, cloud_synced_at, version, deleted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    narrative.id,
+                    self.agent_id,
+                    narrative.epoch_id,
+                    narrative.narrative_type,
+                    narrative.content,
+                    self._to_json(narrative.key_themes),
+                    self._to_json(narrative.unresolved_tensions),
+                    1 if narrative.is_active else 0,
+                    narrative.supersedes,
+                    narrative.created_at.isoformat() if narrative.created_at else now,
+                    now,
+                    narrative.cloud_synced_at.isoformat() if narrative.cloud_synced_at else None,
+                    narrative.version,
+                    1 if narrative.deleted else 0,
+                ),
+            )
+            conn.commit()
+
+        return narrative.id
+
+    def get_self_narrative(self, narrative_id: str) -> Optional[SelfNarrative]:
+        """Get a specific self-narrative by ID."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM agent_self_narrative WHERE id = ? AND agent_id = ? AND deleted = 0",
+                (narrative_id, self.agent_id),
+            ).fetchone()
+
+        return self._row_to_self_narrative(row) if row else None
+
+    def list_self_narratives(
+        self,
+        agent_id: str,
+        narrative_type: Optional[str] = None,
+        active_only: bool = True,
+    ) -> List[SelfNarrative]:
+        """Get self-narratives, optionally filtered."""
+        with self._connect() as conn:
+            conditions = ["agent_id = ?", "deleted = 0"]
+            params: list = [self.agent_id]
+
+            if narrative_type:
+                conditions.append("narrative_type = ?")
+                params.append(narrative_type)
+
+            if active_only:
+                conditions.append("is_active = 1")
+
+            where = " AND ".join(conditions)
+            rows = conn.execute(
+                f"SELECT * FROM agent_self_narrative WHERE {where} ORDER BY updated_at DESC",
+                params,
+            ).fetchall()
+
+        return [self._row_to_self_narrative(row) for row in rows]
+
+    def deactivate_self_narratives(self, agent_id: str, narrative_type: str) -> int:
+        """Deactivate all active narratives of a given type."""
+        now = self._now()
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "UPDATE agent_self_narrative SET is_active = 0, updated_at = ? "
+                "WHERE agent_id = ? AND narrative_type = ? AND is_active = 1 AND deleted = 0",
+                (now, self.agent_id, narrative_type),
+            )
+            conn.commit()
+            return cursor.rowcount
+
+    def _row_to_self_narrative(self, row: sqlite3.Row) -> SelfNarrative:
+        """Convert a row to a SelfNarrative."""
+        return SelfNarrative(
+            id=row["id"],
+            agent_id=row["agent_id"],
+            content=row["content"],
+            narrative_type=self._safe_get(row, "narrative_type", "identity"),
+            epoch_id=self._safe_get(row, "epoch_id", None),
+            key_themes=self._from_json(self._safe_get(row, "key_themes", None)),
+            unresolved_tensions=self._from_json(self._safe_get(row, "unresolved_tensions", None)),
+            is_active=bool(self._safe_get(row, "is_active", 1)),
+            supersedes=self._safe_get(row, "supersedes", None),
             created_at=self._parse_datetime(row["created_at"]),
             updated_at=self._parse_datetime(row["updated_at"]),
             cloud_synced_at=self._parse_datetime(self._safe_get(row, "cloud_synced_at", None)),
