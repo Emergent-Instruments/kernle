@@ -291,8 +291,8 @@ class TestGetCompetenceBoundaries:
 
         assert 0.0 <= boundaries["overall_confidence"] <= 1.0
         assert 0.0 <= boundaries["success_rate"] <= 1.0
-        assert boundaries["experience_depth"] >= 0
-        assert boundaries["knowledge_breadth"] >= 0
+        assert boundaries["experience_depth"] >= 5  # at least 5 episodes in fixture
+        assert boundaries["knowledge_breadth"] >= 3  # python, docker, kubernetes domains
 
     def test_experience_depth_counts_episodes(self, kernle):
         """Should count episodes for experience depth."""
