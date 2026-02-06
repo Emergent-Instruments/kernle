@@ -11,7 +11,7 @@ Kernle provides sophisticated memory management including intentional forgetting
   <Card title="Forgetting" icon="trash">
     Graceful decay with protection and recovery
   </Card>
-  <Card title="Consolidation" icon="layer-group">
+  <Card title="Promotion" icon="layer-group">
     Extract patterns from episodes into beliefs
   </Card>
   <Card title="Import" icon="file-import">
@@ -101,10 +101,14 @@ kernle -a claire forget recover abc123
 
 Consolidation extracts patterns from recent episodes to form or update beliefs.
 
-### Run Consolidation
+<Warning>
+**Renamed Command**: `kernle consolidate` has been renamed to `kernle promote`. The old `consolidate` command still works as a deprecated alias but will emit a warning.
+</Warning>
+
+### Run Promotion
 
 ```bash
-kernle -a claire consolidate --limit 20
+kernle -a claire promote --limit 20
 ```
 
 This outputs a reflection prompt with your recent episodes and current beliefs, guiding you to:
@@ -286,7 +290,7 @@ k.forget_run(dry_run=True)
 k.forget_recover("memory_id")
 
 # Consolidation
-prompt = k.consolidate(limit=20)
+prompt = k.promote(limit=20)  # or k.consolidate(limit=20) for backwards compat
 
 # Beliefs
 k.belief_add("Statement", confidence=0.8)
@@ -312,8 +316,8 @@ A healthy maintenance routine:
   <Step title="Review raw entries">
     Process unprocessed raw entries with `kernle raw list --unprocessed`
   </Step>
-  <Step title="Consolidate">
-    Run `kernle consolidate` to extract patterns from episodes
+  <Step title="Promote">
+    Run `kernle promote` to extract patterns from episodes
   </Step>
   <Step title="Review forgetting candidates">
     Check `kernle forget candidates` and protect important memories

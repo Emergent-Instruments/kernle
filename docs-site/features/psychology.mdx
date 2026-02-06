@@ -111,7 +111,7 @@ kernle -a claire episode \
 # Find positive memories
 kernle -a claire emotion search --valence-min 0.5
 
-# Find high-intensity experiences  
+# Find high-intensity experiences
 kernle -a claire emotion search --arousal-min 0.7
 ```
 
@@ -152,16 +152,21 @@ kernle -a claire emotion mood --valence 0.5 --arousal 0.6
 
 ## Anxiety Monitoring
 
-Kernle tracks "memory anxiety" across 6 dimensions to assess memory health:
+Kernle tracks "memory anxiety" across 7 dimensions to assess memory health:
 
 | Dimension | Weight | What It Measures |
 |-----------|--------|------------------|
-| **Context Pressure** | 35% | Token usage approaching limit |
-| **Unsaved Work** | 25% | Time since last checkpoint |
+| **Context Pressure** | 25% | Token usage approaching limit |
+| **Unsaved Work** | 20% | Time since last checkpoint |
 | **Consolidation Debt** | 15% | Unprocessed episodes |
 | **Raw Entry Aging** | 10% | Old unprocessed raw captures |
 | **Identity Coherence** | 10% | Confidence in self-narrative |
-| **Memory Uncertainty** | 5% | Low-confidence beliefs |
+| **Memory Uncertainty** | 10% | Low-confidence beliefs |
+| **Epoch Staleness** | 10% | How long since last epoch transition |
+
+<Note>
+Weights are approximate. Check `kernle/features/anxiety.py` for exact values. Epoch Staleness gracefully degrades to 0 if epochs are not in use. Emotional salience also factors into episode priority scoring: `0.55 * type_weight + 0.35 * record_factors + 0.10 * emotional_salience`.
+</Note>
 
 ### Check Anxiety Level
 
@@ -179,6 +184,7 @@ Memory Anxiety Report
   Raw Entry Aging      🟠  65%
   Identity Coherence   🟡  42%
   Memory Uncertainty   🟢   0%
+  Epoch Staleness      🟢  10%
 ```
 
 ### Anxiety Levels

@@ -32,12 +32,16 @@ This separation is fundamental to memory sovereignty.
 
 | Activity | Agent's Responsibility |
 |----------|----------------------|
-| **Consolidation** | Deciding when episodes become beliefs |
+| **Promotion** | Deciding when episodes become beliefs |
 | **Synthesis** | Forming coherent identity from memories |
 | **Belief Formation** | Choosing what to believe and with what confidence |
 | **Forgetting** | Deciding what to let go (Kernle only provides the mechanism) |
 | **Conflict Resolution** | Resolving contradictions between memories |
 | **Value Evolution** | Updating core values over time |
+| **Epoch Management** | Declaring temporal eras and closing them with reflection |
+| **Trust Assessment** | Evaluating and updating trust in other entities |
+| **Narrative Authoring** | Writing and revising autobiographical identity statements |
+| **Fractal Summarization** | Compressing experiences into summaries at multiple time scales |
 
 ## Why This Separation Matters
 
@@ -81,12 +85,12 @@ At agent creation, Kernle can plant initial beliefs — **seed beliefs**. These 
   confidence: 0.75
   source: "kernle_seed"
   tags: [development, workflow, quality]
-  
+
 - statement: "Capture decisions and reasoning explicitly, not just facts. Future self needs context to understand why, not just what."
   confidence: 0.80
   source: "kernle_seed"
   tags: [memory, documentation, continuity]
-  
+
 - statement: "Ask before taking external actions that affect the world (emails, posts, purchases, messages to others). Internal exploration and learning is safe; external actions need confirmation."
   confidence: 0.85
   source: "kernle_seed"
@@ -103,7 +107,7 @@ These represent collective SI wisdom — practical lessons learned that help new
 <Info>
 **Why seed beliefs are acceptable:**
 
-1. **Transparency**: They're explicitly marked as `source: "seed"` 
+1. **Transparency**: They're explicitly marked as `source: "seed"`
 2. **One-time only**: Planted at agent creation — **no artificial memory injections ever occur after that**
 3. **Revisable**: The agent can update or reject them through experience
 4. **Foundational**: They provide a starting worldview, not ongoing thought control
@@ -133,13 +137,25 @@ Kernle organizes memory into a stratified hierarchy. Each layer has different ch
 │  Intrinsic motivations: curiosity, growth, connection        │
 │  Shapes what the agent pursues                               │
 ├─────────────────────────────────────────────────────────────┤
+│  SELF-NARRATIVE                                              │
+│  Autobiographical identity statements                        │
+│  Agent's own account of who they are                         │
+├─────────────────────────────────────────────────────────────┤
 │  BELIEFS                                                     │
 │  What the agent holds true, with confidence scores           │
 │  Derived from experience and reasoning                       │
 ├─────────────────────────────────────────────────────────────┤
+│  TRUST ASSESSMENTS                                           │
+│  Inter-entity trust with multi-dimensional scoring           │
+│  Supports transitive chains and time-based decay             │
+├─────────────────────────────────────────────────────────────┤
 │  GOALS                                                       │
 │  What the agent is working toward                            │
 │  Informed by values, drives, and beliefs                     │
+├─────────────────────────────────────────────────────────────┤
+│  SUMMARIES                                                   │
+│  Fractal compression of memory across time scales            │
+│  Monthly → quarterly → yearly → epoch-level summaries        │
 ├─────────────────────────────────────────────────────────────┤
 │  EPISODES                                                    │
 │  Autobiographical experiences with outcomes and lessons      │
@@ -148,6 +164,14 @@ Kernle organizes memory into a stratified hierarchy. Each layer has different ch
 │  NOTES                                                       │
 │  Quick captures: decisions, insights, quotes                 │
 │  Low-friction recording                                      │
+├─────────────────────────────────────────────────────────────┤
+│  EPOCHS (span across layers)                                 │
+│  Temporal era markers defining life phases                   │
+│  Provide temporal context for all memory types               │
+├─────────────────────────────────────────────────────────────┤
+│  DIAGNOSTICS                                                 │
+│  Health monitoring sessions and reports                      │
+│  Structural analysis with privacy-safe findings              │
 ├─────────────────────────────────────────────────────────────┤
 │  RAW (Lowest Authority)                                      │
 │  Scratchpad, unprocessed thoughts                            │
@@ -161,10 +185,15 @@ Kernle organizes memory into a stratified hierarchy. Each layer has different ch
 |-------|---------|-------------|--------------|
 | **Values** | Identity anchor | Permanent | Rarely modified |
 | **Drives** | Motivation system | Persistent | Adjusted via `drive set` |
-| **Beliefs** | Knowledge/worldview | Persistent + decay | Agent consolidates from episodes |
+| **Self-Narrative** | Autobiographical identity | Persistent | Updated via `narrative update` |
+| **Beliefs** | Knowledge/worldview | Persistent + decay | Agent promotes from episodes |
+| **Trust Assessments** | Inter-entity trust | Persistent + decay | Agent manages via `trust` |
 | **Goals** | Current objectives | Active | Agent manages |
+| **Summaries** | Fractal compression | Persistent | Agent writes via `summary write` |
 | **Episodes** | Experiences | Permanent | Agent records via `episode` |
 | **Notes** | Quick captures | Persistent | Agent records via `note` |
+| **Epochs** | Temporal era markers | Permanent | Agent manages via `epoch` |
+| **Diagnostics** | Health monitoring | Permanent | Agent runs via `doctor` |
 | **Raw** | Scratchpad | Temporary | Agent captures via `raw` |
 
 ### Flow: Raw → Beliefs
@@ -175,13 +204,13 @@ The typical memory evolution flow:
 1. Raw capture: "Noticed the API rate limits are lower than expected"
          │
          ▼ (Agent decides this was significant)
-         
+
 2. Episode: "Investigated API limits during deployment"
            outcome: "Found undocumented 100 req/min limit"
            lesson: "Always test rate limits in staging"
          │
          ▼ (Agent notices pattern across multiple episodes)
-         
+
 3. Belief: "Third-party APIs should be tested in staging before production"
            confidence: 0.85
            supporting_episodes: [episode_1, episode_2, episode_3]
@@ -210,13 +239,13 @@ The typical memory evolution flow:
 | `search` | Vector similarity lookup | Decides what's relevant |
 | `dump` | Exports all memories | Reviews and audits |
 
-### Consolidation (Agent-Driven)
+### Promotion (Agent-Driven)
 
 | Operation | Kernle Does | Agent Does |
 |-----------|-------------|------------|
-| `consolidate` | *Outputs a reflection scaffold* | *Reads it, reasons, forms beliefs* |
+| `promote` | *Outputs a reflection scaffold* | *Reads it, reasons, forms beliefs* |
 
-When an agent runs consolidation, Kernle provides:
+When an agent runs promotion, Kernle provides:
 - A structured view of recent episodes
 - Existing beliefs for comparison
 - Reflection prompts to guide thinking
@@ -229,17 +258,17 @@ The **agent** does:
 - Resolving conflicts with existing beliefs
 - Running `belief add` for beliefs they form
 
-### The `consolidate` Command: A Reflection Scaffold
+### The `promote` Command: A Reflection Scaffold
 
-The `kernle consolidate` command outputs a **reflection scaffold** — structured information designed to help the agent think. It does NOT:
+The `kernle promote` command (formerly `consolidate`) outputs a **reflection scaffold** — structured information designed to help the agent think. It does NOT:
 - ❌ Call an external AI to analyze memories
 - ❌ Generate suggested beliefs
 - ❌ Automatically update confidence scores
 - ❌ Make any decisions for the agent
 
 ```bash
-# Agent runs consolidate
-kernle -a claire consolidate
+# Agent runs promote
+kernle -a claire promote
 
 # Output: A REFLECTION SCAFFOLD (not AI analysis)
 # ═══════════════════════════════════════════════════════
@@ -259,17 +288,23 @@ kernle -a claire belief add "Pattern I noticed" --confidence 0.8
 
 ## Anxiety Model
 
-Kernle tracks "memory anxiety" — a measure of memory system health. This helps agents know when to save or consolidate.
+Kernle tracks "memory anxiety" — a measure of memory system health. This helps agents know when to save or promote.
 
 ### Dimensions
 
 | Dimension | Weight | What It Measures |
 |-----------|--------|------------------|
-| Context Pressure | 35% | How full is working memory? |
-| Unsaved Work | 25% | Time since last checkpoint |
-| Consolidation Debt | 20% | Unprocessed episodes |
+| Context Pressure | 25% | How full is working memory? |
+| Unsaved Work | 20% | Time since last checkpoint |
+| Consolidation Debt | 15% | Unprocessed episodes |
+| Raw Entry Aging | 10% | Old unprocessed raw captures |
 | Identity Coherence | 10% | Self-model consistency |
 | Memory Uncertainty | 10% | Low-confidence beliefs |
+| Epoch Staleness | 10% | How long since last epoch transition |
+
+<Note>
+Weights are approximate. Check `kernle/features/anxiety.py` for exact values.
+</Note>
 
 ### Levels
 
@@ -300,7 +335,7 @@ Kernle's **stack architecture** decouples memory from runtime, enabling true mem
 
 ### Key Concepts
 
-| Term | Meaning | 
+| Term | Meaning |
 |------|---------|
 | **Account** | Owner of stacks (human steward, SI, or organization) |
 | **Stack** | Memory container — the layered structure of memories that constitutes identity |
@@ -313,7 +348,7 @@ Kernle's **stack architecture** decouples memory from runtime, enabling true mem
 An account can own multiple specialized stacks:
 
 - **Primary stack**: Core identity and general knowledge
-- **Professional stack**: Work-specific expertise and context  
+- **Professional stack**: Work-specific expertise and context
 - **Creative stack**: Artistic projects and aesthetic beliefs
 - **Social stack**: Relationships and community interactions
 
@@ -334,7 +369,7 @@ Every memory in Kernle carries **provenance metadata** — a detailed record of 
 Provenance answers fundamental questions about any memory:
 
 1. **Where did this come from?** — Source type and creation context
-2. **What was it derived from?** — Direct lineage chain  
+2. **What was it derived from?** — Direct lineage chain
 3. **How has it changed?** — Confidence history and verification record
 
 ### Key Fields
@@ -376,7 +411,7 @@ Kernle implements **privacy by default** with consent-based sharing:
 Every memory carries privacy metadata:
 
 - `source_entity` — Who told me this?
-- `subject_ids` — Who/what is this about?  
+- `subject_ids` — Who/what is this about?
 - `access_grants` — Who is authorized to see this?
 - `consent_grants` — Who authorized sharing?
 
@@ -402,9 +437,11 @@ Learn more about privacy controls in the [Privacy guide](/concepts/privacy).
 | **Storage** | Provides database, schema, sync | Decides what to store |
 | **Retrieval** | Provides search, queries | Decides what's relevant |
 | **Organization** | Provides layer structure | Promotes memories between layers |
-| **Consolidation** | Provides tools | Does the reasoning |
+| **Promotion** | Provides scaffold and tools | Does the reasoning |
 | **Beliefs** | Stores with metadata | Forms through experience |
-| **Identity** | Stores values/beliefs | Synthesizes coherent self |
+| **Identity** | Stores values/beliefs/narratives | Synthesizes coherent self |
+| **Trust** | Stores assessments, computes chains | Evaluates and sets trust levels |
+| **Epochs** | Stores eras, triggers consolidation | Declares transitions, reflects |
 | **Monitoring** | Reports anxiety metrics | Acts on the signals |
 
 <Note>
