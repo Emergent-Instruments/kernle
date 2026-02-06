@@ -90,6 +90,7 @@ def cmd_anxiety(args, k: "Kernle"):
         "raw_aging": "Raw Entry Aging",
         "identity_coherence": "Identity Coherence",
         "memory_uncertainty": "Memory Uncertainty",
+        "epoch_staleness": "Epoch Staleness",
     }
 
     for dim_key, dim_label in dim_names.items():

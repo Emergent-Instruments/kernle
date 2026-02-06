@@ -252,17 +252,25 @@ def _build_memory_echoes(
     }
 
 
+def _get_record_attr(record: Any, attr: str, default: Any = None) -> Any:
+    """Get an attribute from a record, supporting both dataclass and dict."""
+    if hasattr(record, attr):
+        return getattr(record, attr, default)
+    if isinstance(record, dict):
+        return record.get(attr, default)
+    return default
+
+
 def compute_priority_score(memory_type: str, record: Any) -> float:
     """Compute priority score for a memory record.
 
-    The score combines the base type priority with record-specific factors:
-    - Values: priority field (0-100 -> 0.0-1.0)
-    - Beliefs: confidence (0.0-1.0)
-    - Goals: recency (newer = higher)
-    - Drives: intensity (0.0-1.0)
-    - Episodes: recency (newer = higher)
-    - Notes: recency (newer = higher)
-    - Relationships: last_interaction recency
+    The score combines three weighted factors:
+    - 55% type weight (base priority for memory type * type-specific factor)
+    - 35% record factors (confidence, recency, etc.)
+    - 10% emotional salience (abs(valence) * arousal * time-decay)
+
+    Emotional salience uses a 90-day half-life decay so high-impact episodes
+    remain cognitively available longer than standard 30-day salience.
 
     Args:
         memory_type: Type of memory (value, belief, etc.)
@@ -276,50 +284,52 @@ def compute_priority_score(memory_type: str, record: Any) -> float:
     # Get record value based on type
     if memory_type == "value":
         # priority is 0-100, normalize to 0-1
-        priority = (
-            getattr(record, "priority", 50)
-            if hasattr(record, "priority")
-            else record.get("priority", 50)
-        )
+        priority = _get_record_attr(record, "priority", 50)
         type_factor = priority / 100.0
     elif memory_type == "belief":
-        type_factor = (
-            getattr(record, "confidence", 0.8)
-            if hasattr(record, "confidence")
-            else record.get("confidence", 0.8)
-        )
+        type_factor = _get_record_attr(record, "confidence", 0.8)
     elif memory_type == "drive":
-        type_factor = (
-            getattr(record, "intensity", 0.5)
-            if hasattr(record, "intensity")
-            else record.get("intensity", 0.5)
-        )
+        type_factor = _get_record_attr(record, "intensity", 0.5)
     elif memory_type in ("goal", "episode", "note"):
         # For time-based priority, we'd need to compute recency
         # For now, use a default factor (records are already sorted by recency)
         type_factor = 0.7
     elif memory_type == "relationship":
         # Use sentiment as a factor
-        sentiment = (
-            getattr(record, "sentiment", 0.0)
-            if hasattr(record, "sentiment")
-            else record.get("sentiment", 0.0)
-        )
+        sentiment = _get_record_attr(record, "sentiment", 0.0)
         type_factor = (sentiment + 1) / 2  # Normalize -1..1 to 0..1
     else:
         type_factor = 0.5
 
-    # Combine base priority with type-specific factor
-    # Weight: 60% type priority, 40% record-specific factor
-    score = base_priority * 0.6 + type_factor * 0.4
+    type_weight = base_priority  # base priority for this memory type
+    record_factors = type_factor  # type-specific factor (confidence, priority, etc.)
+
+    # Emotional salience: abs(valence) * arousal * time-decay(90-day half-life)
+    valence = _get_record_attr(record, "emotional_valence", 0.0)
+    arousal = _get_record_attr(record, "emotional_arousal", 0.0)
+
+    emotional_salience = 0.0
+    if abs(valence) > 0 or arousal > 0:
+        half_life = 90.0  # 3x standard 30-day salience
+        days_since = 0.0
+        created_at = _get_record_attr(record, "created_at", None)
+        if created_at is not None:
+            try:
+                if isinstance(created_at, str):
+                    created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                now = datetime.now(timezone.utc)
+                delta = now - created_at
+                days_since = max(0.0, delta.total_seconds() / 86400.0)
+            except (ValueError, TypeError):
+                pass
+        emotional_salience = abs(valence) * arousal * (half_life / (days_since + half_life))
+
+    # Weighted combination: 55% type weight, 35% record factors, 10% emotional salience
+    score = 0.55 * type_weight + 0.35 * record_factors + 0.10 * emotional_salience
 
     # Belief scope boost: self-beliefs get +0.05 priority (KEP v3)
     if memory_type == "belief":
-        belief_scope = (
-            getattr(record, "belief_scope", "world")
-            if hasattr(record, "belief_scope")
-            else record.get("belief_scope", "world")
-        )
+        belief_scope = _get_record_attr(record, "belief_scope", "world")
         if belief_scope == "self":
             score = min(1.0, score + 0.05)
 

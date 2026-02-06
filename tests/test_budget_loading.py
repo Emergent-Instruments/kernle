@@ -128,9 +128,9 @@ class TestComputePriorityScore:
         low_score = compute_priority_score("value", low_priority_value)
 
         assert high_score > low_score
-        # Both should include base priority
-        assert high_score >= MEMORY_TYPE_PRIORITIES["value"] * 0.6
-        assert low_score >= MEMORY_TYPE_PRIORITIES["value"] * 0.6 - 0.01
+        # Both should include base priority (55% weight on type priority)
+        assert high_score >= MEMORY_TYPE_PRIORITIES["value"] * 0.55
+        assert low_score >= MEMORY_TYPE_PRIORITIES["value"] * 0.55 - 0.01
 
     def test_belief_priority(self):
         """Belief priority should scale with confidence."""

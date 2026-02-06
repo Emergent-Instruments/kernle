@@ -1,15 +1,18 @@
 """Tests for anxiety tracking system.
 
 The anxiety tracking system measures a synthetic intelligence's functional
-anxiety about memory continuity across 5 dimensions:
+anxiety about memory continuity across 7 dimensions:
 1. Context Pressure - How full is the context window?
 2. Unsaved Work - Time since last checkpoint
 3. Consolidation Debt - Unreflected episodes
-4. Identity Coherence - Identity confidence score
-5. Memory Uncertainty - Low-confidence beliefs
+4. Raw Aging - Unprocessed raw entries getting stale
+5. Identity Coherence - Identity confidence score
+6. Memory Uncertainty - Low-confidence beliefs
+7. Epoch Staleness - Time since last epoch transition
 """
 
 import json
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 import pytest
@@ -216,6 +219,8 @@ class TestCompositeAnxietyScore:
             "consolidation_debt",
             "identity_coherence",
             "memory_uncertainty",
+            "raw_aging",
+            "epoch_staleness",
         ]
         for dim in expected_dims:
             assert dim in report["dimensions"]
@@ -578,3 +583,102 @@ class TestAnxietyIntegration:
 
         # Score should be affected (even if consolidation doesn't fully process)
         assert "consolidation_debt" in after["dimensions"]
+
+
+class TestEpochStaleness:
+    """Test epoch staleness anxiety dimension."""
+
+    def test_no_epochs_gives_zero(self, k):
+        """No epochs in use should produce zero epoch staleness."""
+        report = k.get_anxiety_report()
+        dim = report["dimensions"]["epoch_staleness"]
+
+        assert dim["score"] == 0
+        assert dim["raw_value"] is None
+        assert "not in use" in dim["detail"]
+
+    def test_fresh_epoch_low_anxiety(self, k):
+        """A recently started epoch should have low staleness anxiety."""
+        # Create a new epoch (starts now)
+        k._storage.save_epoch(
+            __import__("kernle.storage.base", fromlist=["Epoch"]).Epoch(
+                id="ep-fresh",
+                agent_id=k.agent_id,
+                epoch_number=1,
+                name="Fresh epoch",
+                started_at=datetime.now(timezone.utc),
+            )
+        )
+
+        report = k.get_anxiety_report()
+        dim = report["dimensions"]["epoch_staleness"]
+
+        # Just created -- should be very low
+        assert dim["score"] < 10
+        assert dim["raw_value"] is not None
+        assert dim["raw_value"] < 1.0  # < 1 month
+
+    def test_stale_epoch_high_anxiety(self, k):
+        """An epoch started > 18 months ago should have high staleness anxiety."""
+        from datetime import timedelta
+
+        old_start = datetime.now(timezone.utc) - timedelta(days=600)  # ~20 months
+        k._storage.save_epoch(
+            __import__("kernle.storage.base", fromlist=["Epoch"]).Epoch(
+                id="ep-old",
+                agent_id=k.agent_id,
+                epoch_number=1,
+                name="Ancient epoch",
+                started_at=old_start,
+            )
+        )
+
+        report = k.get_anxiety_report()
+        dim = report["dimensions"]["epoch_staleness"]
+
+        assert dim["score"] >= 90
+        assert "overdue" in dim["detail"]
+
+    def test_epoch_aware_range(self, k):
+        """An epoch started 9 months ago should be in 'Aware' range (30-70)."""
+        from datetime import timedelta
+
+        nine_months_ago = datetime.now(timezone.utc) - timedelta(days=270)
+        k._storage.save_epoch(
+            __import__("kernle.storage.base", fromlist=["Epoch"]).Epoch(
+                id="ep-mid",
+                agent_id=k.agent_id,
+                epoch_number=1,
+                name="Moderate epoch",
+                started_at=nine_months_ago,
+            )
+        )
+
+        report = k.get_anxiety_report()
+        dim = report["dimensions"]["epoch_staleness"]
+
+        assert 30 <= dim["score"] <= 70
+        assert "consider" in dim["detail"].lower()
+
+    def test_closed_epoch_measures_from_ended_at(self, k):
+        """If the last epoch is closed, staleness measures from ended_at."""
+        from datetime import timedelta
+
+        ended_recently = datetime.now(timezone.utc) - timedelta(days=30)
+        k._storage.save_epoch(
+            __import__("kernle.storage.base", fromlist=["Epoch"]).Epoch(
+                id="ep-closed",
+                agent_id=k.agent_id,
+                epoch_number=1,
+                name="Closed epoch",
+                started_at=datetime.now(timezone.utc) - timedelta(days=90),
+                ended_at=ended_recently,
+            )
+        )
+
+        report = k.get_anxiety_report()
+        dim = report["dimensions"]["epoch_staleness"]
+
+        # Ended 30 days ago (1 month) -- should be in Calm range
+        assert dim["score"] < 30
+        assert dim["raw_value"] is not None
