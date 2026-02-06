@@ -3126,6 +3126,15 @@ def main():
     belief_list.add_argument("--all", "-a", action="store_true", help="Include inactive beliefs")
     belief_list.add_argument("--limit", "-l", type=int, default=20)
     belief_list.add_argument("--json", "-j", action="store_true")
+    belief_list.add_argument(
+        "--scope", choices=["self", "world", "relational"], help="Filter by belief scope"
+    )
+    belief_list.add_argument("--domain", help="Filter by source domain")
+    belief_list.add_argument(
+        "--abstraction-level",
+        choices=["specific", "domain", "universal"],
+        help="Filter by abstraction level",
+    )
 
     # mcp
     subparsers.add_parser("mcp", help="Start MCP server (stdio transport)")

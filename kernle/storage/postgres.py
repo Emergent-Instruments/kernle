@@ -394,6 +394,11 @@ class SupabaseStorage:
             # Context fields
             "context": belief.context,
             "context_tags": belief.context_tags or [],
+            # Belief scope and domain metadata (KEP v3)
+            "belief_scope": getattr(belief, "belief_scope", "world"),
+            "source_domain": getattr(belief, "source_domain", None),
+            "cross_domain_applications": getattr(belief, "cross_domain_applications", None),
+            "abstraction_level": getattr(belief, "abstraction_level", "specific"),
             # Sync metadata
             "local_updated_at": now,
             "cloud_synced_at": now,
@@ -456,6 +461,11 @@ class SupabaseStorage:
             # Context/scope fields
             context=row.get("context"),
             context_tags=row.get("context_tags"),
+            # Belief scope and domain metadata (KEP v3)
+            belief_scope=row.get("belief_scope", "world"),
+            source_domain=row.get("source_domain"),
+            cross_domain_applications=row.get("cross_domain_applications"),
+            abstraction_level=row.get("abstraction_level", "specific"),
         )
 
     # === Values ===

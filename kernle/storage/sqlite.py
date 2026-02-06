@@ -240,6 +240,11 @@ CREATE TABLE IF NOT EXISTS beliefs (
     subject_ids TEXT,       -- JSON array of entity IDs this memory is about
     access_grants TEXT,     -- JSON array of entity IDs who can see this (empty = private)
     consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
+    -- Belief scope and domain metadata (KEP v3)
+    belief_scope TEXT DEFAULT 'world',
+    source_domain TEXT,
+    cross_domain_applications TEXT,
+    abstraction_level TEXT DEFAULT 'specific',
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -254,6 +259,9 @@ CREATE INDEX IF NOT EXISTS idx_beliefs_supersedes ON beliefs(supersedes);
 CREATE INDEX IF NOT EXISTS idx_beliefs_superseded_by ON beliefs(superseded_by);
 CREATE INDEX IF NOT EXISTS idx_beliefs_is_forgotten ON beliefs(is_forgotten);
 CREATE INDEX IF NOT EXISTS idx_beliefs_is_protected ON beliefs(is_protected);
+CREATE INDEX IF NOT EXISTS idx_beliefs_belief_scope ON beliefs(belief_scope);
+CREATE INDEX IF NOT EXISTS idx_beliefs_source_domain ON beliefs(source_domain);
+CREATE INDEX IF NOT EXISTS idx_beliefs_abstraction_level ON beliefs(abstraction_level);
 
 -- Values
 CREATE TABLE IF NOT EXISTS agent_values (
@@ -1737,6 +1745,25 @@ class SQLiteStorage:
             logger.info("Created boot_config table")
             conn.commit()
 
+        # v18: Add belief_scope and domain metadata (KEP v3)
+        if "beliefs" in table_names:
+            belief_cols = get_columns("beliefs")
+            belief_scope_fields = {
+                "belief_scope": "TEXT DEFAULT 'world'",
+                "source_domain": "TEXT",
+                "cross_domain_applications": "TEXT",
+                "abstraction_level": "TEXT DEFAULT 'specific'",
+            }
+            for field_name, field_type in belief_scope_fields.items():
+                if field_name not in belief_cols:
+                    try:
+                        conn.execute(f"ALTER TABLE beliefs ADD COLUMN {field_name} {field_type}")
+                        logger.info(f"Added {field_name} column to beliefs")
+                    except Exception as e:
+                        if "duplicate column" not in str(e).lower():
+                            logger.warning(f"Failed to add {field_name} to beliefs: {e}")
+            conn.commit()
+
     def _check_sqlite_vec(self) -> bool:
         """Check if sqlite-vec extension is available."""
         try:
@@ -2467,8 +2494,9 @@ class SQLiteStorage:
                  last_verified, verification_count, confidence_history,
                  supersedes, superseded_by, times_reinforced, is_active,
                  context, context_tags, source_entity, subject_ids, access_grants, consent_grants,
+                 belief_scope, source_domain, cross_domain_applications, abstraction_level,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     belief.id,
@@ -2493,6 +2521,10 @@ class SQLiteStorage:
                     self._to_json(getattr(belief, "subject_ids", None)),
                     self._to_json(getattr(belief, "access_grants", None)),
                     self._to_json(getattr(belief, "consent_grants", None)),
+                    getattr(belief, "belief_scope", "world"),
+                    getattr(belief, "source_domain", None),
+                    self._to_json(getattr(belief, "cross_domain_applications", None)),
+                    getattr(belief, "abstraction_level", "specific"),
                     now,
                     belief.cloud_synced_at.isoformat() if belief.cloud_synced_at else None,
                     belief.version,
@@ -2565,6 +2597,10 @@ class SQLiteStorage:
                     is_active = ?,
                     context = ?,
                     context_tags = ?,
+                    belief_scope = ?,
+                    source_domain = ?,
+                    cross_domain_applications = ?,
+                    abstraction_level = ?,
                     local_updated_at = ?,
                     deleted = ?,
                     version = version + 1
@@ -2586,6 +2622,10 @@ class SQLiteStorage:
                     1 if belief.is_active else 0,
                     belief.context,
                     self._to_json(belief.context_tags),
+                    getattr(belief, "belief_scope", "world"),
+                    getattr(belief, "source_domain", None),
+                    self._to_json(getattr(belief, "cross_domain_applications", None)),
+                    getattr(belief, "abstraction_level", "specific"),
                     now,
                     1 if belief.deleted else 0,
                     belief.id,
@@ -2638,8 +2678,9 @@ class SQLiteStorage:
                      supersedes, superseded_by, times_reinforced, is_active,
                      times_accessed, last_accessed, is_protected, is_forgotten,
                      forgotten_at, forgotten_reason, context, context_tags,
+                     belief_scope, source_domain, cross_domain_applications, abstraction_level,
                      local_updated_at, cloud_synced_at, version, deleted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         belief.id,
@@ -2666,6 +2707,10 @@ class SQLiteStorage:
                         belief.forgotten_reason,
                         belief.context,
                         self._to_json(belief.context_tags),
+                        getattr(belief, "belief_scope", "world"),
+                        getattr(belief, "source_domain", None),
+                        self._to_json(getattr(belief, "cross_domain_applications", None)),
+                        getattr(belief, "abstraction_level", "specific"),
                         now,
                         belief.cloud_synced_at.isoformat() if belief.cloud_synced_at else None,
                         belief.version,
@@ -2800,6 +2845,13 @@ class SQLiteStorage:
             subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
             access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
             consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
+            # Belief scope and domain metadata (KEP v3)
+            belief_scope=self._safe_get(row, "belief_scope", "world"),
+            source_domain=self._safe_get(row, "source_domain", None),
+            cross_domain_applications=self._from_json(
+                self._safe_get(row, "cross_domain_applications", None)
+            ),
+            abstraction_level=self._safe_get(row, "abstraction_level", "specific"),
         )
 
     # === Values ===
