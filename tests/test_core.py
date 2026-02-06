@@ -204,9 +204,9 @@ class TestLoadMethods:
         assert isinstance(meta["budget_total"], int)
         assert isinstance(meta["excluded_count"], int)
         assert meta["budget_total"] == 8000
-        assert meta["budget_used"] >= 0
+        assert meta["budget_used"] > 0
         assert meta["budget_used"] <= meta["budget_total"]
-        assert meta["excluded_count"] >= 0
+        assert meta["excluded_count"] == 0  # 8000 budget is generous enough for all items
 
     def test_load_meta_excluded_count_with_low_budget(self, kernle_instance, populated_storage):
         """Test that excluded_count increases when budget is too small."""

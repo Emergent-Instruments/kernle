@@ -98,7 +98,7 @@ class TestAnxietyDimensions:
         dim = report["dimensions"]["consolidation_debt"]
 
         # Fresh instance with no episodes
-        assert dim["raw_value"] >= 0  # Count of unreflected episodes
+        assert dim["raw_value"] == 0  # Count of unreflected episodes
 
     def test_consolidation_debt_with_unreflected(self, k):
         """Multiple unreflected episodes should increase consolidation debt."""
@@ -125,7 +125,7 @@ class TestAnxietyDimensions:
 
         # New instance with minimal data = low confidence = high anxiety
         # (inverted: high coherence = low anxiety)
-        assert dim["raw_value"] >= 0  # Identity confidence
+        assert dim["raw_value"] == 0  # Identity confidence (no data = zero)
 
     def test_identity_coherence_with_data(self, k):
         """Strong identity data should reduce identity anxiety."""
@@ -148,8 +148,8 @@ class TestAnxietyDimensions:
         report = k.get_anxiety_report()
         dim = report["dimensions"]["memory_uncertainty"]
 
-        # Fresh instance might have 0 beliefs
-        assert dim["score"] >= 0
+        # Fresh instance with 0 beliefs = no uncertainty
+        assert dim["score"] == 0
 
     def test_memory_uncertainty_with_low_confidence(self, k):
         """Low confidence beliefs should increase uncertainty anxiety."""
@@ -367,7 +367,6 @@ class TestCheckpointAgeTracking:
         # Immediately after, should be very recent
         age = k._get_checkpoint_age_minutes()
         assert age is not None
-        assert age >= 0
         assert age < 5  # Should be less than 5 minutes
 
     def test_checkpoint_age_no_checkpoint(self, k):

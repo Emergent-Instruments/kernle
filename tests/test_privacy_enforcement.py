@@ -326,7 +326,7 @@ class TestAccessControl:
             [rid for rid in result_ids if rid in ["episode_private", "episode_empty"]]
         )
 
-        assert accessible_count >= 0  # Should see accessible ones
+        assert accessible_count > 0  # Should see accessible ones
         assert private_count == 0  # Should not see private ones
 
 
