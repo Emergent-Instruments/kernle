@@ -615,6 +615,10 @@ class MetaMemoryMixin:
         """
         config = self.get_decay_config(memory_type)
 
+        # Self-scoped beliefs use slow decay like values (KEP v3)
+        if memory_type == "belief" and getattr(memory, "belief_scope", "world") == "self":
+            config = DEFAULT_DECAY_CONFIGS.get("value", config)
+
         # If decay disabled, return stored confidence
         if not config.enabled:
             return getattr(memory, "confidence", 0.8)

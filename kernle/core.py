@@ -292,7 +292,19 @@ def compute_priority_score(memory_type: str, record: Any) -> float:
 
     # Combine base priority with type-specific factor
     # Weight: 60% type priority, 40% record-specific factor
-    return base_priority * 0.6 + type_factor * 0.4
+    score = base_priority * 0.6 + type_factor * 0.4
+
+    # Belief scope boost: self-beliefs get +0.05 priority (KEP v3)
+    if memory_type == "belief":
+        belief_scope = (
+            getattr(record, "belief_scope", "world")
+            if hasattr(record, "belief_scope")
+            else record.get("belief_scope", "world")
+        )
+        if belief_scope == "self":
+            score = min(1.0, score + 0.05)
+
+    return score
 
 
 class Kernle(
