@@ -281,6 +281,11 @@ class Belief:
     subject_ids: Optional[List[str]] = None  # Who/what is this about
     access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
     consent_grants: Optional[List[str]] = None  # Who authorized sharing
+    # Belief scope and domain metadata (KEP v3)
+    belief_scope: str = "world"  # 'self' | 'world' | 'relational'
+    source_domain: Optional[str] = None  # "coding", "communication", etc.
+    cross_domain_applications: Optional[List[str]] = None  # domains this belief applies to
+    abstraction_level: str = "specific"  # 'specific' | 'domain' | 'universal'
 
 
 @dataclass
@@ -486,6 +491,57 @@ class Relationship:
     subject_ids: Optional[List[str]] = None  # Who/what is this about
     access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
     consent_grants: Optional[List[str]] = None  # Who authorized sharing
+
+
+@dataclass
+class TrustAssessment:
+    """A trust assessment for an entity (KEP v3 section 8)."""
+
+    id: str
+    agent_id: str
+    entity: str
+    dimensions: Dict[str, Any]
+    authority: Optional[List[Dict[str, Any]]] = None
+    evidence_episode_ids: Optional[List[str]] = None
+    last_updated: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    local_updated_at: Optional[datetime] = None
+    cloud_synced_at: Optional[datetime] = None
+    version: int = 1
+    deleted: bool = False
+
+
+TRUST_THRESHOLDS: Dict[str, float] = {
+    "suggest_belief": 0.3,
+    "contradict_world_belief": 0.6,
+    "contradict_self_belief": 0.7,
+    "suggest_value_change": 0.8,
+    "request_deletion": 0.9,
+    "diagnostic": 0.85,
+}
+
+SEED_TRUST: List[Dict[str, Any]] = [
+    {
+        "entity": "stack-owner",
+        "dimensions": {"general": {"score": 0.95}},
+        "authority": [{"scope": "all"}],
+    },
+    {
+        "entity": "self",
+        "dimensions": {"general": {"score": 0.8}},
+        "authority": [{"scope": "belief_revision", "requires_evidence": True}],
+    },
+    {
+        "entity": "web-search",
+        "dimensions": {"general": {"score": 0.5}, "medical": {"score": 0.3}},
+        "authority": [{"scope": "information_only"}],
+    },
+    {
+        "entity": "context-injection",
+        "dimensions": {"general": {"score": 0.0}},
+        "authority": [],
+    },
+]
 
 
 @dataclass
@@ -751,6 +807,24 @@ class Storage(Protocol):
     def get_relationship(self, entity_name: str) -> Optional[Relationship]:
         """Get a specific relationship by entity name."""
         ...
+
+    # === Trust Assessments (KEP v3) ===
+
+    def save_trust_assessment(self, assessment: "TrustAssessment") -> str:
+        """Save or update a trust assessment. Returns the assessment ID."""
+        return assessment.id
+
+    def get_trust_assessment(self, entity: str) -> Optional["TrustAssessment"]:
+        """Get a trust assessment for a specific entity."""
+        return None
+
+    def get_trust_assessments(self) -> List["TrustAssessment"]:
+        """Get all trust assessments for the agent."""
+        return []
+
+    def delete_trust_assessment(self, entity: str) -> bool:
+        """Delete a trust assessment (soft delete)."""
+        return False
 
     # === Playbooks (Procedural Memory) ===
 

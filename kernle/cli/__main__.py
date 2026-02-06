@@ -708,6 +708,13 @@ def cmd_init(args, k: Kernle):
         print(f"  Warning: Could not create checkpoint: {e}")
     print()
 
+    # Seed trust layer (KEP v3)
+    trust_count = k.seed_trust()
+    if trust_count > 0:
+        print(
+            f"  Seeded {trust_count} trust assessments (stack-owner, self, web-search, context-injection)"
+        )
+
     # Final status
     print("=" * 50)
     print("  Setup Complete!")
@@ -2890,6 +2897,26 @@ def main():
     drive_satisfy.add_argument("type", help="Drive type")
     drive_satisfy.add_argument("--amount", "-a", type=float, default=0.2)
 
+    # trust (KEP v3)
+    p_trust = subparsers.add_parser("trust", help="Trust layer operations")
+    trust_sub = p_trust.add_subparsers(dest="trust_action", required=True)
+
+    trust_sub.add_parser("list", help="List all trust assessments")
+    trust_sub.add_parser("seed", help="Initialize seed trust templates")
+
+    trust_show = trust_sub.add_parser("show", help="Show trust details for an entity")
+    trust_show.add_argument("entity", help="Entity identifier")
+
+    trust_set = trust_sub.add_parser("set", help="Set trust score for an entity")
+    trust_set.add_argument("entity", help="Entity identifier")
+    trust_set.add_argument("score", type=float, help="Trust score 0.0-1.0")
+    trust_set.add_argument("--domain", "-d", default="general", help="Trust domain")
+
+    trust_gate = trust_sub.add_parser("gate", help="Check if action is allowed")
+    trust_gate.add_argument("source", help="Source entity")
+    trust_gate.add_argument("gate_action", help="Action type")
+    trust_gate.add_argument("--domain", "-d", help="Domain for domain-specific check")
+
     # promote (episodes → beliefs)
     p_promote = subparsers.add_parser(
         "promote", help="Promote recurring patterns from episodes into beliefs"
@@ -3137,6 +3164,15 @@ def main():
     belief_list.add_argument("--all", "-a", action="store_true", help="Include inactive beliefs")
     belief_list.add_argument("--limit", "-l", type=int, default=20)
     belief_list.add_argument("--json", "-j", action="store_true")
+    belief_list.add_argument(
+        "--scope", choices=["self", "world", "relational"], help="Filter by belief scope"
+    )
+    belief_list.add_argument("--domain", help="Filter by source domain")
+    belief_list.add_argument(
+        "--abstraction-level",
+        choices=["specific", "domain", "universal"],
+        help="Filter by abstraction level",
+    )
 
     # mcp
     subparsers.add_parser("mcp", help="Start MCP server (stdio transport)")
@@ -4109,6 +4145,10 @@ Beliefs already present in the agent's memory will be skipped.
                 cmd_doctor_structural(args, k)
             else:
                 cmd_doctor(args, k)
+        elif args.command == "trust":
+            from kernle.cli.commands.trust import cmd_trust
+
+            cmd_trust(args, k)
         elif args.command == "relation":
             cmd_relation(args, k)
         elif args.command == "drive":

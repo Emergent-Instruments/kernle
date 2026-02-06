@@ -30,6 +30,7 @@ from .base import (
     SearchResult,
     SyncConflict,
     SyncResult,
+    TrustAssessment,
     Value,
     VersionConflictError,
     parse_datetime,
@@ -47,7 +48,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 17  # Add goal_type field to goals
+SCHEMA_VERSION = 18  # Add trust assessments table
 
 # Maximum size for merged arrays during sync to prevent resource exhaustion
 MAX_SYNC_ARRAY_SIZE = 500
@@ -125,6 +126,7 @@ ALLOWED_TABLES = frozenset(
         "health_check_events",
         "boot_config",
         "agent_registry",  # Comms package (v0.3.0)
+        "agent_trust_assessments",  # KEP v3 trust layer
     }
 )
 
@@ -240,6 +242,11 @@ CREATE TABLE IF NOT EXISTS beliefs (
     subject_ids TEXT,       -- JSON array of entity IDs this memory is about
     access_grants TEXT,     -- JSON array of entity IDs who can see this (empty = private)
     consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
+    -- Belief scope and domain metadata (KEP v3)
+    belief_scope TEXT DEFAULT 'world',
+    source_domain TEXT,
+    cross_domain_applications TEXT,
+    abstraction_level TEXT DEFAULT 'specific',
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -254,6 +261,9 @@ CREATE INDEX IF NOT EXISTS idx_beliefs_supersedes ON beliefs(supersedes);
 CREATE INDEX IF NOT EXISTS idx_beliefs_superseded_by ON beliefs(superseded_by);
 CREATE INDEX IF NOT EXISTS idx_beliefs_is_forgotten ON beliefs(is_forgotten);
 CREATE INDEX IF NOT EXISTS idx_beliefs_is_protected ON beliefs(is_protected);
+CREATE INDEX IF NOT EXISTS idx_beliefs_belief_scope ON beliefs(belief_scope);
+CREATE INDEX IF NOT EXISTS idx_beliefs_source_domain ON beliefs(source_domain);
+CREATE INDEX IF NOT EXISTS idx_beliefs_abstraction_level ON beliefs(abstraction_level);
 
 -- Values
 CREATE TABLE IF NOT EXISTS agent_values (
@@ -477,6 +487,25 @@ CREATE INDEX IF NOT EXISTS idx_relationships_agent ON relationships(agent_id);
 CREATE INDEX IF NOT EXISTS idx_relationships_confidence ON relationships(confidence);
 CREATE INDEX IF NOT EXISTS idx_relationships_is_forgotten ON relationships(is_forgotten);
 CREATE INDEX IF NOT EXISTS idx_relationships_is_protected ON relationships(is_protected);
+
+-- Trust assessments (KEP v3 section 8)
+CREATE TABLE IF NOT EXISTS agent_trust_assessments (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    entity TEXT NOT NULL,
+    dimensions TEXT NOT NULL,       -- JSON: {"general": {"score": 0.95}, ...}
+    authority TEXT DEFAULT '[]',    -- JSON: [{"scope": "all"}, ...]
+    evidence_episode_ids TEXT,      -- JSON array of episode IDs
+    last_updated TEXT,
+    created_at TEXT NOT NULL,
+    local_updated_at TEXT NOT NULL,
+    cloud_synced_at TEXT,
+    version INTEGER DEFAULT 1,
+    deleted INTEGER DEFAULT 0,
+    UNIQUE(agent_id, entity)
+);
+CREATE INDEX IF NOT EXISTS idx_trust_agent ON agent_trust_assessments(agent_id);
+CREATE INDEX IF NOT EXISTS idx_trust_entity ON agent_trust_assessments(agent_id, entity);
 
 -- Playbooks (procedural memory - "how I do things")
 CREATE TABLE IF NOT EXISTS playbooks (
@@ -1740,6 +1769,54 @@ class SQLiteStorage:
             logger.info("Created boot_config table")
             conn.commit()
 
+        # Create agent_trust_assessments table if it doesn't exist
+        if "agent_trust_assessments" not in table_names:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS agent_trust_assessments (
+                    id TEXT PRIMARY KEY,
+                    agent_id TEXT NOT NULL,
+                    entity TEXT NOT NULL,
+                    dimensions TEXT NOT NULL,
+                    authority TEXT DEFAULT '[]',
+                    evidence_episode_ids TEXT,
+                    last_updated TEXT,
+                    created_at TEXT NOT NULL,
+                    local_updated_at TEXT NOT NULL,
+                    cloud_synced_at TEXT,
+                    version INTEGER DEFAULT 1,
+                    deleted INTEGER DEFAULT 0,
+                    UNIQUE(agent_id, entity)
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_trust_agent " "ON agent_trust_assessments(agent_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_trust_entity "
+                "ON agent_trust_assessments(agent_id, entity)"
+            )
+            logger.info("Created agent_trust_assessments table")
+            conn.commit()
+
+        # v18: Add belief_scope and domain metadata (KEP v3)
+        if "beliefs" in table_names:
+            belief_cols = get_columns("beliefs")
+            belief_scope_fields = {
+                "belief_scope": "TEXT DEFAULT 'world'",
+                "source_domain": "TEXT",
+                "cross_domain_applications": "TEXT",
+                "abstraction_level": "TEXT DEFAULT 'specific'",
+            }
+            for field_name, field_type in belief_scope_fields.items():
+                if field_name not in belief_cols:
+                    try:
+                        conn.execute(f"ALTER TABLE beliefs ADD COLUMN {field_name} {field_type}")
+                        logger.info(f"Added {field_name} column to beliefs")
+                    except Exception as e:
+                        if "duplicate column" not in str(e).lower():
+                            logger.warning(f"Failed to add {field_name} to beliefs: {e}")
+            conn.commit()
+
     def _check_sqlite_vec(self) -> bool:
         """Check if sqlite-vec extension is available."""
         try:
@@ -2123,6 +2200,10 @@ class SQLiteStorage:
                     forgotten_reason = ?,
                     context = ?,
                     context_tags = ?,
+                    belief_scope = ?,
+                    source_domain = ?,
+                    cross_domain_applications = ?,
+                    abstraction_level = ?,
                     local_updated_at = ?,
                     version = version + 1
                 WHERE id = ? AND agent_id = ? AND version = ?
@@ -2202,8 +2283,9 @@ class SQLiteStorage:
                      last_verified, verification_count, confidence_history,
                      times_accessed, last_accessed, is_protected, is_forgotten,
                      forgotten_at, forgotten_reason, context, context_tags,
+                     epoch_id,
                      created_at, local_updated_at, cloud_synced_at, version, deleted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         episode.id,
@@ -2231,6 +2313,7 @@ class SQLiteStorage:
                         episode.forgotten_reason,
                         episode.context,
                         self._to_json(episode.context_tags),
+                        episode.epoch_id,
                         episode.created_at.isoformat() if episode.created_at else now,
                         now,
                         episode.cloud_synced_at.isoformat() if episode.cloud_synced_at else None,
@@ -2470,8 +2553,9 @@ class SQLiteStorage:
                  last_verified, verification_count, confidence_history,
                  supersedes, superseded_by, times_reinforced, is_active,
                  context, context_tags, source_entity, subject_ids, access_grants, consent_grants,
+                 belief_scope, source_domain, cross_domain_applications, abstraction_level,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     belief.id,
@@ -2496,6 +2580,10 @@ class SQLiteStorage:
                     self._to_json(getattr(belief, "subject_ids", None)),
                     self._to_json(getattr(belief, "access_grants", None)),
                     self._to_json(getattr(belief, "consent_grants", None)),
+                    getattr(belief, "belief_scope", "world"),
+                    getattr(belief, "source_domain", None),
+                    self._to_json(getattr(belief, "cross_domain_applications", None)),
+                    getattr(belief, "abstraction_level", "specific"),
                     now,
                     belief.cloud_synced_at.isoformat() if belief.cloud_synced_at else None,
                     belief.version,
@@ -2589,6 +2677,10 @@ class SQLiteStorage:
                     1 if belief.is_active else 0,
                     belief.context,
                     self._to_json(belief.context_tags),
+                    getattr(belief, "belief_scope", "world"),
+                    getattr(belief, "source_domain", None),
+                    self._to_json(getattr(belief, "cross_domain_applications", None)),
+                    getattr(belief, "abstraction_level", "specific"),
                     now,
                     1 if belief.deleted else 0,
                     belief.id,
@@ -2641,8 +2733,10 @@ class SQLiteStorage:
                      supersedes, superseded_by, times_reinforced, is_active,
                      times_accessed, last_accessed, is_protected, is_forgotten,
                      forgotten_at, forgotten_reason, context, context_tags,
+                     belief_scope, source_domain, cross_domain_applications, abstraction_level,
+                     epoch_id,
                      local_updated_at, cloud_synced_at, version, deleted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         belief.id,
@@ -2669,6 +2763,11 @@ class SQLiteStorage:
                         belief.forgotten_reason,
                         belief.context,
                         self._to_json(belief.context_tags),
+                        getattr(belief, "belief_scope", "world"),
+                        getattr(belief, "source_domain", None),
+                        self._to_json(getattr(belief, "cross_domain_applications", None)),
+                        getattr(belief, "abstraction_level", "specific"),
+                        belief.epoch_id,
                         now,
                         belief.cloud_synced_at.isoformat() if belief.cloud_synced_at else None,
                         belief.version,
@@ -2803,6 +2902,13 @@ class SQLiteStorage:
             subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
             access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
             consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
+            # Belief scope and domain metadata (KEP v3)
+            belief_scope=self._safe_get(row, "belief_scope", "world"),
+            source_domain=self._safe_get(row, "source_domain", None),
+            cross_domain_applications=self._from_json(
+                self._safe_get(row, "cross_domain_applications", None)
+            ),
+            abstraction_level=self._safe_get(row, "abstraction_level", "specific"),
         )
 
     # === Values ===
@@ -3168,8 +3274,9 @@ class SQLiteStorage:
                      last_verified, verification_count, confidence_history,
                      times_accessed, last_accessed, is_protected, is_forgotten,
                      forgotten_at, forgotten_reason, context, context_tags,
+                     epoch_id,
                      local_updated_at, cloud_synced_at, version, deleted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         note.id,
@@ -3195,6 +3302,7 @@ class SQLiteStorage:
                         note.forgotten_reason,
                         note.context,
                         self._to_json(note.context_tags),
+                        note.epoch_id,
                         now,
                         note.cloud_synced_at.isoformat() if note.cloud_synced_at else None,
                         note.version,
@@ -3650,6 +3758,131 @@ class SQLiteStorage:
             subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
             # Privacy fields (Phase 8a)
         )
+
+    # === Trust Assessments (KEP v3) ===
+
+    def save_trust_assessment(self, assessment: TrustAssessment) -> str:
+        """Save or update a trust assessment. Returns the assessment ID."""
+        now = self._now()
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT id FROM agent_trust_assessments "
+                "WHERE agent_id = ? AND entity = ? AND deleted = 0",
+                (self.agent_id, assessment.entity),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    "UPDATE agent_trust_assessments SET dimensions = ?, authority = ?, "
+                    "evidence_episode_ids = ?, last_updated = ?, local_updated_at = ?, "
+                    "version = version + 1 WHERE id = ?",
+                    (
+                        json.dumps(assessment.dimensions),
+                        json.dumps(assessment.authority or []),
+                        json.dumps(assessment.evidence_episode_ids or []),
+                        now,
+                        now,
+                        existing["id"],
+                    ),
+                )
+                return existing["id"]
+            else:
+                conn.execute(
+                    "INSERT INTO agent_trust_assessments "
+                    "(id, agent_id, entity, dimensions, authority, evidence_episode_ids, "
+                    "last_updated, created_at, local_updated_at, cloud_synced_at, "
+                    "version, deleted) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        assessment.id,
+                        self.agent_id,
+                        assessment.entity,
+                        json.dumps(assessment.dimensions),
+                        json.dumps(assessment.authority or []),
+                        json.dumps(assessment.evidence_episode_ids or []),
+                        now,
+                        now,
+                        now,
+                        None,
+                        1,
+                        0,
+                    ),
+                )
+                return assessment.id
+
+    def get_trust_assessment(self, entity: str) -> Optional[TrustAssessment]:
+        """Get a trust assessment for a specific entity."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM agent_trust_assessments "
+                "WHERE agent_id = ? AND entity = ? AND deleted = 0",
+                (self.agent_id, entity),
+            ).fetchone()
+            if not row:
+                return None
+            return TrustAssessment(
+                id=row["id"],
+                agent_id=row["agent_id"],
+                entity=row["entity"],
+                dimensions=json.loads(row["dimensions"]),
+                authority=(json.loads(row["authority"]) if row["authority"] else []),
+                evidence_episode_ids=(
+                    json.loads(row["evidence_episode_ids"]) if row["evidence_episode_ids"] else []
+                ),
+                last_updated=(parse_datetime(row["last_updated"]) if row["last_updated"] else None),
+                created_at=(parse_datetime(row["created_at"]) if row["created_at"] else None),
+                local_updated_at=(
+                    parse_datetime(row["local_updated_at"]) if row["local_updated_at"] else None
+                ),
+                cloud_synced_at=(
+                    parse_datetime(row["cloud_synced_at"]) if row["cloud_synced_at"] else None
+                ),
+                version=row["version"],
+                deleted=bool(row["deleted"]),
+            )
+
+    def get_trust_assessments(self) -> List[TrustAssessment]:
+        """Get all trust assessments for the agent."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM agent_trust_assessments "
+                "WHERE agent_id = ? AND deleted = 0 ORDER BY entity",
+                (self.agent_id,),
+            ).fetchall()
+            return [
+                TrustAssessment(
+                    id=r["id"],
+                    agent_id=r["agent_id"],
+                    entity=r["entity"],
+                    dimensions=json.loads(r["dimensions"]),
+                    authority=(json.loads(r["authority"]) if r["authority"] else []),
+                    evidence_episode_ids=(
+                        json.loads(r["evidence_episode_ids"]) if r["evidence_episode_ids"] else []
+                    ),
+                    last_updated=(parse_datetime(r["last_updated"]) if r["last_updated"] else None),
+                    created_at=(parse_datetime(r["created_at"]) if r["created_at"] else None),
+                    local_updated_at=(
+                        parse_datetime(r["local_updated_at"]) if r["local_updated_at"] else None
+                    ),
+                    cloud_synced_at=(
+                        parse_datetime(r["cloud_synced_at"]) if r["cloud_synced_at"] else None
+                    ),
+                    version=r["version"],
+                    deleted=bool(r["deleted"]),
+                )
+                for r in rows
+            ]
+
+    def delete_trust_assessment(self, entity: str) -> bool:
+        """Delete a trust assessment (soft delete)."""
+        now = self._now()
+        with self._connect() as conn:
+            result = conn.execute(
+                "UPDATE agent_trust_assessments SET deleted = 1, "
+                "local_updated_at = ? "
+                "WHERE agent_id = ? AND entity = ? AND deleted = 0",
+                (now, self.agent_id, entity),
+            )
+            return result.rowcount > 0
 
     # === Playbooks (Procedural Memory) ===
 
