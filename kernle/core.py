@@ -5307,6 +5307,23 @@ class Kernle(
     # CONSOLIDATION
     # =========================================================================
 
+    def consolidate_epoch_closing(self, epoch_id: str) -> Dict[str, Any]:
+        """Orchestrate full epoch-closing consolidation.
+
+        A deeper consolidation sequence triggered when closing an epoch.
+        Produces scaffold prompts for six steps of reflection.
+
+        Args:
+            epoch_id: ID of the epoch being closed
+
+        Returns:
+            Structured scaffold with all six epoch-closing steps
+        """
+        from kernle.features.consolidation import build_epoch_closing_scaffold
+
+        epoch_id = self._validate_string_input(epoch_id, "epoch_id", 100)
+        return build_epoch_closing_scaffold(self, epoch_id)
+
     def consolidate(self, min_episodes: int = 3) -> Dict[str, Any]:
         """Run memory consolidation.
 

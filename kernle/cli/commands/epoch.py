@@ -36,14 +36,35 @@ def cmd_epoch(args, k: "Kernle"):
         if summary:
             summary = validate_input(summary, "summary", 2000)
 
+        # Resolve the epoch ID before closing so we can run consolidation
+        closing_epoch_id = epoch_id
+        if closing_epoch_id is None:
+            current = k.get_current_epoch()
+            if current:
+                closing_epoch_id = current.id
+
         result = k.epoch_close(epoch_id=epoch_id, summary=summary)
         if args.json:
-            print(json.dumps({"closed": result}))
+            consolidation = None
+            if result and closing_epoch_id:
+                consolidation = k.consolidate_epoch_closing(closing_epoch_id)
+            print(
+                json.dumps(
+                    {"closed": result, "consolidation": consolidation},
+                    default=str,
+                )
+            )
         else:
             if result:
                 print("Epoch closed.")
                 if summary:
                     print(f"  Summary: {summary[:60]}...")
+
+                # Trigger epoch-closing consolidation
+                if closing_epoch_id:
+                    print()
+                    consolidation = k.consolidate_epoch_closing(closing_epoch_id)
+                    print(consolidation["scaffold"])
             else:
                 print("No open epoch to close.")
 
