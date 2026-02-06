@@ -1,0 +1,241 @@
+"""Emotional tagging stack component.
+
+Provides automatic emotion detection from text and emotional pattern
+analysis. Can enhance memories with emotional metadata on save.
+"""
+
+from __future__ import annotations
+
+import logging
+from collections import Counter
+from typing import Any, Dict, List, Optional
+
+from kernle.protocols import InferenceService, SearchResult
+
+logger = logging.getLogger(__name__)
+
+# Emotional signal patterns for automatic tagging
+EMOTION_PATTERNS = {
+    "joy": {
+        "keywords": [
+            "happy",
+            "joy",
+            "delighted",
+            "wonderful",
+            "amazing",
+            "fantastic",
+            "love it",
+            "excited",
+        ],
+        "valence": 0.8,
+        "arousal": 0.6,
+    },
+    "satisfaction": {
+        "keywords": ["satisfied", "pleased", "content", "glad", "good", "nice", "well done"],
+        "valence": 0.6,
+        "arousal": 0.3,
+    },
+    "excitement": {
+        "keywords": ["excited", "thrilled", "pumped", "can't wait", "awesome", "incredible"],
+        "valence": 0.7,
+        "arousal": 0.9,
+    },
+    "curiosity": {
+        "keywords": [
+            "curious",
+            "interesting",
+            "fascinating",
+            "wonder",
+            "intriguing",
+            "want to know",
+        ],
+        "valence": 0.3,
+        "arousal": 0.5,
+    },
+    "pride": {
+        "keywords": ["proud", "accomplished", "achieved", "nailed it", "crushed it"],
+        "valence": 0.7,
+        "arousal": 0.5,
+    },
+    "gratitude": {
+        "keywords": ["grateful", "thankful", "appreciate", "thanks so much", "means a lot"],
+        "valence": 0.7,
+        "arousal": 0.3,
+    },
+    "frustration": {
+        "keywords": [
+            "frustrated",
+            "annoying",
+            "irritated",
+            "ugh",
+            "argh",
+            "why won't",
+            "doesn't work",
+        ],
+        "valence": -0.6,
+        "arousal": 0.7,
+    },
+    "disappointment": {
+        "keywords": ["disappointed", "let down", "expected better", "unfortunate", "bummer"],
+        "valence": -0.5,
+        "arousal": 0.3,
+    },
+    "anxiety": {
+        "keywords": ["worried", "anxious", "nervous", "concerned", "stressed", "overwhelmed"],
+        "valence": -0.4,
+        "arousal": 0.7,
+    },
+    "confusion": {
+        "keywords": ["confused", "don't understand", "unclear", "lost", "what do you mean"],
+        "valence": -0.2,
+        "arousal": 0.4,
+    },
+    "sadness": {
+        "keywords": ["sad", "unhappy", "depressed", "down", "terrible", "awful"],
+        "valence": -0.7,
+        "arousal": 0.2,
+    },
+    "anger": {
+        "keywords": ["angry", "furious", "mad", "hate", "outraged", "unacceptable"],
+        "valence": -0.8,
+        "arousal": 0.9,
+    },
+}
+
+
+class EmotionalTaggingComponent:
+    """Emotional tagging component.
+
+    Detects emotions in text using keyword patterns. During on_save,
+    can annotate episodes with detected emotional valence/arousal.
+    When inference is available, can use the model for richer detection.
+    """
+
+    name = "emotions"
+    version = "1.0.0"
+    required = False
+    needs_inference = True
+
+    def __init__(self) -> None:
+        self._stack_id: Optional[str] = None
+        self._inference: Optional[InferenceService] = None
+        self._storage: Optional[Any] = None
+
+    def attach(self, stack_id: str, inference: Optional[InferenceService] = None) -> None:
+        self._stack_id = stack_id
+        self._inference = inference
+
+    def detach(self) -> None:
+        self._stack_id = None
+        self._inference = None
+        self._storage = None
+
+    def set_inference(self, inference: Optional[InferenceService]) -> None:
+        self._inference = inference
+
+    def set_storage(self, storage: Any) -> None:
+        """Called by SQLiteStack after attach to provide storage access."""
+        self._storage = storage
+
+    # ---- Lifecycle Hooks ----
+
+    def on_save(self, memory_type: str, memory_id: str, memory: Any) -> Any:
+        """Detect emotions on episode save and annotate if possible."""
+        if memory_type != "episode":
+            return None
+
+        text = ""
+        objective = getattr(memory, "objective", "")
+        outcome = getattr(memory, "outcome", "")
+        if objective:
+            text += objective
+        if outcome:
+            text += " " + outcome
+
+        if not text.strip():
+            return None
+
+        detection = self.detect_emotion(text)
+        if detection["confidence"] > 0:
+            # Return detected emotional metadata; the stack can use this
+            return {
+                "emotional_valence": detection["valence"],
+                "emotional_arousal": detection["arousal"],
+                "emotional_tags": detection["tags"],
+            }
+        return None
+
+    def on_search(self, query: str, results: List[SearchResult]) -> List[SearchResult]:
+        return results
+
+    def on_load(self, context: Dict[str, Any]) -> None:
+        pass
+
+    def on_maintenance(self) -> Dict[str, Any]:
+        """Report emotional summary during maintenance."""
+        if self._storage is None:
+            logger.debug("EmotionalTaggingComponent: no storage, skipping maintenance")
+            return {"skipped": True, "reason": "no_storage"}
+
+        # Get recent emotional episodes
+        episodes = self._storage.get_episodes(limit=50)
+        valences = []
+        arousals = []
+        tag_counts: Counter = Counter()
+
+        for ep in episodes:
+            v = getattr(ep, "emotional_valence", None)
+            a = getattr(ep, "emotional_arousal", None)
+            if v is not None and v != 0.0:
+                valences.append(v)
+            if a is not None and a != 0.0:
+                arousals.append(a)
+            tags = getattr(ep, "emotional_tags", None) or []
+            tag_counts.update(tags)
+
+        return {
+            "episodes_with_emotions": len(valences),
+            "avg_valence": round(sum(valences) / len(valences), 3) if valences else 0.0,
+            "avg_arousal": round(sum(arousals) / len(arousals), 3) if arousals else 0.0,
+            "dominant_emotions": [tag for tag, _ in tag_counts.most_common(3)],
+        }
+
+    # ---- Core Logic ----
+
+    def detect_emotion(self, text: str) -> Dict[str, Any]:
+        """Detect emotional signals in text using keyword patterns.
+
+        Returns dict with valence, arousal, tags, and confidence.
+        """
+        if not text:
+            return {"valence": 0.0, "arousal": 0.0, "tags": [], "confidence": 0.0}
+
+        text_lower = text.lower()
+        detected_emotions = []
+        valence_sum = 0.0
+        arousal_sum = 0.0
+
+        for emotion_name, pattern in EMOTION_PATTERNS.items():
+            for keyword in pattern["keywords"]:
+                if keyword in text_lower:
+                    detected_emotions.append(emotion_name)
+                    valence_sum += pattern["valence"]
+                    arousal_sum += pattern["arousal"]
+                    break
+
+        if detected_emotions:
+            count = len(detected_emotions)
+            avg_valence = max(-1.0, min(1.0, valence_sum / count))
+            avg_arousal = max(0.0, min(1.0, arousal_sum / count))
+            confidence = min(1.0, 0.3 + (count * 0.2))
+        else:
+            avg_valence = 0.0
+            avg_arousal = 0.0
+            confidence = 0.0
+
+        return {
+            "valence": avg_valence,
+            "arousal": avg_arousal,
+            "tags": detected_emotions,
+            "confidence": confidence,
+        }
