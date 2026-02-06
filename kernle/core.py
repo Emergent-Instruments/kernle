@@ -117,6 +117,122 @@ def truncate_at_word_boundary(text: str, max_chars: int) -> str:
     return truncated + "..."
 
 
+def _get_memory_hint_text(memory_type: str, record: Any) -> str:
+    """Get the primary text content of a memory record for echo hints."""
+    if memory_type == "value":
+        return f"{record.name}: {record.statement}"
+    elif memory_type == "belief":
+        return record.statement
+    elif memory_type == "goal":
+        return f"{record.title} {record.description or ''}"
+    elif memory_type == "drive":
+        return f"{record.drive_type}: {' '.join(record.focus_areas or [])}"
+    elif memory_type == "episode":
+        return f"{record.objective} {record.outcome}"
+    elif memory_type == "note":
+        return record.content
+    elif memory_type == "relationship":
+        return f"{record.entity_name}: {record.notes or ''}"
+    return str(record)
+
+
+def _truncate_to_words(text: str, max_words: int = 8) -> str:
+    """Truncate text to approximately max_words words."""
+    if not text:
+        return ""
+    words = text.split()
+    if len(words) <= max_words:
+        return text
+    return " ".join(words[:max_words]) + "..."
+
+
+def _get_record_tags(memory_type: str, record: Any) -> List[str]:
+    """Extract tags from a memory record."""
+    tags = getattr(record, "tags", None) or []
+    context_tags = getattr(record, "context_tags", None) or []
+    focus_areas = []
+    if memory_type == "drive":
+        focus_areas = getattr(record, "focus_areas", None) or []
+    return tags + context_tags + focus_areas
+
+
+def _get_record_created_at(record: Any) -> Optional[datetime]:
+    """Extract created_at datetime from a record."""
+    return getattr(record, "created_at", None)
+
+
+def _build_memory_echoes(
+    excluded: list,
+    max_echoes: int = 20,
+) -> Dict[str, Any]:
+    """Build memory echoes (peripheral awareness) from excluded candidates.
+
+    After budget selection, this generates compact hints about memories that
+    didn't fit in the token budget, giving the agent peripheral awareness
+    of what else exists in memory.
+
+    Args:
+        excluded: Excluded candidate list [(priority, type, record), ...],
+                  sorted by priority descending
+        max_echoes: Maximum number of echo entries (default: 20)
+
+    Returns:
+        Dict with keys: echoes, temporal_summary, topic_clusters
+    """
+    if not excluded:
+        return {
+            "echoes": [],
+            "temporal_summary": None,
+            "topic_clusters": [],
+        }
+
+    echoes = []
+    for priority, memory_type, record in excluded[:max_echoes]:
+        hint_text = _get_memory_hint_text(memory_type, record)
+        hint = _truncate_to_words(hint_text, max_words=8)
+        echoes.append(
+            {
+                "type": memory_type,
+                "id": record.id,
+                "hint": hint,
+                "salience": round(priority, 3),
+            }
+        )
+
+    all_dates = []
+    for _, memory_type, record in excluded:
+        created = _get_record_created_at(record)
+        if created:
+            all_dates.append(created)
+
+    temporal_summary = None
+    if all_dates:
+        min_date = min(all_dates)
+        max_date = max(all_dates)
+        span_days = (max_date - min_date).days
+        span_years = round(span_days / 365.25, 1)
+        temporal_summary = (
+            f"Memory spans {min_date.strftime('%Y-%m-%d')} to "
+            f"{max_date.strftime('%Y-%m-%d')} ({span_years} years). "
+            f"{len(excluded)} excluded memories."
+        )
+
+    tag_counts: Dict[str, int] = {}
+    for _, memory_type, record in excluded:
+        for tag in _get_record_tags(memory_type, record):
+            tag_lower = tag.lower()
+            tag_counts[tag_lower] = tag_counts.get(tag_lower, 0) + 1
+
+    sorted_tags = sorted(tag_counts.items(), key=lambda x: x[1], reverse=True)
+    topic_clusters = [tag for tag, _count in sorted_tags[:6]]
+
+    return {
+        "echoes": echoes,
+        "temporal_summary": temporal_summary,
+        "topic_clusters": topic_clusters,
+    }
+
+
 def compute_priority_score(memory_type: str, record: Any) -> float:
     """Compute priority score for a memory record.
 
@@ -562,7 +678,8 @@ class Kernle(
                 "relationships": [],
             }
 
-            for priority, memory_type, record in candidates:
+            selected_indices = set()
+            for idx, (priority, memory_type, record) in enumerate(candidates):
                 # Format the record for token estimation
                 if memory_type == "value":
                     text = f"{record.name}: {record.statement}"
@@ -607,10 +724,14 @@ class Kernle(
 
                     remaining_budget -= tokens
                     selected_count += 1
+                    selected_indices.add(idx)
 
                 # Stop if budget exhausted
                 if remaining_budget <= 0:
                     break
+
+            # Build excluded list (preserves priority order) for memory echoes
+            excluded_candidates = [c for i, c in enumerate(candidates) if i not in selected_indices]
 
             # Extract lessons from selected episodes
             lessons = []
@@ -730,6 +851,7 @@ class Kernle(
                     "budget_used": budget - remaining_budget,
                     "budget_total": budget,
                     "excluded_count": total_candidates - selected_count,
+                    **_build_memory_echoes(excluded_candidates),
                 },
             }
 
