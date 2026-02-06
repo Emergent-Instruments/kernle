@@ -40,6 +40,7 @@ from kernle.storage import (
     Goal,
     Note,
     Relationship,
+    Summary,
     TrustAssessment,
     Value,
     get_storage,
@@ -78,10 +79,15 @@ TOKEN_ESTIMATION_SAFETY_MARGIN = 1.3
 MEMORY_TYPE_PRIORITIES = {
     "checkpoint": 1.00,  # Always loaded first
     "value": 0.90,
+    "summary_decade": 0.95,
+    "summary_epoch": 0.85,
+    "summary_year": 0.80,
     "belief": 0.70,
     "goal": 0.65,
     "drive": 0.60,
+    "summary_quarter": 0.50,
     "episode": 0.40,
+    "summary_month": 0.35,
     "note": 0.35,
     "relationship": 0.30,
 }
@@ -298,6 +304,9 @@ def compute_priority_score(memory_type: str, record: Any) -> float:
         # Use sentiment as a factor
         sentiment = _get_record_attr(record, "sentiment", 0.0)
         type_factor = (sentiment + 1) / 2  # Normalize -1..1 to 0..1
+    elif memory_type.startswith("summary_"):
+        # Summaries use scope-based priority directly
+        type_factor = 0.8
     else:
         type_factor = 0.5
 
@@ -702,6 +711,19 @@ class Kernle(
             for r in batched.get("relationships", []):
                 candidates.append((compute_priority_score("relationship", r), "relationship", r))
 
+            # Summaries - with supersession logic
+            all_summaries = self._storage.list_summaries(self.agent_id)
+            # Collect IDs superseded by higher-scope summaries
+            superseded_ids = set()
+            for s in all_summaries:
+                if s.supersedes:
+                    superseded_ids.update(s.supersedes)
+            # Only include non-superseded summaries
+            for s in all_summaries:
+                if s.id not in superseded_ids:
+                    scope_key = f"summary_{s.scope}"
+                    candidates.append((compute_priority_score(scope_key, s), "summary", s))
+
             # Sort by priority descending
             candidates.sort(key=lambda x: x[0], reverse=True)
 
@@ -718,6 +740,7 @@ class Kernle(
                 "episodes": [],
                 "notes": [],
                 "relationships": [],
+                "summaries": [],
             }
 
             selected_indices = set()
@@ -737,6 +760,8 @@ class Kernle(
                     text = record.content
                 elif memory_type == "relationship":
                     text = f"{record.entity_name}: {record.notes or ''}"
+                elif memory_type == "summary":
+                    text = f"[{record.scope}] {record.content}"
                 else:
                     text = str(record)
 
@@ -763,6 +788,8 @@ class Kernle(
                         selected["notes"].append(record)
                     elif memory_type == "relationship":
                         selected["relationships"].append(record)
+                    elif memory_type == "summary":
+                        selected["summaries"].append(record)
 
                     remaining_budget -= tokens
                     selected_count += 1
@@ -888,6 +915,21 @@ class Kernle(
                         or datetime.min.replace(tzinfo=timezone.utc),
                         reverse=True,
                     )
+                ],
+                "summaries": [
+                    {
+                        "id": s.id,
+                        "scope": s.scope,
+                        "period_start": s.period_start,
+                        "period_end": s.period_end,
+                        "content": (
+                            truncate_at_word_boundary(s.content, max_item_chars)
+                            if truncate
+                            else s.content
+                        ),
+                        "key_themes": s.key_themes,
+                    }
+                    for s in selected["summaries"]
                 ],
                 "_meta": {
                     "budget_used": budget - remaining_budget,
@@ -2956,6 +2998,70 @@ class Kernle(
         """Get a specific epoch by ID."""
         epoch_id = self._validate_string_input(epoch_id, "epoch_id", 100)
         return self._storage.get_epoch(epoch_id)
+
+    # === Summaries (Fractal Summarization) ===
+
+    def summary_save(
+        self,
+        content: str,
+        scope: str,
+        period_start: str,
+        period_end: str,
+        key_themes: Optional[List[str]] = None,
+        supersedes: Optional[List[str]] = None,
+        epoch_id: Optional[str] = None,
+    ) -> str:
+        """Create or update a summary.
+
+        Args:
+            content: Agent-written narrative compression
+            scope: Temporal scope ('month', 'quarter', 'year', 'decade', 'epoch')
+            period_start: Start of the period (ISO date)
+            period_end: End of the period (ISO date)
+            key_themes: Key themes/topics covered
+            supersedes: IDs of lower-scope summaries this covers
+            epoch_id: Associated epoch ID
+
+        Returns:
+            The summary ID
+        """
+
+        valid_scopes = ("month", "quarter", "year", "decade", "epoch")
+        if scope not in valid_scopes:
+            raise ValueError(f"scope must be one of: {', '.join(valid_scopes)}")
+
+        content = self._validate_string_input(content, "content", 10000)
+        period_start = self._validate_string_input(period_start, "period_start", 30)
+        period_end = self._validate_string_input(period_end, "period_end", 30)
+
+        summary = Summary(
+            id=str(uuid.uuid4()),
+            agent_id=self.agent_id,
+            scope=scope,
+            period_start=period_start,
+            period_end=period_end,
+            epoch_id=epoch_id,
+            content=content,
+            key_themes=key_themes,
+            supersedes=supersedes,
+            is_protected=True,
+            created_at=datetime.now(timezone.utc),
+        )
+
+        return self._storage.save_summary(summary)
+
+    def summary_get(self, summary_id: str):
+        """Get a specific summary by ID."""
+        summary_id = self._validate_string_input(summary_id, "summary_id", 100)
+        return self._storage.get_summary(summary_id)
+
+    def summary_list(self, scope: Optional[str] = None):
+        """Get all summaries, optionally filtered by scope."""
+        if scope:
+            valid_scopes = ("month", "quarter", "year", "decade", "epoch")
+            if scope not in valid_scopes:
+                raise ValueError(f"scope must be one of: {', '.join(valid_scopes)}")
+        return self._storage.list_summaries(self.agent_id, scope=scope)
 
     def update_belief(
         self,

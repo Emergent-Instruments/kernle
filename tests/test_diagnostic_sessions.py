@@ -803,10 +803,10 @@ class TestCLISessionCommands:
 class TestSchemaVersion:
     """Tests that schema version is correctly updated."""
 
-    def test_schema_version_is_20(self):
+    def test_schema_version_is_21(self):
         from kernle.storage.sqlite import SCHEMA_VERSION
 
-        assert SCHEMA_VERSION == 20
+        assert SCHEMA_VERSION == 21
 
     def test_tables_in_allowed_list(self):
         from kernle.storage.sqlite import ALLOWED_TABLES
