@@ -38,6 +38,7 @@ from .base import (
     SearchResult,
     SourceType,
     Storage,
+    Summary,
     SyncConflict,
     SyncResult,
     SyncStatus,
@@ -160,6 +161,7 @@ __all__ = [
     "MemorySuggestion",
     "TrustAssessment",
     "Epoch",
+    "Summary",
     "DiagnosticSession",
     "DiagnosticReport",
     # Dynamic trust constants
