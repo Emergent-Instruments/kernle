@@ -641,3 +641,88 @@ class TestPlaybookCLI:
 
         mock_kernle.record_playbook_use.assert_called_once_with("pb-1", False)
         assert "failure ✗" in fake_out.getvalue()
+
+
+class TestPlaybookTokenizedSearch:
+    """Regression tests for tokenized non-vec search fallback (#214)."""
+
+    @pytest.fixture
+    def storage_no_vec(self, tmp_path):
+        """Create storage with vec explicitly disabled."""
+        db_path = tmp_path / "test_tokenized.db"
+        storage = SQLiteStorage(stack_id="test_agent", db_path=db_path)
+        storage._has_vec = False
+        return storage
+
+    def test_tokenized_search_matches_partial_query(self, storage_no_vec):
+        """Searching 'I need to deploy the release' should match 'Deploy to Production'."""
+        storage = storage_no_vec
+        playbook = Playbook(
+            id=str(uuid.uuid4()),
+            stack_id="test_agent",
+            name="Deploy to Production",
+            description="Standard deployment process for production servers",
+            trigger_conditions=["release ready", "deploy command"],
+            steps=[{"action": "Build and push", "details": None, "adaptations": None}],
+            failure_modes=["Build fails"],
+            created_at=datetime.now(timezone.utc),
+        )
+        storage.save_playbook(playbook)
+
+        # This query shares the word "deploy" with the playbook name
+        results = storage.search_playbooks("I need to deploy the release", limit=10)
+        assert len(results) >= 1
+        assert any(p.name == "Deploy to Production" for p in results)
+
+    def test_tokenized_search_no_match_unrelated(self, storage_no_vec):
+        """Unrelated query should not match."""
+        storage = storage_no_vec
+        playbook = Playbook(
+            id=str(uuid.uuid4()),
+            stack_id="test_agent",
+            name="Deploy to Production",
+            description="Standard deployment process",
+            trigger_conditions=["release ready"],
+            steps=[{"action": "Build", "details": None, "adaptations": None}],
+            failure_modes=["Build fails"],
+            created_at=datetime.now(timezone.utc),
+        )
+        storage.save_playbook(playbook)
+
+        results = storage.search_playbooks("cooking recipes for dinner", limit=10)
+        assert len(results) == 0
+
+    def test_tokenized_search_ranks_by_token_hits(self, storage_no_vec):
+        """Playbook matching more query tokens should rank higher."""
+        storage = storage_no_vec
+        # This playbook matches "deploy" and "production"
+        pb1 = Playbook(
+            id=str(uuid.uuid4()),
+            stack_id="test_agent",
+            name="Deploy to Production",
+            description="Full production deployment pipeline",
+            trigger_conditions=["release ready"],
+            steps=[{"action": "Build", "details": None, "adaptations": None}],
+            failure_modes=["Build fails"],
+            times_used=0,
+            created_at=datetime.now(timezone.utc),
+        )
+        # This playbook only matches "deploy"
+        pb2 = Playbook(
+            id=str(uuid.uuid4()),
+            stack_id="test_agent",
+            name="Deploy to Staging",
+            description="Staging environment deployment",
+            trigger_conditions=["staging request"],
+            steps=[{"action": "Build", "details": None, "adaptations": None}],
+            failure_modes=["Build fails"],
+            times_used=0,
+            created_at=datetime.now(timezone.utc),
+        )
+        storage.save_playbook(pb1)
+        storage.save_playbook(pb2)
+
+        results = storage.search_playbooks("deploy production release", limit=10)
+        assert len(results) == 2
+        # The one matching more tokens should come first
+        assert results[0].name == "Deploy to Production"

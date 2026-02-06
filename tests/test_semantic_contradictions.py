@@ -563,3 +563,56 @@ class TestIntegrationWithExistingContradictions:
                 "sentiment_opposition",
                 "none",
             ]
+
+
+class TestTokenizedSearchFallback:
+    """Regression tests for tokenized non-vec search fallback (#214)."""
+
+    def test_tokenized_belief_search_matches_shared_words(self, kernle_instance):
+        """Searching 'never validate input' should match belief 'always validate user input'."""
+        k = kernle_instance
+        k.storage._has_vec = False
+
+        k.belief("always validate user input", confidence=0.9)
+
+        # Multi-word query shares "validate" and "input" with the belief
+        results = k.storage.search("never validate input", record_types=["belief"])
+        assert len(results) >= 1
+        assert any("validate" in r.record.statement for r in results)
+
+    def test_tokenized_search_skips_short_words(self, kernle_instance):
+        """Short words (< 3 chars) like 'is', 'to', 'an' should be skipped."""
+        k = kernle_instance
+        k.storage._has_vec = False
+
+        k.belief("AI is transforming industries", confidence=0.8)
+
+        # "is" and "an" are too short, but "transforming" should match
+        results = k.storage.search("an transforming is", record_types=["belief"])
+        assert len(results) >= 1
+
+    def test_tokenized_search_all_short_words_uses_full_phrase(self, kernle_instance):
+        """If all words are < 3 chars, fall back to full-phrase match."""
+        k = kernle_instance
+        k.storage._has_vec = False
+
+        k.belief("go do it", confidence=0.7)
+
+        # All words < 3 chars, should use full phrase "go do it"
+        results = k.storage.search("go do it", record_types=["belief"])
+        assert len(results) >= 1
+
+    def test_tokenized_search_scores_by_token_coverage(self, kernle_instance):
+        """Results matching more query tokens should score higher."""
+        k = kernle_instance
+        k.storage._has_vec = False
+
+        # This belief matches "validate" and "input" (2 tokens)
+        k.belief("always validate user input before processing", confidence=0.9)
+        # This belief only matches "validate" (1 token)
+        k.belief("always validate configuration files", confidence=0.8)
+
+        results = k.storage.search("never validate input", record_types=["belief"])
+        assert len(results) == 2
+        # First result should match more tokens (higher score)
+        assert "input" in results[0].record.statement
