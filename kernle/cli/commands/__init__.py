@@ -7,6 +7,7 @@ from kernle.cli.commands.anxiety import cmd_anxiety
 from kernle.cli.commands.belief import cmd_belief
 from kernle.cli.commands.doctor import cmd_doctor, cmd_doctor_structural
 from kernle.cli.commands.emotion import cmd_emotion
+from kernle.cli.commands.epoch import cmd_epoch
 from kernle.cli.commands.forget import cmd_forget
 from kernle.cli.commands.identity import cmd_consolidate, cmd_identity, cmd_promote
 from kernle.cli.commands.init import cmd_init as cmd_init_md
@@ -25,6 +26,7 @@ __all__ = [
     "cmd_doctor",
     "cmd_doctor_structural",
     "cmd_emotion",
+    "cmd_epoch",
     "cmd_forget",
     "cmd_identity",
     "cmd_init_md",

@@ -21,6 +21,7 @@ from .base import (
     Drive,
     EntityModel,
     Episode,
+    Epoch,
     Goal,
     MemorySuggestion,
     Note,
@@ -129,6 +130,7 @@ ALLOWED_TABLES = frozenset(
         "boot_config",
         "agent_registry",  # Comms package (v0.3.0)
         "agent_trust_assessments",  # KEP v3 trust layer
+        "agent_epochs",  # KEP v3 temporal epochs
     }
 )
 
@@ -1914,6 +1916,61 @@ class SQLiteStorage:
                             logger.warning(f"Failed to add {field_name} to beliefs: {e}")
             conn.commit()
 
+        # v19: Add epoch_id columns and agent_epochs table (KEP v3)
+        epoch_tables = [
+            "episodes",
+            "beliefs",
+            "agent_values",
+            "goals",
+            "notes",
+            "drives",
+            "relationships",
+        ]
+        for tbl in epoch_tables:
+            if tbl in table_names:
+                cols = get_columns(tbl)
+                if "epoch_id" not in cols:
+                    try:
+                        conn.execute(f"ALTER TABLE {tbl} ADD COLUMN epoch_id TEXT")
+                        conn.execute(
+                            f"CREATE INDEX IF NOT EXISTS idx_{tbl}_epoch ON {tbl}(epoch_id)"
+                        )
+                        logger.info(f"Added epoch_id column to {tbl}")
+                    except Exception as e:
+                        if "duplicate column" not in str(e).lower():
+                            logger.warning(f"Failed to add epoch_id to {tbl}: {e}")
+
+        if "agent_epochs" not in table_names:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS agent_epochs (
+                    id TEXT PRIMARY KEY,
+                    agent_id TEXT NOT NULL,
+                    epoch_number INTEGER NOT NULL,
+                    name TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    ended_at TEXT,
+                    trigger_type TEXT DEFAULT 'manual',
+                    summary TEXT,
+                    key_belief_ids TEXT,
+                    key_relationship_ids TEXT,
+                    key_goal_ids TEXT,
+                    dominant_drive_ids TEXT,
+                    local_updated_at TEXT NOT NULL,
+                    cloud_synced_at TEXT,
+                    version INTEGER DEFAULT 1,
+                    deleted INTEGER DEFAULT 0,
+                    UNIQUE(agent_id, epoch_number)
+                )
+            """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_epochs_agent ON agent_epochs(agent_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_epochs_number "
+                "ON agent_epochs(agent_id, epoch_number)"
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_epochs_active ON agent_epochs(ended_at)")
+            logger.info("Created agent_epochs table")
+        conn.commit()
+
     def _check_sqlite_vec(self) -> bool:
         """Check if sqlite-vec extension is available."""
         try:
@@ -2155,7 +2212,7 @@ class SQLiteStorage:
                  source_entity, subject_ids, access_grants, consent_grants,
                  epoch_id,
                  created_at, local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     episode.id,
@@ -2187,6 +2244,7 @@ class SQLiteStorage:
                     self._to_json(getattr(episode, "subject_ids", None)),
                     self._to_json(getattr(episode, "access_grants", None)),
                     self._to_json(getattr(episode, "consent_grants", None)),
+                    episode.epoch_id,
                     episode.created_at.isoformat() if episode.created_at else now,
                     now,
                     episode.cloud_synced_at.isoformat() if episode.cloud_synced_at else None,
@@ -2523,6 +2581,8 @@ class SQLiteStorage:
             subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
             access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
             consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
+            # Epoch tracking
+            epoch_id=self._safe_get(row, "epoch_id", None),
         )
 
     def update_episode_emotion(
@@ -2652,8 +2712,9 @@ class SQLiteStorage:
                  supersedes, superseded_by, times_reinforced, is_active,
                  context, context_tags, source_entity, subject_ids, access_grants, consent_grants,
                  belief_scope, source_domain, cross_domain_applications, abstraction_level,
+                 epoch_id,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     belief.id,
@@ -2682,6 +2743,7 @@ class SQLiteStorage:
                     getattr(belief, "source_domain", None),
                     self._to_json(getattr(belief, "cross_domain_applications", None)),
                     getattr(belief, "abstraction_level", "specific"),
+                    belief.epoch_id,
                     now,
                     belief.cloud_synced_at.isoformat() if belief.cloud_synced_at else None,
                     belief.version,
@@ -3011,6 +3073,8 @@ class SQLiteStorage:
                 self._safe_get(row, "cross_domain_applications", None)
             ),
             abstraction_level=self._safe_get(row, "abstraction_level", "specific"),
+            # Epoch tracking
+            epoch_id=self._safe_get(row, "epoch_id", None),
         )
 
     # === Values ===
@@ -3031,8 +3095,9 @@ class SQLiteStorage:
                  last_verified, verification_count, confidence_history,
                  context, context_tags,
                  subject_ids, access_grants, consent_grants,
+                 epoch_id,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     value.id,
@@ -3053,6 +3118,7 @@ class SQLiteStorage:
                     self._to_json(getattr(value, "subject_ids", None)),
                     self._to_json(getattr(value, "access_grants", None)),
                     self._to_json(getattr(value, "consent_grants", None)),
+                    value.epoch_id,
                     now,
                     value.cloud_synced_at.isoformat() if value.cloud_synced_at else None,
                     value.version,
@@ -3135,7 +3201,8 @@ class SQLiteStorage:
             consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
             access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
             subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
-            # Privacy fields (Phase 8a)
+            # Epoch tracking
+            epoch_id=self._safe_get(row, "epoch_id", None),
         )
 
     # === Goals ===
@@ -3156,8 +3223,9 @@ class SQLiteStorage:
                  last_verified, verification_count, confidence_history,
                  context, context_tags,
                  subject_ids, access_grants, consent_grants,
+                 epoch_id,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     goal.id,
@@ -3180,6 +3248,7 @@ class SQLiteStorage:
                     self._to_json(getattr(goal, "subject_ids", None)),
                     self._to_json(getattr(goal, "access_grants", None)),
                     self._to_json(getattr(goal, "consent_grants", None)),
+                    goal.epoch_id,
                     now,
                     goal.cloud_synced_at.isoformat() if goal.cloud_synced_at else None,
                     goal.version,
@@ -3294,7 +3363,8 @@ class SQLiteStorage:
             consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
             access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
             subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
-            # Privacy fields (Phase 8a)
+            # Epoch tracking
+            epoch_id=self._safe_get(row, "epoch_id", None),
         )
 
     # === Notes ===
@@ -3315,8 +3385,9 @@ class SQLiteStorage:
                  last_verified, verification_count, confidence_history,
                  context, context_tags, source_entity,
                  subject_ids, access_grants, consent_grants,
+                 epoch_id,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     note.id,
@@ -3340,6 +3411,7 @@ class SQLiteStorage:
                     self._to_json(getattr(note, "subject_ids", None)),
                     self._to_json(getattr(note, "access_grants", None)),
                     self._to_json(getattr(note, "consent_grants", None)),
+                    note.epoch_id,
                     now,
                     note.cloud_synced_at.isoformat() if note.cloud_synced_at else None,
                     note.version,
@@ -3486,7 +3558,8 @@ class SQLiteStorage:
             consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
             access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
             subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
-            # Privacy fields (Phase 8a)
+            # Epoch tracking
+            epoch_id=self._safe_get(row, "epoch_id", None),
         )
 
     # === Drives ===
@@ -3547,8 +3620,9 @@ class SQLiteStorage:
                      last_verified, verification_count, confidence_history,
                      context, context_tags,
                      subject_ids, access_grants, consent_grants,
+                     epoch_id,
                      local_updated_at, cloud_synced_at, version, deleted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         drive.id,
@@ -3570,6 +3644,7 @@ class SQLiteStorage:
                         self._to_json(getattr(drive, "subject_ids", None)),
                         self._to_json(getattr(drive, "access_grants", None)),
                         self._to_json(getattr(drive, "consent_grants", None)),
+                        drive.epoch_id,
                         now,
                         None,
                         1,
@@ -3640,7 +3715,8 @@ class SQLiteStorage:
             consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
             access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
             subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
-            # Privacy fields (Phase 8a)
+            # Epoch tracking
+            epoch_id=self._safe_get(row, "epoch_id", None),
         )
 
     # === Relationships ===
@@ -3718,8 +3794,9 @@ class SQLiteStorage:
                      last_verified, verification_count, confidence_history,
                      context, context_tags,
                      subject_ids, access_grants, consent_grants,
+                     epoch_id,
                      local_updated_at, cloud_synced_at, version, deleted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         relationship.id,
@@ -3752,6 +3829,7 @@ class SQLiteStorage:
                         self._to_json(getattr(relationship, "subject_ids", None)),
                         self._to_json(getattr(relationship, "access_grants", None)),
                         self._to_json(getattr(relationship, "consent_grants", None)),
+                        relationship.epoch_id,
                         now,
                         None,
                         1,
@@ -3862,7 +3940,117 @@ class SQLiteStorage:
             consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
             access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
             subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
-            # Privacy fields (Phase 8a)
+            # Epoch tracking
+            epoch_id=self._safe_get(row, "epoch_id", None),
+        )
+
+    # === Epochs (KEP v3 temporal eras) ===
+
+    def save_epoch(self, epoch: Epoch) -> str:
+        """Save an epoch. Returns the epoch ID."""
+
+        if not epoch.id:
+            epoch.id = str(uuid.uuid4())
+
+        now = self._now()
+
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO agent_epochs
+                (id, agent_id, epoch_number, name, started_at, ended_at,
+                 trigger_type, summary, key_belief_ids, key_relationship_ids,
+                 key_goal_ids, dominant_drive_ids,
+                 local_updated_at, cloud_synced_at, version, deleted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    epoch.id,
+                    self.agent_id,
+                    epoch.epoch_number,
+                    epoch.name,
+                    epoch.started_at.isoformat() if epoch.started_at else now,
+                    epoch.ended_at.isoformat() if epoch.ended_at else None,
+                    epoch.trigger_type,
+                    epoch.summary,
+                    self._to_json(epoch.key_belief_ids),
+                    self._to_json(epoch.key_relationship_ids),
+                    self._to_json(epoch.key_goal_ids),
+                    self._to_json(epoch.dominant_drive_ids),
+                    now,
+                    epoch.cloud_synced_at.isoformat() if epoch.cloud_synced_at else None,
+                    epoch.version,
+                    1 if epoch.deleted else 0,
+                ),
+            )
+            conn.commit()
+
+        return epoch.id
+
+    def get_epoch(self, epoch_id: str) -> Optional[Epoch]:
+        """Get a specific epoch by ID."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM agent_epochs WHERE id = ? AND agent_id = ? AND deleted = 0",
+                (epoch_id, self.agent_id),
+            ).fetchone()
+
+        return self._row_to_epoch(row) if row else None
+
+    def get_epochs(self, limit: int = 100) -> List[Epoch]:
+        """Get all epochs, ordered by epoch_number DESC."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM agent_epochs WHERE agent_id = ? AND deleted = 0 "
+                "ORDER BY epoch_number DESC LIMIT ?",
+                (self.agent_id, limit),
+            ).fetchall()
+
+        return [self._row_to_epoch(row) for row in rows]
+
+    def get_current_epoch(self) -> Optional[Epoch]:
+        """Get the currently active (open) epoch, if any."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM agent_epochs WHERE agent_id = ? AND ended_at IS NULL AND deleted = 0 "
+                "ORDER BY epoch_number DESC LIMIT 1",
+                (self.agent_id,),
+            ).fetchone()
+
+        return self._row_to_epoch(row) if row else None
+
+    def close_epoch(self, epoch_id: str, summary: Optional[str] = None) -> bool:
+        """Close an epoch by setting ended_at. Returns True if closed."""
+        now = self._now()
+        with self._connect() as conn:
+            cursor = conn.execute(
+                "UPDATE agent_epochs SET ended_at = ?, summary = COALESCE(?, summary), "
+                "local_updated_at = ?, version = version + 1 "
+                "WHERE id = ? AND agent_id = ? AND ended_at IS NULL AND deleted = 0",
+                (now, summary, now, epoch_id, self.agent_id),
+            )
+            conn.commit()
+        return cursor.rowcount > 0
+
+    def _row_to_epoch(self, row: sqlite3.Row) -> Epoch:
+        """Convert a row to an Epoch."""
+        return Epoch(
+            id=row["id"],
+            agent_id=row["agent_id"],
+            epoch_number=row["epoch_number"],
+            name=row["name"],
+            started_at=self._parse_datetime(row["started_at"]),
+            ended_at=self._parse_datetime(row["ended_at"]),
+            trigger_type=self._safe_get(row, "trigger_type", "manual"),
+            summary=self._safe_get(row, "summary", None),
+            key_belief_ids=self._from_json(self._safe_get(row, "key_belief_ids", None)),
+            key_relationship_ids=self._from_json(self._safe_get(row, "key_relationship_ids", None)),
+            key_goal_ids=self._from_json(self._safe_get(row, "key_goal_ids", None)),
+            dominant_drive_ids=self._from_json(self._safe_get(row, "dominant_drive_ids", None)),
+            local_updated_at=self._parse_datetime(row["local_updated_at"]),
+            cloud_synced_at=self._parse_datetime(self._safe_get(row, "cloud_synced_at", None)),
+            version=row["version"],
+            deleted=bool(row["deleted"]),
         )
 
     # === Trust Assessments (KEP v3) ===

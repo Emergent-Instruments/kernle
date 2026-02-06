@@ -18,6 +18,7 @@ from .base import (
     Drive,
     EntityModel,
     Episode,
+    Epoch,
     Goal,
     MemoryLineage,
     MemorySuggestion,
@@ -151,6 +152,7 @@ __all__ = [
     "RawEntry",
     "MemorySuggestion",
     "TrustAssessment",
+    "Epoch",
     # Meta-memory types
     "SourceType",
     "ConfidenceChange",

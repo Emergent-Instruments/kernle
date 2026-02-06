@@ -180,6 +180,8 @@ class SupabaseStorage:
             # Context fields
             "context": episode.context,
             "context_tags": episode.context_tags or [],
+            # Epoch tracking
+            "epoch_id": episode.epoch_id,
             # Sync metadata
             "local_updated_at": now,
             "cloud_synced_at": now,
@@ -257,6 +259,8 @@ class SupabaseStorage:
             # Context/scope fields
             context=row.get("context"),
             context_tags=row.get("context_tags"),
+            # Epoch tracking
+            epoch_id=row.get("epoch_id"),
         )
 
     def update_episode_emotion(
@@ -399,6 +403,8 @@ class SupabaseStorage:
             "source_domain": getattr(belief, "source_domain", None),
             "cross_domain_applications": getattr(belief, "cross_domain_applications", None),
             "abstraction_level": getattr(belief, "abstraction_level", "specific"),
+            # Epoch tracking
+            "epoch_id": belief.epoch_id,
             # Sync metadata
             "local_updated_at": now,
             "cloud_synced_at": now,
@@ -466,6 +472,8 @@ class SupabaseStorage:
             source_domain=row.get("source_domain"),
             cross_domain_applications=row.get("cross_domain_applications"),
             abstraction_level=row.get("abstraction_level", "specific"),
+            # Epoch tracking
+            epoch_id=row.get("epoch_id"),
         )
 
     # === Values ===
@@ -491,6 +499,8 @@ class SupabaseStorage:
             # Context fields
             "context": value.context,
             "context_tags": value.context_tags or [],
+            # Epoch tracking
+            "epoch_id": value.epoch_id,
             # Sync metadata
             "local_updated_at": now,
             "cloud_synced_at": now,
@@ -538,6 +548,8 @@ class SupabaseStorage:
             # Context/scope fields
             context=row.get("context"),
             context_tags=row.get("context_tags"),
+            # Epoch tracking
+            epoch_id=row.get("epoch_id"),
         )
 
     # === Goals ===
@@ -565,6 +577,8 @@ class SupabaseStorage:
             # Context fields
             "context": goal.context,
             "context_tags": goal.context_tags or [],
+            # Epoch tracking
+            "epoch_id": goal.epoch_id,
             # Sync metadata
             "local_updated_at": now,
             "cloud_synced_at": now,
@@ -616,6 +630,8 @@ class SupabaseStorage:
             # Context/scope fields
             context=row.get("context"),
             context_tags=row.get("context_tags"),
+            # Epoch tracking
+            epoch_id=row.get("epoch_id"),
         )
 
     # === Notes ===
@@ -652,6 +668,8 @@ class SupabaseStorage:
             "speaker": note.speaker,
             "reason": note.reason,
             "tags": note.tags or [],
+            # Epoch tracking
+            "epoch_id": note.epoch_id,
             # Sync metadata
             "local_updated_at": now,
             "cloud_synced_at": now,
@@ -711,6 +729,8 @@ class SupabaseStorage:
             # Context/scope fields
             context=row.get("context"),
             context_tags=row.get("context_tags"),
+            # Epoch tracking
+            epoch_id=row.get("epoch_id"),
         )
 
     # === Drives ===
@@ -729,6 +749,8 @@ class SupabaseStorage:
             "intensity": max(0.0, min(1.0, drive.intensity)),
             "focus_areas": drive.focus_areas or [],
             "updated_at": now,
+            # Epoch tracking
+            "epoch_id": drive.epoch_id,
             # Sync metadata
             "local_updated_at": now,
             "cloud_synced_at": now,
@@ -792,6 +814,8 @@ class SupabaseStorage:
             # Context/scope fields
             context=row.get("context"),
             context_tags=row.get("context_tags"),
+            # Epoch tracking
+            epoch_id=row.get("epoch_id"),
         )
 
     # === Relationships ===
@@ -898,6 +922,8 @@ class SupabaseStorage:
             # Context/scope fields
             context=row.get("context"),
             context_tags=row.get("context_tags"),
+            # Epoch tracking
+            epoch_id=row.get("epoch_id"),
         )
 
     # === Search ===
