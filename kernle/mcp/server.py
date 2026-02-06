@@ -35,12 +35,12 @@ from kernle.mcp.sanitize import (
     validate_number,
 )
 
-# Commerce tools (optional - may not be installed)
+# Commerce tools (optional - requires chainbased package)
 try:
-    from kernle.commerce.mcp import (
+    from chainbased.commerce.mcp import (
         TOOL_HANDLERS as COMMERCE_TOOL_HANDLERS,
     )
-    from kernle.commerce.mcp import (
+    from chainbased.commerce.mcp import (
         call_commerce_tool,
         get_commerce_tools,
         set_commerce_agent_id,
