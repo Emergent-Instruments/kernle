@@ -561,6 +561,36 @@ class Epoch:
 
 
 @dataclass
+class SelfNarrative:
+    """An autobiographical self-narrative (KEP v3 section 9).
+
+    Self-narratives are the agent's story about itself -- who it is,
+    how it has developed, and what it aspires to become. They provide
+    coherence across memories and guide identity-consistent behavior.
+
+    narrative_type values:
+    - identity: Who I am right now
+    - developmental: How I got here / my growth story
+    - aspirational: Who I want to become
+    """
+
+    id: str
+    agent_id: str
+    content: str
+    narrative_type: str = "identity"  # identity | developmental | aspirational
+    epoch_id: Optional[str] = None
+    key_themes: Optional[List[str]] = None  # JSON array
+    unresolved_tensions: Optional[List[str]] = None  # JSON array
+    is_active: bool = True
+    supersedes: Optional[str] = None  # ID of narrative this replaced
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    cloud_synced_at: Optional[datetime] = None
+    version: int = 1
+    deleted: bool = False
+
+
+@dataclass
 class TrustAssessment:
     """A trust assessment for an entity (KEP v3 section 8)."""
 
@@ -1244,6 +1274,48 @@ class Storage(Protocol):
             True if deleted, False if not found
         """
         return False
+
+    # === Self-Narratives (KEP v3) ===
+
+    def save_self_narrative(self, narrative: "SelfNarrative") -> str:
+        """Save a self-narrative. Returns the narrative ID."""
+        return narrative.id  # Default no-op
+
+    def get_self_narrative(self, narrative_id: str) -> Optional["SelfNarrative"]:
+        """Get a specific self-narrative by ID."""
+        return None
+
+    def list_self_narratives(
+        self,
+        agent_id: str,
+        narrative_type: Optional[str] = None,
+        active_only: bool = True,
+    ) -> List["SelfNarrative"]:
+        """Get self-narratives, optionally filtered.
+
+        Args:
+            agent_id: Agent ID to filter by
+            narrative_type: Filter by type (identity, developmental, aspirational)
+            active_only: If True, only return active narratives
+
+        Returns:
+            List of matching self-narratives
+        """
+        return []
+
+    def deactivate_self_narratives(self, agent_id: str, narrative_type: str) -> int:
+        """Deactivate all active narratives of a given type.
+
+        Used before saving a new narrative to ensure only one is active per type.
+
+        Args:
+            agent_id: Agent ID
+            narrative_type: Narrative type to deactivate
+
+        Returns:
+            Number of narratives deactivated
+        """
+        return 0
 
     # === Epochs ===
 

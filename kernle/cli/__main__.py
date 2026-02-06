@@ -37,6 +37,7 @@ from kernle.cli.commands import (
     cmd_identity,
     cmd_init_md,
     cmd_meta,
+    cmd_narrative,
     cmd_playbook,
     cmd_promote,
     cmd_raw,
@@ -3847,6 +3848,48 @@ Typical usage in a memoryFlush hook:
     epoch_current = epoch_sub.add_parser("current", help="Show current active epoch")
     epoch_current.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 
+    # narrative (self-narrative / autobiographical identity)
+    p_narrative = subparsers.add_parser(
+        "narrative", help="Self-narrative (autobiographical identity)"
+    )
+    narrative_sub = p_narrative.add_subparsers(dest="narrative_action", required=True)
+
+    # kernle narrative show [--type TYPE]
+    narrative_show = narrative_sub.add_parser("show", help="Show active narrative")
+    narrative_show.add_argument(
+        "--type",
+        "-t",
+        default="identity",
+        help="Narrative type (identity, developmental, aspirational)",
+    )
+    narrative_show.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle narrative update <content> [--type TYPE] [--theme T]... [--tension T]...
+    narrative_update = narrative_sub.add_parser("update", help="Create/update narrative")
+    narrative_update.add_argument("content", help="Narrative content text")
+    narrative_update.add_argument(
+        "--type",
+        "-t",
+        default="identity",
+        help="Narrative type (identity, developmental, aspirational)",
+    )
+    narrative_update.add_argument("--theme", action="append", help="Key theme (repeatable)")
+    narrative_update.add_argument(
+        "--tension", action="append", help="Unresolved tension (repeatable)"
+    )
+    narrative_update.add_argument("--epoch", help="Epoch ID to associate with")
+    narrative_update.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle narrative history [--type TYPE]
+    narrative_history = narrative_sub.add_parser("history", help="Show narrative history")
+    narrative_history.add_argument(
+        "--type",
+        "-t",
+        default=None,
+        help="Filter by narrative type",
+    )
+    narrative_history.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
     # sync (local-to-cloud synchronization)
     p_sync = subparsers.add_parser("sync", help="Sync with remote backend")
     sync_sub = p_sync.add_subparsers(dest="sync_action", required=True)
@@ -4433,6 +4476,8 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_forget(args, k)
         elif args.command == "epoch":
             cmd_epoch(args, k)
+        elif args.command == "narrative":
+            cmd_narrative(args, k)
         elif args.command == "playbook":
             cmd_playbook(args, k)
         elif args.command == "raw":

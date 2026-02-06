@@ -361,13 +361,13 @@ class TestSchemaMigration:
                 assert "consent_grants" in column_names, f"consent_grants missing from {table}"
 
     def test_schema_version_updated(self):
-        """Test that schema version is updated to 16."""
+        """Test that schema version is at least 16 (privacy migration)."""
         tmpdir = Path(tempfile.mkdtemp())
         storage = SQLiteStorage(agent_id="test-version", db_path=tmpdir / "test.db")
 
         with storage._connect() as conn:
             version = conn.execute("SELECT version FROM schema_version").fetchone()
-            assert version[0] == 16
+            assert version[0] >= 16
 
 
 class TestAllMemoryTypes:

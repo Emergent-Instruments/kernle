@@ -78,6 +78,7 @@ TOKEN_ESTIMATION_SAFETY_MARGIN = 1.3
 MEMORY_TYPE_PRIORITIES = {
     "checkpoint": 1.00,  # Always loaded first
     "value": 0.90,
+    "self_narrative": 0.90,  # Identity narratives are high priority
     "belief": 0.70,
     "goal": 0.65,
     "drive": 0.60,
@@ -306,6 +307,9 @@ def compute_priority_score(memory_type: str, record: Any) -> float:
             else record.get("sentiment", 0.0)
         )
         type_factor = (sentiment + 1) / 2  # Normalize -1..1 to 0..1
+    elif memory_type == "self_narrative":
+        # Active narratives are always high priority
+        type_factor = 0.9
     else:
         type_factor = 0.5
 
@@ -927,6 +931,24 @@ class Kernle(
             if trust_summary:
                 batched_result["trust"] = trust_summary
 
+            # Include active self-narratives
+            active_narratives = self._storage.list_self_narratives(self.agent_id, active_only=True)
+            if active_narratives:
+                batched_result["self_narrative"] = [
+                    {
+                        "id": n.id,
+                        "narrative_type": n.narrative_type,
+                        "content": (
+                            truncate_at_word_boundary(n.content, max_item_chars)
+                            if truncate
+                            else n.content
+                        ),
+                        "key_themes": n.key_themes,
+                        "unresolved_tensions": n.unresolved_tensions,
+                    }
+                    for n in active_narratives
+                ]
+
             return batched_result
 
         # Fallback to individual queries (for backends without load_all)
@@ -953,6 +975,20 @@ class Kernle(
         boot = self.boot_list()
         if boot:
             result["boot_config"] = boot
+
+        # Include active self-narratives
+        active_narratives = self._storage.list_self_narratives(self.agent_id, active_only=True)
+        if active_narratives:
+            result["self_narrative"] = [
+                {
+                    "id": n.id,
+                    "narrative_type": n.narrative_type,
+                    "content": n.content,
+                    "key_themes": n.key_themes,
+                    "unresolved_tensions": n.unresolved_tensions,
+                }
+                for n in active_narratives
+            ]
 
         # Log the load operation
         log_load(
@@ -2946,6 +2982,86 @@ class Kernle(
         """Get a specific epoch by ID."""
         epoch_id = self._validate_string_input(epoch_id, "epoch_id", 100)
         return self._storage.get_epoch(epoch_id)
+
+    # === Self-Narrative (KEP v3) ===
+
+    def narrative_save(
+        self,
+        content: str,
+        narrative_type: str = "identity",
+        key_themes: Optional[List[str]] = None,
+        unresolved_tensions: Optional[List[str]] = None,
+        epoch_id: Optional[str] = None,
+    ) -> str:
+        """Save a self-narrative, deactivating existing active narrative of same type first.
+
+        Args:
+            content: The narrative text
+            narrative_type: identity, developmental, or aspirational
+            key_themes: Key themes in the narrative
+            unresolved_tensions: Unresolved tensions
+            epoch_id: Optional epoch to associate with
+
+        Returns:
+            The narrative ID
+        """
+        from kernle.storage.base import SelfNarrative
+
+        content = self._validate_string_input(content, "content", 10000)
+        if narrative_type not in ("identity", "developmental", "aspirational"):
+            raise ValueError("narrative_type must be one of: identity, developmental, aspirational")
+
+        # Find existing active narrative to set supersedes reference
+        existing_active = self._storage.list_self_narratives(
+            self.agent_id, narrative_type=narrative_type, active_only=True
+        )
+        supersedes = existing_active[0].id if existing_active else None
+
+        # Deactivate existing active narratives of same type
+        self._storage.deactivate_self_narratives(self.agent_id, narrative_type)
+
+        narrative = SelfNarrative(
+            id=str(uuid.uuid4()),
+            agent_id=self.agent_id,
+            content=content,
+            narrative_type=narrative_type,
+            epoch_id=epoch_id,
+            key_themes=key_themes,
+            unresolved_tensions=unresolved_tensions,
+            is_active=True,
+            supersedes=supersedes,
+            created_at=datetime.now(timezone.utc),
+        )
+
+        return self._storage.save_self_narrative(narrative)
+
+    def narrative_get_active(self, narrative_type: str = "identity"):
+        """Get the active self-narrative of a given type.
+
+        Args:
+            narrative_type: identity, developmental, or aspirational
+
+        Returns:
+            The active SelfNarrative or None
+        """
+        narratives = self._storage.list_self_narratives(
+            self.agent_id, narrative_type=narrative_type, active_only=True
+        )
+        return narratives[0] if narratives else None
+
+    def narrative_list(self, narrative_type=None, active_only=True):
+        """List self-narratives.
+
+        Args:
+            narrative_type: Optional type filter
+            active_only: If True, only return active narratives
+
+        Returns:
+            List of SelfNarrative objects
+        """
+        return self._storage.list_self_narratives(
+            self.agent_id, narrative_type=narrative_type, active_only=active_only
+        )
 
     def update_belief(
         self,
