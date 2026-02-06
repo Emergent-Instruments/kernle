@@ -3121,6 +3121,11 @@ def main():
         default=20,
         help="Number of recent episodes to include (default: 20)",
     )
+    p_consolidate.add_argument(
+        "--advanced",
+        action="store_true",
+        help="Run advanced consolidation scaffolds (cross-domain, belief->value, entity model->belief)",
+    )
 
     # temporal
     p_temporal = subparsers.add_parser("when", help="Query by time")
