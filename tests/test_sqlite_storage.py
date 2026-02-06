@@ -925,3 +925,23 @@ class TestProvenanceProtection:
         retrieved = storage.get_episode("prov_test_regression")
         assert retrieved.objective == "Updated objective"
         assert retrieved.version == 2
+
+
+class TestStackIdValidation:
+    """Test that SQLiteStorage rejects path traversal in stack_id."""
+
+    @pytest.mark.parametrize(
+        "bad_id,match",
+        [
+            ("..", "relative path component"),
+            (".", "relative path component"),
+            ("../x", "path separators"),
+            ("nested/evil", "path separators"),
+            ("a\\b", "path separators"),
+            ("foo/../bar", "path separators"),
+        ],
+    )
+    def test_reject_path_traversal(self, temp_db, bad_id, match):
+        """SQLiteStorage must reject stack IDs with path traversal."""
+        with pytest.raises(ValueError, match=match):
+            SQLiteStorage(stack_id=bad_id, db_path=temp_db)
