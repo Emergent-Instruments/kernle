@@ -827,6 +827,13 @@ class Entity:
     # ---- Internal Helpers ----
 
     def _get_inference_service(self) -> Optional[InferenceService]:
-        # Full InferenceService implementation deferred to v0.5.0.
-        # For now, return None. Stacks degrade gracefully without it.
-        return None
+        """Create an InferenceService wrapping the current model.
+
+        Returns None if no model is bound. Stacks and components
+        degrade gracefully without it.
+        """
+        if self._model is None:
+            return None
+        from kernle.inference import create_inference_service
+
+        return create_inference_service(self._model)
