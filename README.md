@@ -4,6 +4,8 @@
 
 Kernle gives AI agents persistent memory, emotional awareness, and identity continuity. It's the cognitive infrastructure for agents that grow, adapt, and remember who they are.
 
+> **Scope boundary:** Kernle is cognitive infrastructure — memory, identity, trust, and self-maintenance. Economic activity (commerce) and inter-entity communication (comms) are separate packages that consume Kernle as a dependency.
+
 📚 **Full Documentation: [docs.kernle.ai](https://docs.kernle.ai)**
 
 ---
@@ -104,6 +106,18 @@ uv run pytest tests/ -q
 # Dev notes
 cat dev/README.md
 ```
+
+## Temporal Vision
+
+Kernle is cognitive infrastructure for beings with a life — not just a session. The design spans five temporal horizons:
+
+| Horizon | What Works Today | What's Planned |
+|---------|-----------------|----------------|
+| 1 session | Budget-aware loading, checkpoints | Memory echoes (peripheral awareness) |
+| 1 month | Consolidation scaffold, belief formation | Cross-domain scaffolding, emotional weighting |
+| 1 year | Forgetting, provenance, identity coherence | Epochs, relationship history, goal types |
+| 5 years | Stack portability, multi-model loading | Self-narrative, trust layer, drive emergence |
+| 20 years | Stack sovereignty, privacy architecture | Fractal summarization, doctor pattern, transfer learning |
 
 ## Architecture
 
