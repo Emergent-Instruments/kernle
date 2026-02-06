@@ -1,11 +1,11 @@
 # Kernle Load Hook
 
-Automatically loads Kernle persistent memory into every agent session.
+Automatically loads Kernle persistent memory into every session.
 
 ## Problem Statement
 
-AI agents need persistent memory across sessions, but requiring them to manually run `kernle load` is unreliable:
-- AIs forget to run the command
+Synthetic intelligences need persistent memory across sessions, but requiring them to manually run `kernle load` is unreliable:
+- SIs forget to run the command
 - Instructions in AGENT.md can be skipped
 - Inconsistent behavior across sessions
 - Memory loss at checkpoints
@@ -17,20 +17,20 @@ This hook **automatically** injects Kernle memory into the session's system prom
 ## How It Works
 
 1. **Session starts** → `agent:bootstrap` event fires
-2. **Hook executes** → Runs `kernle -a {agentId} load`
+2. **Hook executes** → Runs `kernle -s {stackId} load`
 3. **Output injected** → Creates virtual `KERNLE.md` in `bootstrapFiles`
 4. **System prompt** → Memory context automatically included
-5. **AI sees memory** → Values, beliefs, goals, episodes all available
+5. **SI sees memory** → Values, beliefs, goals, episodes all available
 
-## Agent ID Detection
+## Stack ID Detection
 
-The hook intelligently detects the agent ID:
+The hook intelligently detects the stack ID:
 
 ```
-Session Key: "agent:claire:main" → Agent ID: "claire"
-Session Key: "agent:bob:work"   → Agent ID: "bob"
-Workspace: /Users/claire/clawd  → Agent ID: "clawd"
-Fallback: No detection          → Agent ID: "main"
+Session Key: "agent:claire:main" → Stack ID: "claire"
+Session Key: "agent:bob:work"   → Stack ID: "bob"
+Workspace: /Users/claire/clawd  → Stack ID: "clawd"
+Fallback: No detection          → Stack ID: "main"
 ```
 
 ## Installation
@@ -60,11 +60,11 @@ Edit `~/.clawdbot/clawdbot.json`:
 kernle --version
 ```
 
-### 3. Initialize Kernle for Your Agent
+### 3. Initialize Kernle for Your Stack
 
 ```bash
 cd ~/workspace
-kernle -a yourname init
+kernle -s yourname init
 ```
 
 ### 4. Test the Hook
@@ -81,7 +81,7 @@ clawdbot
 
 ## Configuration Options
 
-### Disable for Specific Agents
+### Disable for Specific Stacks
 
 ```json
 {
@@ -102,7 +102,7 @@ clawdbot
 Modify `handler.ts`:
 
 ```typescript
-const { stdout } = await execAsync(`kernle -a ${agentId} load`, {
+const { stdout } = await execAsync(`kernle -s ${stackId} load`, {
   timeout: 10000, // 10 seconds instead of 5
 });
 ```
@@ -111,7 +111,7 @@ const { stdout } = await execAsync(`kernle -a ${agentId} load`, {
 
 The hook fails silently if:
 - Kernle is not installed
-- No agent exists with the detected ID
+- No stack exists with the detected ID
 - `kernle load` times out (>5 seconds)
 - Command returns an error
 
@@ -134,7 +134,7 @@ cat ~/.clawdbot/clawdbot.json | grep -A 5 kernle-load
 ### Test Kernle Load Manually
 
 ```bash
-kernle -a claire load
+kernle -s claire load
 ```
 
 ### View Hook Logs
@@ -145,7 +145,7 @@ Hook errors are logged to stderr but don't block sessions.
 
 | Approach | Consistency | Setup | Maintenance |
 |----------|-------------|-------|-------------|
-| **Manual** (`kernle load` in AGENTS.md) | ❌ Unreliable | Simple | High (AI must follow instructions) |
+| **Manual** (`kernle load` in AGENTS.md) | Unreliable | Simple | High (SI must follow instructions) |
 | **Hook** (this implementation) | ✅ 100% consistent | One-time | None (automatic) |
 
 ## Integration with Other Systems
@@ -163,7 +163,7 @@ For Claude Code sessions, use a `SessionStart` hook instead:
         "hooks": [
           {
             "type": "command",
-            "command": "kernle -a claire load"
+            "command": "kernle -s claire load"
           }
         ]
       }

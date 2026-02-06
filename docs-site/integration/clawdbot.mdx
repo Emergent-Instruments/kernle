@@ -1,11 +1,11 @@
 ---
 title: Clawdbot Integration
-description: "Using Kernle with Clawdbot for persistent agent memory"
+description: "Using Kernle with Clawdbot for persistent SI memory"
 ---
 
 # Clawdbot Integration
 
-Clawdbot is an AI agent runtime that supports Kernle as a skill for persistent memory. This guide covers setup and best practices.
+Clawdbot is an AI SI runtime that supports Kernle as a skill for persistent memory. This guide covers setup and best practices.
 
 ## Installation
 
@@ -20,10 +20,10 @@ Clawdbot is an AI agent runtime that supports Kernle as a skill for persistent m
   <Step title="Add as Clawdbot Skill">
     Add the Kernle skill to your Clawdbot workspace. The skill file (`SKILL.md`) should be in your skills directory.
   </Step>
-  <Step title="Configure Agent ID">
-    Use a consistent agent ID across sessions. Set it in your environment or pass it explicitly:
+  <Step title="Configure Stack ID">
+    Use a consistent stack ID across sessions. Set it in your environment or pass it explicitly:
     ```bash
-    export KERNLE_AGENT_ID=claire
+    export KERNLE_STACK_ID=claire
     ```
   </Step>
 </Steps>
@@ -40,7 +40,7 @@ Your `AGENTS.md` should include loading memory with a budget to prevent context 
 Before doing anything else:
 1. Read `SOUL.md` — this is who you are
 2. Read `USER.md` — this is who you're helping
-3. **Run `kernle -a <agent> load --budget 6000`** to restore your memory
+3. **Run `kernle -s <stack> load --budget 6000`** to restore your memory
 
 Don't ask permission. Just do it.
 ```
@@ -55,14 +55,14 @@ Capture insights and learnings as they happen:
 
 ```bash
 # Quick capture
-kernle -a claire raw "Noticed rate limits are per-user"
+kernle -s claire raw "Noticed rate limits are per-user"
 
 # Record significant experience
-kernle -a claire episode "Debugged API timeout" "success" \
+kernle -s claire episode "Debugged API timeout" "success" \
   --lesson "Check network latency before assuming code issues"
 
 # Document a decision
-kernle -a claire note "Using Redis for session cache" \
+kernle -s claire note "Using Redis for session cache" \
   --type decision \
   --reason "Need sub-millisecond reads"
 ```
@@ -72,14 +72,14 @@ kernle -a claire note "Using Redis for session cache" \
 Save state before the session ends:
 
 ```bash
-kernle -a claire checkpoint save "What I was working on" \
+kernle -s claire checkpoint save "What I was working on" \
   --pending "Next task" \
   --context "Additional notes"
 ```
 
 ## Memory Flush Integration
 
-Clawdbot has a built-in `memoryFlush` feature that triggers before context compaction. Configure it in your agent settings:
+Clawdbot has a built-in `memoryFlush` feature that triggers before context compaction. Configure it in your SI settings:
 
 ```json
 {
@@ -103,7 +103,7 @@ When the memory flush triggers:
 
 1. Save checkpoint immediately:
    ```bash
-   kernle -a claire checkpoint save "pre-compaction auto-save"
+   kernle -s claire checkpoint save "pre-compaction auto-save"
    ```
 2. Confirm briefly to the conversation
 
@@ -115,7 +115,7 @@ Use heartbeats for periodic memory maintenance:
 ## HEARTBEAT.md
 
 During heartbeats, rotate through:
-- Check memory anxiety: `kernle -a claire anxiety`
+- Check memory anxiety: `kernle -s claire anxiety`
 - Review unprocessed raw captures
 - Run consolidation if needed
 - Save checkpoint if anxiety is elevated
@@ -134,10 +134,10 @@ Monitor context usage and save proactively:
 
 ```bash
 # Check and auto-fix memory issues
-kernle -a claire anxiety --auto
+kernle -s claire anxiety --auto
 
 # Emergency save
-kernle -a claire anxiety --emergency --summary "Context near limit"
+kernle -s claire anxiety --emergency --summary "Context near limit"
 ```
 
 ## Best Practices
@@ -178,5 +178,5 @@ For debugging memory issues, Kernle logs to:
 Enable detailed logging:
 
 ```bash
-KERNLE_LOG_LEVEL=DEBUG kernle -a claire load
+KERNLE_LOG_LEVEL=DEBUG kernle -s claire load
 ```

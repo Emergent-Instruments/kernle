@@ -1,4 +1,4 @@
-"""Agent management commands (list, delete)."""
+"""Stack management commands (list, delete)."""
 
 import logging
 import shutil
@@ -15,17 +15,17 @@ if TYPE_CHECKING:
     from kernle import Kernle
 
 
-def cmd_agent(args: "argparse.Namespace", k: "Kernle") -> None:
+def cmd_stack(args: "argparse.Namespace", k: "Kernle") -> None:
     """Handle agent subcommands."""
-    action = args.agent_action
+    action = args.stack_action
 
     if action == "list":
-        _list_agents(args, k)
+        _list_stacks(args, k)
     elif action == "delete":
-        _delete_agent(args, k)
+        _delete_stack(args, k)
 
 
-def _list_agents(args: "argparse.Namespace", k: "Kernle") -> None:
+def _list_stacks(args: "argparse.Namespace", k: "Kernle") -> None:
     """List all local agents."""
     kernle_dir = Path.home() / ".kernle"
 
@@ -39,15 +39,15 @@ def _list_agents(args: "argparse.Namespace", k: "Kernle") -> None:
     # Check for multi-agent SQLite structure
     db_path = kernle_dir / "memories.db"
     if db_path.exists():
-        # Query SQLite for distinct agent_ids
+        # Query SQLite for distinct stack_ids
         import sqlite3
 
         try:
             conn = sqlite3.connect(str(db_path))
             cursor = conn.execute(
-                "SELECT DISTINCT agent_id FROM episodes "
-                "UNION SELECT DISTINCT agent_id FROM notes "
-                "UNION SELECT DISTINCT agent_id FROM beliefs"
+                "SELECT DISTINCT stack_id FROM episodes "
+                "UNION SELECT DISTINCT stack_id FROM notes "
+                "UNION SELECT DISTINCT stack_id FROM beliefs"
             )
             for row in cursor:
                 agents.append(row[0])
@@ -70,11 +70,11 @@ def _list_agents(args: "argparse.Namespace", k: "Kernle") -> None:
 
     agents.sort()
 
-    print(f"Local Agents ({len(agents)} total)")
+    print(f"Local Stacks ({len(agents)} total)")
     print("=" * 50)
 
-    for agent_id in agents:
-        agent_dir = kernle_dir / agent_id
+    for stack_id in agents:
+        agent_dir = kernle_dir / stack_id
         raw_count = 0
         has_dir = agent_dir.exists()
 
@@ -91,39 +91,39 @@ def _list_agents(args: "argparse.Namespace", k: "Kernle") -> None:
             try:
                 conn = sqlite3.connect(str(db_path))
                 episode_count = conn.execute(
-                    "SELECT COUNT(*) FROM episodes WHERE agent_id = ?", (agent_id,)
+                    "SELECT COUNT(*) FROM episodes WHERE stack_id = ?", (stack_id,)
                 ).fetchone()[0]
                 note_count = conn.execute(
-                    "SELECT COUNT(*) FROM notes WHERE agent_id = ?", (agent_id,)
+                    "SELECT COUNT(*) FROM notes WHERE stack_id = ?", (stack_id,)
                 ).fetchone()[0]
                 belief_count = conn.execute(
-                    "SELECT COUNT(*) FROM beliefs WHERE agent_id = ?", (agent_id,)
+                    "SELECT COUNT(*) FROM beliefs WHERE stack_id = ?", (stack_id,)
                 ).fetchone()[0]
                 conn.close()
             except Exception as e:
-                logger.debug(f"Failed to get counts for agent '{agent_id}': {e}")
+                logger.debug(f"Failed to get counts for agent '{stack_id}': {e}")
 
         # Mark current agent
-        marker = " ← current" if agent_id == k.agent_id else ""
-        print(f"\n  {agent_id}{marker}")
+        marker = " ← current" if stack_id == k.stack_id else ""
+        print(f"\n  {stack_id}{marker}")
         print(
             f"    Episodes: {episode_count}  Notes: {note_count}  Beliefs: {belief_count}  Raw: {raw_count}"
         )
 
 
-def _delete_agent(args: "argparse.Namespace", k: "Kernle") -> None:
+def _delete_stack(args: "argparse.Namespace", k: "Kernle") -> None:
     """Delete an agent and all its data."""
-    agent_id = args.name
+    stack_id = args.name
     force = getattr(args, "force", False)
 
-    if agent_id == k.agent_id:
-        print(f"❌ Cannot delete current agent '{agent_id}'")
-        print("   Switch to a different agent first with: kernle -a <other> ...")
+    if stack_id == k.stack_id:
+        print(f"❌ Cannot delete current agent '{stack_id}'")
+        print("   Switch to a different stack first with: kernle -s <other> ...")
         return
 
     kernle_dir = Path.home() / ".kernle"
     db_path = kernle_dir / "memories.db"
-    agent_dir = kernle_dir / agent_id
+    agent_dir = kernle_dir / stack_id
 
     # Check if agent exists
     has_db_data = False
@@ -135,7 +135,7 @@ def _delete_agent(args: "argparse.Namespace", k: "Kernle") -> None:
         try:
             conn = sqlite3.connect(str(db_path))
             count = conn.execute(
-                "SELECT COUNT(*) FROM episodes WHERE agent_id = ?", (agent_id,)
+                "SELECT COUNT(*) FROM episodes WHERE stack_id = ?", (stack_id,)
             ).fetchone()[0]
             has_db_data = count > 0
             conn.close()
@@ -143,7 +143,7 @@ def _delete_agent(args: "argparse.Namespace", k: "Kernle") -> None:
             logger.debug(f"Failed to check agent in database: {e}")
 
     if not has_db_data and not has_dir:
-        print(f"❌ Agent '{agent_id}' not found")
+        print(f"❌ Stack '{stack_id}' not found")
         return
 
     # Get counts for confirmation
@@ -154,19 +154,19 @@ def _delete_agent(args: "argparse.Namespace", k: "Kernle") -> None:
         try:
             conn = sqlite3.connect(str(db_path))
             episode_count = conn.execute(
-                "SELECT COUNT(*) FROM episodes WHERE agent_id = ?", (agent_id,)
+                "SELECT COUNT(*) FROM episodes WHERE stack_id = ?", (stack_id,)
             ).fetchone()[0]
             note_count = conn.execute(
-                "SELECT COUNT(*) FROM notes WHERE agent_id = ?", (agent_id,)
+                "SELECT COUNT(*) FROM notes WHERE stack_id = ?", (stack_id,)
             ).fetchone()[0]
             belief_count = conn.execute(
-                "SELECT COUNT(*) FROM beliefs WHERE agent_id = ?", (agent_id,)
+                "SELECT COUNT(*) FROM beliefs WHERE stack_id = ?", (stack_id,)
             ).fetchone()[0]
             goal_count = conn.execute(
-                "SELECT COUNT(*) FROM goals WHERE agent_id = ?", (agent_id,)
+                "SELECT COUNT(*) FROM goals WHERE stack_id = ?", (stack_id,)
             ).fetchone()[0]
             value_count = conn.execute(
-                "SELECT COUNT(*) FROM agent_values WHERE agent_id = ?", (agent_id,)
+                "SELECT COUNT(*) FROM agent_values WHERE stack_id = ?", (stack_id,)
             ).fetchone()[0]
             conn.close()
         except Exception as e:
@@ -175,7 +175,7 @@ def _delete_agent(args: "argparse.Namespace", k: "Kernle") -> None:
     total_records = episode_count + note_count + belief_count + goal_count + value_count
 
     if not force:
-        print(f"⚠️  About to delete agent '{agent_id}':")
+        print(f"⚠️  About to delete agent '{stack_id}':")
         print(f"   Episodes: {episode_count}")
         print(f"   Notes: {note_count}")
         print(f"   Beliefs: {belief_count}")
@@ -185,7 +185,7 @@ def _delete_agent(args: "argparse.Namespace", k: "Kernle") -> None:
             print(f"   Directory: {agent_dir}")
         print()
         confirm = input("Type the agent name to confirm deletion: ")
-        if confirm != agent_id:
+        if confirm != stack_id:
             print("❌ Deletion cancelled")
             return
 
@@ -212,7 +212,7 @@ def _delete_agent(args: "argparse.Namespace", k: "Kernle") -> None:
             for table in tables:
                 try:
                     validate_table_name(table)  # Security: validate before SQL use
-                    cursor = conn.execute(f"DELETE FROM {table} WHERE agent_id = ?", (agent_id,))
+                    cursor = conn.execute(f"DELETE FROM {table} WHERE stack_id = ?", (stack_id,))
                     if cursor.rowcount > 0:
                         deleted_tables.append(f"{table}: {cursor.rowcount}")
                 except Exception as e:
@@ -220,7 +220,7 @@ def _delete_agent(args: "argparse.Namespace", k: "Kernle") -> None:
 
             # Also delete from vec_embeddings if exists
             try:
-                conn.execute("DELETE FROM vec_embeddings WHERE id LIKE ?", (f"%:{agent_id}:%",))
+                conn.execute("DELETE FROM vec_embeddings WHERE id LIKE ?", (f"%:{stack_id}:%",))
             except Exception as e:
                 logger.debug(f"Failed to delete embeddings: {e}")
 
@@ -237,6 +237,6 @@ def _delete_agent(args: "argparse.Namespace", k: "Kernle") -> None:
         except Exception as e:
             print(f"⚠️  Error deleting directory: {e}")
 
-    print(f"✓ Agent '{agent_id}' deleted ({total_records} records)")
+    print(f"✓ Stack '{stack_id}' deleted ({total_records} records)")
     if deleted_tables:
         print(f"   Cleaned: {', '.join(deleted_tables)}")

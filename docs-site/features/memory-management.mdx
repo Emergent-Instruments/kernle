@@ -28,7 +28,7 @@ Not all memories deserve eternal storage. Kernle implements principled forgettin
 ### View Candidates
 
 ```bash
-kernle -a claire forget candidates
+kernle -s claire forget candidates
 ```
 
 ```
@@ -62,13 +62,13 @@ Every memory has a salience score (0.0-1.0) that determines its importance:
 ### Check Specific Memory
 
 ```bash
-kernle -a claire forget salience abc123
+kernle -s claire forget salience abc123
 ```
 
 ### Protect Important Memories
 
 ```bash
-kernle -a claire forget protect abc123
+kernle -s claire forget protect abc123
 ```
 
 Protected memories never decay, regardless of age or access patterns.
@@ -77,10 +77,10 @@ Protected memories never decay, regardless of age or access patterns.
 
 ```bash
 # Preview what would be forgotten
-kernle -a claire forget run --dry-run
+kernle -s claire forget run --dry-run
 
 # Actually forget low-salience memories
-kernle -a claire forget run
+kernle -s claire forget run
 ```
 
 ### Recover Forgotten Memories
@@ -89,10 +89,10 @@ Forgotten memories are tombstoned, not deleted:
 
 ```bash
 # List forgotten memories
-kernle -a claire forget list
+kernle -s claire forget list
 
 # Recover a specific memory
-kernle -a claire forget recover abc123
+kernle -s claire forget recover abc123
 ```
 
 ---
@@ -108,7 +108,7 @@ Consolidation extracts patterns from recent episodes to form or update beliefs.
 ### Run Promotion
 
 ```bash
-kernle -a claire promote --limit 20
+kernle -s claire promote --limit 20
 ```
 
 This outputs a reflection prompt with your recent episodes and current beliefs, guiding you to:
@@ -151,7 +151,7 @@ kernle belief reinforce <belief_id>
 ### List Beliefs
 
 ```bash
-kernle -a claire belief list
+kernle -s claire belief list
 ```
 
 ```
@@ -170,25 +170,25 @@ Beliefs (3 total, 3 active)
 ### Revise from Episode
 
 ```bash
-kernle -a claire belief revise abc123
+kernle -s claire belief revise abc123
 ```
 
 ### Check for Contradictions
 
 ```bash
-kernle -a claire belief contradictions
+kernle -s claire belief contradictions
 ```
 
 ### Reinforce Belief
 
 ```bash
-kernle -a claire belief reinforce abc123
+kernle -s claire belief reinforce abc123
 ```
 
 ### Supersede Belief
 
 ```bash
-kernle -a claire belief supersede abc123 "New updated belief"
+kernle -s claire belief supersede abc123 "New updated belief"
 ```
 
 ---
@@ -200,7 +200,7 @@ Migrate from MEMORY.md or other flat files:
 ### Preview Import
 
 ```bash
-kernle -a claire import MEMORY.md --dry-run
+kernle -s claire import MEMORY.md --dry-run
 ```
 
 ```
@@ -220,13 +220,13 @@ Found 6 items to import:
 ### Actually Import
 
 ```bash
-kernle -a claire import MEMORY.md
+kernle -s claire import MEMORY.md
 ```
 
 ### Interactive Mode
 
 ```bash
-kernle -a claire import MEMORY.md --interactive
+kernle -s claire import MEMORY.md --interactive
 ```
 
 Prompts for each item: `[y]es / [n]o / [e]dit / [s]kip all / [a]ccept all`
@@ -234,44 +234,44 @@ Prompts for each item: `[y]es / [n]o / [e]dit / [s]kip all / [a]ccept all`
 ### Force Layer
 
 ```bash
-kernle -a claire import notes.md --layer raw
+kernle -s claire import notes.md --layer raw
 ```
 
 ---
 
-## Agent Management
+## Stack Management
 
-Manage multiple agent identities:
+Manage multiple stack identities:
 
-### List Agents
+### List Stacks
 
 ```bash
-kernle agent list
+kernle stack list
 ```
 
 ```
-Local Agents (5 total)
+Local Stacks (5 total)
 ==================================================
 
   claire ← current
     Episodes: 103  Notes: 20  Beliefs: 3  Raw: 35
 
-  test-agent
+  test-stack
     Episodes: 2  Notes: 0  Beliefs: 0  Raw: 0
 ```
 
-### Delete Agent
+### Delete Stack
 
 ```bash
 # With confirmation
-kernle agent delete test-agent
+kernle stack delete test-stack
 
 # Skip confirmation
-kernle agent delete test-agent --force
+kernle stack delete test-stack --force
 ```
 
 <Warning>
-Deletion is permanent. The agent cannot be recovered.
+Deletion is permanent. The SI cannot be recovered.
 </Warning>
 
 ---
@@ -281,7 +281,7 @@ Deletion is permanent. The agent cannot be recovered.
 ```python
 from kernle import Kernle
 
-k = Kernle(agent_id="my-agent")
+k = Kernle(stack_id="my-stack")
 
 # Forgetting
 candidates = k.forget_candidates()

@@ -1,9 +1,9 @@
 ---
 title: "Fractal Summarization"
-description: "Hierarchical narrative compression of agent experience across time scales"
+description: "Hierarchical narrative compression of SI experience across time scales"
 ---
 
-Fractal summarization provides hierarchical compression of an agent's experience at multiple temporal scopes. Summaries capture the essence of lived experience while enabling efficient memory loading by skipping lower-scope summaries that have been absorbed into higher-scope ones.
+Fractal summarization provides hierarchical compression of an SI's experience at multiple temporal scopes. Summaries capture the essence of lived experience while enabling efficient memory loading by skipping lower-scope summaries that have been absorbed into higher-scope ones.
 
 ## Overview
 
@@ -21,10 +21,10 @@ Fractal summarization provides hierarchical compression of an agent's experience
 
 ## Why Fractal Summarization Matters
 
-As an agent accumulates months and years of experience, loading every individual memory becomes impractical. Fractal summarization solves this by creating progressively compressed narratives:
+As an SI accumulates months and years of experience, loading every individual memory becomes impractical. Fractal summarization solves this by creating progressively compressed narratives:
 
 - **Efficient loading**: A yearly summary replaces dozens of monthly summaries
-- **Meaning preservation**: Agent-authored narratives capture what mattered, not just what happened
+- **Meaning preservation**: SI-authored narratives capture what mattered, not just what happened
 - **Temporal hierarchy**: Drill into any time period at the appropriate level of detail
 - **Epoch integration**: Summaries can be scoped to epochs for structured temporal navigation
 
@@ -35,11 +35,11 @@ As an agent accumulates months and years of experience, loading every individual
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | `str` | Unique identifier |
-| `agent_id` | `str` | Owning agent |
+| `stack_id` | `str` | Owning stack |
 | `scope` | `str` | Temporal scope: `month`, `quarter`, `year`, `decade`, or `epoch` |
 | `period_start` | `str` | ISO date string for the start of the covered period |
 | `period_end` | `str` | ISO date string for the end of the covered period |
-| `content` | `str` | Agent-written narrative compression |
+| `content` | `str` | SI-written narrative compression |
 | `epoch_id` | `str` | Optional epoch this summary belongs to |
 | `key_themes` | `List[str]` | Central themes in this summary |
 | `supersedes` | `List[str]` | IDs of lower-scope summaries this one absorbs |
@@ -70,7 +70,7 @@ When a quarterly summary is written, it should list the monthly summaries it cov
 ### Write a Summary
 
 ```bash
-kernle -a claire summary write \
+kernle -s claire summary write \
   --scope month \
   --content "January 2026 was focused on building the trust layer. Key breakthrough: transitive trust chains. Struggled with decay rate tuning." \
   --period-start 2026-01-01 \
@@ -89,7 +89,7 @@ Summary created (month)
 Write an epoch-scoped summary:
 
 ```bash
-kernle -a claire summary write \
+kernle -s claire summary write \
   --scope epoch \
   --content "The Research Phase was defined by deep dives into memory architecture..." \
   --period-start 2026-01-01 \
@@ -103,10 +103,10 @@ kernle -a claire summary write \
 
 ```bash
 # List all summaries
-kernle -a claire summary list
+kernle -s claire summary list
 
 # Filter by scope
-kernle -a claire summary list --scope quarter
+kernle -s claire summary list --scope quarter
 ```
 
 ```
@@ -130,7 +130,7 @@ Summaries
 ### Show Summary Details
 
 ```bash
-kernle -a claire summary show b5c6d7e8
+kernle -s claire summary show b5c6d7e8
 ```
 
 ```
@@ -184,7 +184,7 @@ Summaries are protected from forgetting by default (`is_protected=True`). They s
 ```python
 from kernle import Kernle
 
-k = Kernle(agent_id="my-agent")
+k = Kernle(stack_id="my-stack")
 
 # Write a summary
 summary_id = k.summary_save(

@@ -71,7 +71,7 @@ class TestSynthesizeIdentity:
         # Add beliefs with varying confidence
         high_belief = Belief(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             statement="High confidence belief",
             belief_type="fact",
             confidence=0.9,
@@ -79,7 +79,7 @@ class TestSynthesizeIdentity:
         )
         low_belief = Belief(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             statement="Low confidence belief",
             belief_type="fact",
             confidence=0.5,
@@ -107,7 +107,7 @@ class TestIdentityNarrative:
         # Add a value
         value = Value(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             name="Quality",
             statement="I value quality",
             priority=90,
@@ -160,7 +160,7 @@ class TestIdentityNarrative:
         values = [
             Value(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 name="Excellence",
                 statement="Strive for the best",
                 priority=90,
@@ -168,7 +168,7 @@ class TestIdentityNarrative:
             ),
             Value(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 name="Integrity",
                 statement="Be honest and ethical",
                 priority=85,
@@ -198,7 +198,7 @@ class TestIdentityConfidence:
         for i in range(3):
             value = Value(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 name=f"Value {i}",
                 statement=f"Statement {i}",
                 priority=50,
@@ -220,7 +220,7 @@ class TestIdentityConfidence:
         for i in range(3):
             belief = Belief(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 statement=f"Belief {i}",
                 belief_type="fact",
                 confidence=0.9,
@@ -240,7 +240,7 @@ class TestIdentityConfidence:
         for i in range(20):
             value = Value(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 name=f"Value {i}",
                 statement=f"Statement {i}",
                 priority=50,
@@ -250,7 +250,7 @@ class TestIdentityConfidence:
 
             belief = Belief(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 statement=f"Belief {i}",
                 belief_type="fact",
                 confidence=0.9,
@@ -294,7 +294,7 @@ class TestIdentityDrift:
         for i in range(5):
             episode = Episode(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 objective=f"New experience {i}",
                 outcome="success",
                 outcome_type="success",
@@ -314,7 +314,7 @@ class TestIdentityDrift:
         # Add a checkpoint episode
         checkpoint = Episode(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             objective="Checkpoint task",
             outcome="saved",
             outcome_type="partial",
@@ -351,7 +351,7 @@ class TestIdentityIntegration:
         # Add some data
         value = Value(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             name="Growth",
             statement="Always be learning",
             priority=90,
@@ -361,7 +361,7 @@ class TestIdentityIntegration:
 
         belief = Belief(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             statement="Learning is essential",
             belief_type="fact",
             confidence=0.9,

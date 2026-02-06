@@ -203,7 +203,7 @@ def mock_kernle():
     kernle_mock._storage = storage_mock
 
     kernle_mock.status.return_value = {
-        "agent_id": "test_agent",
+        "stack_id": "test_agent",
         "values": 3,
         "beliefs": 10,
         "goals": 2,

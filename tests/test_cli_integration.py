@@ -41,8 +41,8 @@ def cli_kernle(tmp_path):
     checkpoint_dir = tmp_path / "checkpoints"
     checkpoint_dir.mkdir()
 
-    storage = SQLiteStorage(agent_id="cli_test_agent", db_path=db_path)
-    k = Kernle(agent_id="cli_test_agent", storage=storage, checkpoint_dir=checkpoint_dir)
+    storage = SQLiteStorage(stack_id="cli_test_agent", db_path=db_path)
+    k = Kernle(stack_id="cli_test_agent", storage=storage, checkpoint_dir=checkpoint_dir)
 
     yield k, storage
     storage.close()
@@ -446,7 +446,7 @@ class TestDoctorCommands:
 
         output = out.getvalue()
         assert "Kernle Doctor" in output
-        assert "Agent:" in output
+        assert "Stack:" in output
 
     def test_doctor_structural(self, cli_kernle):
         """Test structural health check with real storage."""

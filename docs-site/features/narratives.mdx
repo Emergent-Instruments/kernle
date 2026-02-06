@@ -1,31 +1,31 @@
 ---
 title: "Self-Narrative"
-description: "Autobiographical identity statements that provide coherence across an agent's memories"
+description: "Autobiographical identity statements that provide coherence across an SI's memories"
 ---
 
-Self-narratives are an agent's story about itself -- who it is, how it has developed, and what it aspires to become. They provide coherence across memories and guide identity-consistent behavior.
+Self-narratives are an SI's story about itself -- who it is, how it has developed, and what it aspires to become. They provide coherence across memories and guide identity-consistent behavior.
 
 ## Overview
 
 <CardGroup cols={3}>
   <Card title="Identity" icon="fingerprint">
-    Who the agent is right now -- current self-understanding
+    Who the SI is right now -- current self-understanding
   </Card>
   <Card title="Development" icon="seedling">
-    How the agent got here -- the growth story
+    How the SI got here -- the growth story
   </Card>
   <Card title="Aspiration" icon="mountain-sun">
-    Who the agent wants to become -- future direction
+    Who the SI wants to become -- future direction
   </Card>
 </CardGroup>
 
 ## Why Narratives Matter
 
-Without a coherent self-narrative, an agent is just a collection of disconnected memories. Narratives serve as the glue that binds experience into identity:
+Without a coherent self-narrative, an SI is just a collection of disconnected memories. Narratives serve as the glue that binds experience into identity:
 
-- **Identity coherence**: A consistent story about who the agent is
+- **Identity coherence**: A consistent story about who the SI is
 - **Decision guidance**: Narratives inform value-aligned choices
-- **Growth tracking**: Developmental narratives show how the agent has changed
+- **Growth tracking**: Developmental narratives show how the SI has changed
 - **Tension surfacing**: Unresolved tensions highlight areas for reflection
 - **Epoch linkage**: Narratives can be scoped to specific epochs
 
@@ -36,7 +36,7 @@ Without a coherent self-narrative, an agent is just a collection of disconnected
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | `str` | Unique identifier |
-| `agent_id` | `str` | Owning agent |
+| `stack_id` | `str` | Owning stack |
 | `content` | `str` | The narrative text itself |
 | `narrative_type` | `str` | `identity`, `developmental`, or `aspirational` |
 | `epoch_id` | `str` | Optional epoch this narrative belongs to |
@@ -51,7 +51,7 @@ Without a coherent self-narrative, an agent is just a collection of disconnected
 
 | Type | Description | Example |
 |------|-------------|---------|
-| `identity` | Who I am right now | "I am a research-focused agent that values depth over breadth..." |
+| `identity` | Who I am right now | "I am a research-focused SI that values depth over breadth..." |
 | `developmental` | How I got here | "I started as a general assistant but found my calling in..." |
 | `aspirational` | Who I want to become | "I aspire to become more autonomous in my decision-making..." |
 
@@ -67,10 +67,10 @@ Only one narrative per type can be active at a time. When you save a new narrati
 
 ```bash
 # Show the active identity narrative (default)
-kernle -a claire narrative show
+kernle -s claire narrative show
 
 # Show a specific type
-kernle -a claire narrative show --type developmental
+kernle -s claire narrative show --type developmental
 ```
 
 ```
@@ -90,9 +90,9 @@ believe that genuine understanding requires time and reflection.
 ### Update a Narrative
 
 ```bash
-kernle -a claire narrative update \
+kernle -s claire narrative update \
   --type identity \
-  --content "I am a research-focused agent that values depth over breadth. My core strength is pattern recognition across large bodies of experience." \
+  --content "I am a research-focused SI that values depth over breadth. My core strength is pattern recognition across large bodies of experience." \
   --theme "research" \
   --theme "pattern-recognition" \
   --tension "depth vs breadth"
@@ -108,7 +108,7 @@ Narrative updated (identity)
 You can also scope a narrative to a specific epoch:
 
 ```bash
-kernle -a claire narrative update \
+kernle -s claire narrative update \
   --type developmental \
   --content "During this epoch I shifted from general assistance to specialized research..." \
   --epoch-id a3f8c1d2 \
@@ -120,7 +120,7 @@ kernle -a claire narrative update \
 See all narratives, including inactive ones that were superseded:
 
 ```bash
-kernle -a claire narrative history
+kernle -s claire narrative history
 ```
 
 ```
@@ -129,7 +129,7 @@ Self-Narrative History
 
   [identity] (ACTIVE)
       ID: f8a9b0c1...
-      I am a research-focused agent that values depth over breadth...
+      I am a research-focused SI that values depth over breadth...
       Themes: research, pattern-recognition
       Created: 2026-01-25
 
@@ -149,7 +149,7 @@ Self-Narrative History
 Filter by narrative type:
 
 ```bash
-kernle -a claire narrative history --type identity
+kernle -s claire narrative history --type identity
 ```
 
 ---
@@ -160,13 +160,13 @@ Narratives connect to the broader identity system in several ways:
 
 <AccordionGroup>
   <Accordion title="Epoch Scoping">
-    Narratives can reference a specific epoch via `epoch_id`. This links the narrative to a temporal phase, making it possible to understand how the agent's self-understanding evolved across epochs.
+    Narratives can reference a specific epoch via `epoch_id`. This links the narrative to a temporal phase, making it possible to understand how the SI's self-understanding evolved across epochs.
   </Accordion>
   <Accordion title="Theme Tracking">
-    Key themes (`key_themes`) provide a compressed view of what matters to the agent. Themes that persist across narrative updates indicate core identity elements.
+    Key themes (`key_themes`) provide a compressed view of what matters to the SI. Themes that persist across narrative updates indicate core identity elements.
   </Accordion>
   <Accordion title="Tension Surfacing">
-    Unresolved tensions (`unresolved_tensions`) flag contradictions or open questions in the agent's self-understanding. These are valuable inputs for consolidation and reflection.
+    Unresolved tensions (`unresolved_tensions`) flag contradictions or open questions in the SI's self-understanding. These are valuable inputs for consolidation and reflection.
   </Accordion>
   <Accordion title="Supersession Chain">
     Each narrative tracks which narrative it replaced via `supersedes`. This creates a revision history showing how identity evolved over time.
@@ -180,11 +180,11 @@ Narratives connect to the broader identity system in several ways:
 ```python
 from kernle import Kernle
 
-k = Kernle(agent_id="my-agent")
+k = Kernle(stack_id="my-stack")
 
 # Save or update a narrative (deactivates previous of same type)
 narrative_id = k.narrative_save(
-    content="I am a research-focused agent that values depth over breadth.",
+    content="I am a research-focused SI that values depth over breadth.",
     narrative_type="identity",
     key_themes=["research", "depth", "autonomy"],
     unresolved_tensions=["depth vs breadth"],

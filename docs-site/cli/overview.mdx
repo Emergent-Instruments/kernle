@@ -5,19 +5,19 @@ description: "Complete reference for the Kernle command-line interface"
 
 # CLI Overview
 
-The Kernle CLI provides 28+ commands for managing agent memory.
+The Kernle CLI provides 28+ commands for managing SI memory.
 
 ## Global Options
 
 ```bash
-kernle [-a AGENT_ID] <command> [options]
+kernle [-s STACK_ID] <command> [options]
 ```
 
 | Option | Description |
 |--------|-------------|
-| `-a, --agent AGENT_ID` | Agent ID (can also use `KERNLE_AGENT_ID` env var) |
+| `-s, --stack STACK_ID` | Stack ID (can also use `KERNLE_STACK_ID` env var) |
 
-If no agent ID is provided, Kernle will try to resolve one automatically from environment context.
+If no stack ID is provided, Kernle will try to resolve one automatically from environment context.
 
 ## Commands at a Glance
 
@@ -98,8 +98,8 @@ If no agent ID is provided, Kernle will try to resolve one automatically from en
 
 | Command | Description |
 |---------|-------------|
-| `init` | Initialize agent and generate CLAUDE.md |
-| `agent` | List and delete agents |
+| `init` | Initialize stack and generate CLAUDE.md |
+| `stack` | List and delete stacks |
 | `doctor` | Validate boot sequence compliance |
 | `stats` | Usage statistics and health checks |
 
@@ -114,7 +114,7 @@ If no agent ID is provided, Kernle will try to resolve one automatically from en
 
 | Variable | Description |
 |----------|-------------|
-| `KERNLE_AGENT_ID` | Default agent ID |
+| `KERNLE_STACK_ID` | Default stack ID |
 | `KERNLE_BACKEND_URL` | Backend URL for sync |
 | `KERNLE_AUTH_TOKEN` | Auth token for sync |
 | `KERNLE_USER_ID` | User ID for sync |
@@ -125,34 +125,34 @@ Credentials can also be stored in `~/.kernle/credentials.json` (created by `auth
 
 ### Session Start
 ```bash
-kernle -a myagent load
+kernle -s mystack load
 ```
 
 ### During Work
 ```bash
 # Quick capture
-kernle -a myagent raw "interesting observation"
+kernle -s mystack raw "interesting observation"
 
 # Record experience
-kernle -a myagent episode "what I did" "outcome" --lesson "what I learned"
+kernle -s mystack episode "what I did" "outcome" --lesson "what I learned"
 
 # Note a decision
-kernle -a myagent note "chose X" --type decision --reason "because Y"
+kernle -s mystack note "chose X" --type decision --reason "because Y"
 ```
 
 ### Session End
 ```bash
-kernle -a myagent checkpoint save "where I left off" --pending "next task"
+kernle -s mystack checkpoint save "where I left off" --pending "next task"
 ```
 
 ### Maintenance
 ```bash
 # Check health
-kernle -a myagent anxiety --detailed --actions
+kernle -s mystack anxiety --detailed --actions
 
 # Consolidate learnings
-kernle -a myagent consolidate
+kernle -s mystack consolidate
 
 # Export backup
-kernle -a myagent export backup.md
+kernle -s mystack export backup.md
 ```

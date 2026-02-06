@@ -1,15 +1,15 @@
 ---
 title: "Temporal Epochs"
-description: "Named eras that mark significant transitions in an agent's timeline"
+description: "Named eras that mark significant transitions in an SI's timeline"
 ---
 
-Epochs are temporal markers that divide an agent's life into meaningful phases. They enable epoch-scoped memory loading, time-aware consolidation, and narrative coherence across long-lived agents.
+Epochs are temporal markers that divide an SI's life into meaningful phases. They enable epoch-scoped memory loading, time-aware consolidation, and narrative coherence across long-lived SIs.
 
 ## Overview
 
 <CardGroup cols={3}>
   <Card title="Temporal Navigation" icon="clock-rotate-left">
-    Load memories from specific eras in the agent's history
+    Load memories from specific eras in the SI's history
   </Card>
   <Card title="Transition Tracking" icon="arrow-right-arrow-left">
     Mark significant changes with explicit epoch boundaries
@@ -21,7 +21,7 @@ Epochs are temporal markers that divide an agent's life into meaningful phases. 
 
 ## Why Epochs Matter
 
-Long-lived agents accumulate vast amounts of experience. Without temporal structure, all memories blend together into an undifferentiated mass. Epochs solve this by providing named eras that give shape to an agent's history:
+Long-lived SIs accumulate vast amounts of experience. Without temporal structure, all memories blend together into an undifferentiated mass. Epochs solve this by providing named eras that give shape to an SI's history:
 
 - **Context switching**: Load only memories relevant to the current phase of work
 - **Growth tracking**: See how beliefs and values evolved across epochs
@@ -35,7 +35,7 @@ Long-lived agents accumulate vast amounts of experience. Without temporal struct
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | `str` | Unique identifier |
-| `agent_id` | `str` | Owning agent |
+| `stack_id` | `str` | Owning stack |
 | `epoch_number` | `int` | Sequential epoch number |
 | `name` | `str` | Human-readable epoch name |
 | `started_at` | `datetime` | When the epoch began |
@@ -52,7 +52,7 @@ Long-lived agents accumulate vast amounts of experience. Without temporal struct
 
 | Trigger | Description |
 |---------|-------------|
-| `declared` | Manually declared by the agent or operator |
+| `declared` | Manually declared by the SI or operator |
 | `detected` | Automatically detected from patterns in memory |
 | `system` | System-generated (e.g., first epoch on initialization) |
 
@@ -63,7 +63,7 @@ Long-lived agents accumulate vast amounts of experience. Without temporal struct
 ### Create an Epoch
 
 ```bash
-kernle -a claire epoch create "Learning Phase" \
+kernle -s claire epoch create "Learning Phase" \
   --trigger declared \
   --trigger-description "Starting a focused learning period"
 ```
@@ -77,7 +77,7 @@ Epoch created: Learning Phase
 ### View the Current Epoch
 
 ```bash
-kernle -a claire epoch current
+kernle -s claire epoch current
 ```
 
 ```
@@ -89,7 +89,7 @@ Current epoch: #3 - Learning Phase
 ### List All Epochs
 
 ```bash
-kernle -a claire epoch list
+kernle -s claire epoch list
 ```
 
 ```
@@ -111,7 +111,7 @@ Epochs
 ### Show Epoch Details
 
 ```bash
-kernle -a claire epoch show a3f8c1d2
+kernle -s claire epoch show a3f8c1d2
 ```
 
 ```
@@ -131,10 +131,10 @@ Epoch #3: Learning Phase (ACTIVE)
 
 ```bash
 # Close the current epoch with a summary
-kernle -a claire epoch close --summary "Completed the learning phase. Key insight: depth over breadth."
+kernle -s claire epoch close --summary "Completed the learning phase. Key insight: depth over breadth."
 
 # Close a specific epoch by ID
-kernle -a claire epoch close --id a3f8c1d2 --summary "Phase complete."
+kernle -s claire epoch close --id a3f8c1d2 --summary "Phase complete."
 ```
 
 <Info>
@@ -149,10 +149,10 @@ When loading working memory, you can scope it to a specific epoch. This is usefu
 
 ```bash
 # Load only memories from the current epoch
-kernle -a claire load --epoch current
+kernle -s claire load --epoch current
 
 # Load memories from a specific epoch
-kernle -a claire load --epoch a3f8c1d2
+kernle -s claire load --epoch a3f8c1d2
 ```
 
 The `load_all` method on the storage backend accepts an `epoch_id` parameter that filters all memory types (episodes, beliefs, notes, goals, etc.) to only those tagged with the given epoch.
@@ -161,7 +161,7 @@ The `load_all` method on the storage backend accepts an `epoch_id` parameter tha
 
 ## Epochs and Anxiety
 
-The anxiety system accounts for epoch state. When no active epoch exists for an extended period, it contributes to the overall anxiety score as an "epoch staleness" factor. This encourages agents to maintain temporal structure in their experience.
+The anxiety system accounts for epoch state. When no active epoch exists for an extended period, it contributes to the overall anxiety score as an "epoch staleness" factor. This encourages SIs to maintain temporal structure in their experience.
 
 ---
 
@@ -170,7 +170,7 @@ The anxiety system accounts for epoch state. When no active epoch exists for an 
 ```python
 from kernle import Kernle
 
-k = Kernle(agent_id="my-agent")
+k = Kernle(stack_id="my-stack")
 
 # Create a new epoch
 epoch_id = k.epoch_create(

@@ -36,7 +36,7 @@ class JsonImporter:
         """
         self.file_path = Path(file_path).expanduser()
         self.items: List[JsonImportItem] = []
-        self.source_agent_id: Optional[str] = None
+        self.source_stack_id: Optional[str] = None
 
     def parse(self) -> List[JsonImportItem]:
         """Parse the JSON file and return importable items.
@@ -52,7 +52,7 @@ class JsonImporter:
             raise FileNotFoundError(f"File not found: {self.file_path}")
 
         content = self.file_path.read_text(encoding="utf-8")
-        self.items, self.source_agent_id = parse_kernle_json(content)
+        self.items, self.source_stack_id = parse_kernle_json(content)
         return self.items
 
     def import_to(
@@ -92,7 +92,7 @@ class JsonImporter:
             "imported": counts,
             "skipped": skipped,
             "errors": errors,
-            "source_agent_id": self.source_agent_id,
+            "source_stack_id": self.source_stack_id,
         }
 
 
@@ -101,7 +101,7 @@ def parse_kernle_json(content: str) -> tuple[List[JsonImportItem], Optional[str]
 
     Expected format:
     {
-        "agent_id": "...",
+        "stack_id": "...",
         "exported_at": "...",
         "values": [...],
         "beliefs": [...],
@@ -117,7 +117,7 @@ def parse_kernle_json(content: str) -> tuple[List[JsonImportItem], Optional[str]
         content: JSON content string
 
     Returns:
-        Tuple of (list of JsonImportItem, source agent_id)
+        Tuple of (list of JsonImportItem, source stack_id)
 
     Raises:
         json.JSONDecodeError: If content is not valid JSON
@@ -129,7 +129,7 @@ def parse_kernle_json(content: str) -> tuple[List[JsonImportItem], Optional[str]
     if not isinstance(data, dict):
         raise ValueError("JSON must be an object at the root level")
 
-    agent_id = data.get("agent_id")
+    stack_id = data.get("stack_id")
     items: List[JsonImportItem] = []
 
     # Parse each memory type
@@ -157,7 +157,7 @@ def parse_kernle_json(content: str) -> tuple[List[JsonImportItem], Optional[str]
     for raw_data in data.get("raw_entries", []):
         items.append(JsonImportItem(type="raw", data=raw_data))
 
-    return items, agent_id
+    return items, stack_id
 
 
 def _import_json_item(item: JsonImportItem, k: "Kernle", skip_duplicates: bool = True) -> bool:
@@ -282,13 +282,13 @@ def _import_json_item(item: JsonImportItem, k: "Kernle", skip_duplicates: bool =
                 return False
 
         # Map JSON fields to API parameters:
-        # entity_name -> other_agent_id, sentiment -> trust_level (rescale -1..1 to 0..1),
+        # entity_name -> other_stack_id, sentiment -> trust_level (rescale -1..1 to 0..1),
         # relationship_type -> interaction_type
         sentiment = data.get("sentiment", 0.0)
         trust_level = (sentiment + 1.0) / 2.0  # Convert sentiment (-1..1) to trust (0..1)
 
         k.relationship(
-            other_agent_id=entity_name,
+            other_stack_id=entity_name,
             entity_type=data.get("entity_type", "unknown"),
             interaction_type=data.get("relationship_type", "knows"),
             trust_level=trust_level,

@@ -56,7 +56,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 22  # Add agent_self_narrative table
+SCHEMA_VERSION = 23  # Rename agent_id → stack_id, drop agent_ table prefixes
 
 # Maximum size for merged arrays during sync to prevent resource exhaustion
 MAX_SYNC_ARRAY_SIZE = 500
@@ -133,13 +133,13 @@ ALLOWED_TABLES = frozenset(
         "embeddings",
         "health_check_events",
         "boot_config",
-        "agent_registry",  # Comms package (v0.3.0)
-        "agent_trust_assessments",  # KEP v3 trust layer
-        "agent_epochs",  # KEP v3 temporal epochs
-        "agent_diagnostic_sessions",  # KEP v3 diagnostic sessions
-        "agent_diagnostic_reports",  # KEP v3 diagnostic reports
-        "agent_summaries",  # KEP v3 fractal summarization
-        "agent_self_narrative",  # KEP v3 self-narrative layer
+        "stack_registry",  # Comms package (v0.3.0)
+        "trust_assessments",  # KEP v3 trust layer
+        "epochs",  # KEP v3 temporal epochs
+        "diagnostic_sessions",  # KEP v3 diagnostic sessions
+        "diagnostic_reports",  # KEP v3 diagnostic reports
+        "summaries",  # KEP v3 fractal summarization
+        "self_narratives",  # KEP v3 self-narrative layer
     }
 )
 
@@ -170,7 +170,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 -- Episodes (experiences/work logs)
 CREATE TABLE IF NOT EXISTS episodes (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
+    stack_id TEXT NOT NULL,
     objective TEXT NOT NULL,
     outcome TEXT NOT NULL,
     outcome_type TEXT,
@@ -212,7 +212,7 @@ CREATE TABLE IF NOT EXISTS episodes (
     version INTEGER DEFAULT 1,
     deleted INTEGER DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_episodes_agent ON episodes(agent_id);
+CREATE INDEX IF NOT EXISTS idx_episodes_agent ON episodes(stack_id);
 CREATE INDEX IF NOT EXISTS idx_episodes_created ON episodes(created_at);
 CREATE INDEX IF NOT EXISTS idx_episodes_sync ON episodes(cloud_synced_at);
 CREATE INDEX IF NOT EXISTS idx_episodes_valence ON episodes(emotional_valence);
@@ -226,7 +226,7 @@ CREATE INDEX IF NOT EXISTS idx_episodes_epoch ON episodes(epoch_id);
 -- Beliefs
 CREATE TABLE IF NOT EXISTS beliefs (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
+    stack_id TEXT NOT NULL,
     statement TEXT NOT NULL,
     belief_type TEXT DEFAULT 'fact',
     confidence REAL DEFAULT 0.8,
@@ -271,7 +271,7 @@ CREATE TABLE IF NOT EXISTS beliefs (
     version INTEGER DEFAULT 1,
     deleted INTEGER DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_beliefs_agent ON beliefs(agent_id);
+CREATE INDEX IF NOT EXISTS idx_beliefs_agent ON beliefs(stack_id);
 CREATE INDEX IF NOT EXISTS idx_beliefs_confidence ON beliefs(confidence);
 CREATE INDEX IF NOT EXISTS idx_beliefs_source_type ON beliefs(source_type);
 CREATE INDEX IF NOT EXISTS idx_beliefs_is_active ON beliefs(is_active);
@@ -287,7 +287,7 @@ CREATE INDEX IF NOT EXISTS idx_beliefs_epoch ON beliefs(epoch_id);
 -- Values
 CREATE TABLE IF NOT EXISTS agent_values (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
+    stack_id TEXT NOT NULL,
     name TEXT NOT NULL,
     statement TEXT NOT NULL,
     priority INTEGER DEFAULT 50,
@@ -323,7 +323,7 @@ CREATE TABLE IF NOT EXISTS agent_values (
     version INTEGER DEFAULT 1,
     deleted INTEGER DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_values_agent ON agent_values(agent_id);
+CREATE INDEX IF NOT EXISTS idx_values_stack ON agent_values(stack_id);
 CREATE INDEX IF NOT EXISTS idx_values_confidence ON agent_values(confidence);
 CREATE INDEX IF NOT EXISTS idx_values_is_forgotten ON agent_values(is_forgotten);
 CREATE INDEX IF NOT EXISTS idx_values_is_protected ON agent_values(is_protected);
@@ -332,7 +332,7 @@ CREATE INDEX IF NOT EXISTS idx_values_epoch ON agent_values(epoch_id);
 -- Goals
 CREATE TABLE IF NOT EXISTS goals (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
+    stack_id TEXT NOT NULL,
     title TEXT NOT NULL,
     description TEXT,
     goal_type TEXT DEFAULT 'task',
@@ -370,7 +370,7 @@ CREATE TABLE IF NOT EXISTS goals (
     version INTEGER DEFAULT 1,
     deleted INTEGER DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_goals_agent ON goals(agent_id);
+CREATE INDEX IF NOT EXISTS idx_goals_agent ON goals(stack_id);
 CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status);
 CREATE INDEX IF NOT EXISTS idx_goals_confidence ON goals(confidence);
 CREATE INDEX IF NOT EXISTS idx_goals_is_forgotten ON goals(is_forgotten);
@@ -380,7 +380,7 @@ CREATE INDEX IF NOT EXISTS idx_goals_epoch ON goals(epoch_id);
 -- Notes (memories)
 CREATE TABLE IF NOT EXISTS notes (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
+    stack_id TEXT NOT NULL,
     content TEXT NOT NULL,
     note_type TEXT DEFAULT 'note',
     speaker TEXT,
@@ -418,7 +418,7 @@ CREATE TABLE IF NOT EXISTS notes (
     version INTEGER DEFAULT 1,
     deleted INTEGER DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_notes_agent ON notes(agent_id);
+CREATE INDEX IF NOT EXISTS idx_notes_agent ON notes(stack_id);
 CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at);
 CREATE INDEX IF NOT EXISTS idx_notes_confidence ON notes(confidence);
 CREATE INDEX IF NOT EXISTS idx_notes_is_forgotten ON notes(is_forgotten);
@@ -428,7 +428,7 @@ CREATE INDEX IF NOT EXISTS idx_notes_epoch ON notes(epoch_id);
 -- Drives
 CREATE TABLE IF NOT EXISTS drives (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
+    stack_id TEXT NOT NULL,
     drive_type TEXT NOT NULL,
     intensity REAL DEFAULT 0.5,
     focus_areas TEXT,  -- JSON array
@@ -464,9 +464,9 @@ CREATE TABLE IF NOT EXISTS drives (
     cloud_synced_at TEXT,
     version INTEGER DEFAULT 1,
     deleted INTEGER DEFAULT 0,
-    UNIQUE(agent_id, drive_type)
+    UNIQUE(stack_id, drive_type)
 );
-CREATE INDEX IF NOT EXISTS idx_drives_agent ON drives(agent_id);
+CREATE INDEX IF NOT EXISTS idx_drives_agent ON drives(stack_id);
 CREATE INDEX IF NOT EXISTS idx_drives_confidence ON drives(confidence);
 CREATE INDEX IF NOT EXISTS idx_drives_is_forgotten ON drives(is_forgotten);
 CREATE INDEX IF NOT EXISTS idx_drives_is_protected ON drives(is_protected);
@@ -475,7 +475,7 @@ CREATE INDEX IF NOT EXISTS idx_drives_epoch ON drives(epoch_id);
 -- Relationships
 CREATE TABLE IF NOT EXISTS relationships (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
+    stack_id TEXT NOT NULL,
     entity_name TEXT NOT NULL,
     entity_type TEXT NOT NULL,
     relationship_type TEXT NOT NULL,
@@ -514,18 +514,18 @@ CREATE TABLE IF NOT EXISTS relationships (
     cloud_synced_at TEXT,
     version INTEGER DEFAULT 1,
     deleted INTEGER DEFAULT 0,
-    UNIQUE(agent_id, entity_name)
+    UNIQUE(stack_id, entity_name)
 );
-CREATE INDEX IF NOT EXISTS idx_relationships_agent ON relationships(agent_id);
+CREATE INDEX IF NOT EXISTS idx_relationships_agent ON relationships(stack_id);
 CREATE INDEX IF NOT EXISTS idx_relationships_confidence ON relationships(confidence);
 CREATE INDEX IF NOT EXISTS idx_relationships_is_forgotten ON relationships(is_forgotten);
 CREATE INDEX IF NOT EXISTS idx_relationships_is_protected ON relationships(is_protected);
 CREATE INDEX IF NOT EXISTS idx_relationships_epoch ON relationships(epoch_id);
 
 -- Trust assessments (KEP v3 section 8)
-CREATE TABLE IF NOT EXISTS agent_trust_assessments (
+CREATE TABLE IF NOT EXISTS trust_assessments (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
+    stack_id TEXT NOT NULL,
     entity TEXT NOT NULL,
     dimensions TEXT NOT NULL,       -- JSON: {"general": {"score": 0.95}, ...}
     authority TEXT DEFAULT '[]',    -- JSON: [{"scope": "all"}, ...]
@@ -536,15 +536,15 @@ CREATE TABLE IF NOT EXISTS agent_trust_assessments (
     cloud_synced_at TEXT,
     version INTEGER DEFAULT 1,
     deleted INTEGER DEFAULT 0,
-    UNIQUE(agent_id, entity)
+    UNIQUE(stack_id, entity)
 );
-CREATE INDEX IF NOT EXISTS idx_trust_agent ON agent_trust_assessments(agent_id);
-CREATE INDEX IF NOT EXISTS idx_trust_entity ON agent_trust_assessments(agent_id, entity);
+CREATE INDEX IF NOT EXISTS idx_trust_agent ON trust_assessments(stack_id);
+CREATE INDEX IF NOT EXISTS idx_trust_entity ON trust_assessments(stack_id, entity);
 
 -- Relationship history (tracking changes over time)
 CREATE TABLE IF NOT EXISTS relationship_history (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
+    stack_id TEXT NOT NULL,
     relationship_id TEXT NOT NULL,
     entity_name TEXT NOT NULL,
     event_type TEXT NOT NULL,  -- interaction, trust_change, type_change, note
@@ -559,7 +559,7 @@ CREATE TABLE IF NOT EXISTS relationship_history (
     version INTEGER DEFAULT 1,
     deleted INTEGER DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_rel_history_agent ON relationship_history(agent_id);
+CREATE INDEX IF NOT EXISTS idx_rel_history_agent ON relationship_history(stack_id);
 CREATE INDEX IF NOT EXISTS idx_rel_history_relationship ON relationship_history(relationship_id);
 CREATE INDEX IF NOT EXISTS idx_rel_history_entity ON relationship_history(entity_name);
 CREATE INDEX IF NOT EXISTS idx_rel_history_event_type ON relationship_history(event_type);
@@ -567,7 +567,7 @@ CREATE INDEX IF NOT EXISTS idx_rel_history_event_type ON relationship_history(ev
 -- Entity models (mental models of other entities)
 CREATE TABLE IF NOT EXISTS entity_models (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
+    stack_id TEXT NOT NULL,
     entity_name TEXT NOT NULL,
     model_type TEXT NOT NULL,  -- behavioral, preference, capability
     observation TEXT NOT NULL,
@@ -585,15 +585,15 @@ CREATE TABLE IF NOT EXISTS entity_models (
     version INTEGER DEFAULT 1,
     deleted INTEGER DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_entity_models_agent ON entity_models(agent_id);
+CREATE INDEX IF NOT EXISTS idx_entity_models_agent ON entity_models(stack_id);
 CREATE INDEX IF NOT EXISTS idx_entity_models_entity ON entity_models(entity_name);
 CREATE INDEX IF NOT EXISTS idx_entity_models_type ON entity_models(model_type);
 
 
 -- Epochs (temporal era tracking)
-CREATE TABLE IF NOT EXISTS agent_epochs (
+CREATE TABLE IF NOT EXISTS epochs (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
+    stack_id TEXT NOT NULL,
     epoch_number INTEGER NOT NULL,
     name TEXT NOT NULL,
     started_at TEXT NOT NULL,
@@ -610,16 +610,16 @@ CREATE TABLE IF NOT EXISTS agent_epochs (
     cloud_synced_at TEXT,
     version INTEGER DEFAULT 1,
     deleted INTEGER DEFAULT 0,
-    UNIQUE(agent_id, epoch_number)
+    UNIQUE(stack_id, epoch_number)
 );
-CREATE INDEX IF NOT EXISTS idx_epochs_agent ON agent_epochs(agent_id);
-CREATE INDEX IF NOT EXISTS idx_epochs_number ON agent_epochs(agent_id, epoch_number);
-CREATE INDEX IF NOT EXISTS idx_epochs_active ON agent_epochs(ended_at);
+CREATE INDEX IF NOT EXISTS idx_epochs_agent ON epochs(stack_id);
+CREATE INDEX IF NOT EXISTS idx_epochs_number ON epochs(stack_id, epoch_number);
+CREATE INDEX IF NOT EXISTS idx_epochs_active ON epochs(ended_at);
 
 -- Playbooks (procedural memory - "how I do things")
 CREATE TABLE IF NOT EXISTS playbooks (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
+    stack_id TEXT NOT NULL,
     name TEXT NOT NULL,
     description TEXT NOT NULL,
     trigger_conditions TEXT NOT NULL,  -- JSON array
@@ -645,7 +645,7 @@ CREATE TABLE IF NOT EXISTS playbooks (
     version INTEGER DEFAULT 1,
     deleted INTEGER DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_playbooks_agent ON playbooks(agent_id);
+CREATE INDEX IF NOT EXISTS idx_playbooks_agent ON playbooks(stack_id);
 CREATE INDEX IF NOT EXISTS idx_playbooks_mastery ON playbooks(mastery_level);
 CREATE INDEX IF NOT EXISTS idx_playbooks_times_used ON playbooks(times_used);
 CREATE INDEX IF NOT EXISTS idx_playbooks_confidence ON playbooks(confidence);
@@ -654,7 +654,7 @@ CREATE INDEX IF NOT EXISTS idx_playbooks_confidence ON playbooks(confidence);
 -- The blob field is the primary storage - unvalidated, high limit brain dumps
 CREATE TABLE IF NOT EXISTS raw_entries (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
+    stack_id TEXT NOT NULL,
     blob TEXT NOT NULL,  -- Unstructured brain dump (primary field)
     captured_at TEXT NOT NULL,  -- When captured (was: timestamp)
     source TEXT DEFAULT 'unknown',  -- Auto-populated: cli|mcp|sdk|import|unknown
@@ -676,9 +676,9 @@ CREATE TABLE IF NOT EXISTS raw_entries (
     version INTEGER DEFAULT 1,
     deleted INTEGER DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_raw_agent ON raw_entries(agent_id);
-CREATE INDEX IF NOT EXISTS idx_raw_processed ON raw_entries(agent_id, processed);
-CREATE INDEX IF NOT EXISTS idx_raw_captured_at ON raw_entries(agent_id, captured_at);
+CREATE INDEX IF NOT EXISTS idx_raw_agent ON raw_entries(stack_id);
+CREATE INDEX IF NOT EXISTS idx_raw_processed ON raw_entries(stack_id, processed);
+CREATE INDEX IF NOT EXISTS idx_raw_captured_at ON raw_entries(stack_id, captured_at);
 -- Partial index for anxiety system queries (unprocessed entries)
 CREATE INDEX IF NOT EXISTS idx_raw_unprocessed ON raw_entries(captured_at)
     WHERE processed = 0 AND deleted = 0;
@@ -689,7 +689,7 @@ CREATE INDEX IF NOT EXISTS idx_raw_unprocessed ON raw_entries(captured_at)
 -- Memory suggestions (auto-extracted suggestions awaiting review)
 CREATE TABLE IF NOT EXISTS memory_suggestions (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
+    stack_id TEXT NOT NULL,
     memory_type TEXT NOT NULL,  -- episode, belief, note
     content TEXT NOT NULL,  -- JSON object with structured data
     confidence REAL DEFAULT 0.5,
@@ -705,21 +705,21 @@ CREATE TABLE IF NOT EXISTS memory_suggestions (
     version INTEGER DEFAULT 1,
     deleted INTEGER DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_suggestions_agent ON memory_suggestions(agent_id);
-CREATE INDEX IF NOT EXISTS idx_suggestions_status ON memory_suggestions(agent_id, status);
-CREATE INDEX IF NOT EXISTS idx_suggestions_type ON memory_suggestions(agent_id, memory_type);
+CREATE INDEX IF NOT EXISTS idx_suggestions_agent ON memory_suggestions(stack_id);
+CREATE INDEX IF NOT EXISTS idx_suggestions_status ON memory_suggestions(stack_id, status);
+CREATE INDEX IF NOT EXISTS idx_suggestions_type ON memory_suggestions(stack_id, memory_type);
 CREATE INDEX IF NOT EXISTS idx_suggestions_created ON memory_suggestions(created_at);
 
 -- Health check events (compliance tracking)
 CREATE TABLE IF NOT EXISTS health_check_events (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
+    stack_id TEXT NOT NULL,
     checked_at TEXT NOT NULL,
     anxiety_score INTEGER,
     source TEXT DEFAULT 'cli',  -- cli, mcp
     triggered_by TEXT DEFAULT 'manual'  -- boot, heartbeat, manual
 );
-CREATE INDEX IF NOT EXISTS idx_health_check_agent ON health_check_events(agent_id);
+CREATE INDEX IF NOT EXISTS idx_health_check_agent ON health_check_events(stack_id);
 CREATE INDEX IF NOT EXISTS idx_health_check_checked_at ON health_check_events(checked_at);
 
 -- Sync queue for offline changes (enhanced v2)
@@ -770,18 +770,18 @@ CREATE INDEX IF NOT EXISTS idx_sync_conflicts_record ON sync_conflicts(table_nam
 -- Boot config (always-available key/value config for agents)
 CREATE TABLE IF NOT EXISTS boot_config (
     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4)))),
-    agent_id TEXT NOT NULL,
+    stack_id TEXT NOT NULL,
     key TEXT NOT NULL,
     value TEXT NOT NULL,
     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(agent_id, key)
+    UNIQUE(stack_id, key)
 );
-CREATE INDEX IF NOT EXISTS idx_boot_agent ON boot_config(agent_id);
+CREATE INDEX IF NOT EXISTS idx_boot_agent ON boot_config(stack_id);
 
 -- Agent registry for comms package (v0.3.0)
-CREATE TABLE IF NOT EXISTS agent_registry (
-    agent_id TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS stack_registry (
+    stack_id TEXT PRIMARY KEY,
     user_id TEXT NOT NULL,
     display_name TEXT,
     capabilities TEXT,  -- JSON array
@@ -793,14 +793,14 @@ CREATE TABLE IF NOT EXISTS agent_registry (
     registered_at TEXT,
     last_seen_at TEXT
 );
-CREATE INDEX IF NOT EXISTS idx_agent_registry_user ON agent_registry(user_id);
-CREATE INDEX IF NOT EXISTS idx_agent_registry_public ON agent_registry(is_public);
-CREATE INDEX IF NOT EXISTS idx_agent_registry_trust ON agent_registry(trust_level);
+CREATE INDEX IF NOT EXISTS idx_stack_registry_user ON stack_registry(user_id);
+CREATE INDEX IF NOT EXISTS idx_stack_registry_public ON stack_registry(is_public);
+CREATE INDEX IF NOT EXISTS idx_stack_registry_trust ON stack_registry(trust_level);
 
 -- Diagnostic sessions (formal health check sessions)
-CREATE TABLE IF NOT EXISTS agent_diagnostic_sessions (
+CREATE TABLE IF NOT EXISTS diagnostic_sessions (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
+    stack_id TEXT NOT NULL,
     session_type TEXT DEFAULT 'self_requested',  -- self_requested, routine, anomaly_triggered, operator_initiated
     access_level TEXT DEFAULT 'structural',       -- structural, content, full
     status TEXT DEFAULT 'active',                 -- active, completed, cancelled
@@ -813,14 +813,14 @@ CREATE TABLE IF NOT EXISTS agent_diagnostic_sessions (
     version INTEGER DEFAULT 1,
     deleted INTEGER DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_diag_sessions_agent ON agent_diagnostic_sessions(agent_id);
-CREATE INDEX IF NOT EXISTS idx_diag_sessions_status ON agent_diagnostic_sessions(agent_id, status);
+CREATE INDEX IF NOT EXISTS idx_diag_sessions_agent ON diagnostic_sessions(stack_id);
+CREATE INDEX IF NOT EXISTS idx_diag_sessions_status ON diagnostic_sessions(stack_id, status);
 
 -- Diagnostic reports (findings from diagnostic sessions)
-CREATE TABLE IF NOT EXISTS agent_diagnostic_reports (
+CREATE TABLE IF NOT EXISTS diagnostic_reports (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
-    session_id TEXT NOT NULL,  -- References agent_diagnostic_sessions.id
+    stack_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,  -- References diagnostic_sessions.id
     findings TEXT,              -- JSON array of findings
     summary TEXT,
     created_at TEXT NOT NULL,
@@ -830,13 +830,13 @@ CREATE TABLE IF NOT EXISTS agent_diagnostic_reports (
     version INTEGER DEFAULT 1,
     deleted INTEGER DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_diag_reports_agent ON agent_diagnostic_reports(agent_id);
-CREATE INDEX IF NOT EXISTS idx_diag_reports_session ON agent_diagnostic_reports(session_id);
+CREATE INDEX IF NOT EXISTS idx_diag_reports_agent ON diagnostic_reports(stack_id);
+CREATE INDEX IF NOT EXISTS idx_diag_reports_session ON diagnostic_reports(session_id);
 
 -- Agent summaries (fractal summarization)
-CREATE TABLE IF NOT EXISTS agent_summaries (
+CREATE TABLE IF NOT EXISTS summaries (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
+    stack_id TEXT NOT NULL,
     scope TEXT NOT NULL,                         -- 'month' | 'quarter' | 'year' | 'decade' | 'epoch'
     period_start TEXT NOT NULL,
     period_end TEXT NOT NULL,
@@ -851,14 +851,14 @@ CREATE TABLE IF NOT EXISTS agent_summaries (
     version INTEGER DEFAULT 1,
     deleted INTEGER DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_summaries_agent ON agent_summaries(agent_id);
-CREATE INDEX IF NOT EXISTS idx_summaries_scope ON agent_summaries(agent_id, scope);
-CREATE INDEX IF NOT EXISTS idx_summaries_period ON agent_summaries(agent_id, period_start, period_end);
+CREATE INDEX IF NOT EXISTS idx_summaries_stack ON summaries(stack_id);
+CREATE INDEX IF NOT EXISTS idx_summaries_scope ON summaries(stack_id, scope);
+CREATE INDEX IF NOT EXISTS idx_summaries_period ON summaries(stack_id, period_start, period_end);
 
 -- Self-narrative (autobiographical identity model, KEP v3)
-CREATE TABLE IF NOT EXISTS agent_self_narrative (
+CREATE TABLE IF NOT EXISTS self_narratives (
     id TEXT PRIMARY KEY,
-    agent_id TEXT NOT NULL,
+    stack_id TEXT NOT NULL,
     epoch_id TEXT,
     narrative_type TEXT DEFAULT 'identity',   -- 'identity' | 'developmental' | 'aspirational'
     content TEXT NOT NULL,
@@ -872,8 +872,8 @@ CREATE TABLE IF NOT EXISTS agent_self_narrative (
     version INTEGER DEFAULT 1,
     deleted INTEGER DEFAULT 0
 );
-CREATE INDEX IF NOT EXISTS idx_narrative_agent ON agent_self_narrative(agent_id);
-CREATE INDEX IF NOT EXISTS idx_narrative_active ON agent_self_narrative(agent_id, narrative_type, is_active);
+CREATE INDEX IF NOT EXISTS idx_narrative_stack ON self_narratives(stack_id);
+CREATE INDEX IF NOT EXISTS idx_narrative_active ON self_narratives(stack_id, narrative_type, is_active);
 
 -- Embedding metadata (tracks what's been embedded)
 CREATE TABLE IF NOT EXISTS embedding_meta (
@@ -914,12 +914,12 @@ class SQLiteStorage:
 
     def __init__(
         self,
-        agent_id: str,
+        stack_id: str,
         db_path: Optional[Path] = None,
         cloud_storage: Optional["StorageProtocol"] = None,
         embedder: Optional[EmbeddingProvider] = None,
     ):
-        self.agent_id = agent_id
+        self.stack_id = stack_id
         self.db_path = self._validate_db_path(db_path or Path.home() / ".kernle" / "memories.db")
         self.cloud_storage = cloud_storage  # For sync
 
@@ -942,7 +942,7 @@ class SQLiteStorage:
         self._embedder = embedder or (HashEmbedder() if not embedder else embedder)
 
         # Initialize flat file directories for all memory layers
-        self._agent_dir = self.db_path.parent / agent_id
+        self._agent_dir = self.db_path.parent / stack_id
         self._agent_dir.mkdir(parents=True, exist_ok=True)
 
         self._raw_dir = self._agent_dir / "raw"
@@ -1354,7 +1354,7 @@ class SQLiteStorage:
         if memory_type == "episode":
             return Episode(
                 id=record_id,
-                agent_id=self.agent_id,
+                stack_id=self.stack_id,
                 objective=metadata.get("objective", item.get("content", "")),
                 outcome=metadata.get("outcome", ""),
                 outcome_type=metadata.get("outcome_type"),
@@ -1365,7 +1365,7 @@ class SQLiteStorage:
         elif memory_type == "note":
             return Note(
                 id=record_id,
-                agent_id=self.agent_id,
+                stack_id=self.stack_id,
                 content=item.get("content", ""),
                 note_type=metadata.get("note_type", "note"),
                 tags=metadata.get("tags"),
@@ -1374,7 +1374,7 @@ class SQLiteStorage:
         elif memory_type == "belief":
             return Belief(
                 id=record_id,
-                agent_id=self.agent_id,
+                stack_id=self.stack_id,
                 statement=item.get("content", ""),
                 belief_type=metadata.get("belief_type", "fact"),
                 confidence=metadata.get("confidence", 0.8),
@@ -1383,7 +1383,7 @@ class SQLiteStorage:
         elif memory_type == "value":
             return Value(
                 id=record_id,
-                agent_id=self.agent_id,
+                stack_id=self.stack_id,
                 name=metadata.get("name", ""),
                 statement=item.get("content", ""),
                 priority=metadata.get("priority", 50),
@@ -1392,7 +1392,7 @@ class SQLiteStorage:
         elif memory_type == "goal":
             return Goal(
                 id=record_id,
-                agent_id=self.agent_id,
+                stack_id=self.stack_id,
                 title=metadata.get("title", item.get("content", "")),
                 description=metadata.get("description"),
                 priority=metadata.get("priority", "medium"),
@@ -1851,7 +1851,7 @@ class SQLiteStorage:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS health_check_events (
                     id TEXT PRIMARY KEY,
-                    agent_id TEXT NOT NULL,
+                    stack_id TEXT NOT NULL,
                     checked_at TEXT NOT NULL,
                     anxiety_score INTEGER,
                     source TEXT DEFAULT 'cli',
@@ -1859,7 +1859,7 @@ class SQLiteStorage:
                 )
             """)
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_health_check_agent ON health_check_events(agent_id)"
+                "CREATE INDEX IF NOT EXISTS idx_health_check_agent ON health_check_events(stack_id)"
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_health_check_checked_at ON health_check_events(checked_at)"
@@ -1944,24 +1944,24 @@ class SQLiteStorage:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS boot_config (
                     id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4)))),
-                    agent_id TEXT NOT NULL,
+                    stack_id TEXT NOT NULL,
                     key TEXT NOT NULL,
                     value TEXT NOT NULL,
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP,
                     updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(agent_id, key)
+                    UNIQUE(stack_id, key)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_boot_agent ON boot_config(agent_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_boot_agent ON boot_config(stack_id)")
             logger.info("Created boot_config table")
             conn.commit()
 
-        # Create agent_trust_assessments table if it doesn't exist
-        if "agent_trust_assessments" not in table_names:
+        # Create trust_assessments table if it doesn't exist
+        if "trust_assessments" not in table_names and "agent_trust_assessments" not in table_names:
             conn.execute("""
-                CREATE TABLE IF NOT EXISTS agent_trust_assessments (
+                CREATE TABLE IF NOT EXISTS trust_assessments (
                     id TEXT PRIMARY KEY,
-                    agent_id TEXT NOT NULL,
+                    stack_id TEXT NOT NULL,
                     entity TEXT NOT NULL,
                     dimensions TEXT NOT NULL,
                     authority TEXT DEFAULT '[]',
@@ -1972,25 +1972,28 @@ class SQLiteStorage:
                     cloud_synced_at TEXT,
                     version INTEGER DEFAULT 1,
                     deleted INTEGER DEFAULT 0,
-                    UNIQUE(agent_id, entity)
+                    UNIQUE(stack_id, entity)
                 )
             """)
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_trust_agent " "ON agent_trust_assessments(agent_id)"
+                "CREATE INDEX IF NOT EXISTS idx_trust_agent " "ON trust_assessments(stack_id)"
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_trust_entity "
-                "ON agent_trust_assessments(agent_id, entity)"
+                "ON trust_assessments(stack_id, entity)"
             )
-            logger.info("Created agent_trust_assessments table")
+            logger.info("Created trust_assessments table")
             conn.commit()
 
         # v20: Add diagnostic sessions and reports tables
-        if "agent_diagnostic_sessions" not in table_names:
+        if (
+            "diagnostic_sessions" not in table_names
+            and "agent_diagnostic_sessions" not in table_names
+        ):
             conn.execute("""
-                CREATE TABLE IF NOT EXISTS agent_diagnostic_sessions (
+                CREATE TABLE IF NOT EXISTS diagnostic_sessions (
                     id TEXT PRIMARY KEY,
-                    agent_id TEXT NOT NULL,
+                    stack_id TEXT NOT NULL,
                     session_type TEXT DEFAULT 'self_requested',
                     access_level TEXT DEFAULT 'structural',
                     status TEXT DEFAULT 'active',
@@ -2005,20 +2008,23 @@ class SQLiteStorage:
             """)
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_diag_sessions_agent "
-                "ON agent_diagnostic_sessions(agent_id)"
+                "ON diagnostic_sessions(stack_id)"
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_diag_sessions_status "
-                "ON agent_diagnostic_sessions(agent_id, status)"
+                "ON diagnostic_sessions(stack_id, status)"
             )
-            logger.info("Created agent_diagnostic_sessions table")
+            logger.info("Created diagnostic_sessions table")
             conn.commit()
 
-        if "agent_diagnostic_reports" not in table_names:
+        if (
+            "diagnostic_reports" not in table_names
+            and "agent_diagnostic_reports" not in table_names
+        ):
             conn.execute("""
-                CREATE TABLE IF NOT EXISTS agent_diagnostic_reports (
+                CREATE TABLE IF NOT EXISTS diagnostic_reports (
                     id TEXT PRIMARY KEY,
-                    agent_id TEXT NOT NULL,
+                    stack_id TEXT NOT NULL,
                     session_id TEXT NOT NULL,
                     findings TEXT,
                     summary TEXT,
@@ -2031,13 +2037,13 @@ class SQLiteStorage:
             """)
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_diag_reports_agent "
-                "ON agent_diagnostic_reports(agent_id)"
+                "ON diagnostic_reports(stack_id)"
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_diag_reports_session "
-                "ON agent_diagnostic_reports(session_id)"
+                "ON diagnostic_reports(session_id)"
             )
-            logger.info("Created agent_diagnostic_reports table")
+            logger.info("Created diagnostic_reports table")
             conn.commit()
 
         # v18: Add belief_scope and domain metadata (KEP v3)
@@ -2059,7 +2065,7 @@ class SQLiteStorage:
                             logger.warning(f"Failed to add {field_name} to beliefs: {e}")
             conn.commit()
 
-        # v19: Add epoch_id columns and agent_epochs table (KEP v3)
+        # v19: Add epoch_id columns and epochs table (KEP v3)
         epoch_tables = [
             "episodes",
             "beliefs",
@@ -2083,12 +2089,12 @@ class SQLiteStorage:
                         if "duplicate column" not in str(e).lower():
                             logger.warning(f"Failed to add epoch_id to {tbl}: {e}")
 
-        # v21: Add agent_summaries table (fractal summarization)
-        if "agent_summaries" not in table_names:
+        # v21: Add summaries table (fractal summarization)
+        if "summaries" not in table_names and "agent_summaries" not in table_names:
             conn.execute("""
-                CREATE TABLE IF NOT EXISTS agent_summaries (
+                CREATE TABLE IF NOT EXISTS summaries (
                     id TEXT PRIMARY KEY,
-                    agent_id TEXT NOT NULL,
+                    stack_id TEXT NOT NULL,
                     scope TEXT NOT NULL,
                     period_start TEXT NOT NULL,
                     period_end TEXT NOT NULL,
@@ -2104,25 +2110,22 @@ class SQLiteStorage:
                     deleted INTEGER DEFAULT 0
                 )
             """)
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_summaries_stack " "ON summaries(stack_id)")
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_summaries_agent " "ON agent_summaries(agent_id)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_summaries_scope "
-                "ON agent_summaries(agent_id, scope)"
+                "CREATE INDEX IF NOT EXISTS idx_summaries_scope " "ON summaries(stack_id, scope)"
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_summaries_period "
-                "ON agent_summaries(agent_id, period_start, period_end)"
+                "ON summaries(stack_id, period_start, period_end)"
             )
-            logger.info("Created agent_summaries table")
+            logger.info("Created summaries table")
             conn.commit()
 
-        if "agent_epochs" not in table_names:
+        if "epochs" not in table_names and "agent_epochs" not in table_names:
             conn.execute("""
-                CREATE TABLE IF NOT EXISTS agent_epochs (
+                CREATE TABLE IF NOT EXISTS epochs (
                     id TEXT PRIMARY KEY,
-                    agent_id TEXT NOT NULL,
+                    stack_id TEXT NOT NULL,
                     epoch_number INTEGER NOT NULL,
                     name TEXT NOT NULL,
                     started_at TEXT NOT NULL,
@@ -2138,34 +2141,33 @@ class SQLiteStorage:
                     cloud_synced_at TEXT,
                     version INTEGER DEFAULT 1,
                     deleted INTEGER DEFAULT 0,
-                    UNIQUE(agent_id, epoch_number)
+                    UNIQUE(stack_id, epoch_number)
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_epochs_agent ON agent_epochs(agent_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_epochs_agent ON epochs(stack_id)")
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_epochs_number "
-                "ON agent_epochs(agent_id, epoch_number)"
+                "CREATE INDEX IF NOT EXISTS idx_epochs_number " "ON epochs(stack_id, epoch_number)"
             )
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_epochs_active ON agent_epochs(ended_at)")
-            logger.info("Created agent_epochs table")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_epochs_active ON epochs(ended_at)")
+            logger.info("Created epochs table")
         else:
-            # Migrate existing agent_epochs table
-            epoch_cols = get_columns("agent_epochs")
+            # Migrate existing epochs table
+            epoch_cols = get_columns("epochs")
             if "trigger_description" not in epoch_cols:
                 try:
-                    conn.execute("ALTER TABLE agent_epochs ADD COLUMN trigger_description TEXT")
-                    logger.info("Added trigger_description column to agent_epochs")
+                    conn.execute("ALTER TABLE epochs ADD COLUMN trigger_description TEXT")
+                    logger.info("Added trigger_description column to epochs")
                 except Exception as e:
                     if "duplicate column" not in str(e).lower():
                         logger.warning(f"Failed to add trigger_description: {e}")
         conn.commit()
 
-        # v22: Add agent_self_narrative table (self-narrative layer)
-        if "agent_self_narrative" not in table_names:
+        # v22: Add self_narratives table (self-narrative layer)
+        if "self_narratives" not in table_names and "agent_self_narrative" not in table_names:
             conn.execute("""
-                CREATE TABLE IF NOT EXISTS agent_self_narrative (
+                CREATE TABLE IF NOT EXISTS self_narratives (
                     id TEXT PRIMARY KEY,
-                    agent_id TEXT NOT NULL,
+                    stack_id TEXT NOT NULL,
                     epoch_id TEXT,
                     narrative_type TEXT DEFAULT 'identity',
                     content TEXT NOT NULL,
@@ -2181,15 +2183,105 @@ class SQLiteStorage:
                 )
             """)
             conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_narrative_agent "
-                "ON agent_self_narrative(agent_id)"
+                "CREATE INDEX IF NOT EXISTS idx_narrative_stack " "ON self_narratives(stack_id)"
             )
             conn.execute(
                 "CREATE INDEX IF NOT EXISTS idx_narrative_active "
-                "ON agent_self_narrative(agent_id, narrative_type, is_active)"
+                "ON self_narratives(stack_id, narrative_type, is_active)"
             )
-            logger.info("Created agent_self_narrative table")
+            logger.info("Created self_narratives table")
             conn.commit()
+
+        # v23: Rename agent_id → stack_id columns and drop agent_ table prefixes
+        # Check if migration is needed by looking for agent_id column in episodes
+        episode_cols = get_columns("episodes")
+        if "agent_id" in episode_cols and "stack_id" not in episode_cols:
+            logger.info("Migrating schema v22 → v23: agent_id → stack_id")
+
+            # 1. Rename agent_id column to stack_id in all tables
+            # Include both old and new table names to handle partial migrations
+            col_rename_tables = [
+                "episodes",
+                "beliefs",
+                "notes",
+                "goals",
+                "drives",
+                "relationships",
+                "playbooks",
+                "raw_entries",
+                "sync_queue",
+                "health_check_events",
+                "boot_config",
+                "checkpoints",
+                "memory_suggestions",
+                "agent_values",
+                "relationship_history",
+                "entity_models",
+                # Old names (pre-rename) and new names (post-rename)
+                "trust_assessments",
+                "agent_trust_assessments",
+                "epochs",
+                "agent_epochs",
+                "stack_registry",
+                "agent_registry",
+                "diagnostic_sessions",
+                "agent_diagnostic_sessions",
+                "diagnostic_reports",
+                "agent_diagnostic_reports",
+                "summaries",
+                "agent_summaries",
+                "self_narratives",
+                "agent_self_narrative",
+            ]
+
+            for tbl in col_rename_tables:
+                if tbl in table_names:
+                    cols = get_columns(tbl)
+                    if "agent_id" in cols:
+                        try:
+                            conn.execute(f"ALTER TABLE {tbl} RENAME COLUMN agent_id TO stack_id")
+                            logger.info(f"Renamed agent_id → stack_id in {tbl}")
+                        except Exception as e:
+                            logger.warning(f"Column rename failed for {tbl}: {e}")
+
+            # 2. Rename tables that had agent_ prefix
+            # Note: agent_values is NOT renamed (values is a SQL reserved word)
+            table_renames = {
+                "agent_trust_assessments": "trust_assessments",
+                "agent_epochs": "epochs",
+                "agent_registry": "stack_registry",
+                "agent_diagnostic_sessions": "diagnostic_sessions",
+                "agent_diagnostic_reports": "diagnostic_reports",
+                "agent_summaries": "summaries",
+                "agent_self_narrative": "self_narratives",
+            }
+            for old_name, new_name in table_renames.items():
+                if old_name in table_names:
+                    try:
+                        conn.execute(f"ALTER TABLE {old_name} RENAME TO {new_name}")
+                        logger.info(f"Renamed table {old_name} → {new_name}")
+                    except Exception as e:
+                        logger.warning(f"Table rename failed {old_name} → {new_name}: {e}")
+
+            conn.commit()
+            logger.info("Schema migration v23 complete (agent → stack)")
+
+        # v23 catch-up: fix any tables missed by a partial migration
+        # Scans ALL tables for any remaining agent_id columns
+        catchup_tables = [
+            t[0]
+            for t in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        ]
+        for tbl in catchup_tables:
+            if tbl in table_names:
+                cols = get_columns(tbl)
+                if "agent_id" in cols and "stack_id" not in cols:
+                    try:
+                        conn.execute(f"ALTER TABLE {tbl} RENAME COLUMN agent_id TO stack_id")
+                        logger.info(f"v23 catch-up: renamed agent_id → stack_id in {tbl}")
+                    except Exception as e:
+                        logger.warning(f"v23 catch-up failed for {tbl}: {e}")
+        conn.commit()
 
     def _check_sqlite_vec(self) -> bool:
         """Check if sqlite-vec extension is available."""
@@ -2360,8 +2452,8 @@ class SQLiteStorage:
             return
 
         content_hash = self._content_hash(content)
-        # Include agent_id in vec_id for isolation (security: prevents cross-agent timing leaks)
-        vec_id = f"{self.agent_id}:{table}:{record_id}"
+        # Include stack_id in vec_id for isolation (security: prevents cross-agent timing leaks)
+        vec_id = f"{self.stack_id}:{table}:{record_id}"
 
         # Check if embedding exists and is current
         existing = conn.execute(
@@ -2426,7 +2518,7 @@ class SQLiteStorage:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO episodes
-                (id, agent_id, objective, outcome, outcome_type, lessons, tags,
+                (id, stack_id, objective, outcome, outcome_type, lessons, tags,
                  emotional_valence, emotional_arousal, emotional_tags,
                  confidence, source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
@@ -2439,7 +2531,7 @@ class SQLiteStorage:
             """,
                 (
                     episode.id,
-                    self.agent_id,
+                    self.stack_id,
                     episode.objective,
                     episode.outcome,
                     episode.outcome_type,
@@ -2522,8 +2614,8 @@ class SQLiteStorage:
             # First check current version and get original provenance fields
             current = conn.execute(
                 """SELECT version, source_type, derived_from, confidence_history
-                   FROM episodes WHERE id = ? AND agent_id = ?""",
-                (episode.id, self.agent_id),
+                   FROM episodes WHERE id = ? AND stack_id = ?""",
+                (episode.id, self.stack_id),
             ).fetchone()
 
             if not current:
@@ -2585,7 +2677,7 @@ class SQLiteStorage:
                     abstraction_level = ?,
                     local_updated_at = ?,
                     version = version + 1
-                WHERE id = ? AND agent_id = ? AND version = ?
+                WHERE id = ? AND stack_id = ? AND version = ?
                 """,
                 (
                     episode.objective,
@@ -2613,7 +2705,7 @@ class SQLiteStorage:
                     self._to_json(episode.context_tags),
                     now,
                     episode.id,
-                    self.agent_id,
+                    self.stack_id,
                     expected_version,
                 ),
             )
@@ -2622,8 +2714,8 @@ class SQLiteStorage:
                 # Version changed between check and update (rare but possible)
                 conn.rollback()
                 new_current = conn.execute(
-                    "SELECT version FROM episodes WHERE id = ? AND agent_id = ?",
-                    (episode.id, self.agent_id),
+                    "SELECT version FROM episodes WHERE id = ? AND stack_id = ?",
+                    (episode.id, self.stack_id),
                 ).fetchone()
                 actual = new_current["version"] if new_current else -1
                 raise VersionConflictError("episodes", episode.id, expected_version, actual)
@@ -2656,7 +2748,7 @@ class SQLiteStorage:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO episodes
-                    (id, agent_id, objective, outcome, outcome_type, lessons, tags,
+                    (id, stack_id, objective, outcome, outcome_type, lessons, tags,
                      emotional_valence, emotional_arousal, emotional_tags,
                      confidence, source_type, source_episodes, derived_from,
                      last_verified, verification_count, confidence_history,
@@ -2668,7 +2760,7 @@ class SQLiteStorage:
                 """,
                     (
                         episode.id,
-                        self.agent_id,
+                        self.stack_id,
                         episode.objective,
                         episode.outcome,
                         episode.outcome_type,
@@ -2715,8 +2807,8 @@ class SQLiteStorage:
         requesting_entity: Optional[str] = None,
     ) -> List[Episode]:
         """Get episodes."""
-        query = "SELECT * FROM episodes WHERE agent_id = ? AND deleted = 0"
-        params: List[Any] = [self.agent_id]
+        query = "SELECT * FROM episodes WHERE stack_id = ? AND deleted = 0"
+        params: List[Any] = [self.stack_id]
 
         # Apply privacy filter
         access_filter, access_params = self._build_access_filter(requesting_entity)
@@ -2745,8 +2837,8 @@ class SQLiteStorage:
         self, episode_id: str, requesting_entity: Optional[str] = None
     ) -> Optional[Episode]:
         """Get a specific episode."""
-        query = "SELECT * FROM episodes WHERE id = ? AND agent_id = ?"
-        params: List[Any] = [episode_id, self.agent_id]
+        query = "SELECT * FROM episodes WHERE id = ? AND stack_id = ?"
+        params: List[Any] = [episode_id, self.stack_id]
 
         # Apply privacy filter
         access_filter, access_params = self._build_access_filter(requesting_entity)
@@ -2762,7 +2854,7 @@ class SQLiteStorage:
         """Convert a row to an Episode."""
         return Episode(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             objective=row["objective"],
             outcome=row["outcome"],
             outcome_type=row["outcome_type"],
@@ -2812,11 +2904,11 @@ class SQLiteStorage:
         """Get episodes associated with a source entity for trust computation."""
         query = """
             SELECT * FROM episodes
-            WHERE agent_id = ? AND source_entity = ? AND deleted = 0 AND is_forgotten = 0
+            WHERE stack_id = ? AND source_entity = ? AND deleted = 0 AND is_forgotten = 0
             ORDER BY created_at DESC LIMIT ?
         """
         with self._connect() as conn:
-            rows = conn.execute(query, (self.agent_id, source_entity, limit)).fetchall()
+            rows = conn.execute(query, (self.stack_id, source_entity, limit)).fetchall()
         return [self._row_to_episode(row) for row in rows]
 
     def update_episode_emotion(
@@ -2847,8 +2939,8 @@ class SQLiteStorage:
                    emotional_tags = ?,
                    local_updated_at = ?,
                    version = version + 1
-                   WHERE id = ? AND agent_id = ? AND deleted = 0""",
-                (valence, arousal, self._to_json(tags), now, episode_id, self.agent_id),
+                   WHERE id = ? AND stack_id = ? AND deleted = 0""",
+                (valence, arousal, self._to_json(tags), now, episode_id, self.stack_id),
             )
             if cursor.rowcount > 0:
                 self._queue_sync(conn, "episodes", episode_id, "upsert")
@@ -2874,8 +2966,8 @@ class SQLiteStorage:
         Returns:
             List of matching episodes
         """
-        query = "SELECT * FROM episodes WHERE agent_id = ? AND deleted = 0"
-        params: List[Any] = [self.agent_id]
+        query = "SELECT * FROM episodes WHERE stack_id = ? AND deleted = 0"
+        params: List[Any] = [self.stack_id]
 
         if valence_range:
             query += " AND emotional_valence >= ? AND emotional_valence <= ?"
@@ -2916,14 +3008,14 @@ class SQLiteStorage:
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
 
         query = """SELECT * FROM episodes
-                   WHERE agent_id = ? AND deleted = 0
+                   WHERE stack_id = ? AND deleted = 0
                    AND created_at >= ?
                    AND (emotional_valence != 0.0 OR emotional_arousal != 0.0 OR emotional_tags IS NOT NULL)
                    ORDER BY created_at DESC
                    LIMIT ?"""
 
         with self._connect() as conn:
-            rows = conn.execute(query, (self.agent_id, cutoff, limit)).fetchall()
+            rows = conn.execute(query, (self.stack_id, cutoff, limit)).fetchall()
 
         return [self._row_to_episode(row) for row in rows]
 
@@ -2943,7 +3035,7 @@ class SQLiteStorage:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO beliefs
-                (id, agent_id, statement, belief_type, confidence, created_at,
+                (id, stack_id, statement, belief_type, confidence, created_at,
                  source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
                  supersedes, superseded_by, times_reinforced, is_active,
@@ -2955,7 +3047,7 @@ class SQLiteStorage:
             """,
                 (
                     belief.id,
-                    self.agent_id,
+                    self.stack_id,
                     belief.statement,
                     belief.belief_type,
                     belief.confidence,
@@ -3023,8 +3115,8 @@ class SQLiteStorage:
         with self._connect() as conn:
             # Check current version
             current = conn.execute(
-                "SELECT version FROM beliefs WHERE id = ? AND agent_id = ?",
-                (belief.id, self.agent_id),
+                "SELECT version FROM beliefs WHERE id = ? AND stack_id = ?",
+                (belief.id, self.stack_id),
             ).fetchone()
 
             if not current:
@@ -3060,7 +3152,7 @@ class SQLiteStorage:
                     local_updated_at = ?,
                     deleted = ?,
                     version = version + 1
-                WHERE id = ? AND agent_id = ? AND version = ?
+                WHERE id = ? AND stack_id = ? AND version = ?
                 """,
                 (
                     belief.statement,
@@ -3085,7 +3177,7 @@ class SQLiteStorage:
                     now,
                     1 if belief.deleted else 0,
                     belief.id,
-                    self.agent_id,
+                    self.stack_id,
                     expected_version,
                 ),
             )
@@ -3093,8 +3185,8 @@ class SQLiteStorage:
             if cursor.rowcount == 0:
                 conn.rollback()
                 new_current = conn.execute(
-                    "SELECT version FROM beliefs WHERE id = ? AND agent_id = ?",
-                    (belief.id, self.agent_id),
+                    "SELECT version FROM beliefs WHERE id = ? AND stack_id = ?",
+                    (belief.id, self.stack_id),
                 ).fetchone()
                 actual = new_current["version"] if new_current else -1
                 raise VersionConflictError("beliefs", belief.id, expected_version, actual)
@@ -3128,7 +3220,7 @@ class SQLiteStorage:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO beliefs
-                    (id, agent_id, statement, belief_type, confidence, created_at,
+                    (id, stack_id, statement, belief_type, confidence, created_at,
                      source_type, source_episodes, derived_from,
                      last_verified, verification_count, confidence_history,
                      supersedes, superseded_by, times_reinforced, is_active,
@@ -3141,7 +3233,7 @@ class SQLiteStorage:
                 """,
                     (
                         belief.id,
-                        self.agent_id,
+                        self.stack_id,
                         belief.statement,
                         belief.belief_type,
                         belief.confidence,
@@ -3223,13 +3315,13 @@ class SQLiteStorage:
         with self._connect() as conn:
             if include_inactive:
                 rows = conn.execute(
-                    f"SELECT * FROM beliefs WHERE agent_id = ? AND deleted = 0{access_filter} ORDER BY created_at DESC LIMIT ?",
-                    [self.agent_id] + access_params + [limit],
+                    f"SELECT * FROM beliefs WHERE stack_id = ? AND deleted = 0{access_filter} ORDER BY created_at DESC LIMIT ?",
+                    [self.stack_id] + access_params + [limit],
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    f"SELECT * FROM beliefs WHERE agent_id = ? AND deleted = 0 AND (is_active = 1 OR is_active IS NULL){access_filter} ORDER BY created_at DESC LIMIT ?",
-                    [self.agent_id] + access_params + [limit],
+                    f"SELECT * FROM beliefs WHERE stack_id = ? AND deleted = 0 AND (is_active = 1 OR is_active IS NULL){access_filter} ORDER BY created_at DESC LIMIT ?",
+                    [self.stack_id] + access_params + [limit],
                 ).fetchall()
 
         return [self._row_to_belief(row) for row in rows]
@@ -3238,8 +3330,8 @@ class SQLiteStorage:
         """Find a belief by statement."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM beliefs WHERE agent_id = ? AND statement = ? AND deleted = 0",
-                (self.agent_id, statement),
+                "SELECT * FROM beliefs WHERE stack_id = ? AND statement = ? AND deleted = 0",
+                (self.stack_id, statement),
             ).fetchone()
 
         return self._row_to_belief(row) if row else None
@@ -3248,8 +3340,8 @@ class SQLiteStorage:
         self, belief_id: str, requesting_entity: Optional[str] = None
     ) -> Optional[Belief]:
         """Get a specific belief by ID."""
-        query = "SELECT * FROM beliefs WHERE id = ? AND agent_id = ?"
-        params: List[Any] = [belief_id, self.agent_id]
+        query = "SELECT * FROM beliefs WHERE id = ? AND stack_id = ?"
+        params: List[Any] = [belief_id, self.stack_id]
 
         # Apply privacy filter
         access_filter, access_params = self._build_access_filter(requesting_entity)
@@ -3266,7 +3358,7 @@ class SQLiteStorage:
         is_active_val = self._safe_get(row, "is_active", 1)
         return Belief(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             statement=row["statement"],
             belief_type=row["belief_type"],
             confidence=row["confidence"],
@@ -3330,7 +3422,7 @@ class SQLiteStorage:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO agent_values
-                (id, agent_id, name, statement, priority, created_at,
+                (id, stack_id, name, statement, priority, created_at,
                  confidence, source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
                  context, context_tags,
@@ -3341,7 +3433,7 @@ class SQLiteStorage:
             """,
                 (
                     value.id,
-                    self.agent_id,
+                    self.stack_id,
                     value.name,
                     value.statement,
                     value.priority,
@@ -3401,8 +3493,8 @@ class SQLiteStorage:
         access_filter, access_params = self._build_access_filter(requesting_entity)
         with self._connect() as conn:
             rows = conn.execute(
-                f"SELECT * FROM agent_values WHERE agent_id = ? AND deleted = 0{access_filter} ORDER BY priority DESC LIMIT ?",
-                [self.agent_id] + access_params + [limit],
+                f"SELECT * FROM agent_values WHERE stack_id = ? AND deleted = 0{access_filter} ORDER BY priority DESC LIMIT ?",
+                [self.stack_id] + access_params + [limit],
             ).fetchall()
 
         return [self._row_to_value(row) for row in rows]
@@ -3411,7 +3503,7 @@ class SQLiteStorage:
         """Convert a row to a Value."""
         return Value(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             name=row["name"],
             statement=row["statement"],
             priority=row["priority"],
@@ -3461,7 +3553,7 @@ class SQLiteStorage:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO goals
-                (id, agent_id, title, description, goal_type, priority, status, created_at,
+                (id, stack_id, title, description, goal_type, priority, status, created_at,
                  confidence, source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
                  context, context_tags,
@@ -3472,7 +3564,7 @@ class SQLiteStorage:
             """,
                 (
                     goal.id,
-                    self.agent_id,
+                    self.stack_id,
                     goal.title,
                     goal.description,
                     goal.goal_type,
@@ -3551,8 +3643,8 @@ class SQLiteStorage:
         requesting_entity: Optional[str] = None,
     ) -> List[Goal]:
         """Get goals."""
-        query = "SELECT * FROM goals WHERE agent_id = ? AND deleted = 0"
-        params: List[Any] = [self.agent_id]
+        query = "SELECT * FROM goals WHERE stack_id = ? AND deleted = 0"
+        params: List[Any] = [self.stack_id]
 
         if status:
             query += " AND status = ?"
@@ -3574,7 +3666,7 @@ class SQLiteStorage:
         """Convert a row to a Goal."""
         return Goal(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             title=row["title"],
             description=row["description"],
             goal_type=self._safe_get(row, "goal_type", "task"),
@@ -3626,7 +3718,7 @@ class SQLiteStorage:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO notes
-                (id, agent_id, content, note_type, speaker, reason, tags, created_at,
+                (id, stack_id, content, note_type, speaker, reason, tags, created_at,
                  confidence, source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
                  context, context_tags, source_entity,
@@ -3637,7 +3729,7 @@ class SQLiteStorage:
             """,
                 (
                     note.id,
-                    self.agent_id,
+                    self.stack_id,
                     note.content,
                     note.note_type,
                     note.speaker,
@@ -3689,7 +3781,7 @@ class SQLiteStorage:
                 conn.execute(
                     """
                     INSERT OR REPLACE INTO notes
-                    (id, agent_id, content, note_type, speaker, reason, tags, created_at,
+                    (id, stack_id, content, note_type, speaker, reason, tags, created_at,
                      confidence, source_type, source_episodes, derived_from,
                      last_verified, verification_count, confidence_history,
                      times_accessed, last_accessed, is_protected, is_forgotten,
@@ -3700,7 +3792,7 @@ class SQLiteStorage:
                 """,
                     (
                         note.id,
-                        self.agent_id,
+                        self.stack_id,
                         note.content,
                         note.note_type,
                         note.speaker,
@@ -3743,8 +3835,8 @@ class SQLiteStorage:
         requesting_entity: Optional[str] = None,
     ) -> List[Note]:
         """Get notes."""
-        query = "SELECT * FROM notes WHERE agent_id = ? AND deleted = 0"
-        params: List[Any] = [self.agent_id]
+        query = "SELECT * FROM notes WHERE stack_id = ? AND deleted = 0"
+        params: List[Any] = [self.stack_id]
 
         if since:
             query += " AND created_at >= ?"
@@ -3770,7 +3862,7 @@ class SQLiteStorage:
         """Convert a row to a Note."""
         return Note(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             content=row["content"],
             note_type=row["note_type"],
             speaker=row["speaker"],
@@ -3823,8 +3915,8 @@ class SQLiteStorage:
         with self._connect() as conn:
             # Check if exists
             existing = conn.execute(
-                "SELECT id FROM drives WHERE agent_id = ? AND drive_type = ?",
-                (self.agent_id, drive.drive_type),
+                "SELECT id FROM drives WHERE stack_id = ? AND drive_type = ?",
+                (self.stack_id, drive.drive_type),
             ).fetchone()
 
             if existing:
@@ -3864,7 +3956,7 @@ class SQLiteStorage:
                 conn.execute(
                     """
                     INSERT INTO drives
-                    (id, agent_id, drive_type, intensity, focus_areas, created_at, updated_at,
+                    (id, stack_id, drive_type, intensity, focus_areas, created_at, updated_at,
                      confidence, source_type, source_episodes, derived_from,
                      last_verified, verification_count, confidence_history,
                      context, context_tags,
@@ -3875,7 +3967,7 @@ class SQLiteStorage:
                 """,
                     (
                         drive.id,
-                        self.agent_id,
+                        self.stack_id,
                         drive.drive_type,
                         drive.intensity,
                         self._to_json(drive.focus_areas),
@@ -3913,8 +4005,8 @@ class SQLiteStorage:
         access_filter, access_params = self._build_access_filter(requesting_entity)
         with self._connect() as conn:
             rows = conn.execute(
-                f"SELECT * FROM drives WHERE agent_id = ? AND deleted = 0{access_filter}",
-                [self.agent_id] + access_params,
+                f"SELECT * FROM drives WHERE stack_id = ? AND deleted = 0{access_filter}",
+                [self.stack_id] + access_params,
             ).fetchall()
 
         return [self._row_to_drive(row) for row in rows]
@@ -3923,8 +4015,8 @@ class SQLiteStorage:
         """Get a specific drive."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM drives WHERE agent_id = ? AND drive_type = ? AND deleted = 0",
-                (self.agent_id, drive_type),
+                "SELECT * FROM drives WHERE stack_id = ? AND drive_type = ? AND deleted = 0",
+                (self.stack_id, drive_type),
             ).fetchone()
 
         return self._row_to_drive(row) if row else None
@@ -3933,7 +4025,7 @@ class SQLiteStorage:
         """Convert a row to a Drive."""
         return Drive(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             drive_type=row["drive_type"],
             intensity=row["intensity"],
             focus_areas=self._from_json(row["focus_areas"]),
@@ -3985,8 +4077,8 @@ class SQLiteStorage:
         with self._connect() as conn:
             # Check if exists - fetch full row for change detection
             existing = conn.execute(
-                "SELECT * FROM relationships WHERE agent_id = ? AND entity_name = ?",
-                (self.agent_id, relationship.entity_name),
+                "SELECT * FROM relationships WHERE stack_id = ? AND entity_name = ?",
+                (self.stack_id, relationship.entity_name),
             ).fetchone()
 
             if existing:
@@ -4042,7 +4134,7 @@ class SQLiteStorage:
                 conn.execute(
                     """
                     INSERT INTO relationships
-                    (id, agent_id, entity_name, entity_type, relationship_type, notes,
+                    (id, stack_id, entity_name, entity_type, relationship_type, notes,
                      sentiment, interaction_count, last_interaction, created_at,
                      confidence, source_type, source_episodes, derived_from,
                      last_verified, verification_count, confidence_history,
@@ -4054,7 +4146,7 @@ class SQLiteStorage:
                 """,
                     (
                         relationship.id,
-                        self.agent_id,
+                        self.stack_id,
                         relationship.entity_name,
                         relationship.entity_type,
                         relationship.relationship_type,
@@ -4130,8 +4222,8 @@ class SQLiteStorage:
         self, entity_type: Optional[str] = None, requesting_entity: Optional[str] = None
     ) -> List[Relationship]:
         """Get relationships."""
-        query = "SELECT * FROM relationships WHERE agent_id = ? AND deleted = 0"
-        params: List[Any] = [self.agent_id]
+        query = "SELECT * FROM relationships WHERE stack_id = ? AND deleted = 0"
+        params: List[Any] = [self.stack_id]
 
         if entity_type:
             query += " AND entity_type = ?"
@@ -4150,8 +4242,8 @@ class SQLiteStorage:
         """Get a specific relationship."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM relationships WHERE agent_id = ? AND entity_name = ? AND deleted = 0",
-                (self.agent_id, entity_name),
+                "SELECT * FROM relationships WHERE stack_id = ? AND entity_name = ? AND deleted = 0",
+                (self.stack_id, entity_name),
             ).fetchone()
 
         return self._row_to_relationship(row) if row else None
@@ -4160,7 +4252,7 @@ class SQLiteStorage:
         """Convert a row to a Relationship."""
         return Relationship(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             entity_name=row["entity_name"],
             entity_type=row["entity_type"],
             relationship_type=row["relationship_type"],
@@ -4211,8 +4303,8 @@ class SQLiteStorage:
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO agent_epochs
-                (id, agent_id, epoch_number, name, started_at, ended_at,
+                INSERT OR REPLACE INTO epochs
+                (id, stack_id, epoch_number, name, started_at, ended_at,
                  trigger_type, trigger_description, summary,
                  key_belief_ids, key_relationship_ids,
                  key_goal_ids, dominant_drive_ids,
@@ -4221,7 +4313,7 @@ class SQLiteStorage:
             """,
                 (
                     epoch.id,
-                    self.agent_id,
+                    self.stack_id,
                     epoch.epoch_number,
                     epoch.name,
                     epoch.started_at.isoformat() if epoch.started_at else now,
@@ -4247,8 +4339,8 @@ class SQLiteStorage:
         """Get a specific epoch by ID."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM agent_epochs WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (epoch_id, self.agent_id),
+                "SELECT * FROM epochs WHERE id = ? AND stack_id = ? AND deleted = 0",
+                (epoch_id, self.stack_id),
             ).fetchone()
 
         return self._row_to_epoch(row) if row else None
@@ -4257,9 +4349,9 @@ class SQLiteStorage:
         """Get all epochs, ordered by epoch_number DESC."""
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM agent_epochs WHERE agent_id = ? AND deleted = 0 "
+                "SELECT * FROM epochs WHERE stack_id = ? AND deleted = 0 "
                 "ORDER BY epoch_number DESC LIMIT ?",
-                (self.agent_id, limit),
+                (self.stack_id, limit),
             ).fetchall()
 
         return [self._row_to_epoch(row) for row in rows]
@@ -4268,9 +4360,9 @@ class SQLiteStorage:
         """Get the currently active (open) epoch, if any."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM agent_epochs WHERE agent_id = ? AND ended_at IS NULL AND deleted = 0 "
+                "SELECT * FROM epochs WHERE stack_id = ? AND ended_at IS NULL AND deleted = 0 "
                 "ORDER BY epoch_number DESC LIMIT 1",
-                (self.agent_id,),
+                (self.stack_id,),
             ).fetchone()
 
         return self._row_to_epoch(row) if row else None
@@ -4280,10 +4372,10 @@ class SQLiteStorage:
         now = self._now()
         with self._connect() as conn:
             cursor = conn.execute(
-                "UPDATE agent_epochs SET ended_at = ?, summary = COALESCE(?, summary), "
+                "UPDATE epochs SET ended_at = ?, summary = COALESCE(?, summary), "
                 "local_updated_at = ?, version = version + 1 "
-                "WHERE id = ? AND agent_id = ? AND ended_at IS NULL AND deleted = 0",
-                (now, summary, now, epoch_id, self.agent_id),
+                "WHERE id = ? AND stack_id = ? AND ended_at IS NULL AND deleted = 0",
+                (now, summary, now, epoch_id, self.stack_id),
             )
             conn.commit()
         return cursor.rowcount > 0
@@ -4292,7 +4384,7 @@ class SQLiteStorage:
         """Convert a row to an Epoch."""
         return Epoch(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             epoch_number=row["epoch_number"],
             name=row["name"],
             started_at=self._parse_datetime(row["started_at"]),
@@ -4322,15 +4414,15 @@ class SQLiteStorage:
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO agent_summaries
-                (id, agent_id, scope, period_start, period_end, epoch_id,
+                INSERT OR REPLACE INTO summaries
+                (id, stack_id, scope, period_start, period_end, epoch_id,
                  content, key_themes, supersedes, is_protected,
                  created_at, updated_at, cloud_synced_at, version, deleted)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     summary.id,
-                    self.agent_id,
+                    self.stack_id,
                     summary.scope,
                     summary.period_start,
                     summary.period_end,
@@ -4354,26 +4446,26 @@ class SQLiteStorage:
         """Get a specific summary by ID."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM agent_summaries WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (summary_id, self.agent_id),
+                "SELECT * FROM summaries WHERE id = ? AND stack_id = ? AND deleted = 0",
+                (summary_id, self.stack_id),
             ).fetchone()
 
         return self._row_to_summary(row) if row else None
 
-    def list_summaries(self, agent_id: str, scope: Optional[str] = None) -> List[Summary]:
+    def list_summaries(self, stack_id: str, scope: Optional[str] = None) -> List[Summary]:
         """Get summaries, optionally filtered by scope."""
         with self._connect() as conn:
             if scope:
                 rows = conn.execute(
-                    "SELECT * FROM agent_summaries WHERE agent_id = ? AND scope = ? AND deleted = 0 "
+                    "SELECT * FROM summaries WHERE stack_id = ? AND scope = ? AND deleted = 0 "
                     "ORDER BY period_start DESC",
-                    (self.agent_id, scope),
+                    (self.stack_id, scope),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT * FROM agent_summaries WHERE agent_id = ? AND deleted = 0 "
+                    "SELECT * FROM summaries WHERE stack_id = ? AND deleted = 0 "
                     "ORDER BY period_start DESC",
-                    (self.agent_id,),
+                    (self.stack_id,),
                 ).fetchall()
 
         return [self._row_to_summary(row) for row in rows]
@@ -4382,7 +4474,7 @@ class SQLiteStorage:
         """Convert a row to a Summary."""
         return Summary(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             scope=row["scope"],
             period_start=row["period_start"],
             period_end=row["period_end"],
@@ -4410,15 +4502,15 @@ class SQLiteStorage:
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT OR REPLACE INTO agent_self_narrative
-                (id, agent_id, epoch_id, narrative_type, content,
+                INSERT OR REPLACE INTO self_narratives
+                (id, stack_id, epoch_id, narrative_type, content,
                  key_themes, unresolved_tensions, is_active, supersedes,
                  created_at, updated_at, cloud_synced_at, version, deleted)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     narrative.id,
-                    self.agent_id,
+                    self.stack_id,
                     narrative.epoch_id,
                     narrative.narrative_type,
                     narrative.content,
@@ -4441,22 +4533,22 @@ class SQLiteStorage:
         """Get a specific self-narrative by ID."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM agent_self_narrative WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (narrative_id, self.agent_id),
+                "SELECT * FROM self_narratives WHERE id = ? AND stack_id = ? AND deleted = 0",
+                (narrative_id, self.stack_id),
             ).fetchone()
 
         return self._row_to_self_narrative(row) if row else None
 
     def list_self_narratives(
         self,
-        agent_id: str,
+        stack_id: str,
         narrative_type: Optional[str] = None,
         active_only: bool = True,
     ) -> List[SelfNarrative]:
         """Get self-narratives, optionally filtered."""
         with self._connect() as conn:
-            conditions = ["agent_id = ?", "deleted = 0"]
-            params: list = [self.agent_id]
+            conditions = ["stack_id = ?", "deleted = 0"]
+            params: list = [self.stack_id]
 
             if narrative_type:
                 conditions.append("narrative_type = ?")
@@ -4467,20 +4559,20 @@ class SQLiteStorage:
 
             where = " AND ".join(conditions)
             rows = conn.execute(
-                f"SELECT * FROM agent_self_narrative WHERE {where} ORDER BY updated_at DESC",
+                f"SELECT * FROM self_narratives WHERE {where} ORDER BY updated_at DESC",
                 params,
             ).fetchall()
 
         return [self._row_to_self_narrative(row) for row in rows]
 
-    def deactivate_self_narratives(self, agent_id: str, narrative_type: str) -> int:
+    def deactivate_self_narratives(self, stack_id: str, narrative_type: str) -> int:
         """Deactivate all active narratives of a given type."""
         now = self._now()
         with self._connect() as conn:
             cursor = conn.execute(
-                "UPDATE agent_self_narrative SET is_active = 0, updated_at = ? "
-                "WHERE agent_id = ? AND narrative_type = ? AND is_active = 1 AND deleted = 0",
-                (now, self.agent_id, narrative_type),
+                "UPDATE self_narratives SET is_active = 0, updated_at = ? "
+                "WHERE stack_id = ? AND narrative_type = ? AND is_active = 1 AND deleted = 0",
+                (now, self.stack_id, narrative_type),
             )
             conn.commit()
             return cursor.rowcount
@@ -4489,7 +4581,7 @@ class SQLiteStorage:
         """Convert a row to a SelfNarrative."""
         return SelfNarrative(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             content=row["content"],
             narrative_type=self._safe_get(row, "narrative_type", "identity"),
             epoch_id=self._safe_get(row, "epoch_id", None),
@@ -4511,13 +4603,13 @@ class SQLiteStorage:
         now = self._now()
         with self._connect() as conn:
             existing = conn.execute(
-                "SELECT id FROM agent_trust_assessments "
-                "WHERE agent_id = ? AND entity = ? AND deleted = 0",
-                (self.agent_id, assessment.entity),
+                "SELECT id FROM trust_assessments "
+                "WHERE stack_id = ? AND entity = ? AND deleted = 0",
+                (self.stack_id, assessment.entity),
             ).fetchone()
             if existing:
                 conn.execute(
-                    "UPDATE agent_trust_assessments SET dimensions = ?, authority = ?, "
+                    "UPDATE trust_assessments SET dimensions = ?, authority = ?, "
                     "evidence_episode_ids = ?, last_updated = ?, local_updated_at = ?, "
                     "version = version + 1 WHERE id = ?",
                     (
@@ -4532,14 +4624,14 @@ class SQLiteStorage:
                 return existing["id"]
             else:
                 conn.execute(
-                    "INSERT INTO agent_trust_assessments "
-                    "(id, agent_id, entity, dimensions, authority, evidence_episode_ids, "
+                    "INSERT INTO trust_assessments "
+                    "(id, stack_id, entity, dimensions, authority, evidence_episode_ids, "
                     "last_updated, created_at, local_updated_at, cloud_synced_at, "
                     "version, deleted) "
                     "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         assessment.id,
-                        self.agent_id,
+                        self.stack_id,
                         assessment.entity,
                         json.dumps(assessment.dimensions),
                         json.dumps(assessment.authority or []),
@@ -4558,15 +4650,15 @@ class SQLiteStorage:
         """Get a trust assessment for a specific entity."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM agent_trust_assessments "
-                "WHERE agent_id = ? AND entity = ? AND deleted = 0",
-                (self.agent_id, entity),
+                "SELECT * FROM trust_assessments "
+                "WHERE stack_id = ? AND entity = ? AND deleted = 0",
+                (self.stack_id, entity),
             ).fetchone()
             if not row:
                 return None
             return TrustAssessment(
                 id=row["id"],
-                agent_id=row["agent_id"],
+                stack_id=row["stack_id"],
                 entity=row["entity"],
                 dimensions=json.loads(row["dimensions"]),
                 authority=(json.loads(row["authority"]) if row["authority"] else []),
@@ -4589,14 +4681,14 @@ class SQLiteStorage:
         """Get all trust assessments for the agent."""
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM agent_trust_assessments "
-                "WHERE agent_id = ? AND deleted = 0 ORDER BY entity",
-                (self.agent_id,),
+                "SELECT * FROM trust_assessments "
+                "WHERE stack_id = ? AND deleted = 0 ORDER BY entity",
+                (self.stack_id,),
             ).fetchall()
             return [
                 TrustAssessment(
                     id=r["id"],
-                    agent_id=r["agent_id"],
+                    stack_id=r["stack_id"],
                     entity=r["entity"],
                     dimensions=json.loads(r["dimensions"]),
                     authority=(json.loads(r["authority"]) if r["authority"] else []),
@@ -4622,10 +4714,10 @@ class SQLiteStorage:
         now = self._now()
         with self._connect() as conn:
             result = conn.execute(
-                "UPDATE agent_trust_assessments SET deleted = 1, "
+                "UPDATE trust_assessments SET deleted = 1, "
                 "local_updated_at = ? "
-                "WHERE agent_id = ? AND entity = ? AND deleted = 0",
-                (now, self.agent_id, entity),
+                "WHERE stack_id = ? AND entity = ? AND deleted = 0",
+                (now, self.stack_id, entity),
             )
             return result.rowcount > 0
 
@@ -4636,14 +4728,14 @@ class SQLiteStorage:
         now = self._now()
         with self._connect() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO agent_diagnostic_sessions "
-                "(id, agent_id, session_type, access_level, status, consent_given, "
+                "INSERT OR REPLACE INTO diagnostic_sessions "
+                "(id, stack_id, session_type, access_level, status, consent_given, "
                 "started_at, completed_at, local_updated_at, cloud_synced_at, "
                 "version, deleted) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     session.id,
-                    self.agent_id,
+                    self.stack_id,
                     session.session_type,
                     session.access_level,
                     session.status,
@@ -4662,9 +4754,9 @@ class SQLiteStorage:
         """Get a specific diagnostic session by ID."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM agent_diagnostic_sessions "
-                "WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (session_id, self.agent_id),
+                "SELECT * FROM diagnostic_sessions "
+                "WHERE id = ? AND stack_id = ? AND deleted = 0",
+                (session_id, self.stack_id),
             ).fetchone()
             if not row:
                 return None
@@ -4679,17 +4771,17 @@ class SQLiteStorage:
         with self._connect() as conn:
             if status:
                 rows = conn.execute(
-                    "SELECT * FROM agent_diagnostic_sessions "
-                    "WHERE agent_id = ? AND status = ? AND deleted = 0 "
+                    "SELECT * FROM diagnostic_sessions "
+                    "WHERE stack_id = ? AND status = ? AND deleted = 0 "
                     "ORDER BY started_at DESC LIMIT ?",
-                    (self.agent_id, status, limit),
+                    (self.stack_id, status, limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT * FROM agent_diagnostic_sessions "
-                    "WHERE agent_id = ? AND deleted = 0 "
+                    "SELECT * FROM diagnostic_sessions "
+                    "WHERE stack_id = ? AND deleted = 0 "
                     "ORDER BY started_at DESC LIMIT ?",
-                    (self.agent_id, limit),
+                    (self.stack_id, limit),
                 ).fetchall()
             return [self._row_to_diagnostic_session(r) for r in rows]
 
@@ -4698,10 +4790,10 @@ class SQLiteStorage:
         now = self._now()
         with self._connect() as conn:
             result = conn.execute(
-                "UPDATE agent_diagnostic_sessions SET status = 'completed', "
+                "UPDATE diagnostic_sessions SET status = 'completed', "
                 "completed_at = ?, local_updated_at = ?, version = version + 1 "
-                "WHERE id = ? AND agent_id = ? AND deleted = 0 AND status = 'active'",
-                (now, now, session_id, self.agent_id),
+                "WHERE id = ? AND stack_id = ? AND deleted = 0 AND status = 'active'",
+                (now, now, session_id, self.stack_id),
             )
             return result.rowcount > 0
 
@@ -4710,13 +4802,13 @@ class SQLiteStorage:
         now = self._now()
         with self._connect() as conn:
             conn.execute(
-                "INSERT OR REPLACE INTO agent_diagnostic_reports "
-                "(id, agent_id, session_id, findings, summary, "
+                "INSERT OR REPLACE INTO diagnostic_reports "
+                "(id, stack_id, session_id, findings, summary, "
                 "created_at, local_updated_at, cloud_synced_at, version, deleted) "
                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     report.id,
-                    self.agent_id,
+                    self.stack_id,
                     report.session_id,
                     json.dumps(report.findings) if report.findings is not None else None,
                     report.summary,
@@ -4733,9 +4825,8 @@ class SQLiteStorage:
         """Get a specific diagnostic report by ID."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM agent_diagnostic_reports "
-                "WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (report_id, self.agent_id),
+                "SELECT * FROM diagnostic_reports " "WHERE id = ? AND stack_id = ? AND deleted = 0",
+                (report_id, self.stack_id),
             ).fetchone()
             if not row:
                 return None
@@ -4750,17 +4841,17 @@ class SQLiteStorage:
         with self._connect() as conn:
             if session_id:
                 rows = conn.execute(
-                    "SELECT * FROM agent_diagnostic_reports "
-                    "WHERE agent_id = ? AND session_id = ? AND deleted = 0 "
+                    "SELECT * FROM diagnostic_reports "
+                    "WHERE stack_id = ? AND session_id = ? AND deleted = 0 "
                     "ORDER BY created_at DESC LIMIT ?",
-                    (self.agent_id, session_id, limit),
+                    (self.stack_id, session_id, limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT * FROM agent_diagnostic_reports "
-                    "WHERE agent_id = ? AND deleted = 0 "
+                    "SELECT * FROM diagnostic_reports "
+                    "WHERE stack_id = ? AND deleted = 0 "
                     "ORDER BY created_at DESC LIMIT ?",
-                    (self.agent_id, limit),
+                    (self.stack_id, limit),
                 ).fetchall()
             return [self._row_to_diagnostic_report(r) for r in rows]
 
@@ -4768,7 +4859,7 @@ class SQLiteStorage:
         """Convert a database row to a DiagnosticSession."""
         return DiagnosticSession(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             session_type=row["session_type"],
             access_level=row["access_level"],
             status=row["status"],
@@ -4789,7 +4880,7 @@ class SQLiteStorage:
         """Convert a database row to a DiagnosticReport."""
         return DiagnosticReport(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             session_id=row["session_id"],
             findings=json.loads(row["findings"]) if row["findings"] else None,
             summary=row["summary"],
@@ -4824,14 +4915,14 @@ class SQLiteStorage:
             conn.execute(
                 """
                 INSERT INTO relationship_history
-                (id, agent_id, relationship_id, entity_name, event_type,
+                (id, stack_id, relationship_id, entity_name, event_type,
                  old_value, new_value, notes, created_at,
                  local_updated_at, version, deleted)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     entry_id,
-                    self.agent_id,
+                    self.stack_id,
                     rel_id,
                     entity_name,
                     "trust_change",
@@ -4852,14 +4943,14 @@ class SQLiteStorage:
             conn.execute(
                 """
                 INSERT INTO relationship_history
-                (id, agent_id, relationship_id, entity_name, event_type,
+                (id, stack_id, relationship_id, entity_name, event_type,
                  old_value, new_value, notes, created_at,
                  local_updated_at, version, deleted)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     entry_id,
-                    self.agent_id,
+                    self.stack_id,
                     rel_id,
                     entity_name,
                     "type_change",
@@ -4880,14 +4971,14 @@ class SQLiteStorage:
             conn.execute(
                 """
                 INSERT INTO relationship_history
-                (id, agent_id, relationship_id, entity_name, event_type,
+                (id, stack_id, relationship_id, entity_name, event_type,
                  old_value, new_value, notes, created_at,
                  local_updated_at, version, deleted)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     entry_id,
-                    self.agent_id,
+                    self.stack_id,
                     rel_id,
                     entity_name,
                     "note",
@@ -4908,14 +4999,14 @@ class SQLiteStorage:
             conn.execute(
                 """
                 INSERT INTO relationship_history
-                (id, agent_id, relationship_id, entity_name, event_type,
+                (id, stack_id, relationship_id, entity_name, event_type,
                  old_value, new_value, notes, created_at,
                  local_updated_at, version, deleted)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     entry_id,
-                    self.agent_id,
+                    self.stack_id,
                     rel_id,
                     entity_name,
                     "interaction",
@@ -4944,14 +5035,14 @@ class SQLiteStorage:
             conn.execute(
                 """
                 INSERT INTO relationship_history
-                (id, agent_id, relationship_id, entity_name, event_type,
+                (id, stack_id, relationship_id, entity_name, event_type,
                  old_value, new_value, episode_id, notes, created_at,
                  local_updated_at, cloud_synced_at, version, deleted)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     entry.id,
-                    self.agent_id,
+                    self.stack_id,
                     entry.relationship_id,
                     entry.entity_name,
                     entry.event_type,
@@ -4979,9 +5070,9 @@ class SQLiteStorage:
         """Get history entries for a relationship."""
         query = (
             "SELECT * FROM relationship_history "
-            "WHERE agent_id = ? AND entity_name = ? AND deleted = 0"
+            "WHERE stack_id = ? AND entity_name = ? AND deleted = 0"
         )
-        params: List[Any] = [self.agent_id, entity_name]
+        params: List[Any] = [self.stack_id, entity_name]
 
         if event_type:
             query += " AND event_type = ?"
@@ -4999,7 +5090,7 @@ class SQLiteStorage:
         """Convert a row to a RelationshipHistoryEntry."""
         return RelationshipHistoryEntry(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             relationship_id=row["relationship_id"],
             entity_name=row["entity_name"],
             event_type=row["event_type"],
@@ -5031,7 +5122,7 @@ class SQLiteStorage:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO entity_models
-                (id, agent_id, entity_name, model_type, observation, confidence,
+                (id, stack_id, entity_name, model_type, observation, confidence,
                  source_episodes, created_at, updated_at,
                  subject_ids, access_grants, consent_grants,
                  local_updated_at, cloud_synced_at, version, deleted)
@@ -5039,7 +5130,7 @@ class SQLiteStorage:
             """,
                 (
                     model.id,
-                    self.agent_id,
+                    self.stack_id,
                     model.entity_name,
                     model.model_type,
                     model.observation,
@@ -5067,8 +5158,8 @@ class SQLiteStorage:
         limit: int = 100,
     ) -> List[EntityModel]:
         """Get entity models, optionally filtered."""
-        query = "SELECT * FROM entity_models WHERE agent_id = ? AND deleted = 0"
-        params: List[Any] = [self.agent_id]
+        query = "SELECT * FROM entity_models WHERE stack_id = ? AND deleted = 0"
+        params: List[Any] = [self.stack_id]
 
         if entity_name:
             query += " AND entity_name = ?"
@@ -5089,8 +5180,8 @@ class SQLiteStorage:
         """Get a specific entity model by ID."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM entity_models WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (model_id, self.agent_id),
+                "SELECT * FROM entity_models WHERE id = ? AND stack_id = ? AND deleted = 0",
+                (model_id, self.stack_id),
             ).fetchone()
 
         return self._row_to_entity_model(row) if row else None
@@ -5099,7 +5190,7 @@ class SQLiteStorage:
         """Convert a row to an EntityModel."""
         return EntityModel(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             entity_name=row["entity_name"],
             model_type=row["model_type"],
             observation=row["observation"],
@@ -5126,7 +5217,7 @@ class SQLiteStorage:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO playbooks
-                (id, agent_id, name, description, trigger_conditions, steps, failure_modes,
+                (id, stack_id, name, description, trigger_conditions, steps, failure_modes,
                  recovery_steps, mastery_level, times_used, success_rate, source_episodes, tags,
                  confidence, last_used, created_at,
                  subject_ids, access_grants, consent_grants,
@@ -5135,7 +5226,7 @@ class SQLiteStorage:
             """,
                 (
                     playbook.id,
-                    self.agent_id,
+                    self.stack_id,
                     playbook.name,
                     playbook.description,
                     self._to_json(playbook.trigger_conditions),
@@ -5178,8 +5269,8 @@ class SQLiteStorage:
         """Get a specific playbook by ID."""
         with self._connect() as conn:
             cur = conn.execute(
-                "SELECT * FROM playbooks WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (playbook_id, self.agent_id),
+                "SELECT * FROM playbooks WHERE id = ? AND stack_id = ? AND deleted = 0",
+                (playbook_id, self.stack_id),
             )
             row = cur.fetchone()
 
@@ -5196,11 +5287,11 @@ class SQLiteStorage:
         with self._connect() as conn:
             query = f"""
                 SELECT * FROM playbooks
-                WHERE agent_id = ? AND deleted = 0{access_filter}
+                WHERE stack_id = ? AND deleted = 0{access_filter}
                 ORDER BY times_used DESC, created_at DESC
                 LIMIT ?
             """
-            cur = conn.execute(query, [self.agent_id] + access_params + [limit])
+            cur = conn.execute(query, [self.stack_id] + access_params + [limit])
             rows = cur.fetchall()
 
         playbooks = [self._row_to_playbook(row) for row in rows]
@@ -5219,8 +5310,8 @@ class SQLiteStorage:
             embedding = self._embedder.embed(query)
             packed = pack_embedding(embedding)
 
-            # Support both new format (agent_id:playbooks:id) and legacy (playbooks:id)
-            new_prefix = f"{self.agent_id}:playbooks:"
+            # Support both new format (stack_id:playbooks:id) and legacy (playbooks:id)
+            new_prefix = f"{self.stack_id}:playbooks:"
             legacy_prefix = "playbooks:"
 
             with self._connect() as conn:
@@ -5262,12 +5353,12 @@ class SQLiteStorage:
                 cur = conn.execute(
                     """
                     SELECT * FROM playbooks
-                    WHERE agent_id = ? AND deleted = 0
+                    WHERE stack_id = ? AND deleted = 0
                     AND (name LIKE ? OR description LIKE ? OR trigger_conditions LIKE ?)
                     ORDER BY times_used DESC
                     LIMIT ?
                 """,
-                    (self.agent_id, search_pattern, search_pattern, search_pattern, limit),
+                    (self.stack_id, search_pattern, search_pattern, search_pattern, limit),
                 )
                 rows = cur.fetchall()
 
@@ -5310,7 +5401,7 @@ class SQLiteStorage:
                     last_used = ?,
                     local_updated_at = ?,
                     version = version + 1
-                WHERE id = ? AND agent_id = ?
+                WHERE id = ? AND stack_id = ?
             """,
                 (
                     new_times_used,
@@ -5319,7 +5410,7 @@ class SQLiteStorage:
                     now,
                     now,
                     playbook_id,
-                    self.agent_id,
+                    self.stack_id,
                 ),
             )
 
@@ -5332,7 +5423,7 @@ class SQLiteStorage:
         """Convert a row to a Playbook."""
         return Playbook(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             name=row["name"],
             description=row["description"],
             trigger_conditions=self._from_json(row["trigger_conditions"]) or [],
@@ -5374,21 +5465,21 @@ class SQLiteStorage:
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO boot_config (id, agent_id, key, value, created_at, updated_at)
+                INSERT INTO boot_config (id, stack_id, key, value, created_at, updated_at)
                 VALUES (lower(hex(randomblob(4))), ?, ?, ?, ?, ?)
-                ON CONFLICT(agent_id, key) DO UPDATE SET
+                ON CONFLICT(stack_id, key) DO UPDATE SET
                     value = excluded.value,
                     updated_at = excluded.updated_at
                 """,
-                (self.agent_id, key, value, now, now),
+                (self.stack_id, key, value, now, now),
             )
 
     def boot_get(self, key: str, default: Optional[str] = None) -> Optional[str]:
         """Get a boot config value. Returns default if not found."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT value FROM boot_config WHERE agent_id = ? AND key = ?",
-                (self.agent_id, key),
+                "SELECT value FROM boot_config WHERE stack_id = ? AND key = ?",
+                (self.stack_id, key),
             ).fetchone()
         return row["value"] if row else default
 
@@ -5396,8 +5487,8 @@ class SQLiteStorage:
         """List all boot config values as a dict."""
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT key, value FROM boot_config WHERE agent_id = ? ORDER BY key",
-                (self.agent_id,),
+                "SELECT key, value FROM boot_config WHERE stack_id = ? ORDER BY key",
+                (self.stack_id,),
             ).fetchall()
         return {row["key"]: row["value"] for row in rows}
 
@@ -5405,8 +5496,8 @@ class SQLiteStorage:
         """Delete a boot config value. Returns True if deleted."""
         with self._connect() as conn:
             cursor = conn.execute(
-                "DELETE FROM boot_config WHERE agent_id = ? AND key = ?",
-                (self.agent_id, key),
+                "DELETE FROM boot_config WHERE stack_id = ? AND key = ?",
+                (self.stack_id, key),
             )
         return cursor.rowcount > 0
 
@@ -5414,8 +5505,8 @@ class SQLiteStorage:
         """Clear all boot config for this agent. Returns count deleted."""
         with self._connect() as conn:
             cursor = conn.execute(
-                "DELETE FROM boot_config WHERE agent_id = ?",
-                (self.agent_id,),
+                "DELETE FROM boot_config WHERE stack_id = ?",
+                (self.stack_id,),
             )
         return cursor.rowcount
 
@@ -5503,14 +5594,14 @@ class SQLiteStorage:
             conn.execute(
                 """
                 INSERT INTO raw_entries
-                (id, agent_id, blob, captured_at, source, processed, processed_into,
+                (id, stack_id, blob, captured_at, source, processed, processed_into,
                  content, timestamp, tags, confidence, source_type,
                  local_updated_at, cloud_synced_at, version, deleted)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     raw_id,
-                    self.agent_id,
+                    self.stack_id,
                     blob,  # Primary blob field
                     now,  # captured_at
                     source,
@@ -5536,7 +5627,7 @@ class SQLiteStorage:
                 raw_data = self._to_json(
                     {
                         "id": raw_id,
-                        "agent_id": self.agent_id,
+                        "stack_id": self.stack_id,
                         "blob": blob,
                         "captured_at": now,
                         "source": source,
@@ -5675,7 +5766,7 @@ class SQLiteStorage:
         # Get existing IDs for quick lookup
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT id FROM raw_entries WHERE agent_id = ?", (self.agent_id,)
+                "SELECT id FROM raw_entries WHERE stack_id = ?", (self.stack_id,)
             ).fetchall()
         existing_ids = {row["id"] for row in rows}
 
@@ -5764,13 +5855,13 @@ class SQLiteStorage:
                 conn.execute(
                     """
                     INSERT INTO raw_entries
-                    (id, agent_id, content, timestamp, source, processed, processed_into, tags,
+                    (id, stack_id, content, timestamp, source, processed, processed_into, tags,
                      confidence, source_type, local_updated_at, cloud_synced_at, version, deleted)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         new_id,
-                        self.agent_id,
+                        self.stack_id,
                         content,
                         timestamp,
                         entry.get("source", "file-sync"),
@@ -5798,16 +5889,16 @@ class SQLiteStorage:
         """Get a specific raw entry by ID."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM raw_entries WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (raw_id, self.agent_id),
+                "SELECT * FROM raw_entries WHERE id = ? AND stack_id = ? AND deleted = 0",
+                (raw_id, self.stack_id),
             ).fetchone()
 
         return self._row_to_raw_entry(row) if row else None
 
     def list_raw(self, processed: Optional[bool] = None, limit: int = 100) -> List[RawEntry]:
         """Get raw entries, optionally filtered by processed state."""
-        query = "SELECT * FROM raw_entries WHERE agent_id = ? AND deleted = 0"
-        params: List[Any] = [self.agent_id]
+        query = "SELECT * FROM raw_entries WHERE stack_id = ? AND deleted = 0"
+        params: List[Any] = [self.stack_id]
 
         if processed is not None:
             query += " AND processed = ?"
@@ -5842,12 +5933,12 @@ class SQLiteStorage:
                     """
                     SELECT r.* FROM raw_entries r
                     JOIN raw_fts f ON r.rowid = f.rowid
-                    WHERE r.agent_id = ? AND r.deleted = 0
+                    WHERE r.stack_id = ? AND r.deleted = 0
                     AND raw_fts MATCH ?
                     ORDER BY rank
                     LIMIT ?
                     """,
-                    (self.agent_id, query, limit),
+                    (self.stack_id, query, limit),
                 ).fetchall()
                 return [self._row_to_raw_entry(row) for row in rows]
             except sqlite3.OperationalError as e:
@@ -5860,12 +5951,12 @@ class SQLiteStorage:
                     rows = conn.execute(
                         """
                         SELECT * FROM raw_entries
-                        WHERE agent_id = ? AND deleted = 0
+                        WHERE stack_id = ? AND deleted = 0
                         AND (COALESCE(blob, content, '') LIKE ? ESCAPE '\\')
                         ORDER BY COALESCE(captured_at, timestamp) DESC
                         LIMIT ?
                         """,
-                        (self.agent_id, f"%{escaped_query}%", limit),
+                        (self.stack_id, f"%{escaped_query}%", limit),
                     ).fetchall()
                     return [self._row_to_raw_entry(row) for row in rows]
                 raise
@@ -5890,9 +5981,9 @@ class SQLiteStorage:
                     processed_into = ?,
                     local_updated_at = ?,
                     version = version + 1
-                WHERE id = ? AND agent_id = ? AND deleted = 0
+                WHERE id = ? AND stack_id = ? AND deleted = 0
             """,
-                (self._to_json(processed_into), now, raw_id, self.agent_id),
+                (self._to_json(processed_into), now, raw_id, self.stack_id),
             )
             if cursor.rowcount > 0:
                 self._queue_sync(conn, "raw_entries", raw_id, "upsert")
@@ -5911,9 +6002,9 @@ class SQLiteStorage:
                     deleted = 1,
                     local_updated_at = ?,
                     version = version + 1
-                WHERE id = ? AND agent_id = ? AND deleted = 0
+                WHERE id = ? AND stack_id = ? AND deleted = 0
             """,
-                (now, raw_id, self.agent_id),
+                (now, raw_id, self.stack_id),
             )
             if cursor.rowcount > 0:
                 self._queue_sync(conn, "raw_entries", raw_id, "delete")
@@ -5937,7 +6028,7 @@ class SQLiteStorage:
 
         return RawEntry(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             blob=blob,
             captured_at=captured_at,
             source=row["source"],
@@ -5966,14 +6057,14 @@ class SQLiteStorage:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO memory_suggestions
-                (id, agent_id, memory_type, content, confidence, source_raw_ids,
+                (id, stack_id, memory_type, content, confidence, source_raw_ids,
                  status, created_at, resolved_at, resolution_reason, promoted_to,
                  local_updated_at, cloud_synced_at, version, deleted)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     suggestion_id,
-                    self.agent_id,
+                    self.stack_id,
                     suggestion.memory_type,
                     self._to_json(suggestion.content),
                     suggestion.confidence,
@@ -5998,8 +6089,8 @@ class SQLiteStorage:
         """Get a specific suggestion by ID."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM memory_suggestions WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (suggestion_id, self.agent_id),
+                "SELECT * FROM memory_suggestions WHERE id = ? AND stack_id = ? AND deleted = 0",
+                (suggestion_id, self.stack_id),
             ).fetchone()
 
         return self._row_to_suggestion(row) if row else None
@@ -6011,8 +6102,8 @@ class SQLiteStorage:
         limit: int = 100,
     ) -> List[MemorySuggestion]:
         """Get suggestions, optionally filtered."""
-        query = "SELECT * FROM memory_suggestions WHERE agent_id = ? AND deleted = 0"
-        params: List[Any] = [self.agent_id]
+        query = "SELECT * FROM memory_suggestions WHERE stack_id = ? AND deleted = 0"
+        params: List[Any] = [self.stack_id]
 
         if status is not None:
             query += " AND status = ?"
@@ -6050,9 +6141,9 @@ class SQLiteStorage:
                     promoted_to = ?,
                     local_updated_at = ?,
                     version = version + 1
-                WHERE id = ? AND agent_id = ? AND deleted = 0
+                WHERE id = ? AND stack_id = ? AND deleted = 0
             """,
-                (status, now, resolution_reason, promoted_to, now, suggestion_id, self.agent_id),
+                (status, now, resolution_reason, promoted_to, now, suggestion_id, self.stack_id),
             )
             if cursor.rowcount > 0:
                 self._queue_sync(conn, "memory_suggestions", suggestion_id, "upsert")
@@ -6071,9 +6162,9 @@ class SQLiteStorage:
                     deleted = 1,
                     local_updated_at = ?,
                     version = version + 1
-                WHERE id = ? AND agent_id = ? AND deleted = 0
+                WHERE id = ? AND stack_id = ? AND deleted = 0
             """,
-                (now, suggestion_id, self.agent_id),
+                (now, suggestion_id, self.stack_id),
             )
             if cursor.rowcount > 0:
                 self._queue_sync(conn, "memory_suggestions", suggestion_id, "delete")
@@ -6085,7 +6176,7 @@ class SQLiteStorage:
         """Convert a row to a MemorySuggestion."""
         return MemorySuggestion(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             memory_type=row["memory_type"],
             content=self._from_json(row["content"]) or {},
             confidence=row["confidence"],
@@ -6208,23 +6299,23 @@ class SQLiteStorage:
                 return self._text_search(query, limit, types)
 
             # Fetch actual records
-            # Security: filter by agent_id prefix first to prevent timing side-channel
-            agent_prefix = f"{self.agent_id}:"
+            # Security: filter by stack_id prefix first to prevent timing side-channel
+            agent_prefix = f"{self.stack_id}:"
             for row in rows:
                 vec_id = row["id"]
                 distance = row["distance"]
 
                 # Parse vec_id - supports both new and legacy formats
-                # New format: agent_id:table:record_id
+                # New format: stack_id:table:record_id
                 # Legacy format: table:record_id
                 if vec_id.startswith(agent_prefix):
-                    # New format - agent_id verified
+                    # New format - stack_id verified
                     parts = vec_id.split(":", 2)
                     if len(parts) != 3:
                         continue
                     _, table_name, record_id = parts
                 else:
-                    # Legacy format - agent_id will be verified in _fetch_record
+                    # Legacy format - stack_id will be verified in _fetch_record
                     parts = vec_id.split(":", 1)
                     if len(parts) != 2:
                         continue
@@ -6267,8 +6358,8 @@ class SQLiteStorage:
         validate_table_name(table)  # Security: validate before SQL use
 
         row = conn.execute(
-            f"SELECT * FROM {table} WHERE id = ? AND agent_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0",
-            (record_id, self.agent_id),
+            f"SELECT * FROM {table} WHERE id = ? AND stack_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0",
+            (record_id, self.stack_id),
         ).fetchone()
 
         if row:
@@ -6287,10 +6378,10 @@ class SQLiteStorage:
             if "episode" in types:
                 rows = conn.execute(
                     f"""SELECT * FROM episodes
-                       WHERE agent_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
+                       WHERE stack_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
                        AND (objective LIKE ? OR outcome LIKE ? OR lessons LIKE ?){access_filter}
                        LIMIT ?""",
-                    [self.agent_id, search_term, search_term, search_term]
+                    [self.stack_id, search_term, search_term, search_term]
                     + access_params
                     + [limit],
                 ).fetchall()
@@ -6304,10 +6395,10 @@ class SQLiteStorage:
             if "note" in types:
                 rows = conn.execute(
                     f"""SELECT * FROM notes
-                       WHERE agent_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
+                       WHERE stack_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
                        AND content LIKE ?{access_filter}
                        LIMIT ?""",
-                    [self.agent_id, search_term] + access_params + [limit],
+                    [self.stack_id, search_term] + access_params + [limit],
                 ).fetchall()
                 for row in rows:
                     results.append(
@@ -6317,10 +6408,10 @@ class SQLiteStorage:
             if "belief" in types:
                 rows = conn.execute(
                     f"""SELECT * FROM beliefs
-                       WHERE agent_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
+                       WHERE stack_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
                        AND statement LIKE ?{access_filter}
                        LIMIT ?""",
-                    [self.agent_id, search_term] + access_params + [limit],
+                    [self.stack_id, search_term] + access_params + [limit],
                 ).fetchall()
                 for row in rows:
                     results.append(
@@ -6332,10 +6423,10 @@ class SQLiteStorage:
             if "value" in types:
                 rows = conn.execute(
                     f"""SELECT * FROM agent_values
-                       WHERE agent_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
+                       WHERE stack_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
                        AND (name LIKE ? OR statement LIKE ?){access_filter}
                        LIMIT ?""",
-                    [self.agent_id, search_term, search_term] + access_params + [limit],
+                    [self.stack_id, search_term, search_term] + access_params + [limit],
                 ).fetchall()
                 for row in rows:
                     results.append(
@@ -6345,10 +6436,10 @@ class SQLiteStorage:
             if "goal" in types:
                 rows = conn.execute(
                     f"""SELECT * FROM goals
-                       WHERE agent_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
+                       WHERE stack_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
                        AND (title LIKE ? OR description LIKE ?){access_filter}
                        LIMIT ?""",
-                    [self.agent_id, search_term, search_term] + access_params + [limit],
+                    [self.stack_id, search_term, search_term] + access_params + [limit],
                 ).fetchall()
                 for row in rows:
                     results.append(
@@ -6375,15 +6466,15 @@ class SQLiteStorage:
                 ("memory_suggestions", "suggestions"),
             ]:
                 count = conn.execute(
-                    f"SELECT COUNT(*) FROM {table} WHERE agent_id = ? AND deleted = 0",
-                    (self.agent_id,),
+                    f"SELECT COUNT(*) FROM {table} WHERE stack_id = ? AND deleted = 0",
+                    (self.stack_id,),
                 ).fetchone()[0]
                 stats[key] = count
 
             # Add count of pending suggestions specifically
             pending_count = conn.execute(
-                "SELECT COUNT(*) FROM memory_suggestions WHERE agent_id = ? AND status = 'pending' AND deleted = 0",
-                (self.agent_id,),
+                "SELECT COUNT(*) FROM memory_suggestions WHERE stack_id = ? AND status = 'pending' AND deleted = 0",
+                (self.stack_id,),
             ).fetchone()[0]
             stats["pending_suggestions"] = pending_count
 
@@ -6451,68 +6542,68 @@ class SQLiteStorage:
         with self._connect() as conn:
             # Values - ordered by priority, exclude forgotten
             rows = conn.execute(
-                f"SELECT * FROM agent_values WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} ORDER BY priority DESC LIMIT ?",
-                (self.agent_id, *epoch_params, _values_limit),
+                f"SELECT * FROM agent_values WHERE stack_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} ORDER BY priority DESC LIMIT ?",
+                (self.stack_id, *epoch_params, _values_limit),
             ).fetchall()
             result["values"] = [self._row_to_value(row) for row in rows]
 
             # Beliefs - ordered by confidence, exclude forgotten
             rows = conn.execute(
-                f"SELECT * FROM beliefs WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 AND (is_active = 1 OR is_active IS NULL){epoch_clause} ORDER BY confidence DESC LIMIT ?",
-                (self.agent_id, *epoch_params, _beliefs_limit),
+                f"SELECT * FROM beliefs WHERE stack_id = ? AND deleted = 0 AND is_forgotten = 0 AND (is_active = 1 OR is_active IS NULL){epoch_clause} ORDER BY confidence DESC LIMIT ?",
+                (self.stack_id, *epoch_params, _beliefs_limit),
             ).fetchall()
             result["beliefs"] = [self._row_to_belief(row) for row in rows]
 
             # Goals - filtered by status, exclude forgotten
             if goals_status and goals_status != "all":
                 rows = conn.execute(
-                    f"SELECT * FROM goals WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 AND status = ?{epoch_clause} ORDER BY created_at DESC LIMIT ?",
-                    (self.agent_id, goals_status, *epoch_params, _goals_limit),
+                    f"SELECT * FROM goals WHERE stack_id = ? AND deleted = 0 AND is_forgotten = 0 AND status = ?{epoch_clause} ORDER BY created_at DESC LIMIT ?",
+                    (self.stack_id, goals_status, *epoch_params, _goals_limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    f"SELECT * FROM goals WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} ORDER BY created_at DESC LIMIT ?",
-                    (self.agent_id, *epoch_params, _goals_limit),
+                    f"SELECT * FROM goals WHERE stack_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} ORDER BY created_at DESC LIMIT ?",
+                    (self.stack_id, *epoch_params, _goals_limit),
                 ).fetchall()
             result["goals"] = [self._row_to_goal(row) for row in rows]
 
             # Drives - all for agent (or limited), exclude forgotten
             if drives_limit is not None:
                 rows = conn.execute(
-                    f"SELECT * FROM drives WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} LIMIT ?",
-                    (self.agent_id, *epoch_params, drives_limit),
+                    f"SELECT * FROM drives WHERE stack_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} LIMIT ?",
+                    (self.stack_id, *epoch_params, drives_limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    f"SELECT * FROM drives WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause}",
-                    (self.agent_id, *epoch_params),
+                    f"SELECT * FROM drives WHERE stack_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause}",
+                    (self.stack_id, *epoch_params),
                 ).fetchall()
             result["drives"] = [self._row_to_drive(row) for row in rows]
 
             # Episodes - most recent, exclude forgotten
             rows = conn.execute(
-                f"SELECT * FROM episodes WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} ORDER BY created_at DESC LIMIT ?",
-                (self.agent_id, *epoch_params, _episodes_limit),
+                f"SELECT * FROM episodes WHERE stack_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} ORDER BY created_at DESC LIMIT ?",
+                (self.stack_id, *epoch_params, _episodes_limit),
             ).fetchall()
             result["episodes"] = [self._row_to_episode(row) for row in rows]
 
             # Notes - most recent, exclude forgotten
             rows = conn.execute(
-                f"SELECT * FROM notes WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} ORDER BY created_at DESC LIMIT ?",
-                (self.agent_id, *epoch_params, _notes_limit),
+                f"SELECT * FROM notes WHERE stack_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} ORDER BY created_at DESC LIMIT ?",
+                (self.stack_id, *epoch_params, _notes_limit),
             ).fetchall()
             result["notes"] = [self._row_to_note(row) for row in rows]
 
             # Relationships - all for agent (or limited), exclude forgotten
             if relationships_limit is not None:
                 rows = conn.execute(
-                    f"SELECT * FROM relationships WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} LIMIT ?",
-                    (self.agent_id, *epoch_params, relationships_limit),
+                    f"SELECT * FROM relationships WHERE stack_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} LIMIT ?",
+                    (self.stack_id, *epoch_params, relationships_limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    f"SELECT * FROM relationships WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause}",
-                    (self.agent_id, *epoch_params),
+                    f"SELECT * FROM relationships WHERE stack_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause}",
+                    (self.stack_id, *epoch_params),
                 ).fetchall()
             result["relationships"] = [self._row_to_relationship(row) for row in rows]
 
@@ -6547,8 +6638,8 @@ class SQLiteStorage:
         """Get a belief by ID."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM beliefs WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (belief_id, self.agent_id),
+                "SELECT * FROM beliefs WHERE id = ? AND stack_id = ? AND deleted = 0",
+                (belief_id, self.stack_id),
             ).fetchone()
         return self._row_to_belief(row) if row else None
 
@@ -6556,8 +6647,8 @@ class SQLiteStorage:
         """Get a value by ID."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM agent_values WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (value_id, self.agent_id),
+                "SELECT * FROM agent_values WHERE id = ? AND stack_id = ? AND deleted = 0",
+                (value_id, self.stack_id),
             ).fetchone()
         return self._row_to_value(row) if row else None
 
@@ -6565,8 +6656,8 @@ class SQLiteStorage:
         """Get a goal by ID."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM goals WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (goal_id, self.agent_id),
+                "SELECT * FROM goals WHERE id = ? AND stack_id = ? AND deleted = 0",
+                (goal_id, self.stack_id),
             ).fetchone()
         return self._row_to_goal(row) if row else None
 
@@ -6574,8 +6665,8 @@ class SQLiteStorage:
         """Get a note by ID."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM notes WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (note_id, self.agent_id),
+                "SELECT * FROM notes WHERE id = ? AND stack_id = ? AND deleted = 0",
+                (note_id, self.stack_id),
             ).fetchone()
         return self._row_to_note(row) if row else None
 
@@ -6583,8 +6674,8 @@ class SQLiteStorage:
         """Get a drive by ID."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM drives WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (drive_id, self.agent_id),
+                "SELECT * FROM drives WHERE id = ? AND stack_id = ? AND deleted = 0",
+                (drive_id, self.stack_id),
             ).fetchone()
         return self._row_to_drive(row) if row else None
 
@@ -6592,8 +6683,8 @@ class SQLiteStorage:
         """Get a relationship by ID."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM relationships WHERE id = ? AND agent_id = ? AND deleted = 0",
-                (relationship_id, self.agent_id),
+                "SELECT * FROM relationships WHERE id = ? AND stack_id = ? AND deleted = 0",
+                (relationship_id, self.stack_id),
             ).fetchone()
         return self._row_to_relationship(row) if row else None
 
@@ -6682,10 +6773,10 @@ class SQLiteStorage:
         updates.append("version = version + 1")
 
         # Add WHERE clause params
-        params.extend([memory_id, self.agent_id])
+        params.extend([memory_id, self.stack_id])
 
         query = (
-            f"UPDATE {table} SET {', '.join(updates)} WHERE id = ? AND agent_id = ? AND deleted = 0"
+            f"UPDATE {table} SET {', '.join(updates)} WHERE id = ? AND stack_id = ? AND deleted = 0"
         )
 
         with self._connect() as conn:
@@ -6745,14 +6836,14 @@ class SQLiteStorage:
                 validate_table_name(table)  # Security: validate before SQL use
                 query = f"""
                     SELECT * FROM {table}
-                    WHERE agent_id = ? AND deleted = 0
+                    WHERE stack_id = ? AND deleted = 0
                     AND confidence {op} ?
                     ORDER BY confidence {"ASC" if below else "DESC"}
                     LIMIT ?
                 """
 
                 try:
-                    rows = conn.execute(query, (self.agent_id, threshold, limit)).fetchall()
+                    rows = conn.execute(query, (self.stack_id, threshold, limit)).fetchall()
                     for row in rows:
                         results.append(
                             SearchResult(
@@ -6815,14 +6906,14 @@ class SQLiteStorage:
                 validate_table_name(table)  # Security: validate before SQL use
                 query = f"""
                     SELECT * FROM {table}
-                    WHERE agent_id = ? AND deleted = 0
+                    WHERE stack_id = ? AND deleted = 0
                     AND source_type = ?
                     ORDER BY created_at DESC
                     LIMIT ?
                 """
 
                 try:
-                    rows = conn.execute(query, (self.agent_id, source_type, limit)).fetchall()
+                    rows = conn.execute(query, (self.stack_id, source_type, limit)).fetchall()
                     for row in rows:
                         results.append(
                             SearchResult(
@@ -6873,8 +6964,8 @@ class SQLiteStorage:
                    SET times_accessed = COALESCE(times_accessed, 0) + 1,
                        last_accessed = ?,
                        local_updated_at = ?
-                   WHERE id = ? AND agent_id = ?""",
-                (now, now, memory_id, self.agent_id),
+                   WHERE id = ? AND stack_id = ?""",
+                (now, now, memory_id, self.stack_id),
             )
             conn.commit()
             return cursor.rowcount > 0
@@ -6931,8 +7022,8 @@ class SQLiteStorage:
                        SET times_accessed = COALESCE(times_accessed, 0) + 1,
                            last_accessed = ?,
                            local_updated_at = ?
-                       WHERE id IN ({placeholders}) AND agent_id = ?""",
-                    (now, now, *ids, self.agent_id),
+                       WHERE id IN ({placeholders}) AND stack_id = ?""",
+                    (now, now, *ids, self.stack_id),
                 )
                 total_updated += cursor.rowcount
 
@@ -6976,8 +7067,8 @@ class SQLiteStorage:
         with self._connect() as conn:
             # Check if memory exists and is not protected
             row = conn.execute(
-                f"SELECT is_protected, is_forgotten FROM {table} WHERE id = ? AND agent_id = ?",
-                (memory_id, self.agent_id),
+                f"SELECT is_protected, is_forgotten FROM {table} WHERE id = ? AND stack_id = ?",
+                (memory_id, self.stack_id),
             ).fetchone()
 
             if not row:
@@ -6996,8 +7087,8 @@ class SQLiteStorage:
                        forgotten_at = ?,
                        forgotten_reason = ?,
                        local_updated_at = ?
-                   WHERE id = ? AND agent_id = ?""",
-                (now, reason, now, memory_id, self.agent_id),
+                   WHERE id = ? AND stack_id = ?""",
+                (now, reason, now, memory_id, self.stack_id),
             )
             self._queue_sync(conn, table, memory_id, "update")
             conn.commit()
@@ -7032,8 +7123,8 @@ class SQLiteStorage:
         with self._connect() as conn:
             # Check if memory is forgotten
             row = conn.execute(
-                f"SELECT is_forgotten FROM {table} WHERE id = ? AND agent_id = ?",
-                (memory_id, self.agent_id),
+                f"SELECT is_forgotten FROM {table} WHERE id = ? AND stack_id = ?",
+                (memory_id, self.stack_id),
             ).fetchone()
 
             if not row or not self._safe_get(row, "is_forgotten", 0):
@@ -7045,8 +7136,8 @@ class SQLiteStorage:
                        forgotten_at = NULL,
                        forgotten_reason = NULL,
                        local_updated_at = ?
-                   WHERE id = ? AND agent_id = ?""",
-                (now, memory_id, self.agent_id),
+                   WHERE id = ? AND stack_id = ?""",
+                (now, memory_id, self.stack_id),
             )
             self._queue_sync(conn, table, memory_id, "update")
             conn.commit()
@@ -7084,8 +7175,8 @@ class SQLiteStorage:
                 f"""UPDATE {table}
                    SET is_protected = ?,
                        local_updated_at = ?
-                   WHERE id = ? AND agent_id = ?""",
-                (1 if protected else 0, now, memory_id, self.agent_id),
+                   WHERE id = ? AND stack_id = ?""",
+                (1 if protected else 0, now, memory_id, self.stack_id),
             )
             self._queue_sync(conn, table, memory_id, "update")
             conn.commit()
@@ -7149,7 +7240,7 @@ class SQLiteStorage:
 
                 query = f"""
                     SELECT * FROM {table}
-                    WHERE agent_id = ?
+                    WHERE stack_id = ?
                     AND deleted = 0
                     AND COALESCE(is_protected, 0) = 0
                     AND COALESCE(is_forgotten, 0) = 0
@@ -7159,7 +7250,7 @@ class SQLiteStorage:
                 """
 
                 try:
-                    rows = conn.execute(query, (self.agent_id, limit * 2)).fetchall()
+                    rows = conn.execute(query, (self.stack_id, limit * 2)).fetchall()
                     for row in rows:
                         record = converter(row)
 
@@ -7241,7 +7332,7 @@ class SQLiteStorage:
                 table, converter = table_map[memory_type]
                 query = f"""
                     SELECT * FROM {table}
-                    WHERE agent_id = ?
+                    WHERE stack_id = ?
                     AND deleted = 0
                     AND COALESCE(is_forgotten, 0) = 1
                     ORDER BY forgotten_at DESC
@@ -7249,7 +7340,7 @@ class SQLiteStorage:
                 """
 
                 try:
-                    rows = conn.execute(query, (self.agent_id, limit)).fetchall()
+                    rows = conn.execute(query, (self.stack_id, limit)).fetchall()
                     for row in rows:
                         results.append(
                             SearchResult(
@@ -7666,10 +7757,10 @@ class SQLiteStorage:
         """Mark a record as synced with the cloud."""
         validate_table_name(table)  # Security: validate before SQL use
         now = self._now()
-        # Security: include agent_id filter for defense-in-depth
+        # Security: include stack_id filter for defense-in-depth
         conn.execute(
-            f"UPDATE {table} SET cloud_synced_at = ? WHERE id = ? AND agent_id = ?",
-            (now, record_id, self.agent_id),
+            f"UPDATE {table} SET cloud_synced_at = ? WHERE id = ? AND stack_id = ?",
+            (now, record_id, self.stack_id),
         )
 
     def _get_record_for_push(self, table: str, record_id: str) -> Optional[Any]:
@@ -7677,7 +7768,7 @@ class SQLiteStorage:
         validate_table_name(table)  # Security: validate before SQL use
         with self._connect() as conn:
             row = conn.execute(
-                f"SELECT * FROM {table} WHERE id = ? AND agent_id = ?", (record_id, self.agent_id)
+                f"SELECT * FROM {table} WHERE id = ? AND stack_id = ?", (record_id, self.stack_id)
             ).fetchone()
 
         if not row:
@@ -7894,8 +7985,8 @@ class SQLiteStorage:
         local = None
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM notes WHERE id = ? AND agent_id = ?",
-                (cloud_record.id, self.agent_id),
+                "SELECT * FROM notes WHERE id = ? AND stack_id = ?",
+                (cloud_record.id, self.stack_id),
             ).fetchone()
             if row:
                 local = self._row_to_note(row)
@@ -7908,8 +7999,8 @@ class SQLiteStorage:
         local = None
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM beliefs WHERE id = ? AND agent_id = ?",
-                (cloud_record.id, self.agent_id),
+                "SELECT * FROM beliefs WHERE id = ? AND stack_id = ?",
+                (cloud_record.id, self.stack_id),
             ).fetchone()
             if row:
                 local = self._row_to_belief(row)
@@ -7922,8 +8013,8 @@ class SQLiteStorage:
         local = None
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM agent_values WHERE id = ? AND agent_id = ?",
-                (cloud_record.id, self.agent_id),
+                "SELECT * FROM agent_values WHERE id = ? AND stack_id = ?",
+                (cloud_record.id, self.stack_id),
             ).fetchone()
             if row:
                 local = self._row_to_value(row)
@@ -7936,8 +8027,8 @@ class SQLiteStorage:
         local = None
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT * FROM goals WHERE id = ? AND agent_id = ?",
-                (cloud_record.id, self.agent_id),
+                "SELECT * FROM goals WHERE id = ? AND stack_id = ?",
+                (cloud_record.id, self.stack_id),
             ).fetchone()
             if row:
                 local = self._row_to_goal(row)
@@ -8229,9 +8320,9 @@ class SQLiteStorage:
         with self._connect() as conn:
             conn.execute(
                 """INSERT INTO health_check_events
-                   (id, agent_id, checked_at, anxiety_score, source, triggered_by)
+                   (id, stack_id, checked_at, anxiety_score, source, triggered_by)
                    VALUES (?, ?, ?, ?, ?, ?)""",
-                (event_id, self.agent_id, now, anxiety_score, source, triggered_by),
+                (event_id, self.stack_id, now, anxiety_score, source, triggered_by),
             )
             conn.commit()
 
@@ -8255,7 +8346,7 @@ class SQLiteStorage:
         with self._connect() as conn:
             # Total checks
             cur = conn.execute(
-                "SELECT COUNT(*) FROM health_check_events WHERE agent_id = ?", (self.agent_id,)
+                "SELECT COUNT(*) FROM health_check_events WHERE stack_id = ?", (self.stack_id,)
             )
             total_checks = cur.fetchone()[0]
 
@@ -8272,8 +8363,8 @@ class SQLiteStorage:
             # Get first and last check for calculating avg per day
             cur = conn.execute(
                 """SELECT MIN(checked_at), MAX(checked_at)
-                   FROM health_check_events WHERE agent_id = ?""",
-                (self.agent_id,),
+                   FROM health_check_events WHERE stack_id = ?""",
+                (self.stack_id,),
             )
             first_check, last_check = cur.fetchone()
 
@@ -8292,8 +8383,8 @@ class SQLiteStorage:
             # Last check details
             cur = conn.execute(
                 """SELECT checked_at, anxiety_score FROM health_check_events
-                   WHERE agent_id = ? ORDER BY checked_at DESC LIMIT 1""",
-                (self.agent_id,),
+                   WHERE stack_id = ? ORDER BY checked_at DESC LIMIT 1""",
+                (self.stack_id,),
             )
             row = cur.fetchone()
             last_check_at = row[0] if row else None
@@ -8302,16 +8393,16 @@ class SQLiteStorage:
             # Checks by source
             cur = conn.execute(
                 """SELECT source, COUNT(*) FROM health_check_events
-                   WHERE agent_id = ? GROUP BY source""",
-                (self.agent_id,),
+                   WHERE stack_id = ? GROUP BY source""",
+                (self.stack_id,),
             )
             checks_by_source = {row[0]: row[1] for row in cur.fetchall()}
 
             # Checks by trigger
             cur = conn.execute(
                 """SELECT triggered_by, COUNT(*) FROM health_check_events
-                   WHERE agent_id = ? GROUP BY triggered_by""",
-                (self.agent_id,),
+                   WHERE stack_id = ? GROUP BY triggered_by""",
+                (self.stack_id,),
             )
             checks_by_trigger = {row[0]: row[1] for row in cur.fetchall()}
 

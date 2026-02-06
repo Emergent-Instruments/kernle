@@ -43,7 +43,7 @@ def temp_db():
 @pytest.fixture
 def storage(temp_db):
     """Create a SQLiteStorage instance for testing."""
-    storage = SQLiteStorage(agent_id="test-agent", db_path=temp_db)
+    storage = SQLiteStorage(stack_id="test-agent", db_path=temp_db)
     yield storage
     storage.close()
 
@@ -52,7 +52,7 @@ def storage(temp_db):
 def mock_cloud_storage():
     """Create a mock cloud storage for testing sync."""
     mock = MagicMock(spec=SupabaseStorage)
-    mock.agent_id = "test-agent"
+    mock.stack_id = "test-agent"
 
     # Default return values
     mock.get_stats.return_value = {"episodes": 0, "notes": 0}
@@ -71,7 +71,7 @@ def mock_cloud_storage():
 def storage_with_cloud(temp_db, mock_cloud_storage):
     """Create a SQLiteStorage with a mock cloud storage."""
     storage = SQLiteStorage(
-        agent_id="test-agent", db_path=temp_db, cloud_storage=mock_cloud_storage
+        stack_id="test-agent", db_path=temp_db, cloud_storage=mock_cloud_storage
     )
     yield storage
     storage.close()
@@ -84,17 +84,17 @@ class TestSyncQueueBasics:
         """Saving a record should queue it for sync."""
         initial_count = storage.get_pending_sync_count()
 
-        storage.save_note(Note(id="n1", agent_id="test-agent", content="Test note"))
+        storage.save_note(Note(id="n1", stack_id="test-agent", content="Test note"))
 
         assert storage.get_pending_sync_count() == initial_count + 1
 
     def test_multiple_saves_same_record_dedupe(self, storage):
         """Multiple saves of the same record should dedupe in queue."""
-        storage.save_note(Note(id="n1", agent_id="test-agent", content="First version"))
+        storage.save_note(Note(id="n1", stack_id="test-agent", content="First version"))
 
         count_after_first = storage.get_pending_sync_count()
 
-        storage.save_note(Note(id="n1", agent_id="test-agent", content="Second version"))
+        storage.save_note(Note(id="n1", stack_id="test-agent", content="Second version"))
 
         # Should still be same count (deduped)
         assert storage.get_pending_sync_count() == count_after_first
@@ -102,9 +102,9 @@ class TestSyncQueueBasics:
     def test_get_queued_changes(self, storage):
         """Can retrieve queued changes."""
         storage.save_episode(
-            Episode(id="ep1", agent_id="test-agent", objective="Test", outcome="Test")
+            Episode(id="ep1", stack_id="test-agent", objective="Test", outcome="Test")
         )
-        storage.save_note(Note(id="n1", agent_id="test-agent", content="Test note"))
+        storage.save_note(Note(id="n1", stack_id="test-agent", content="Test note"))
 
         changes = storage.get_queued_changes()
 
@@ -117,7 +117,7 @@ class TestSyncQueueBasics:
 
     def test_queued_change_has_timestamp(self, storage):
         """Queued changes should have a timestamp."""
-        storage.save_note(Note(id="n1", agent_id="test-agent", content="Test"))
+        storage.save_note(Note(id="n1", stack_id="test-agent", content="Test"))
 
         changes = storage.get_queued_changes()
         assert len(changes) > 0
@@ -174,10 +174,10 @@ class TestSyncPush:
         # Create some local changes
         storage_with_cloud.save_episode(
             Episode(
-                id="ep1", agent_id="test-agent", objective="Test objective", outcome="Test outcome"
+                id="ep1", stack_id="test-agent", objective="Test objective", outcome="Test outcome"
             )
         )
-        storage_with_cloud.save_note(Note(id="n1", agent_id="test-agent", content="Test note"))
+        storage_with_cloud.save_note(Note(id="n1", stack_id="test-agent", content="Test note"))
 
         # Sync
         result = storage_with_cloud.sync()
@@ -190,7 +190,7 @@ class TestSyncPush:
         """Successful sync should clear the queue."""
         mock_cloud_storage.get_stats.return_value = {"episodes": 0}
 
-        storage_with_cloud.save_note(Note(id="n1", agent_id="test-agent", content="Test"))
+        storage_with_cloud.save_note(Note(id="n1", stack_id="test-agent", content="Test"))
 
         assert storage_with_cloud.get_pending_sync_count() > 0
 
@@ -203,7 +203,7 @@ class TestSyncPush:
         """Synced records should have cloud_synced_at set."""
         mock_cloud_storage.get_stats.return_value = {"episodes": 0}
 
-        storage_with_cloud.save_note(Note(id="n1", agent_id="test-agent", content="Test"))
+        storage_with_cloud.save_note(Note(id="n1", stack_id="test-agent", content="Test"))
 
         # Before sync
         notes = storage_with_cloud.get_notes()
@@ -220,7 +220,7 @@ class TestSyncPush:
         """Sync when offline should return error."""
         mock_cloud_storage.get_stats.side_effect = Exception("Connection refused")
 
-        storage_with_cloud.save_note(Note(id="n1", agent_id="test-agent", content="Test"))
+        storage_with_cloud.save_note(Note(id="n1", stack_id="test-agent", content="Test"))
 
         result = storage_with_cloud.sync()
 
@@ -240,7 +240,7 @@ class TestSyncPull:
         # Cloud has a record we don't have locally
         cloud_note = Note(
             id="cloud-note-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             content="Note from cloud",
             cloud_synced_at=datetime.now(timezone.utc),
             local_updated_at=datetime.now(timezone.utc),
@@ -278,7 +278,7 @@ class TestConflictResolution:
         storage_with_cloud.save_note(
             Note(
                 id="conflict-note",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 content="Local version",
                 local_updated_at=old_time,
             )
@@ -293,7 +293,7 @@ class TestConflictResolution:
         new_time = datetime.now(timezone.utc)
         cloud_note = Note(
             id="conflict-note",
-            agent_id="test-agent",
+            stack_id="test-agent",
             content="Cloud version (newer)",
             cloud_synced_at=new_time,
             local_updated_at=new_time,
@@ -329,7 +329,7 @@ class TestConflictResolution:
         storage_with_cloud.save_note(
             Note(
                 id="conflict-note",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 content="Local version (newer)",
                 local_updated_at=new_time,
             )
@@ -344,7 +344,7 @@ class TestConflictResolution:
         old_time = datetime.now(timezone.utc) - timedelta(hours=1)
         cloud_note = Note(
             id="conflict-note",
-            agent_id="test-agent",
+            stack_id="test-agent",
             content="Cloud version (older)",
             cloud_synced_at=old_time,
             local_updated_at=old_time,
@@ -378,7 +378,7 @@ class TestConflictResolution:
         storage_with_cloud.save_note(
             Note(
                 id="history-note",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 content="Local version",
                 local_updated_at=old_time,
             )
@@ -393,7 +393,7 @@ class TestConflictResolution:
         new_time = datetime.now(timezone.utc)
         cloud_note = Note(
             id="history-note",
-            agent_id="test-agent",
+            stack_id="test-agent",
             content="Cloud version (newer)",
             cloud_synced_at=new_time,
             local_updated_at=new_time,
@@ -468,7 +468,7 @@ class TestSyncMetadata:
         """Sync metadata should persist across storage instances."""
         # First instance
         storage1 = SQLiteStorage(
-            agent_id="test-agent", db_path=temp_db, cloud_storage=mock_cloud_storage
+            stack_id="test-agent", db_path=temp_db, cloud_storage=mock_cloud_storage
         )
         mock_cloud_storage.get_stats.return_value = {"episodes": 0}
         storage1.sync()
@@ -478,7 +478,7 @@ class TestSyncMetadata:
 
         # Second instance
         storage2 = SQLiteStorage(
-            agent_id="test-agent", db_path=temp_db, cloud_storage=mock_cloud_storage
+            stack_id="test-agent", db_path=temp_db, cloud_storage=mock_cloud_storage
         )
 
         # Should have same last sync time
@@ -494,7 +494,7 @@ class TestSyncAllRecordTypes:
         mock_cloud_storage.get_stats.return_value = {"episodes": 0}
 
         storage_with_cloud.save_episode(
-            Episode(id="ep1", agent_id="test-agent", objective="Test", outcome="Test")
+            Episode(id="ep1", stack_id="test-agent", objective="Test", outcome="Test")
         )
 
         storage_with_cloud.sync()
@@ -506,7 +506,7 @@ class TestSyncAllRecordTypes:
         mock_cloud_storage.get_stats.return_value = {"episodes": 0}
 
         storage_with_cloud.save_belief(
-            Belief(id="b1", agent_id="test-agent", statement="Test belief")
+            Belief(id="b1", stack_id="test-agent", statement="Test belief")
         )
 
         storage_with_cloud.sync()
@@ -518,7 +518,7 @@ class TestSyncAllRecordTypes:
         mock_cloud_storage.get_stats.return_value = {"episodes": 0}
 
         storage_with_cloud.save_value(
-            Value(id="v1", agent_id="test-agent", name="Test", statement="Test value")
+            Value(id="v1", stack_id="test-agent", name="Test", statement="Test value")
         )
 
         storage_with_cloud.sync()
@@ -529,7 +529,7 @@ class TestSyncAllRecordTypes:
         """Goals should sync."""
         mock_cloud_storage.get_stats.return_value = {"episodes": 0}
 
-        storage_with_cloud.save_goal(Goal(id="g1", agent_id="test-agent", title="Test goal"))
+        storage_with_cloud.save_goal(Goal(id="g1", stack_id="test-agent", title="Test goal"))
 
         storage_with_cloud.sync()
 
@@ -539,7 +539,7 @@ class TestSyncAllRecordTypes:
         """Drives should sync."""
         mock_cloud_storage.get_stats.return_value = {"episodes": 0}
 
-        storage_with_cloud.save_drive(Drive(id="d1", agent_id="test-agent", drive_type="curiosity"))
+        storage_with_cloud.save_drive(Drive(id="d1", stack_id="test-agent", drive_type="curiosity"))
 
         storage_with_cloud.sync()
 
@@ -552,7 +552,7 @@ class TestSyncAllRecordTypes:
         storage_with_cloud.save_relationship(
             Relationship(
                 id="r1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 entity_name="Alice",
                 entity_type="human",
                 relationship_type="friend",
@@ -571,10 +571,10 @@ class TestOfflineQueuing:
         """All operations should work without cloud configured."""
         # These should all succeed
         storage.save_episode(
-            Episode(id="ep1", agent_id="test-agent", objective="Test", outcome="Test")
+            Episode(id="ep1", stack_id="test-agent", objective="Test", outcome="Test")
         )
-        storage.save_note(Note(id="n1", agent_id="test-agent", content="Test"))
-        storage.save_belief(Belief(id="b1", agent_id="test-agent", statement="Test"))
+        storage.save_note(Note(id="n1", stack_id="test-agent", content="Test"))
+        storage.save_belief(Belief(id="b1", stack_id="test-agent", statement="Test"))
 
         # Data should be accessible
         assert len(storage.get_episodes()) == 1
@@ -587,14 +587,14 @@ class TestOfflineQueuing:
     def test_queue_survives_reconnect(self, temp_db):
         """Queue should survive closing and reopening storage."""
         # Create storage and add data
-        storage1 = SQLiteStorage(agent_id="test-agent", db_path=temp_db)
-        storage1.save_note(Note(id="n1", agent_id="test-agent", content="Test"))
+        storage1 = SQLiteStorage(stack_id="test-agent", db_path=temp_db)
+        storage1.save_note(Note(id="n1", stack_id="test-agent", content="Test"))
 
         pending_before = storage1.get_pending_sync_count()
         storage1.close()
 
         # Create new instance
-        storage2 = SQLiteStorage(agent_id="test-agent", db_path=temp_db)
+        storage2 = SQLiteStorage(stack_id="test-agent", db_path=temp_db)
 
         # Queue should still be there
         assert storage2.get_pending_sync_count() == pending_before
@@ -610,7 +610,7 @@ class TestSyncEdgeCases:
 
         # Save a note
         storage_with_cloud.save_note(
-            Note(id="n1", agent_id="test-agent", content="Will be deleted")
+            Note(id="n1", stack_id="test-agent", content="Will be deleted")
         )
 
         # Delete it by marking as deleted (soft delete)
@@ -643,8 +643,8 @@ class TestSyncEdgeCases:
         mock_cloud_storage.get_stats.return_value = {"episodes": 0}
 
         # Save multiple notes
-        storage_with_cloud.save_note(Note(id="n1", agent_id="test-agent", content="Note 1"))
-        storage_with_cloud.save_note(Note(id="n2", agent_id="test-agent", content="Note 2"))
+        storage_with_cloud.save_note(Note(id="n1", stack_id="test-agent", content="Note 1"))
+        storage_with_cloud.save_note(Note(id="n2", stack_id="test-agent", content="Note 2"))
 
         # First call fails, second succeeds
         mock_cloud_storage.save_note.side_effect = [Exception("First failed"), None]  # Success
@@ -666,14 +666,14 @@ class TestSyncHooks:
 
         mock_cloud_storage.get_stats.return_value = {"episodes": 0}  # Returns value = online
 
-        k = Kernle(agent_id="test-agent", storage=storage_with_cloud)
+        k = Kernle(stack_id="test-agent", storage=storage_with_cloud)
         assert k.auto_sync is True
 
     def test_auto_sync_can_be_disabled_via_property(self, storage):
         """Auto-sync can be disabled by setting the property."""
         from kernle import Kernle
 
-        k = Kernle(agent_id="test-agent", storage=storage)
+        k = Kernle(stack_id="test-agent", storage=storage)
         k.auto_sync = False
         assert k.auto_sync is False
 
@@ -681,7 +681,7 @@ class TestSyncHooks:
         """Load with sync=False should not attempt to pull."""
         from kernle import Kernle
 
-        k = Kernle(agent_id="test-agent", storage=storage)
+        k = Kernle(stack_id="test-agent", storage=storage)
         k.auto_sync = True
 
         # Load with sync=False should work without errors
@@ -701,7 +701,7 @@ class TestSyncHooks:
         mock_cloud_storage.get_drives.return_value = []
         mock_cloud_storage.get_relationships.return_value = []
 
-        k = Kernle(agent_id="test-agent", storage=storage_with_cloud)
+        k = Kernle(stack_id="test-agent", storage=storage_with_cloud)
         memory = k.load(sync=True)
 
         # Should have attempted to pull from cloud
@@ -713,7 +713,7 @@ class TestSyncHooks:
 
         mock_cloud_storage.get_stats.return_value = {"episodes": 1}  # Simulates online
 
-        k = Kernle(agent_id="test-agent", storage=storage_with_cloud)
+        k = Kernle(stack_id="test-agent", storage=storage_with_cloud)
 
         result = k.checkpoint("Test task", pending=["Next"], sync=True)
 
@@ -727,7 +727,7 @@ class TestSyncHooks:
         """Checkpoint should include sync result when sync is attempted."""
         from kernle import Kernle
 
-        k = Kernle(agent_id="test-agent", storage=storage)
+        k = Kernle(stack_id="test-agent", storage=storage)
 
         # With no cloud storage, sync should report offline
         result = k.checkpoint("Test task", sync=True)
@@ -745,7 +745,7 @@ class TestSyncHooks:
         # Make cloud throw an error
         mock_cloud_storage.get_stats.side_effect = Exception("Network error")
 
-        k = Kernle(agent_id="test-agent", storage=storage_with_cloud)
+        k = Kernle(stack_id="test-agent", storage=storage_with_cloud)
 
         # Load should still work
         memory = k.load(sync=True)
@@ -758,7 +758,7 @@ class TestSyncHooks:
         # Make cloud throw an error
         mock_cloud_storage.get_stats.side_effect = Exception("Network error")
 
-        k = Kernle(agent_id="test-agent", storage=storage_with_cloud)
+        k = Kernle(stack_id="test-agent", storage=storage_with_cloud)
 
         # Checkpoint should still work
         result = k.checkpoint("Test task", sync=True)
@@ -772,7 +772,7 @@ class TestSyncQueueAtomicity:
         """Verify that queue_sync uses INSERT ON CONFLICT (atomic) not DELETE+INSERT."""
         # Save the same note multiple times rapidly
         for i in range(10):
-            storage.save_note(Note(id="atomic-test", agent_id="test-agent", content=f"Version {i}"))
+            storage.save_note(Note(id="atomic-test", stack_id="test-agent", content=f"Version {i}"))
 
         # Should still have exactly one queued change for this record
         changes = storage.get_queued_changes()
@@ -787,13 +787,13 @@ class TestSyncQueueAtomicity:
         """Multiple updates to the same record should keep only the latest in queue."""
         # Save three different versions
         storage.save_episode(
-            Episode(id="dedupe-test", agent_id="test-agent", objective="First", outcome="v1")
+            Episode(id="dedupe-test", stack_id="test-agent", objective="First", outcome="v1")
         )
         storage.save_episode(
-            Episode(id="dedupe-test", agent_id="test-agent", objective="Second", outcome="v2")
+            Episode(id="dedupe-test", stack_id="test-agent", objective="Second", outcome="v2")
         )
         storage.save_episode(
-            Episode(id="dedupe-test", agent_id="test-agent", objective="Third", outcome="v3")
+            Episode(id="dedupe-test", stack_id="test-agent", objective="Third", outcome="v3")
         )
 
         # Get queued changes for this record
@@ -823,7 +823,7 @@ class TestArrayFieldMerging:
         storage_with_cloud.save_episode(
             Episode(
                 id="ep-merge-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Test episode",
                 outcome="Test outcome",
                 tags=["local-tag-1", "local-tag-2"],
@@ -842,7 +842,7 @@ class TestArrayFieldMerging:
         new_time = datetime.now(timezone.utc)
         cloud_episode = Episode(
             id="ep-merge-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Updated objective from cloud",
             outcome="Updated outcome from cloud",
             tags=["cloud-tag-1", "local-tag-1"],  # One overlapping, one new
@@ -882,7 +882,7 @@ class TestArrayFieldMerging:
         storage_with_cloud.save_note(
             Note(
                 id="note-merge-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 content="Local content (newer)",
                 tags=["local-tag-1", "common-tag"],
                 local_updated_at=new_time,
@@ -898,7 +898,7 @@ class TestArrayFieldMerging:
         old_time = datetime.now(timezone.utc) - timedelta(hours=1)
         cloud_note = Note(
             id="note-merge-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             content="Cloud content (older)",
             tags=["cloud-tag-1", "common-tag"],
             cloud_synced_at=old_time,
@@ -934,7 +934,7 @@ class TestArrayFieldMerging:
         storage_with_cloud.save_drive(
             Drive(
                 id="drive-merge-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 drive_type="curiosity",
                 focus_areas=["local-area-1", "common-area"],
                 local_updated_at=old_time,
@@ -950,7 +950,7 @@ class TestArrayFieldMerging:
         new_time = datetime.now(timezone.utc)
         cloud_drive = Drive(
             id="drive-merge-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             drive_type="curiosity",
             intensity=0.8,  # Updated intensity
             focus_areas=["cloud-area-1", "common-area"],
@@ -977,7 +977,7 @@ class TestArrayFieldMerging:
         storage_with_cloud.save_episode(
             Episode(
                 id="ep-none-local",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Test",
                 outcome="Test",
                 tags=None,  # No tags locally
@@ -993,7 +993,7 @@ class TestArrayFieldMerging:
         new_time = datetime.now(timezone.utc)
         cloud_episode = Episode(
             id="ep-none-local",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Cloud objective",
             outcome="Cloud outcome",
             tags=["cloud-tag"],
@@ -1017,7 +1017,7 @@ class TestArrayFieldMerging:
         storage_with_cloud.save_episode(
             Episode(
                 id="ep-none-cloud",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Test",
                 outcome="Test",
                 tags=["local-tag"],
@@ -1033,7 +1033,7 @@ class TestArrayFieldMerging:
         new_time = datetime.now(timezone.utc)
         cloud_episode = Episode(
             id="ep-none-cloud",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Cloud objective",
             outcome="Cloud outcome",
             tags=None,  # No tags in cloud
@@ -1057,7 +1057,7 @@ class TestArrayFieldMerging:
         storage_with_cloud.save_episode(
             Episode(
                 id="ep-dedup",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Test",
                 outcome="Test",
                 tags=["tag-a", "tag-b", "tag-c"],
@@ -1073,7 +1073,7 @@ class TestArrayFieldMerging:
         new_time = datetime.now(timezone.utc)
         cloud_episode = Episode(
             id="ep-dedup",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Cloud objective",
             outcome="Cloud outcome",
             tags=["tag-b", "tag-c", "tag-d"],  # b and c overlap
@@ -1096,8 +1096,8 @@ class TestMergeArrayFieldsUnit:
     def test_merge_array_fields_no_arrays(self, storage):
         """No-op when table has no array fields configured."""
         # Using a fake table name that's not in SYNC_ARRAY_FIELDS
-        ep1 = Episode(id="1", agent_id="test", objective="O1", outcome="Out1", tags=["a"])
-        ep2 = Episode(id="1", agent_id="test", objective="O2", outcome="Out2", tags=["b"])
+        ep1 = Episode(id="1", stack_id="test", objective="O1", outcome="Out1", tags=["a"])
+        ep2 = Episode(id="1", stack_id="test", objective="O2", outcome="Out2", tags=["b"])
 
         result = storage._merge_array_fields("fake_table", ep1, ep2)
 
@@ -1109,7 +1109,7 @@ class TestMergeArrayFieldsUnit:
         """Direct test of _merge_array_fields for episodes."""
         winner = Episode(
             id="1",
-            agent_id="test",
+            stack_id="test",
             objective="Winner",
             outcome="Out",
             tags=["tag-w"],
@@ -1118,7 +1118,7 @@ class TestMergeArrayFieldsUnit:
         )
         loser = Episode(
             id="1",
-            agent_id="test",
+            stack_id="test",
             objective="Loser",
             outcome="Out",
             tags=["tag-l"],
@@ -1145,7 +1145,7 @@ class TestSyncQueueResilience:
     def test_failed_record_increments_retry_count(self, storage):
         """Test that failed sync records get retry count incremented."""
         # Create a test record
-        storage.save_note(Note(id="n1", agent_id="test-agent", content="Test note"))
+        storage.save_note(Note(id="n1", stack_id="test-agent", content="Test note"))
 
         # Get the queued change
         queued = storage.get_queued_changes(limit=10)
@@ -1170,7 +1170,7 @@ class TestSyncQueueResilience:
     def test_max_retries_excludes_from_queue(self, storage):
         """Test that records exceeding max retries are skipped."""
         # Create a test record
-        storage.save_note(Note(id="n2", agent_id="test-agent", content="Test note 2"))
+        storage.save_note(Note(id="n2", stack_id="test-agent", content="Test note 2"))
 
         # Get the queued change
         queued = storage.get_queued_changes(limit=10)
@@ -1194,9 +1194,9 @@ class TestSyncQueueResilience:
     def test_sync_continues_after_individual_failure(self, storage):
         """Test that sync continues processing after individual record failures."""
         # Create multiple test records
-        storage.save_note(Note(id="n3", agent_id="test-agent", content="Note 3"))
-        storage.save_note(Note(id="n4", agent_id="test-agent", content="Note 4"))
-        storage.save_note(Note(id="n5", agent_id="test-agent", content="Note 5"))
+        storage.save_note(Note(id="n3", stack_id="test-agent", content="Note 3"))
+        storage.save_note(Note(id="n4", stack_id="test-agent", content="Note 4"))
+        storage.save_note(Note(id="n5", stack_id="test-agent", content="Note 5"))
 
         queued = storage.get_queued_changes(limit=10)
         assert len(queued) >= 3
@@ -1210,7 +1210,7 @@ class TestSyncQueueResilience:
     def test_clear_failed_sync_records(self, storage):
         """Test clearing old failed records."""
         # Create a test record
-        storage.save_note(Note(id="n6", agent_id="test-agent", content="Test note 6"))
+        storage.save_note(Note(id="n6", stack_id="test-agent", content="Test note 6"))
 
         queued = storage.get_queued_changes(limit=10)
         change = next((c for c in queued if c.record_id == "n6"), None)

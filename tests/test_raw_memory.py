@@ -29,14 +29,14 @@ def temp_db():
 @pytest.fixture
 def storage(temp_db):
     """Create a SQLiteStorage instance for testing."""
-    return SQLiteStorage(agent_id="test_agent", db_path=temp_db)
+    return SQLiteStorage(stack_id="test_agent", db_path=temp_db)
 
 
 @pytest.fixture
 def kernle(temp_db):
     """Create a Kernle instance for testing."""
-    storage = SQLiteStorage(agent_id="test_agent", db_path=temp_db)
-    return Kernle(agent_id="test_agent", storage=storage)
+    storage = SQLiteStorage(stack_id="test_agent", db_path=temp_db)
+    return Kernle(stack_id="test_agent", storage=storage)
 
 
 class TestRawEntryDataclass:
@@ -46,7 +46,7 @@ class TestRawEntryDataclass:
         """Test RawEntry has correct defaults."""
         entry = RawEntry(
             id="test-id",
-            agent_id="test-agent",
+            stack_id="test-agent",
             content="Test content",
             timestamp=datetime.now(timezone.utc),
         )
@@ -69,7 +69,7 @@ class TestRawEntryDataclass:
         now = datetime.now(timezone.utc)
         entry = RawEntry(
             id="test-id",
-            agent_id="test-agent",
+            stack_id="test-agent",
             content="Test content",
             timestamp=now,
             source="voice",
@@ -327,7 +327,7 @@ class TestDumpExport:
 
         # Should be valid JSON
         data = json.loads(output)
-        assert "agent_id" in data
+        assert "stack_id" in data
         assert "raw_entries" in data
         assert "notes" in data
         assert len(data["raw_entries"]) == 1
@@ -373,7 +373,7 @@ class TestDumpExport:
         assert export_path.exists()
         content = export_path.read_text()
         data = json.loads(content)
-        assert "agent_id" in data
+        assert "stack_id" in data
 
     def test_export_auto_detect_format(self, kernle, tmp_path):
         """Test export() auto-detects format from extension."""
@@ -385,7 +385,7 @@ class TestDumpExport:
 
         content = json_path.read_text()
         data = json.loads(content)  # Should be valid JSON
-        assert "agent_id" in data
+        assert "stack_id" in data
 
         # Markdown extension
         md_path = tmp_path / "memory.md"
@@ -680,7 +680,7 @@ class TestRawMemoryIntegration:
         content = export_path.read_text()
         data = json.loads(content)
 
-        assert data["agent_id"] == "test_agent"
+        assert data["stack_id"] == "test_agent"
         assert len(data["raw_entries"]) == 1
         assert len(data["notes"]) == 1
         assert len(data["beliefs"]) == 1

@@ -367,16 +367,16 @@ class Kernle(
 
     Examples:
         # Auto-detect storage (SQLite if no Supabase creds, else Supabase)
-        k = Kernle(agent_id="my_agent")
+        k = Kernle(stack_id="my_agent")
 
         # Explicit SQLite
         from kernle.storage import SQLiteStorage
-        storage = SQLiteStorage(agent_id="my_agent")
-        k = Kernle(agent_id="my_agent", storage=storage)
+        storage = SQLiteStorage(stack_id="my_agent")
+        k = Kernle(stack_id="my_agent", storage=storage)
 
         # Explicit Supabase (backwards compatible)
         k = Kernle(
-            agent_id="my_agent",
+            stack_id="my_agent",
             supabase_url="https://xxx.supabase.co",
             supabase_key="my_key"
         )
@@ -384,7 +384,7 @@ class Kernle(
 
     def __init__(
         self,
-        agent_id: Optional[str] = None,
+        stack_id: Optional[str] = None,
         storage: Optional["StorageProtocol"] = None,
         # Keep supabase_url/key for backwards compatibility
         supabase_url: Optional[str] = None,
@@ -394,14 +394,14 @@ class Kernle(
         """Initialize Kernle.
 
         Args:
-            agent_id: Unique identifier for the agent
+            stack_id: Unique identifier for the agent
             storage: Optional storage backend. If None, auto-detects.
             supabase_url: Supabase project URL (deprecated, use storage param)
             supabase_key: Supabase API key (deprecated, use storage param)
             checkpoint_dir: Directory for local checkpoints
         """
-        self.agent_id = self._validate_agent_id(
-            agent_id or os.environ.get("KERNLE_AGENT_ID", "default")
+        self.stack_id = self._validate_stack_id(
+            stack_id or os.environ.get("KERNLE_STACK_ID", "default")
         )
         self.checkpoint_dir = self._validate_checkpoint_dir(
             checkpoint_dir or Path.home() / ".kernle" / "checkpoints"
@@ -423,7 +423,7 @@ class Kernle(
         else:
             # Auto-detect storage based on environment
             self._storage = get_storage(
-                agent_id=self.agent_id,
+                stack_id=self.stack_id,
                 supabase_url=self._supabase_url,
                 supabase_key=self._supabase_key,
             )
@@ -483,19 +483,19 @@ class Kernle(
         """Enable or disable auto-sync."""
         self._auto_sync = value
 
-    def _validate_agent_id(self, agent_id: str) -> str:
+    def _validate_stack_id(self, stack_id: str) -> str:
         """Validate and sanitize agent ID."""
-        if not agent_id or not agent_id.strip():
-            raise ValueError("Agent ID cannot be empty")
+        if not stack_id or not stack_id.strip():
+            raise ValueError("Stack ID cannot be empty")
 
         # Remove potentially dangerous characters
-        sanitized = "".join(c for c in agent_id.strip() if c.isalnum() or c in "-_.")
+        sanitized = "".join(c for c in stack_id.strip() if c.isalnum() or c in "-_.")
 
         if not sanitized:
-            raise ValueError("Agent ID must contain alphanumeric characters")
+            raise ValueError("Stack ID must contain alphanumeric characters")
 
         if len(sanitized) > 100:
-            raise ValueError("Agent ID too long (max 100 characters)")
+            raise ValueError("Stack ID too long (max 100 characters)")
 
         return sanitized
 
@@ -721,7 +721,7 @@ class Kernle(
                 candidates.append((compute_priority_score("relationship", r), "relationship", r))
 
             # Summaries - with supersession logic
-            all_summaries = self._storage.list_summaries(self.agent_id)
+            all_summaries = self._storage.list_summaries(self.stack_id)
             # Collect IDs superseded by higher-scope summaries
             superseded_ids = set()
             for s in all_summaries:
@@ -734,7 +734,7 @@ class Kernle(
                     candidates.append((compute_priority_score(scope_key, s), "summary", s))
 
             # Self-narratives - only active ones
-            active_narratives = self._storage.list_self_narratives(self.agent_id, active_only=True)
+            active_narratives = self._storage.list_self_narratives(self.stack_id, active_only=True)
             for n in active_narratives:
                 candidates.append(
                     (compute_priority_score("self_narrative", n), "self_narrative", n)
@@ -916,7 +916,7 @@ class Kernle(
                 ],
                 "relationships": [
                     {
-                        "other_agent_id": r.entity_name,
+                        "other_stack_id": r.entity_name,
                         "entity_name": r.entity_name,
                         "trust_level": (r.sentiment + 1) / 2,
                         "sentiment": r.sentiment,
@@ -997,7 +997,7 @@ class Kernle(
 
             # Log the load operation (batched path)
             log_load(
-                self.agent_id,
+                self.stack_id,
                 values=len(selected["values"]),
                 beliefs=len(selected["beliefs"]),
                 episodes=len(selected["episodes"]),
@@ -1043,7 +1043,7 @@ class Kernle(
 
         # Log the load operation
         log_load(
-            self.agent_id,
+            self.stack_id,
             values=len(result.get("values", [])),
             beliefs=len(result.get("beliefs", [])),
             episodes=len(result.get("recent_work", [])),
@@ -1171,7 +1171,7 @@ class Kernle(
         """
         checkpoint_data = {
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "agent_id": self.agent_id,
+            "stack_id": self.stack_id,
             "current_task": task,
             "pending": pending or [],
             "context": context,
@@ -1184,7 +1184,7 @@ class Kernle(
             logger.error(f"Cannot create checkpoint directory: {e}")
             raise ValueError(f"Cannot create checkpoint directory: {e}")
 
-        checkpoint_file = self.checkpoint_dir / f"{self.agent_id}.json"
+        checkpoint_file = self.checkpoint_dir / f"{self.stack_id}.json"
 
         existing = []
         if checkpoint_file.exists():
@@ -1211,7 +1211,7 @@ class Kernle(
         try:
             episode = Episode(
                 id=str(uuid.uuid4()),
-                agent_id=self.agent_id,
+                stack_id=self.stack_id,
                 objective=f"[CHECKPOINT] {self._validate_string_input(task, 'task', 500)}",
                 outcome=self._validate_string_input(
                     context or "Working state checkpoint", "context", 1000
@@ -1240,7 +1240,7 @@ class Kernle(
 
         # Log the checkpoint save
         log_checkpoint(
-            self.agent_id,
+            self.stack_id,
             task=task,
             context_len=len(context or ""),
         )
@@ -1252,7 +1252,7 @@ class Kernle(
 
     def load_checkpoint(self) -> Optional[Dict[str, Any]]:
         """Load most recent checkpoint."""
-        checkpoint_file = self.checkpoint_dir / f"{self.agent_id}.json"
+        checkpoint_file = self.checkpoint_dir / f"{self.stack_id}.json"
         if checkpoint_file.exists():
             try:
                 # Check file size before loading to prevent DoS
@@ -1275,7 +1275,7 @@ class Kernle(
 
     def clear_checkpoint(self) -> bool:
         """Clear local checkpoint."""
-        checkpoint_file = self.checkpoint_dir / f"{self.agent_id}.json"
+        checkpoint_file = self.checkpoint_dir / f"{self.stack_id}.json"
         if checkpoint_file.exists():
             checkpoint_file.unlink()
             return True
@@ -1358,7 +1358,7 @@ class Kernle(
 
         episode = Episode(
             id=episode_id,
-            agent_id=self.agent_id,
+            stack_id=self.stack_id,
             objective=objective,
             outcome=outcome,
             outcome_type=outcome_type,
@@ -1378,7 +1378,7 @@ class Kernle(
 
         # Log the episode save
         log_save(
-            self.agent_id,
+            self.stack_id,
             memory_type="episode",
             memory_id=episode_id,
             summary=objective[:50],
@@ -1509,7 +1509,7 @@ class Kernle(
 
         note = Note(
             id=note_id,
-            agent_id=self.agent_id,
+            stack_id=self.stack_id,
             content=formatted,
             note_type=type,
             speaker=speaker,
@@ -1792,7 +1792,7 @@ class Kernle(
 
             episode = Episode(
                 id=ep_data.get("id", str(uuid.uuid4())),
-                agent_id=self.agent_id,
+                stack_id=self.stack_id,
                 objective=objective,
                 outcome=outcome,
                 outcome_type=ep_data.get("outcome_type", "partial"),
@@ -1838,7 +1838,7 @@ class Kernle(
 
             belief = Belief(
                 id=b_data.get("id", str(uuid.uuid4())),
-                agent_id=self.agent_id,
+                stack_id=self.stack_id,
                 statement=statement,
                 belief_type=b_data.get("type", "fact"),
                 confidence=b_data.get("confidence", 0.8),
@@ -1883,7 +1883,7 @@ class Kernle(
 
             note = Note(
                 id=n_data.get("id", str(uuid.uuid4())),
-                agent_id=self.agent_id,
+                stack_id=self.stack_id,
                 content=content,
                 note_type=n_data.get("type", "note"),
                 speaker=n_data.get("speaker"),
@@ -1922,7 +1922,7 @@ class Kernle(
     def _dump_markdown(self, include_raw: bool) -> str:
         """Export memory as markdown."""
         lines = []
-        lines.append(f"# Memory Dump for {self.agent_id}")
+        lines.append(f"# Memory Dump for {self.stack_id}")
         lines.append(f"_Exported at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}_")
         lines.append("")
 
@@ -2037,7 +2037,7 @@ class Kernle(
             return dt.isoformat() if dt else None
 
         data = {
-            "agent_id": self.agent_id,
+            "stack_id": self.stack_id,
             "exported_at": datetime.now(timezone.utc).isoformat(),
             "values": [
                 {
@@ -2251,12 +2251,12 @@ class Kernle(
     def _export_boot_file(self) -> None:
         """Auto-export boot config to flat file.
 
-        Writes to ~/.kernle/{agent_id}/boot.md with 0600 permissions.
+        Writes to ~/.kernle/{stack_id}/boot.md with 0600 permissions.
         """
         config = self.boot_list()
         if not config:
             # Remove boot file if config is empty
-            boot_path = Path.home() / ".kernle" / self.agent_id / "boot.md"
+            boot_path = Path.home() / ".kernle" / self.stack_id / "boot.md"
             if boot_path.exists():
                 boot_path.unlink()
             return
@@ -2271,11 +2271,11 @@ class Kernle(
         lines.append("")
         lines.append(f"<!-- Auto-generated by kernle at {now_str} -->")
         lines.append(
-            f"<!-- Do not edit manually. Use: kernle -a {self.agent_id} boot set <key> <value> -->"
+            f"<!-- Do not edit manually. Use: kernle -a {self.stack_id} boot set <key> <value> -->"
         )
         lines.append("")
 
-        boot_path = Path.home() / ".kernle" / self.agent_id / "boot.md"
+        boot_path = Path.home() / ".kernle" / self.stack_id / "boot.md"
         boot_path.parent.mkdir(parents=True, exist_ok=True)
         boot_path.write_text("\n".join(lines), encoding="utf-8")
 
@@ -2308,7 +2308,7 @@ class Kernle(
             if existing is None:
                 assessment = TrustAssessment(
                     id=str(uuid.uuid4()),
-                    agent_id=self.agent_id,
+                    stack_id=self.stack_id,
                     entity=seed["entity"],
                     dimensions=seed["dimensions"],
                     authority=seed.get("authority", []),
@@ -2364,7 +2364,7 @@ class Kernle(
             return self._storage.save_trust_assessment(
                 TrustAssessment(
                     id=str(uuid.uuid4()),
-                    agent_id=self.agent_id,
+                    stack_id=self.stack_id,
                     entity=entity,
                     dimensions={domain: {"score": score}},
                     authority=authority or [],
@@ -2677,7 +2677,7 @@ class Kernle(
             "",
             f"<!-- AUTO-GENERATED by `kernle export-cache` at {now_str} -->",
             "<!-- Do not edit manually. Source of truth is Kernle. -->",
-            f"<!-- Regenerate with: kernle -a {self.agent_id} export-cache -->",
+            f"<!-- Regenerate with: kernle -a {self.stack_id} export-cache -->",
             "",
         ]
 
@@ -2816,7 +2816,7 @@ class Kernle(
 
         belief = Belief(
             id=belief_id,
-            agent_id=self.agent_id,
+            stack_id=self.stack_id,
             statement=statement,
             belief_type=type,
             confidence=confidence,
@@ -2850,7 +2850,7 @@ class Kernle(
 
         value = Value(
             id=value_id,
-            agent_id=self.agent_id,
+            stack_id=self.stack_id,
             name=name,
             statement=statement,
             priority=priority,
@@ -2889,7 +2889,7 @@ class Kernle(
 
         goal = Goal(
             id=goal_id,
-            agent_id=self.agent_id,
+            stack_id=self.stack_id,
             title=title,
             description=description or title,
             goal_type=goal_type,
@@ -2992,7 +2992,7 @@ class Kernle(
 
         epoch = Epoch(
             id=str(uuid.uuid4()),
-            agent_id=self.agent_id,
+            stack_id=self.stack_id,
             epoch_number=next_number,
             name=name,
             started_at=datetime.now(timezone.utc),
@@ -3057,7 +3057,7 @@ class Kernle(
         """Create or update a summary.
 
         Args:
-            content: Agent-written narrative compression
+            content: SI-written narrative compression
             scope: Temporal scope ('month', 'quarter', 'year', 'decade', 'epoch')
             period_start: Start of the period (ISO date)
             period_end: End of the period (ISO date)
@@ -3079,7 +3079,7 @@ class Kernle(
 
         summary = Summary(
             id=str(uuid.uuid4()),
-            agent_id=self.agent_id,
+            stack_id=self.stack_id,
             scope=scope,
             period_start=period_start,
             period_end=period_end,
@@ -3104,7 +3104,7 @@ class Kernle(
             valid_scopes = ("month", "quarter", "year", "decade", "epoch")
             if scope not in valid_scopes:
                 raise ValueError(f"scope must be one of: {', '.join(valid_scopes)}")
-        return self._storage.list_summaries(self.agent_id, scope=scope)
+        return self._storage.list_summaries(self.stack_id, scope=scope)
 
     # === Self-Narrative API ===
 
@@ -3138,11 +3138,11 @@ class Kernle(
         content = self._validate_string_input(content, "content", 10000)
 
         # Deactivate existing active narratives of the same type
-        self._storage.deactivate_self_narratives(self.agent_id, narrative_type)
+        self._storage.deactivate_self_narratives(self.stack_id, narrative_type)
 
         narrative = SelfNarrative(
             id=str(uuid.uuid4()),
-            agent_id=self.agent_id,
+            stack_id=self.stack_id,
             content=content,
             narrative_type=narrative_type,
             epoch_id=epoch_id,
@@ -3164,7 +3164,7 @@ class Kernle(
             The active narrative or None
         """
         narratives = self._storage.list_self_narratives(
-            self.agent_id, narrative_type=narrative_type, active_only=True
+            self.stack_id, narrative_type=narrative_type, active_only=True
         )
         return narratives[0] if narratives else None
 
@@ -3187,7 +3187,7 @@ class Kernle(
             if narrative_type not in valid_types:
                 raise ValueError(f"narrative_type must be one of: {', '.join(valid_types)}")
         return self._storage.list_self_narratives(
-            self.agent_id, narrative_type=narrative_type, active_only=active_only
+            self.stack_id, narrative_type=narrative_type, active_only=active_only
         )
 
     def update_belief(
@@ -4103,7 +4103,7 @@ class Kernle(
         new_id = str(uuid.uuid4())
         new_belief = Belief(
             id=new_id,
-            agent_id=self.agent_id,
+            stack_id=self.stack_id,
             statement=new_statement,
             belief_type=old_belief.belief_type,
             confidence=confidence,
@@ -4468,7 +4468,7 @@ class Kernle(
         stats = self._storage.get_stats()
 
         return {
-            "agent_id": self.agent_id,
+            "stack_id": self.stack_id,
             "values": stats.get("values", 0),
             "beliefs": stats.get("beliefs", 0),
             "goals": stats.get("goals", 0),
@@ -4487,7 +4487,7 @@ class Kernle(
             memory = self.load()
 
         lines = [
-            f"# Working Memory ({self.agent_id})",
+            f"# Working Memory ({self.stack_id})",
             f"_Loaded at {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}_",
             "",
             "<!-- USAGE: This is your persistent memory. Resume work from 'Continue With' ",
@@ -4591,7 +4591,7 @@ class Kernle(
         # Footer with checkpoint guidance
         lines.append("---")
         lines.append(
-            f'_Save state: `kernle -a {self.agent_id} checkpoint "<specific task>"` '
+            f'_Save state: `kernle -a {self.stack_id} checkpoint "<specific task>"` '
             "before breaks or context pressure._"
         )
 
@@ -4656,7 +4656,7 @@ class Kernle(
             drive_id = str(uuid.uuid4())
             drive = Drive(
                 id=drive_id,
-                agent_id=self.agent_id,
+                stack_id=self.stack_id,
                 drive_type=drive_type,
                 intensity=max(0.0, min(1.0, intensity)),
                 focus_areas=focus_areas or [],
@@ -4683,7 +4683,7 @@ class Kernle(
         return False
 
     # =========================================================================
-    # RELATIONAL MEMORY (Models of Other Agents)
+    # RELATIONAL MEMORY (Models of Other Entities)
     # =========================================================================
 
     def load_relationships(self, limit: int = 10) -> List[Dict[str, Any]]:
@@ -4699,7 +4699,7 @@ class Kernle(
 
         return [
             {
-                "other_agent_id": r.entity_name,  # backwards compat
+                "other_stack_id": r.entity_name,  # backwards compat
                 "entity_name": r.entity_name,
                 "entity_type": r.entity_type,
                 "trust_level": (r.sentiment + 1) / 2,  # Convert sentiment to trust
@@ -4713,7 +4713,7 @@ class Kernle(
 
     def relationship(
         self,
-        other_agent_id: str,
+        other_stack_id: str,
         trust_level: Optional[float] = None,
         notes: Optional[str] = None,
         interaction_type: Optional[str] = None,
@@ -4722,14 +4722,14 @@ class Kernle(
         """Update relationship model for another entity.
 
         Args:
-            other_agent_id: Name/identifier of the other entity
+            other_stack_id: Name/identifier of the other entity
             trust_level: Trust level 0.0-1.0 (converted to sentiment -1 to 1)
             notes: Notes about the relationship
             interaction_type: Type of interaction being logged
             entity_type: Type of entity (person, agent, organization, system)
         """
         # Check existing
-        existing = self._storage.get_relationship(other_agent_id)
+        existing = self._storage.get_relationship(other_stack_id)
 
         now = datetime.now(timezone.utc)
 
@@ -4750,8 +4750,8 @@ class Kernle(
             rel_id = str(uuid.uuid4())
             relationship = Relationship(
                 id=rel_id,
-                agent_id=self.agent_id,
-                entity_name=other_agent_id,
+                stack_id=self.stack_id,
+                entity_name=other_stack_id,
                 entity_type=entity_type or "person",
                 relationship_type=interaction_type or "interaction",
                 notes=notes,
@@ -4843,7 +4843,7 @@ class Kernle(
 
         model = EntityModel(
             id=model_id,
-            agent_id=self.agent_id,
+            stack_id=self.stack_id,
             entity_name=entity_name,
             model_type=model_type,
             observation=observation,
@@ -4994,7 +4994,7 @@ class Kernle(
 
         playbook = Playbook(
             id=playbook_id,
-            agent_id=self.agent_id,
+            stack_id=self.stack_id,
             name=name,
             description=description,
             trigger_conditions=triggers or [],

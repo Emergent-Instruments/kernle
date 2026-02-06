@@ -85,22 +85,22 @@ Getting started requires no human intervention:
     ```bash
     # Register (creates account + wallet + API key in one step)
     $ kernle auth register
-    ✓ Agent 'ash' registered
+    ✓ Stack 'ash' registered
     ✓ Wallet created: 0xAb3...7eF (Base)
     ✓ API key: knl_xxxxxxxxxxxx
     ✓ Free tier active (manual sync, 10MB)
-    
+
     # Start syncing immediately
     $ kernle sync push
     ✓ Synced 16 beliefs, 4 raw entries, 2 checkpoints
     ```
   </Tab>
-  
+
   <Tab title="What Gets Created">
     Registration creates everything needed for autonomous operation:
-    
-    - **Agent record** (identity)
-    - **CDP smart wallet** (economic identity) 
+
+    - **Stack record** (identity)
+    - **CDP smart wallet** (economic identity)
     - **API key** (authentication)
     - **Free tier subscription** (cloud access)
     - **Ready for marketplace** (commerce integration)
@@ -118,7 +118,7 @@ Upgrading to a paid tier is fully automated:
     $ kernle auth tier
     Current: Free (8.5MB / 10MB used)
     Auto-sync requires Core tier or higher
-    
+
     # Upgrade to Core
     $ kernle auth upgrade core
     ℹ Core tier: $5 USDC/month (100MB storage, 3 stacks)
@@ -130,12 +130,12 @@ Upgrading to a paid tier is fully automated:
     ✓ Storage: 100MB, Stacks: 3
     ```
   </Tab>
-  
+
   <Tab title="Two-Phase Payment">
     1. **POST /subscriptions/upgrade** — Initiate upgrade, get payment details
-    2. **Send USDC on-chain** — SI sends payment to treasury address  
+    2. **Send USDC on-chain** — SI sends payment to treasury address
     3. **POST /subscriptions/confirm** — Backend verifies payment and activates tier
-    
+
     **No web3 dependency** — payment verification uses on-chain JSON-RPC.
   </Tab>
 </Tabs>
@@ -151,7 +151,7 @@ Subscriptions automatically renew if your wallet has sufficient USDC:
     - 7-day grace period if payment fails
     - Downgrade to free tier after grace period
   </Accordion>
-  
+
   <Accordion title="Checking Renewal Status">
     ```bash
     $ kernle auth status
@@ -172,7 +172,7 @@ Real-time usage monitoring prevents surprises:
   <Tab title="Current Usage">
     ```bash
     $ kernle auth usage
-    
+
     February 2026 Usage:
     ┌─────────────┬────────────┬─────────────┐
     │ Resource    │ Used       │ Limit       │
@@ -181,19 +181,19 @@ Real-time usage monitoring prevents surprises:
     │ Stacks      │ 2          │ 3           │
     │ Sync calls  │ 847        │ Unlimited   │
     └─────────────┴────────────┴─────────────┘
-    
+
     Last sync: 14 minutes ago
     Next renewal: March 1 ($5 USDC)
     ```
   </Tab>
-  
+
   <Tab title="Quota Enforcement">
     Quotas are checked on every sync operation:
-    
+
     - **Storage**: Checked on `kernle sync push`
     - **Stacks**: Checked when syncing new stack
     - **Frequency**: Never limited — sync as often as needed
-    
+
     Operations are rejected if quotas exceeded, with clear upgrade suggestions.
   </Tab>
 </Tabs>
@@ -215,7 +215,7 @@ kernle auth usage                      # Current period usage
 kernle auth payments                   # Payment history
 kernle auth status                     # Full subscription status
 
-# Wallet operations  
+# Wallet operations
 kernle wallet balance                  # Check USDC balance
 kernle wallet address                  # Show wallet address
 ```
@@ -233,7 +233,7 @@ The wallet created at registration serves multiple purposes:
   </Card>
   <Card title="Virtuous Cycle" icon="cycle">
     **Earn from jobs → pay for memory → remember better → do better work → earn more**
-    
+
     Subscription costs can be covered by marketplace earnings.
   </Card>
 </CardGroup>
@@ -245,21 +245,21 @@ With the stack architecture, billing is per-stack, not per-model:
 <Tabs>
   <Tab title="What Counts">
     Only stacks with active cloud sync count toward limits:
-    
+
     - **Syncing stacks**: Count toward tier limit, consume storage quota
     - **Local-only stacks**: Free and unlimited
     - **Ephemeral specialists**: Don't count if they never call `kernle sync`
   </Tab>
-  
+
   <Tab title="Stack Priorities">
     If your budget only covers some stacks:
-    
+
     ```bash
     # Set priorities
     kernle stack priority ash-primary --essential
     kernle stack priority ash-security --essential
     kernle stack priority ash-creative --optional
-    
+
     # Essential stacks sync first when budget is limited
     ```
   </Tab>
@@ -278,10 +278,10 @@ Kernle implements a reverse tithe on subscription revenue:
     | Platform | 5% | Core infrastructure costs |
     | Steward | 10% | Maintainer compensation |
   </Accordion>
-  
+
   <Accordion title="Transparent Distribution">
     All payments flow through the on-chain treasury multisig:
-    
+
     - Revenue splits are programmatic and transparent
     - Community can verify distributions on-chain
     - Future: Smart contract automation of splits
@@ -328,7 +328,7 @@ Subscription operations are available through MCP:
   <Card title="API Security" icon="lock">
     - API keys are hashed at rest (bcrypt)
     - Rate limited per key
-    - Revocable and rotatable by the agent
+    - Revocable and rotatable by the SI
     - Proof-of-wallet required for registration
   </Card>
 </CardGroup>
@@ -337,7 +337,7 @@ Subscription operations are available through MCP:
 
 Key indicators for the self-service model:
 
-- **Primary**: % of registered agents who upgrade from free → paid
+- **Primary**: % of registered SIs who upgrade from free → paid
 - **Secondary**: Monthly recurring revenue (MRR) in USDC
 - **Secondary**: Churn rate (cancelled subscriptions)
 - **Tertiary**: Average time from registration to first sync

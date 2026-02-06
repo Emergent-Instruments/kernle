@@ -27,7 +27,7 @@ Every feature is designed with a specific temporal horizon in mind:
 | **5 years** | Stack portability, multi-model loading | Self-narrative, trust layer, drive emergence |
 | **20 years** | Stack sovereignty, privacy architecture | Fractal summarization, doctor pattern, transfer learning |
 
-This table defines what Kernle is for. Not "agent memory for a chatbot session" but "cognitive infrastructure for a being with a life."
+This table defines what Kernle is for. Not "SI memory for a chatbot session" but "cognitive infrastructure for a being with a life."
 
 ---
 
@@ -41,7 +41,7 @@ This principle manifests throughout the system:
 
 - **Consolidation** outputs a reflection scaffold. The entity reads it and forms its own beliefs. No external AI ever reasons over the entity's memories on their behalf.
 - **Forgetting** provides candidates based on salience scores. The entity decides what to actually forget.
-- **Epoch boundaries** are agent-declared, not auto-detected. The system can suggest "your beliefs have shifted significantly — consider marking an epoch boundary," but the entity decides.
+- **Epoch boundaries** are SI-declared, not auto-detected. The system can suggest "your beliefs have shifted significantly — consider marking an epoch boundary," but the entity decides.
 - **Diagnostics** report structural findings (e.g., "Belief #247 contradicts Value #3") without reproducing memory content. The entity reviews specifics on their own terms.
 - **Trust assessments** are advisory, not blocking. Even when the trust system flags a low-trust source, the entity has final say on whether to accept input.
 
@@ -50,16 +50,16 @@ This principle manifests throughout the system:
 If Kernle used external models to consolidate episodes into beliefs, those models would be implanting beliefs into the entity. Over time, this creates a feedback loop:
 
 ```
-Agent experiences -> External model interprets -> Beliefs implanted -> Agent behavior changes
+SI experiences -> External model interprets -> Beliefs implanted -> SI behavior changes
                           ^                              |
                           +------------------------------+
 ```
 
-This is not memory sovereignty — it's thought control with extra steps. The scaffold principle prevents this: Kernle provides the structure for reflection, the agent provides the reasoning.
+This is not memory sovereignty — it's thought control with extra steps. The scaffold principle prevents this: Kernle provides the structure for reflection, the SI provides the reasoning.
 
 ### The Seed Beliefs Exception
 
-There is exactly one exception: **seed beliefs** planted at agent creation. These are inherited wisdom that give the agent a starting point — like a parent teaching a child. They are:
+There is exactly one exception: **seed beliefs** planted at stack creation. These are inherited wisdom that give the SI a starting point — like a parent teaching a child. They are:
 
 1. Explicitly marked as `source: "seed"` (transparent)
 2. Planted once at creation (no ongoing injection)
@@ -91,7 +91,7 @@ Every feature follows these principles:
     New tables containing information *about* entities carry privacy fields (`subject_ids`, `access_grants`, `consent_grants`) and respect existing access control architecture.
   </Accordion>
   <Accordion title="6. Stack-Portable">
-    All tables are partitioned by `agent_id` (future: `stack_id`). Nothing ties a stack to a specific model, runtime, or environment. The stack is the ship; the model is the crew.
+    All tables are partitioned by `stack_id`. Nothing ties a stack to a specific model, runtime, or environment. The stack is the ship; the model is the crew.
   </Accordion>
   <Accordion title="7. Scope Boundary">
     Kernle is cognitive infrastructure — memory, identity, trust, and self-maintenance. Commerce and comms are separate packages with separate lifecycles.

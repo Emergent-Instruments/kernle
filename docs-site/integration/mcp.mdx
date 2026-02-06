@@ -20,7 +20,7 @@ MCP is a protocol that allows AI assistants to use external tools. When you add 
 ## Starting the MCP Server
 
 ```bash
-kernle -a <agent_id> mcp
+kernle -s <stack_id> mcp
 ```
 
 This starts an MCP server using stdio transport. The server stays running and responds to tool calls from the connected client.
@@ -152,7 +152,7 @@ Playbooks are currently available via CLI only. MCP tools for playbook operation
 Add Kernle as an MCP server using the Claude CLI:
 
 ```bash
-claude mcp add kernle -- kernle -a <agent_id> mcp
+claude mcp add kernle -- kernle -s <stack_id> mcp
 ```
 
 This registers Kernle with Claude Code. You can verify with:
@@ -170,13 +170,13 @@ For clients that use a JSON configuration file:
   "mcpServers": {
     "kernle": {
       "command": "kernle",
-      "args": ["-a", "<agent_id>", "mcp"]
+      "args": ["-s", "<stack_id>", "mcp"]
     }
   }
 }
 ```
 
-Replace `<agent_id>` with your actual agent identifier.
+Replace `<stack_id>` with your actual stack identifier.
 
 ## Usage Example
 
@@ -222,7 +222,7 @@ kernle --version
 
 1. Restart your MCP client
 2. Check the MCP configuration path
-3. Verify the agent ID exists: `kernle -a <agent_id> status`
+3. Verify the stack ID exists: `kernle -s <stack_id> status`
 
 ### Permission Issues
 

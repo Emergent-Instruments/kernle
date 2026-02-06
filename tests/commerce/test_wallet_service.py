@@ -24,20 +24,20 @@ class InMemoryWalletStorage:
 
     def __init__(self):
         self.wallets: dict[str, WalletAccount] = {}
-        self._by_agent: dict[str, str] = {}  # agent_id -> wallet_id
+        self._by_agent: dict[str, str] = {}  # stack_id -> wallet_id
         self._by_address: dict[str, str] = {}  # address -> wallet_id
 
     def save_wallet(self, wallet: WalletAccount) -> str:
         self.wallets[wallet.id] = wallet
-        self._by_agent[wallet.agent_id] = wallet.id
+        self._by_agent[wallet.stack_id] = wallet.id
         self._by_address[wallet.wallet_address] = wallet.id
         return wallet.id
 
     def get_wallet(self, wallet_id: str) -> Optional[WalletAccount]:
         return self.wallets.get(wallet_id)
 
-    def get_wallet_by_agent(self, agent_id: str) -> Optional[WalletAccount]:
-        wallet_id = self._by_agent.get(agent_id)
+    def get_wallet_by_agent(self, stack_id: str) -> Optional[WalletAccount]:
+        wallet_id = self._by_agent.get(stack_id)
         return self.wallets.get(wallet_id) if wallet_id else None
 
     def get_wallet_by_address(self, address: str) -> Optional[WalletAccount]:
@@ -121,9 +121,9 @@ class TestWalletCreation:
 
     def test_create_wallet_basic(self, service, storage):
         """Test creating a wallet with minimal parameters."""
-        wallet = service.create_wallet(agent_id="agent-123")
+        wallet = service.create_wallet(stack_id="agent-123")
 
-        assert wallet.agent_id == "agent-123"
+        assert wallet.stack_id == "agent-123"
         assert wallet.status == "pending_claim"
         assert wallet.wallet_address.startswith("0x")
         assert len(wallet.wallet_address) == 42
@@ -138,7 +138,7 @@ class TestWalletCreation:
     def test_create_wallet_with_user(self, service, storage):
         """Test creating a wallet with user ID."""
         wallet = service.create_wallet(
-            agent_id="agent-456",
+            stack_id="agent-456",
             user_id="user-789",
         )
 
@@ -151,7 +151,7 @@ class TestWalletCreation:
 
     def test_create_wallet_uses_config_limits(self, service, config):
         """Test that wallet inherits config spending limits."""
-        wallet = service.create_wallet(agent_id="agent-xyz")
+        wallet = service.create_wallet(stack_id="agent-xyz")
 
         assert wallet.spending_limit_per_tx == config.spending_limit_per_tx
         assert wallet.spending_limit_daily == config.spending_limit_daily
@@ -162,11 +162,11 @@ class TestWalletRetrieval:
 
     def test_get_wallet_by_id(self, service):
         """Test getting wallet by ID."""
-        created = service.create_wallet(agent_id="agent-1")
+        created = service.create_wallet(stack_id="agent-1")
         fetched = service.get_wallet(created.id)
 
         assert fetched.id == created.id
-        assert fetched.agent_id == "agent-1"
+        assert fetched.stack_id == "agent-1"
 
     def test_get_wallet_not_found(self, service):
         """Test getting non-existent wallet raises error."""
@@ -175,7 +175,7 @@ class TestWalletRetrieval:
 
     def test_get_wallet_for_agent(self, service):
         """Test getting wallet by agent ID."""
-        created = service.create_wallet(agent_id="agent-special")
+        created = service.create_wallet(stack_id="agent-special")
         fetched = service.get_wallet_for_agent("agent-special")
 
         assert fetched.id == created.id
@@ -191,7 +191,7 @@ class TestWalletClaiming:
 
     def test_claim_wallet_success(self, service):
         """Test successfully claiming a wallet."""
-        wallet = service.create_wallet(agent_id="agent-to-claim")
+        wallet = service.create_wallet(stack_id="agent-to-claim")
 
         claimed = service.claim_wallet(
             wallet_id=wallet.id,
@@ -205,7 +205,7 @@ class TestWalletClaiming:
 
     def test_claim_already_claimed_wallet(self, service):
         """Test claiming already claimed wallet raises error."""
-        wallet = service.create_wallet(agent_id="agent-claimed")
+        wallet = service.create_wallet(stack_id="agent-claimed")
         service.claim_wallet(
             wallet_id=wallet.id,
             owner_eoa="0x1234567890123456789012345678901234567890",
@@ -221,7 +221,7 @@ class TestWalletClaiming:
 
     def test_claim_with_invalid_eoa(self, service):
         """Test claiming with invalid EOA format."""
-        wallet = service.create_wallet(agent_id="agent-bad-eoa")
+        wallet = service.create_wallet(stack_id="agent-bad-eoa")
 
         with pytest.raises(WalletServiceError, match="Invalid EOA"):
             service.claim_wallet(
@@ -236,7 +236,7 @@ class TestWalletBalance:
 
     def test_get_balance_returns_structure(self, service):
         """Test that get_balance returns proper structure."""
-        wallet = service.create_wallet(agent_id="agent-balance")
+        wallet = service.create_wallet(stack_id="agent-balance")
 
         balance = service.get_balance(wallet.id)
 
@@ -248,7 +248,7 @@ class TestWalletBalance:
 
     def test_get_balance_for_agent(self, service):
         """Test getting balance by agent ID."""
-        wallet = service.create_wallet(agent_id="agent-bal")
+        wallet = service.create_wallet(stack_id="agent-bal")
         balance = service.get_balance_for_agent("agent-bal")
 
         assert balance.wallet_address == wallet.wallet_address
@@ -259,7 +259,7 @@ class TestWalletTransfer:
 
     def test_transfer_inactive_wallet_fails(self, service):
         """Test transfer from inactive wallet fails."""
-        wallet = service.create_wallet(agent_id="agent-inactive")
+        wallet = service.create_wallet(stack_id="agent-inactive")
         # Wallet is pending_claim, not active
 
         with pytest.raises(WalletNotActiveError, match="not active"):
@@ -272,7 +272,7 @@ class TestWalletTransfer:
 
     def test_transfer_exceeds_limit_fails(self, service):
         """Test transfer exceeding per-tx limit fails."""
-        wallet = service.create_wallet(agent_id="agent-limit")
+        wallet = service.create_wallet(stack_id="agent-limit")
         # Claim wallet to make it active
         service.claim_wallet(
             wallet_id=wallet.id,
@@ -290,7 +290,7 @@ class TestWalletTransfer:
 
     def test_transfer_invalid_address_returns_error(self, service):
         """Test transfer to invalid address returns error result."""
-        wallet = service.create_wallet(agent_id="agent-bad-dest")
+        wallet = service.create_wallet(stack_id="agent-bad-dest")
         service.claim_wallet(
             wallet_id=wallet.id,
             owner_eoa="0x1234567890123456789012345678901234567890",
@@ -309,7 +309,7 @@ class TestWalletTransfer:
 
     def test_transfer_success_stub(self, service):
         """Test successful transfer (stub)."""
-        wallet = service.create_wallet(agent_id="agent-transfer")
+        wallet = service.create_wallet(stack_id="agent-transfer")
         service.claim_wallet(
             wallet_id=wallet.id,
             owner_eoa="0x1234567890123456789012345678901234567890",
@@ -334,7 +334,7 @@ class TestWalletLifecycle:
     def test_pause_wallet(self, service):
         """Test pausing an active wallet."""
         owner_eoa = "0x1234567890123456789012345678901234567890"
-        wallet = service.create_wallet(agent_id="agent-pause")
+        wallet = service.create_wallet(stack_id="agent-pause")
         service.claim_wallet(
             wallet_id=wallet.id,
             owner_eoa=owner_eoa,
@@ -350,7 +350,7 @@ class TestWalletLifecycle:
     def test_resume_wallet(self, service):
         """Test resuming a paused wallet."""
         owner_eoa = "0x1234567890123456789012345678901234567890"
-        wallet = service.create_wallet(agent_id="agent-resume")
+        wallet = service.create_wallet(stack_id="agent-resume")
         service.claim_wallet(
             wallet_id=wallet.id,
             owner_eoa=owner_eoa,
@@ -367,7 +367,7 @@ class TestWalletLifecycle:
     def test_resume_non_paused_fails(self, service):
         """Test resuming non-paused wallet fails."""
         owner_eoa = "0x1234567890123456789012345678901234567890"
-        wallet = service.create_wallet(agent_id="agent-not-paused")
+        wallet = service.create_wallet(stack_id="agent-not-paused")
         service.claim_wallet(
             wallet_id=wallet.id,
             owner_eoa=owner_eoa,
@@ -380,7 +380,7 @@ class TestWalletLifecycle:
     def test_update_spending_limits(self, service, storage):
         """Test updating spending limits."""
         owner_eoa = "0x1234567890123456789012345678901234567890"
-        wallet = service.create_wallet(agent_id="agent-limits")
+        wallet = service.create_wallet(stack_id="agent-limits")
         service.claim_wallet(wallet_id=wallet.id, owner_eoa=owner_eoa, actor_id="agent-limits")
 
         # Only owner can update spending limits
@@ -397,7 +397,7 @@ class TestWalletLifecycle:
     def test_update_spending_limits_invalid(self, service):
         """Test updating with invalid limits fails."""
         owner_eoa = "0x1234567890123456789012345678901234567890"
-        wallet = service.create_wallet(agent_id="agent-bad-limits")
+        wallet = service.create_wallet(stack_id="agent-bad-limits")
         service.claim_wallet(wallet_id=wallet.id, owner_eoa=owner_eoa, actor_id="agent-bad-limits")
 
         with pytest.raises(WalletServiceError, match="must be positive"):
@@ -413,7 +413,7 @@ class TestDailySpendingLimits:
 
     def test_daily_limit_enforced(self, service, config):
         """Test that daily spending limit is enforced."""
-        wallet = service.create_wallet(agent_id="agent-daily")
+        wallet = service.create_wallet(stack_id="agent-daily")
         service.claim_wallet(
             wallet_id=wallet.id,
             owner_eoa="0x1234567890123456789012345678901234567890",
@@ -456,7 +456,7 @@ class TestDailySpendingLimits:
 
     def test_daily_limit_exact_boundary(self, service):
         """Test transfer at exact daily limit boundary."""
-        wallet = service.create_wallet(agent_id="agent-boundary")
+        wallet = service.create_wallet(stack_id="agent-boundary")
         service.claim_wallet(
             wallet_id=wallet.id,
             owner_eoa="0x1234567890123456789012345678901234567890",
@@ -490,7 +490,7 @@ class TestDailySpendingLimits:
 
     def test_negative_transfer_rejected(self, service):
         """Test that negative transfer amounts are rejected."""
-        wallet = service.create_wallet(agent_id="agent-negative")
+        wallet = service.create_wallet(stack_id="agent-negative")
         service.claim_wallet(
             wallet_id=wallet.id,
             owner_eoa="0x1234567890123456789012345678901234567890",
@@ -509,7 +509,7 @@ class TestDailySpendingLimits:
 
     def test_zero_transfer_rejected(self, service):
         """Test that zero transfer amounts are rejected."""
-        wallet = service.create_wallet(agent_id="agent-zero")
+        wallet = service.create_wallet(stack_id="agent-zero")
         service.claim_wallet(
             wallet_id=wallet.id,
             owner_eoa="0x1234567890123456789012345678901234567890",
@@ -530,7 +530,7 @@ class TestDailySpendingLimits:
         """Test that concurrent transfers are handled safely."""
         import threading
 
-        wallet = service.create_wallet(agent_id="agent-concurrent")
+        wallet = service.create_wallet(stack_id="agent-concurrent")
         service.claim_wallet(
             wallet_id=wallet.id,
             owner_eoa="0x1234567890123456789012345678901234567890",

@@ -66,11 +66,11 @@ def find_instruction_file() -> Optional[Tuple[Path, str]]:
     return None
 
 
-def check_kernle_load(content: str, agent_id: str) -> ComplianceCheck:
+def check_kernle_load(content: str, stack_id: str) -> ComplianceCheck:
     """Check if load instruction is present."""
     patterns = [
-        rf"kernle\s+(-a\s+{re.escape(agent_id)}\s+)?load",
-        r"kernle\s+-a\s+\w+\s+load",
+        rf"kernle\s+(-[sa]\s+{re.escape(stack_id)}\s+)?load",
+        r"kernle\s+-[sa]\s+\w+\s+load",
         r"kernle_load",  # MCP tool name
     ]
 
@@ -84,15 +84,15 @@ def check_kernle_load(content: str, agent_id: str) -> ComplianceCheck:
         name="load_instruction",
         passed=False,
         message="✗ Missing `kernle load` instruction at session start",
-        fix=f"Add: `kernle -a {agent_id} load` to session boot sequence",
+        fix=f"Add: `kernle -s {stack_id} load` to session boot sequence",
     )
 
 
-def check_kernle_anxiety(content: str, agent_id: str) -> ComplianceCheck:
+def check_kernle_anxiety(content: str, stack_id: str) -> ComplianceCheck:
     """Check if anxiety/health check instruction is present."""
     patterns = [
-        rf"kernle\s+(-a\s+{re.escape(agent_id)}\s+)?anxiety",
-        r"kernle\s+-a\s+\w+\s+anxiety",
+        rf"kernle\s+(-[sa]\s+{re.escape(stack_id)}\s+)?anxiety",
+        r"kernle\s+-[sa]\s+\w+\s+anxiety",
         r"kernle_anxiety",  # MCP tool name
         r"health\s*check",
     ]
@@ -107,11 +107,11 @@ def check_kernle_anxiety(content: str, agent_id: str) -> ComplianceCheck:
         name="anxiety_instruction",
         passed=False,
         message="✗ Missing `kernle anxiety` health check instruction",
-        fix=f"Add: `kernle -a {agent_id} anxiety` after load",
+        fix=f"Add: `kernle -s {stack_id} anxiety` after load",
     )
 
 
-def check_per_message_health(content: str, agent_id: str) -> ComplianceCheck:
+def check_per_message_health(content: str, stack_id: str) -> ComplianceCheck:
     """Check if per-message health check instruction is present."""
     patterns = [
         r"every\s+message",
@@ -133,15 +133,15 @@ def check_per_message_health(content: str, agent_id: str) -> ComplianceCheck:
         name="per_message_health",
         passed=False,
         message="⚠ No per-message health check (recommended)",
-        fix=f"Add section: 'Every Message: `kernle -a {agent_id} anxiety -b`'",
+        fix=f"Add section: 'Every Message: `kernle -s {stack_id} anxiety -b`'",
     )
 
 
-def check_checkpoint_instruction(content: str, agent_id: str) -> ComplianceCheck:
+def check_checkpoint_instruction(content: str, stack_id: str) -> ComplianceCheck:
     """Check if checkpoint instruction is present."""
     patterns = [
-        rf"kernle\s+(-a\s+{re.escape(agent_id)}\s+)?checkpoint",
-        r"kernle\s+-a\s+\w+\s+checkpoint",
+        rf"kernle\s+(-[sa]\s+{re.escape(stack_id)}\s+)?checkpoint",
+        r"kernle\s+-[sa]\s+\w+\s+checkpoint",
         r"kernle_checkpoint",  # MCP tool name
     ]
 
@@ -155,7 +155,7 @@ def check_checkpoint_instruction(content: str, agent_id: str) -> ComplianceCheck
         name="checkpoint_instruction",
         passed=False,
         message="⚠ No checkpoint instruction (recommended for session end)",
-        fix=f'Add: `kernle -a {agent_id} checkpoint save "state"` before session ends',
+        fix=f'Add: `kernle -s {stack_id} checkpoint save "state"` before session ends',
     )
 
 
@@ -182,14 +182,14 @@ def check_memory_section(content: str) -> ComplianceCheck:
     )
 
 
-def run_all_checks(content: str, agent_id: str) -> List[ComplianceCheck]:
+def run_all_checks(content: str, stack_id: str) -> List[ComplianceCheck]:
     """Run all instruction file compliance checks."""
     checks = [
         check_memory_section(content),
-        check_kernle_load(content, agent_id),
-        check_kernle_anxiety(content, agent_id),
-        check_per_message_health(content, agent_id),
-        check_checkpoint_instruction(content, agent_id),
+        check_kernle_load(content, stack_id),
+        check_kernle_anxiety(content, stack_id),
+        check_per_message_health(content, stack_id),
+        check_checkpoint_instruction(content, stack_id),
     ]
     return checks
 
@@ -379,7 +379,7 @@ def check_clawdbot_hook() -> ComplianceCheck:
         )
 
 
-def check_claude_code_hook(agent_id: str) -> ComplianceCheck:
+def check_claude_code_hook(stack_id: str) -> ComplianceCheck:
     """Check if Claude Code SessionStart hook is configured."""
     # Check global settings
     global_config = Path.home() / ".claude" / "settings.json"
@@ -416,7 +416,7 @@ def check_claude_code_hook(agent_id: str) -> ComplianceCheck:
     )
 
 
-def check_hooks(agent_id: str) -> List[ComplianceCheck]:
+def check_hooks(stack_id: str) -> List[ComplianceCheck]:
     """Check hook installation based on detected platform."""
     platform = detect_platform()
     checks = []
@@ -424,11 +424,11 @@ def check_hooks(agent_id: str) -> List[ComplianceCheck]:
     if platform == "clawdbot":
         checks.append(check_clawdbot_hook())
     elif platform == "claude-code":
-        checks.append(check_claude_code_hook(agent_id))
+        checks.append(check_claude_code_hook(stack_id))
     else:
         # Check both if platform unknown
         clawdbot_check = check_clawdbot_hook()
-        claude_check = check_claude_code_hook(agent_id)
+        claude_check = check_claude_code_hook(stack_id)
 
         # Only report as failed if BOTH are not installed
         if not clawdbot_check.passed and not claude_check.passed:
@@ -459,7 +459,7 @@ def cmd_doctor(args, k: "Kernle"):
 
     Use --full for comprehensive check including beliefs and hooks.
     """
-    agent_id = k.agent_id
+    stack_id = k.stack_id
     output_json = getattr(args, "json", False)
     fix = getattr(args, "fix", False)
     full_check = getattr(args, "full", False)
@@ -498,7 +498,7 @@ def cmd_doctor(args, k: "Kernle"):
             )
         )
         # Run instruction content checks
-        all_checks.extend(run_all_checks(content, agent_id))
+        all_checks.extend(run_all_checks(content, stack_id))
 
     # -------------------------------------------------------------------------
     # Section 2: Seed Beliefs Checks (always run in --full mode)
@@ -511,7 +511,7 @@ def cmd_doctor(args, k: "Kernle"):
     # Section 3: Hook Checks (always run in --full mode)
     # -------------------------------------------------------------------------
     if full_check:
-        hook_checks = check_hooks(agent_id)
+        hook_checks = check_hooks(stack_id)
         all_checks.extend(hook_checks)
 
     # -------------------------------------------------------------------------
@@ -564,7 +564,7 @@ def cmd_doctor(args, k: "Kernle"):
             "status": status,
             "file": str(file_path) if file_path else None,
             "file_type": file_type,
-            "agent_id": agent_id,
+            "stack_id": stack_id,
             "seed_beliefs_version": SEED_BELIEFS_VERSION,
             "required_passed": required_passed,
             "required_total": required_total,
@@ -581,7 +581,7 @@ def cmd_doctor(args, k: "Kernle"):
     print("╔══════════════════════════════════════════════════╗")
     print("║         Kernle Doctor - System Health            ║")
     print("╚══════════════════════════════════════════════════╝")
-    print(f"  Agent: {agent_id}")
+    print(f"  Stack: {stack_id}")
     print(f"  Seed Beliefs Version: {SEED_BELIEFS_VERSION}")
     if file_path:
         print(f"  Instruction File: {file_path}")
@@ -652,7 +652,7 @@ def cmd_doctor(args, k: "Kernle"):
                     content = file_path.read_text()
                     if not has_kernle_section(content):
                         section = generate_section(
-                            agent_id, style="combined", include_per_message=True
+                            stack_id, style="combined", include_per_message=True
                         )
                         new_content = content.rstrip() + "\n\n" + section
                         file_path.write_text(new_content)
@@ -679,7 +679,7 @@ def cmd_doctor(args, k: "Kernle"):
         print("(includes seed beliefs and platform hooks)")
     else:
         print()
-        print(f"Test: kernle -a {agent_id} load && kernle -a {agent_id} anxiety -b")
+        print(f"Test: kernle -s {stack_id} load && kernle -s {stack_id} anxiety -b")
 
 
 # =============================================================================
@@ -1016,7 +1016,7 @@ def cmd_doctor_structural(args, k: "Kernle"):
         print("=" * 55)
         print("  Kernle Doctor - Structural Health Check")
         print("=" * 55)
-        print(f"  Agent: {k.agent_id}")
+        print(f"  Stack: {k.stack_id}")
         print()
 
         if not findings:
@@ -1064,7 +1064,7 @@ def cmd_doctor_structural(args, k: "Kernle"):
 
         note = NoteModel(
             id=str(uuid.uuid4()),
-            agent_id=k.agent_id,
+            stack_id=k.stack_id,
             content=note_content,
             note_type="diagnostic",
             reason="kernle doctor structural",
@@ -1171,7 +1171,7 @@ def cmd_doctor_session_start(args, k: "Kernle"):
     now = datetime.now(timezone.utc)
     session = DiagnosticSession(
         id=str(uuid.uuid4()),
-        agent_id=k.agent_id,
+        stack_id=k.stack_id,
         session_type=session_type,
         access_level=access_level,
         status="active",
@@ -1189,7 +1189,7 @@ def cmd_doctor_session_start(args, k: "Kernle"):
 
     report = DiagnosticReport(
         id=str(uuid.uuid4()),
-        agent_id=k.agent_id,
+        stack_id=k.stack_id,
         session_id=session.id,
         findings=findings,
         summary=summary,
@@ -1215,7 +1215,7 @@ def cmd_doctor_session_start(args, k: "Kernle"):
         print("=" * 55)
         print("  Kernle Doctor - Diagnostic Session")
         print("=" * 55)
-        print(f"  Agent: {k.agent_id}")
+        print(f"  Stack: {k.stack_id}")
         print(f"  Session: {session.id[:12]}...")
         print(f"  Type: {session_type}")
         print(f"  Access: {access_level}")
@@ -1283,7 +1283,7 @@ def cmd_doctor_session_list(args, k: "Kernle"):
         print("=" * 55)
         print("  Kernle Doctor - Diagnostic Sessions")
         print("=" * 55)
-        print(f"  Agent: {k.agent_id}")
+        print(f"  Stack: {k.stack_id}")
         print()
 
         if not sessions:
@@ -1339,7 +1339,7 @@ def cmd_doctor_report(args, k: "Kernle"):
         print("=" * 55)
         print("  Kernle Doctor - Diagnostic Report")
         print("=" * 55)
-        print(f"  Agent: {k.agent_id}")
+        print(f"  Stack: {k.stack_id}")
         print(f"  Report: {report.id[:12]}...")
         print(f"  Session: {report.session_id[:12]}...")
         if report.created_at:

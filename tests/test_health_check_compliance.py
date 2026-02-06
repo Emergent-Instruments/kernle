@@ -15,12 +15,12 @@ from kernle.storage import SQLiteStorage
 def k(temp_checkpoint_dir, temp_db_path):
     """Simple Kernle instance for health check tests."""
     storage = SQLiteStorage(
-        agent_id="test_health_check_agent",
+        stack_id="test_health_check_agent",
         db_path=temp_db_path,
     )
 
     kernle = Kernle(
-        agent_id="test_health_check_agent", storage=storage, checkpoint_dir=temp_checkpoint_dir
+        stack_id="test_health_check_agent", storage=storage, checkpoint_dir=temp_checkpoint_dir
     )
 
     return kernle
@@ -143,7 +143,7 @@ class TestStatsCLI:
 
         # Create storage and log some events
         storage = SQLiteStorage(
-            agent_id="cli_test_agent",
+            stack_id="cli_test_agent",
             db_path=temp_db_path,
         )
         storage.log_health_check(anxiety_score=30, source="cli", triggered_by="manual")
@@ -157,7 +157,7 @@ class TestStatsCLI:
     def test_stats_health_checks_json(self, temp_db_path, temp_checkpoint_dir):
         """Test JSON output from stats command."""
         storage = SQLiteStorage(
-            agent_id="json_test_agent",
+            stack_id="json_test_agent",
             db_path=temp_db_path,
         )
         storage.log_health_check(anxiety_score=50, source="cli", triggered_by="boot")

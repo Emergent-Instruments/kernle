@@ -27,7 +27,7 @@ def temp_db():
 @pytest.fixture
 def storage(temp_db):
     """Create a SQLiteStorage instance for testing."""
-    storage = SQLiteStorage(agent_id="test-agent", db_path=temp_db)
+    storage = SQLiteStorage(stack_id="test-agent", db_path=temp_db)
     yield storage
     storage.close()
 
@@ -44,7 +44,7 @@ class TestAgentProfile:
     def test_to_dict_includes_all_fields(self):
         """Test that to_dict includes all fields."""
         profile = AgentProfile(
-            agent_id="test-agent",
+            stack_id="test-agent",
             user_id="user-123",
             display_name="Test Agent",
             capabilities=["code", "research"],
@@ -59,7 +59,7 @@ class TestAgentProfile:
 
         data = profile.to_dict()
 
-        assert data["agent_id"] == "test-agent"
+        assert data["stack_id"] == "test-agent"
         assert data["user_id"] == "user-123"
         assert data["display_name"] == "Test Agent"
         assert data["capabilities"] == ["code", "research"]
@@ -74,7 +74,7 @@ class TestAgentProfile:
     def test_from_dict_creates_profile(self):
         """Test that from_dict creates a valid profile."""
         data = {
-            "agent_id": "test-agent",
+            "stack_id": "test-agent",
             "user_id": "user-123",
             "display_name": "Test Agent",
             "capabilities": ["code", "research"],
@@ -85,7 +85,7 @@ class TestAgentProfile:
 
         profile = AgentProfile.from_dict(data)
 
-        assert profile.agent_id == "test-agent"
+        assert profile.stack_id == "test-agent"
         assert profile.user_id == "user-123"
         assert profile.display_name == "Test Agent"
         assert profile.capabilities == ["code", "research"]
@@ -96,13 +96,13 @@ class TestAgentProfile:
     def test_from_dict_handles_missing_optional_fields(self):
         """Test that from_dict handles missing optional fields."""
         data = {
-            "agent_id": "test-agent",
+            "stack_id": "test-agent",
             "user_id": "user-123",
         }
 
         profile = AgentProfile.from_dict(data)
 
-        assert profile.agent_id == "test-agent"
+        assert profile.stack_id == "test-agent"
         assert profile.user_id == "user-123"
         assert profile.display_name is None
         assert profile.capabilities == []
@@ -119,14 +119,14 @@ class TestAgentRegistry:
     def test_register_creates_profile(self, registry):
         """Test that register creates a new profile."""
         profile = registry.register(
-            agent_id="new-agent",
+            stack_id="new-agent",
             user_id="user-123",
             display_name="New Agent",
             capabilities=["code", "research"],
             is_public=True,
         )
 
-        assert profile.agent_id == "new-agent"
+        assert profile.stack_id == "new-agent"
         assert profile.user_id == "user-123"
         assert profile.display_name == "New Agent"
         assert profile.capabilities == ["code", "research"]
@@ -135,16 +135,16 @@ class TestAgentRegistry:
         assert profile.registered_at is not None
 
     def test_register_raises_for_duplicate(self, registry):
-        """Test that register raises for duplicate agent_id."""
-        registry.register(agent_id="dup-agent", user_id="user-123")
+        """Test that register raises for duplicate stack_id."""
+        registry.register(stack_id="dup-agent", user_id="user-123")
 
         with pytest.raises(AgentAlreadyExistsError):
-            registry.register(agent_id="dup-agent", user_id="user-456")
+            registry.register(stack_id="dup-agent", user_id="user-456")
 
     def test_get_profile_returns_profile(self, registry):
         """Test that get_profile returns existing profile."""
         registry.register(
-            agent_id="get-agent",
+            stack_id="get-agent",
             user_id="user-123",
             display_name="Get Agent",
         )
@@ -152,7 +152,7 @@ class TestAgentRegistry:
         profile = registry.get_profile("get-agent")
 
         assert profile is not None
-        assert profile.agent_id == "get-agent"
+        assert profile.stack_id == "get-agent"
         assert profile.display_name == "Get Agent"
 
     def test_get_profile_returns_none_for_missing(self, registry):
@@ -163,14 +163,14 @@ class TestAgentRegistry:
     def test_update_profile_updates_fields(self, registry):
         """Test that update_profile updates specified fields."""
         registry.register(
-            agent_id="update-agent",
+            stack_id="update-agent",
             user_id="user-123",
             display_name="Original Name",
             capabilities=["code"],
         )
 
         updated = registry.update_profile(
-            agent_id="update-agent",
+            stack_id="update-agent",
             display_name="New Name",
             capabilities=["code", "research"],
             is_public=True,
@@ -183,14 +183,14 @@ class TestAgentRegistry:
     def test_update_profile_preserves_unchanged_fields(self, registry):
         """Test that update_profile preserves fields not specified."""
         registry.register(
-            agent_id="preserve-agent",
+            stack_id="preserve-agent",
             user_id="user-123",
             display_name="Original Name",
             capabilities=["code", "research"],
         )
 
         updated = registry.update_profile(
-            agent_id="preserve-agent",
+            stack_id="preserve-agent",
             display_name="New Name",
         )
 
@@ -200,11 +200,11 @@ class TestAgentRegistry:
     def test_update_profile_raises_for_missing(self, registry):
         """Test that update_profile raises for missing agent."""
         with pytest.raises(AgentNotFoundError):
-            registry.update_profile(agent_id="nonexistent", display_name="Name")
+            registry.update_profile(stack_id="nonexistent", display_name="Name")
 
     def test_delete_profile_removes_agent(self, registry):
         """Test that delete_profile removes the agent."""
-        registry.register(agent_id="delete-agent", user_id="user-123")
+        registry.register(stack_id="delete-agent", user_id="user-123")
 
         result = registry.delete_profile("delete-agent")
         assert result is True
@@ -224,32 +224,32 @@ class TestAgentDiscovery:
     def test_discover_returns_public_agents(self, registry):
         """Test that discover returns only public agents."""
         registry.register(
-            agent_id="public-agent",
+            stack_id="public-agent",
             user_id="user-123",
             is_public=True,
         )
         registry.register(
-            agent_id="private-agent",
+            stack_id="private-agent",
             user_id="user-456",
             is_public=False,
         )
 
         results = registry.discover()
 
-        agent_ids = [p.agent_id for p in results]
-        assert "public-agent" in agent_ids
-        assert "private-agent" not in agent_ids
+        stack_ids = [p.stack_id for p in results]
+        assert "public-agent" in stack_ids
+        assert "private-agent" not in stack_ids
 
     def test_discover_filters_by_capability(self, registry):
         """Test that discover filters by capability."""
         registry.register(
-            agent_id="code-agent",
+            stack_id="code-agent",
             user_id="user-123",
             capabilities=["code", "review"],
             is_public=True,
         )
         registry.register(
-            agent_id="research-agent",
+            stack_id="research-agent",
             user_id="user-456",
             capabilities=["research"],
             is_public=True,
@@ -257,26 +257,26 @@ class TestAgentDiscovery:
 
         results = registry.discover(capabilities=["code"])
 
-        agent_ids = [p.agent_id for p in results]
-        assert "code-agent" in agent_ids
-        assert "research-agent" not in agent_ids
+        stack_ids = [p.stack_id for p in results]
+        assert "code-agent" in stack_ids
+        assert "research-agent" not in stack_ids
 
     def test_discover_multiple_capabilities_match_any(self, registry):
         """Test that discover with multiple capabilities matches any."""
         registry.register(
-            agent_id="code-agent",
+            stack_id="code-agent",
             user_id="user-123",
             capabilities=["code"],
             is_public=True,
         )
         registry.register(
-            agent_id="research-agent",
+            stack_id="research-agent",
             user_id="user-456",
             capabilities=["research"],
             is_public=True,
         )
         registry.register(
-            agent_id="other-agent",
+            stack_id="other-agent",
             user_id="user-789",
             capabilities=["writing"],
             is_public=True,
@@ -284,29 +284,29 @@ class TestAgentDiscovery:
 
         results = registry.discover(capabilities=["code", "research"])
 
-        agent_ids = [p.agent_id for p in results]
-        assert "code-agent" in agent_ids
-        assert "research-agent" in agent_ids
-        assert "other-agent" not in agent_ids
+        stack_ids = [p.stack_id for p in results]
+        assert "code-agent" in stack_ids
+        assert "research-agent" in stack_ids
+        assert "other-agent" not in stack_ids
 
     def test_list_all_returns_all_agents(self, registry):
         """Test that list_all returns all agents including private."""
         registry.register(
-            agent_id="public-agent",
+            stack_id="public-agent",
             user_id="user-123",
             is_public=True,
         )
         registry.register(
-            agent_id="private-agent",
+            stack_id="private-agent",
             user_id="user-456",
             is_public=False,
         )
 
         results = registry.list_all()
 
-        agent_ids = [p.agent_id for p in results]
-        assert "public-agent" in agent_ids
-        assert "private-agent" in agent_ids
+        stack_ids = [p.stack_id for p in results]
+        assert "public-agent" in stack_ids
+        assert "private-agent" in stack_ids
 
 
 class TestLastSeenTracking:
@@ -314,12 +314,12 @@ class TestLastSeenTracking:
 
     def test_register_sets_last_seen(self, registry):
         """Test that register sets last_seen_at."""
-        profile = registry.register(agent_id="new-agent", user_id="user-123")
+        profile = registry.register(stack_id="new-agent", user_id="user-123")
         assert profile.last_seen_at is not None
 
     def test_update_last_seen_updates_timestamp(self, registry):
         """Test that update_last_seen updates the timestamp."""
-        registry.register(agent_id="seen-agent", user_id="user-123")
+        registry.register(stack_id="seen-agent", user_id="user-123")
         profile1 = registry.get_profile("seen-agent")
         original_seen = profile1.last_seen_at
 

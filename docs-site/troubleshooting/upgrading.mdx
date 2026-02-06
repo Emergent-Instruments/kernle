@@ -77,8 +77,8 @@ Migrations run automatically on any Kernle command. To explicitly trigger them:
 # Any command will trigger migrations
 kernle status
 
-# Or check your agent's memory
-kernle -a your_agent load
+# Or check your stack's memory
+kernle -s your_stack load
 ```
 
 ### Verifying Migration Success
@@ -107,15 +107,15 @@ If the warning persists after running commands:
 2. **Force schema recreation** (safe - won't delete data):
    ```bash
    # Backup first
-   cp ~/.kernle/your_agent/memory.db ~/.kernle/your_agent/memory.db.backup
+   cp ~/.kernle/your_stack/memory.db ~/.kernle/your_stack/memory.db.backup
 
    # Run any command to re-trigger migrations
-   kernle -a your_agent status
+   kernle -s your_stack status
    ```
 
 3. **Check file permissions**: Ensure the database file is writable
    ```bash
-   ls -la ~/.kernle/your_agent/memory.db
+   ls -la ~/.kernle/your_stack/memory.db
    ```
 
 ### FTS5 Search Not Working
@@ -124,7 +124,7 @@ If `kernle raw search` returns no results but you have raw entries:
 
 1. The FTS5 index may need rebuilding. This happens automatically, but you can force it:
    ```bash
-   kernle -a your_agent raw search "."  # Any search triggers index check
+   kernle -s your_stack raw search "."  # Any search triggers index check
    ```
 
 2. On older SQLite versions without FTS5, search falls back to LIKE queries (slower but functional).

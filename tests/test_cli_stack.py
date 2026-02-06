@@ -5,60 +5,60 @@ from argparse import Namespace
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from kernle.cli.commands.agent import _delete_agent, _list_agents, cmd_agent
+from kernle.cli.commands.stack import _delete_stack, _list_stacks, cmd_stack
 
 
 class TestCmdAgent:
-    """Test the cmd_agent dispatcher function."""
+    """Test the cmd_stack dispatcher function."""
 
     def test_dispatches_to_list(self, capsys):
-        """Test cmd_agent dispatches to list handler."""
+        """Test cmd_stack dispatches to list handler."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
 
-        args = Namespace(agent_action="list")
+        args = Namespace(stack_action="list")
 
-        with patch("kernle.cli.commands.agent._list_agents") as mock_list:
-            cmd_agent(args, k)
+        with patch("kernle.cli.commands.stack._list_stacks") as mock_list:
+            cmd_stack(args, k)
             mock_list.assert_called_once_with(args, k)
 
     def test_dispatches_to_delete(self, capsys):
-        """Test cmd_agent dispatches to delete handler."""
+        """Test cmd_stack dispatches to delete handler."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
 
-        args = Namespace(agent_action="delete", name="other-agent")
+        args = Namespace(stack_action="delete", name="other-agent")
 
-        with patch("kernle.cli.commands.agent._delete_agent") as mock_delete:
-            cmd_agent(args, k)
+        with patch("kernle.cli.commands.stack._delete_stack") as mock_delete:
+            cmd_stack(args, k)
             mock_delete.assert_called_once_with(args, k)
 
 
 class TestListAgentsNoKernleDir:
-    """Test _list_agents when Kernle directory doesn't exist."""
+    """Test _list_stacks when Kernle directory doesn't exist."""
 
     def test_no_kernle_dir(self, capsys, tmp_path):
         """Test when ~/.kernle doesn't exist."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
 
         args = Namespace()
 
         # Use a non-existent directory as home
         with patch.object(Path, "home", return_value=tmp_path / "nonexistent"):
-            _list_agents(args, k)
+            _list_stacks(args, k)
 
         captured = capsys.readouterr()
         assert "No agents found (Kernle not initialized)" in captured.out
 
 
 class TestListAgentsWithDatabase:
-    """Test _list_agents with SQLite database."""
+    """Test _list_stacks with SQLite database."""
 
     def test_agents_from_database(self, capsys, tmp_path):
         """Test listing agents from SQLite database."""
         k = MagicMock()
-        k.agent_id = "agent-1"
+        k.stack_id = "agent-1"
 
         args = Namespace()
 
@@ -68,9 +68,9 @@ class TestListAgentsWithDatabase:
 
         db_path = kernle_dir / "memories.db"
         conn = sqlite3.connect(str(db_path))
-        conn.execute("CREATE TABLE episodes (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE notes (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE beliefs (agent_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE episodes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE notes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE beliefs (stack_id TEXT, id TEXT)")
         conn.execute("INSERT INTO episodes VALUES ('agent-1', 'ep1')")
         conn.execute("INSERT INTO episodes VALUES ('agent-1', 'ep2')")
         conn.execute("INSERT INTO notes VALUES ('agent-1', 'n1')")
@@ -80,10 +80,10 @@ class TestListAgentsWithDatabase:
         conn.close()
 
         with patch.object(Path, "home", return_value=tmp_path):
-            _list_agents(args, k)
+            _list_stacks(args, k)
 
         captured = capsys.readouterr()
-        assert "Local Agents (2 total)" in captured.out
+        assert "Local Stacks (2 total)" in captured.out
         assert "agent-1" in captured.out
         assert "current" in captured.out  # agent-1 should be marked as current
         assert "agent-2" in captured.out
@@ -92,7 +92,7 @@ class TestListAgentsWithDatabase:
     def test_agents_from_directories(self, capsys, tmp_path):
         """Test listing agents from directory structure."""
         k = MagicMock()
-        k.agent_id = "agent-dir"
+        k.stack_id = "agent-dir"
 
         args = Namespace()
 
@@ -117,10 +117,10 @@ class TestListAgentsWithDatabase:
         (kernle_dir / "__pycache__").mkdir()
 
         with patch.object(Path, "home", return_value=tmp_path):
-            _list_agents(args, k)
+            _list_stacks(args, k)
 
         captured = capsys.readouterr()
-        assert "Local Agents" in captured.out
+        assert "Local Stacks" in captured.out
         assert "agent-dir" in captured.out
         assert "agent-simple" in captured.out
         assert "Raw: 2" in captured.out
@@ -130,7 +130,7 @@ class TestListAgentsWithDatabase:
     def test_no_agents_found(self, capsys, tmp_path):
         """Test when kernle dir exists but no agents."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
 
         args = Namespace()
 
@@ -139,7 +139,7 @@ class TestListAgentsWithDatabase:
         kernle_dir.mkdir()
 
         with patch.object(Path, "home", return_value=tmp_path):
-            _list_agents(args, k)
+            _list_stacks(args, k)
 
         captured = capsys.readouterr()
         assert "No agents found" in captured.out
@@ -147,7 +147,7 @@ class TestListAgentsWithDatabase:
     def test_db_error_handled_gracefully(self, capsys, tmp_path):
         """Test database errors are handled gracefully."""
         k = MagicMock()
-        k.agent_id = "agent-1"
+        k.stack_id = "agent-1"
 
         args = Namespace()
 
@@ -164,7 +164,7 @@ class TestListAgentsWithDatabase:
         agent_dir.mkdir()
 
         with patch.object(Path, "home", return_value=tmp_path):
-            _list_agents(args, k)
+            _list_stacks(args, k)
 
         captured = capsys.readouterr()
         # Should still list the directory-based agent
@@ -172,25 +172,25 @@ class TestListAgentsWithDatabase:
 
 
 class TestDeleteAgent:
-    """Test _delete_agent function."""
+    """Test _delete_stack function."""
 
     def test_cannot_delete_current_agent(self, capsys):
         """Test error when trying to delete current agent."""
         k = MagicMock()
-        k.agent_id = "current-agent"
+        k.stack_id = "current-agent"
 
         args = Namespace(name="current-agent", force=False)
 
-        _delete_agent(args, k)
+        _delete_stack(args, k)
 
         captured = capsys.readouterr()
         assert "Cannot delete current agent" in captured.out
-        assert "Switch to a different agent" in captured.out
+        assert "Switch to a different stack" in captured.out
 
     def test_agent_not_found(self, capsys, tmp_path):
         """Test error when agent doesn't exist."""
         k = MagicMock()
-        k.agent_id = "current-agent"
+        k.stack_id = "current-agent"
 
         args = Namespace(name="nonexistent-agent", force=True)
 
@@ -199,15 +199,15 @@ class TestDeleteAgent:
         kernle_dir.mkdir()
 
         with patch.object(Path, "home", return_value=tmp_path):
-            _delete_agent(args, k)
+            _delete_stack(args, k)
 
         captured = capsys.readouterr()
-        assert "Agent 'nonexistent-agent' not found" in captured.out
+        assert "Stack 'nonexistent-agent' not found" in captured.out
 
     def test_delete_with_force(self, capsys, tmp_path):
         """Test deleting agent with --force flag."""
         k = MagicMock()
-        k.agent_id = "current-agent"
+        k.stack_id = "current-agent"
 
         args = Namespace(name="other-agent", force=True)
 
@@ -218,11 +218,11 @@ class TestDeleteAgent:
         # Create database with agent data
         db_path = kernle_dir / "memories.db"
         conn = sqlite3.connect(str(db_path))
-        conn.execute("CREATE TABLE episodes (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE notes (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE beliefs (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE goals (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE agent_values (agent_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE episodes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE notes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE beliefs (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE goals (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE agent_values (stack_id TEXT, id TEXT)")
         conn.execute("INSERT INTO episodes VALUES ('other-agent', 'ep1')")
         conn.execute("INSERT INTO episodes VALUES ('other-agent', 'ep2')")
         conn.execute("INSERT INTO notes VALUES ('other-agent', 'n1')")
@@ -235,17 +235,17 @@ class TestDeleteAgent:
         (agent_dir / "some_file.txt").write_text("test")
 
         with patch.object(Path, "home", return_value=tmp_path):
-            _delete_agent(args, k)
+            _delete_stack(args, k)
 
         captured = capsys.readouterr()
-        assert "Agent 'other-agent' deleted" in captured.out
+        assert "Stack 'other-agent' deleted" in captured.out
         assert "Deleted directory" in captured.out
         assert not agent_dir.exists()
 
         # Verify database records were deleted
         conn = sqlite3.connect(str(db_path))
         count = conn.execute(
-            "SELECT COUNT(*) FROM episodes WHERE agent_id = ?", ("other-agent",)
+            "SELECT COUNT(*) FROM episodes WHERE stack_id = ?", ("other-agent",)
         ).fetchone()[0]
         conn.close()
         assert count == 0
@@ -253,7 +253,7 @@ class TestDeleteAgent:
     def test_delete_cancelled_on_wrong_confirmation(self, capsys, tmp_path, monkeypatch):
         """Test deletion is cancelled when wrong name is entered."""
         k = MagicMock()
-        k.agent_id = "current-agent"
+        k.stack_id = "current-agent"
 
         args = Namespace(name="other-agent", force=False)
 
@@ -264,11 +264,11 @@ class TestDeleteAgent:
         # Create database with agent data
         db_path = kernle_dir / "memories.db"
         conn = sqlite3.connect(str(db_path))
-        conn.execute("CREATE TABLE episodes (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE notes (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE beliefs (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE goals (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE agent_values (agent_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE episodes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE notes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE beliefs (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE goals (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE agent_values (stack_id TEXT, id TEXT)")
         conn.execute("INSERT INTO episodes VALUES ('other-agent', 'ep1')")
         conn.commit()
         conn.close()
@@ -277,7 +277,7 @@ class TestDeleteAgent:
         monkeypatch.setattr("builtins.input", lambda _: "wrong-name")
 
         with patch.object(Path, "home", return_value=tmp_path):
-            _delete_agent(args, k)
+            _delete_stack(args, k)
 
         captured = capsys.readouterr()
         assert "About to delete agent 'other-agent'" in captured.out
@@ -286,7 +286,7 @@ class TestDeleteAgent:
     def test_delete_confirmed_with_correct_name(self, capsys, tmp_path, monkeypatch):
         """Test deletion proceeds with correct confirmation."""
         k = MagicMock()
-        k.agent_id = "current-agent"
+        k.stack_id = "current-agent"
 
         args = Namespace(name="other-agent", force=False)
 
@@ -297,11 +297,11 @@ class TestDeleteAgent:
         # Create database with agent data
         db_path = kernle_dir / "memories.db"
         conn = sqlite3.connect(str(db_path))
-        conn.execute("CREATE TABLE episodes (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE notes (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE beliefs (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE goals (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE agent_values (agent_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE episodes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE notes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE beliefs (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE goals (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE agent_values (stack_id TEXT, id TEXT)")
         conn.execute("INSERT INTO episodes VALUES ('other-agent', 'ep1')")
         conn.commit()
         conn.close()
@@ -314,15 +314,15 @@ class TestDeleteAgent:
         monkeypatch.setattr("builtins.input", lambda _: "other-agent")
 
         with patch.object(Path, "home", return_value=tmp_path):
-            _delete_agent(args, k)
+            _delete_stack(args, k)
 
         captured = capsys.readouterr()
-        assert "Agent 'other-agent' deleted" in captured.out
+        assert "Stack 'other-agent' deleted" in captured.out
 
     def test_delete_shows_counts_in_confirmation(self, capsys, tmp_path, monkeypatch):
         """Test that confirmation message shows record counts."""
         k = MagicMock()
-        k.agent_id = "current-agent"
+        k.stack_id = "current-agent"
 
         args = Namespace(name="other-agent", force=False)
 
@@ -333,11 +333,11 @@ class TestDeleteAgent:
         # Create database with various records
         db_path = kernle_dir / "memories.db"
         conn = sqlite3.connect(str(db_path))
-        conn.execute("CREATE TABLE episodes (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE notes (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE beliefs (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE goals (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE agent_values (agent_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE episodes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE notes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE beliefs (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE goals (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE agent_values (stack_id TEXT, id TEXT)")
         conn.execute("INSERT INTO episodes VALUES ('other-agent', 'ep1')")
         conn.execute("INSERT INTO episodes VALUES ('other-agent', 'ep2')")
         conn.execute("INSERT INTO notes VALUES ('other-agent', 'n1')")
@@ -353,7 +353,7 @@ class TestDeleteAgent:
         monkeypatch.setattr("builtins.input", lambda _: "no")
 
         with patch.object(Path, "home", return_value=tmp_path):
-            _delete_agent(args, k)
+            _delete_stack(args, k)
 
         captured = capsys.readouterr()
         assert "Episodes: 2" in captured.out
@@ -365,7 +365,7 @@ class TestDeleteAgent:
     def test_delete_db_only_agent(self, capsys, tmp_path):
         """Test deleting agent that only exists in database (no directory)."""
         k = MagicMock()
-        k.agent_id = "current-agent"
+        k.stack_id = "current-agent"
 
         args = Namespace(name="db-only-agent", force=True)
 
@@ -376,27 +376,27 @@ class TestDeleteAgent:
         # Create database with agent data but no directory
         db_path = kernle_dir / "memories.db"
         conn = sqlite3.connect(str(db_path))
-        conn.execute("CREATE TABLE episodes (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE notes (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE beliefs (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE goals (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE agent_values (agent_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE episodes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE notes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE beliefs (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE goals (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE agent_values (stack_id TEXT, id TEXT)")
         conn.execute("INSERT INTO episodes VALUES ('db-only-agent', 'ep1')")
         conn.commit()
         conn.close()
 
         with patch.object(Path, "home", return_value=tmp_path):
-            _delete_agent(args, k)
+            _delete_stack(args, k)
 
         captured = capsys.readouterr()
-        assert "Agent 'db-only-agent' deleted" in captured.out
+        assert "Stack 'db-only-agent' deleted" in captured.out
         # Should not mention directory deletion since there was none
         assert "Deleted directory" not in captured.out
 
     def test_delete_dir_only_agent(self, capsys, tmp_path):
         """Test deleting agent that only exists as directory (no DB records)."""
         k = MagicMock()
-        k.agent_id = "current-agent"
+        k.stack_id = "current-agent"
 
         args = Namespace(name="dir-only-agent", force=True)
 
@@ -407,11 +407,11 @@ class TestDeleteAgent:
         # Create empty database
         db_path = kernle_dir / "memories.db"
         conn = sqlite3.connect(str(db_path))
-        conn.execute("CREATE TABLE episodes (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE notes (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE beliefs (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE goals (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE agent_values (agent_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE episodes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE notes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE beliefs (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE goals (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE agent_values (stack_id TEXT, id TEXT)")
         conn.commit()
         conn.close()
 
@@ -421,17 +421,17 @@ class TestDeleteAgent:
         (agent_dir / "data.txt").write_text("test")
 
         with patch.object(Path, "home", return_value=tmp_path):
-            _delete_agent(args, k)
+            _delete_stack(args, k)
 
         captured = capsys.readouterr()
-        assert "Agent 'dir-only-agent' deleted" in captured.out
+        assert "Stack 'dir-only-agent' deleted" in captured.out
         assert "Deleted directory" in captured.out
         assert not agent_dir.exists()
 
     def test_delete_handles_additional_tables(self, capsys, tmp_path):
         """Test deletion cleans up all related tables."""
         k = MagicMock()
-        k.agent_id = "current-agent"
+        k.stack_id = "current-agent"
 
         args = Namespace(name="full-agent", force=True)
 
@@ -456,22 +456,22 @@ class TestDeleteAgent:
             "sync_queue",
         ]
         for table in tables:
-            conn.execute(f"CREATE TABLE {table} (agent_id TEXT, id TEXT)")
+            conn.execute(f"CREATE TABLE {table} (stack_id TEXT, id TEXT)")
             conn.execute(f"INSERT INTO {table} VALUES ('full-agent', 'id1')")
         conn.commit()
         conn.close()
 
         with patch.object(Path, "home", return_value=tmp_path):
-            _delete_agent(args, k)
+            _delete_stack(args, k)
 
         captured = capsys.readouterr()
-        assert "Agent 'full-agent' deleted" in captured.out
+        assert "Stack 'full-agent' deleted" in captured.out
 
         # Verify all tables were cleaned
         conn = sqlite3.connect(str(db_path))
         for table in tables:
             count = conn.execute(
-                f"SELECT COUNT(*) FROM {table} WHERE agent_id = ?", ("full-agent",)
+                f"SELECT COUNT(*) FROM {table} WHERE stack_id = ?", ("full-agent",)
             ).fetchone()[0]
             assert count == 0, f"Table {table} should be empty"
         conn.close()
@@ -479,7 +479,7 @@ class TestDeleteAgent:
     def test_delete_handles_db_error_checking_existence(self, capsys, tmp_path):
         """Test deletion handles DB error when checking if agent exists."""
         k = MagicMock()
-        k.agent_id = "current-agent"
+        k.stack_id = "current-agent"
 
         args = Namespace(name="other-agent", force=True)
 
@@ -496,16 +496,16 @@ class TestDeleteAgent:
         agent_dir.mkdir()
 
         with patch.object(Path, "home", return_value=tmp_path):
-            _delete_agent(args, k)
+            _delete_stack(args, k)
 
         captured = capsys.readouterr()
         # Should still delete the directory-based agent
-        assert "Agent 'other-agent' deleted" in captured.out or "Error" in captured.out
+        assert "Stack 'other-agent' deleted" in captured.out or "Error" in captured.out
 
     def test_delete_handles_db_error_getting_counts(self, capsys, tmp_path, monkeypatch):
         """Test deletion handles DB error when getting counts for confirmation."""
         k = MagicMock()
-        k.agent_id = "current-agent"
+        k.stack_id = "current-agent"
 
         args = Namespace(name="other-agent", force=False)
 
@@ -516,7 +516,7 @@ class TestDeleteAgent:
         # Create valid database with minimal schema
         db_path = kernle_dir / "memories.db"
         conn = sqlite3.connect(str(db_path))
-        conn.execute("CREATE TABLE episodes (agent_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE episodes (stack_id TEXT, id TEXT)")
         conn.execute("INSERT INTO episodes VALUES ('other-agent', 'ep1')")
         # Missing other tables - will cause error when getting counts
         conn.commit()
@@ -526,7 +526,7 @@ class TestDeleteAgent:
         monkeypatch.setattr("builtins.input", lambda _: "no")
 
         with patch.object(Path, "home", return_value=tmp_path):
-            _delete_agent(args, k)
+            _delete_stack(args, k)
 
         captured = capsys.readouterr()
         # Should handle the error gracefully and still show confirmation
@@ -535,7 +535,7 @@ class TestDeleteAgent:
     def test_delete_handles_db_error_during_cleanup(self, capsys, tmp_path):
         """Test deletion handles DB error during cleanup."""
         k = MagicMock()
-        k.agent_id = "current-agent"
+        k.stack_id = "current-agent"
 
         args = Namespace(name="other-agent", force=True)
 
@@ -546,11 +546,11 @@ class TestDeleteAgent:
         # Create database with agent data
         db_path = kernle_dir / "memories.db"
         conn = sqlite3.connect(str(db_path))
-        conn.execute("CREATE TABLE episodes (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE notes (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE beliefs (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE goals (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE agent_values (agent_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE episodes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE notes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE beliefs (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE goals (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE agent_values (stack_id TEXT, id TEXT)")
         conn.execute("INSERT INTO episodes VALUES ('other-agent', 'ep1')")
         conn.commit()
         conn.close()
@@ -573,7 +573,7 @@ class TestDeleteAgent:
 
         with patch.object(Path, "home", return_value=tmp_path):
             with patch("sqlite3.connect", side_effect=mock_connect):
-                _delete_agent(args, k)
+                _delete_stack(args, k)
 
         captured = capsys.readouterr()
         assert "Error cleaning database" in captured.out
@@ -581,7 +581,7 @@ class TestDeleteAgent:
     def test_delete_handles_directory_deletion_error(self, capsys, tmp_path):
         """Test deletion handles error when deleting directory."""
         k = MagicMock()
-        k.agent_id = "current-agent"
+        k.stack_id = "current-agent"
 
         args = Namespace(name="other-agent", force=True)
 
@@ -592,11 +592,11 @@ class TestDeleteAgent:
         # Create database
         db_path = kernle_dir / "memories.db"
         conn = sqlite3.connect(str(db_path))
-        conn.execute("CREATE TABLE episodes (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE notes (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE beliefs (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE goals (agent_id TEXT, id TEXT)")
-        conn.execute("CREATE TABLE agent_values (agent_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE episodes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE notes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE beliefs (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE goals (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE agent_values (stack_id TEXT, id TEXT)")
         conn.execute("INSERT INTO episodes VALUES ('other-agent', 'ep1')")
         conn.commit()
         conn.close()
@@ -607,7 +607,7 @@ class TestDeleteAgent:
 
         with patch.object(Path, "home", return_value=tmp_path):
             with patch("shutil.rmtree", side_effect=PermissionError("Access denied")):
-                _delete_agent(args, k)
+                _delete_stack(args, k)
 
         captured = capsys.readouterr()
         assert "Error deleting directory" in captured.out

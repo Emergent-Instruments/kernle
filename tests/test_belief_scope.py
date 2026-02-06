@@ -14,7 +14,7 @@ from kernle.storage.sqlite import SQLiteStorage
 def storage(tmp_path):
     """SQLite storage for belief scope tests."""
     db_path = tmp_path / "test_belief_scope.db"
-    s = SQLiteStorage(agent_id="test_agent", db_path=db_path)
+    s = SQLiteStorage(stack_id="test_agent", db_path=db_path)
     yield s
     s.close()
 
@@ -23,7 +23,7 @@ def _make_belief(**kwargs) -> Belief:
     """Helper to create a Belief with defaults."""
     defaults = {
         "id": str(uuid.uuid4()),
-        "agent_id": "test_agent",
+        "stack_id": "test_agent",
         "statement": "Test belief",
         "belief_type": "fact",
         "confidence": 0.8,
@@ -192,7 +192,7 @@ class TestBeliefScopePriority:
 
         episode = Episode(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             objective="test",
             outcome="test",
         )
@@ -209,7 +209,7 @@ class TestBeliefScopeDecay:
         """Self-scoped beliefs should decay slower, like values."""
         from kernle import Kernle
 
-        k = Kernle(agent_id="test_agent", storage=storage)
+        k = Kernle(stack_id="test_agent", storage=storage)
 
         old_date = datetime.now(timezone.utc) - timedelta(days=90)
 
@@ -234,7 +234,7 @@ class TestBeliefScopeDecay:
         """World-scoped beliefs should use standard belief decay."""
         from kernle import Kernle
 
-        k = Kernle(agent_id="test_agent", storage=storage)
+        k = Kernle(stack_id="test_agent", storage=storage)
 
         old_date = datetime.now(timezone.utc) - timedelta(days=30)
 

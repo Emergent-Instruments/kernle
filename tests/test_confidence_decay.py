@@ -45,15 +45,15 @@ def temp_checkpoint_dir(tmp_path):
 @pytest.fixture
 def storage(temp_db):
     """Create a SQLiteStorage instance for testing."""
-    return SQLiteStorage(agent_id="test-agent", db_path=temp_db)
+    return SQLiteStorage(stack_id="test-agent", db_path=temp_db)
 
 
 @pytest.fixture
 def kernle(temp_db, temp_checkpoint_dir):
     """Create a Kernle instance for testing."""
-    storage = SQLiteStorage(agent_id="test-agent", db_path=temp_db)
+    storage = SQLiteStorage(stack_id="test-agent", db_path=temp_db)
     return Kernle(
-        agent_id="test-agent",
+        stack_id="test-agent",
         storage=storage,
         checkpoint_dir=temp_checkpoint_dir,
     )
@@ -147,7 +147,7 @@ class TestGetConfidenceWithDecay:
         storage.save_belief(
             Belief(
                 id="b-recent",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Recent belief",
                 confidence=0.9,
                 last_verified=now - timedelta(hours=12),
@@ -167,7 +167,7 @@ class TestGetConfidenceWithDecay:
         storage.save_belief(
             Belief(
                 id="b-old",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Old belief",
                 confidence=0.9,
                 last_verified=now - timedelta(days=config.decay_period_days),
@@ -190,7 +190,7 @@ class TestGetConfidenceWithDecay:
         storage.save_belief(
             Belief(
                 id="b-ancient",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Ancient belief",
                 confidence=0.9,
                 last_verified=now - timedelta(days=3650),  # 10 years old
@@ -231,7 +231,7 @@ class TestGetConfidenceWithDecay:
         storage.save_value(
             Value(
                 id="v-protected",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 name="Core Value",
                 statement="Protected value",
                 confidence=0.95,
@@ -258,7 +258,7 @@ class TestGetConfidenceWithDecay:
         storage.save_belief(
             Belief(
                 id="b-compare",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Test belief",
                 confidence=0.9,
                 last_verified=now - timedelta(days=days_old),
@@ -268,7 +268,7 @@ class TestGetConfidenceWithDecay:
         storage.save_value(
             Value(
                 id="v-compare",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 name="Test",
                 statement="Test value",
                 confidence=0.9,
@@ -293,7 +293,7 @@ class TestGetConfidenceWithDecay:
         storage.save_belief(
             Belief(
                 id="b-never-verified",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Never verified belief",
                 confidence=0.8,
                 created_at=now - timedelta(days=config.decay_period_days * 2),
@@ -318,7 +318,7 @@ class TestGetConfidenceWithDecay:
         storage.save_belief(
             Belief(
                 id="b-no-decay",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="No decay belief",
                 confidence=0.9,
                 last_verified=now - timedelta(days=365),
@@ -378,7 +378,7 @@ class TestGetMemoryConfidence:
         storage.save_belief(
             Belief(
                 id="b-test",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Test",
                 confidence=0.9,
                 last_verified=now - timedelta(days=config.decay_period_days * 2),
@@ -400,7 +400,7 @@ class TestGetMemoryConfidence:
         storage.save_belief(
             Belief(
                 id="b-default",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Test",
                 confidence=0.9,
                 last_verified=now - timedelta(days=config.decay_period_days * 2),
@@ -426,7 +426,7 @@ class TestGetUncertainMemoriesWithDecay:
         storage.save_belief(
             Belief(
                 id="b-decayed",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Decayed belief",
                 confidence=0.7,
                 last_verified=now - timedelta(days=365 * 3),  # 3 years old
@@ -437,7 +437,7 @@ class TestGetUncertainMemoriesWithDecay:
         storage.save_belief(
             Belief(
                 id="b-fresh",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Fresh belief",
                 confidence=0.9,
                 last_verified=now - timedelta(hours=1),
@@ -460,7 +460,7 @@ class TestGetUncertainMemoriesWithDecay:
         storage.save_belief(
             Belief(
                 id="b-both",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Both confidences",
                 confidence=0.7,
                 last_verified=now - timedelta(days=180),
@@ -488,7 +488,7 @@ class TestGetMemoryLineageWithDecay:
         storage.save_belief(
             Belief(
                 id="b-lineage",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Test lineage",
                 confidence=0.85,
                 last_verified=now - timedelta(days=60),
@@ -511,7 +511,7 @@ class TestGetMemoryLineageWithDecay:
         storage.save_belief(
             Belief(
                 id="b-config",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Test config",
                 confidence=0.8,
             )
@@ -537,7 +537,7 @@ class TestComputePriorityScoreWithDecay:
         storage.save_belief(
             Belief(
                 id="b-priority",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Priority test",
                 confidence=0.9,
                 last_verified=now - timedelta(days=180),
@@ -563,7 +563,7 @@ class TestComputePriorityScoreWithDecay:
         storage.save_belief(
             Belief(
                 id="b-fresh-high",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Fresh high confidence belief",
                 confidence=0.8,
                 last_verified=now - timedelta(hours=1),
@@ -574,7 +574,7 @@ class TestComputePriorityScoreWithDecay:
         storage.save_belief(
             Belief(
                 id="b-old-high",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Old high confidence belief",
                 confidence=0.95,
                 last_verified=now - timedelta(days=365),

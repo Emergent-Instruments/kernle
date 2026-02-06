@@ -25,7 +25,7 @@ The core cognitive infrastructure is in place:
 
 | Feature | Status | Description |
 |---------|--------|-------------|
-| Temporal epochs | Done | Agent-declared eras with snapshots |
+| Temporal epochs | Done | SI-declared eras with snapshots |
 | Fractal summarization | Done | Month/quarter/year/decade/epoch summaries |
 | Self-narrative | Done | Identity, developmental, aspirational narratives |
 | Trust assessments | Done | Multi-dimensional trust with authority gating |
@@ -100,8 +100,8 @@ abstraction_level: "domain"  # 'specific' | 'domain' | 'universal'
 Currently relationships capture a snapshot. Relationship history tracks the trajectory:
 
 ```sql
-CREATE TABLE agent_relationship_history (
-    relationship_id UUID REFERENCES agent_relationships(id),
+CREATE TABLE relationship_history (
+    relationship_id UUID REFERENCES relationships(id),
     event_type TEXT,       -- 'interaction' | 'trust_change' | 'type_change' | 'note'
     old_value JSONB,
     new_value JSONB,
@@ -116,7 +116,7 @@ This lets the entity answer "How has my relationship with Claire evolved?" witho
 Beyond tracking relationships, the entity can model what they know *about* another entity:
 
 ```sql
-CREATE TABLE agent_entity_models (
+CREATE TABLE entity_models (
     entity_name TEXT,
     model_type TEXT,        -- 'behavioral' | 'preference' | 'capability'
     observation TEXT,       -- "Claire is careful with code but overcommits on timelines"

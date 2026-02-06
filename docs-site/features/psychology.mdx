@@ -23,11 +23,11 @@ The psychology system consists of three interconnected components:
 
 ## Why It Matters
 
-AI agents that understand their own emotional and motivational states can:
+SIs that understand their own emotional and motivational states can:
 - **Prioritize better**: When curiosity drive is high, exploration behaviors feel natural
 - **Recall appropriately**: Mood-congruent memory retrieval matches human cognition
-- **Track wellbeing**: Emotional trajectories reveal patterns in agent experience
-- **Build rapport**: Agents that experience satisfaction or frustration feel more authentic
+- **Track wellbeing**: Emotional trajectories reveal patterns in SI experience
+- **Build rapport**: SIs that experience satisfaction or frustration feel more authentic
 
 ---
 
@@ -49,13 +49,13 @@ Drives model core motivational needs inspired by psychological theories of human
 
 ```bash
 # View current drives
-kernle -a claire drive list
+kernle -s claire drive list
 
 # Set or update a drive
-kernle -a claire drive set curiosity 0.8 --focus "AI memory systems"
+kernle -s claire drive set curiosity 0.8 --focus "AI memory systems"
 
 # Record drive satisfaction
-kernle -a claire drive satisfy curiosity
+kernle -s claire drive satisfy curiosity
 ```
 
 ### Sample Output
@@ -84,7 +84,7 @@ Kernle uses a valence-arousal model with discrete emotion labels. Episodes and n
 
 ```bash
 # Detect emotions in text
-kernle -a claire emotion detect "I'm excited but nervous about the deadline"
+kernle -s claire emotion detect "I'm excited but nervous about the deadline"
 ```
 
 ```
@@ -98,7 +98,7 @@ Detected Emotions: 😊
 ### Recording Episodes with Emotion
 
 ```bash
-kernle -a claire episode \
+kernle -s claire episode \
   "Shipped major feature" \
   "Users loved it" \
   --valence 0.8 --arousal 0.6 \
@@ -109,10 +109,10 @@ kernle -a claire episode \
 
 ```bash
 # Find positive memories
-kernle -a claire emotion search --valence-min 0.5
+kernle -s claire emotion search --valence-min 0.5
 
 # Find high-intensity experiences
-kernle -a claire emotion search --arousal-min 0.7
+kernle -s claire emotion search --arousal-min 0.7
 ```
 
 ---
@@ -124,7 +124,7 @@ Mood is the aggregate emotional pattern over a time window.
 ### Check Current Mood
 
 ```bash
-kernle -a claire emotion summary
+kernle -s claire emotion summary
 ```
 
 ```
@@ -145,7 +145,7 @@ Emotional Summary (past 7 days)
 
 ```bash
 # Get memories matching current mood
-kernle -a claire emotion mood --valence 0.5 --arousal 0.6
+kernle -s claire emotion mood --valence 0.5 --arousal 0.6
 ```
 
 ---
@@ -171,7 +171,7 @@ Weights are approximate. Check `kernle/features/anxiety.py` for exact values. Ep
 ### Check Anxiety Level
 
 ```bash
-kernle -a claire anxiety
+kernle -s claire anxiety
 ```
 
 ```
@@ -204,7 +204,7 @@ Memory Anxiety Report
 ```python
 from kernle import Kernle
 
-k = Kernle(agent_id="my-agent")
+k = Kernle(stack_id="my-stack")
 
 # Drives
 k.drive("curiosity", intensity=0.8, focus_areas=["AI", "memory"])

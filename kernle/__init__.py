@@ -1,7 +1,7 @@
 """
 Kernle - Stratified memory for synthetic intelligences.
 
-Memory sovereignty for AI agents.
+Memory sovereignty for synthetic intelligences.
 """
 
 from .core import Kernle

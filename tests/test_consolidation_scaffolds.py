@@ -21,7 +21,7 @@ from kernle.storage.sqlite import SQLiteStorage
 def storage(tmp_path):
     """SQLite storage for consolidation scaffold tests."""
     db_path = tmp_path / "test_consolidation.db"
-    s = SQLiteStorage(agent_id="test_agent", db_path=db_path)
+    s = SQLiteStorage(stack_id="test_agent", db_path=db_path)
     yield s
     s.close()
 
@@ -29,7 +29,7 @@ def storage(tmp_path):
 @pytest.fixture
 def kernle_instance(storage):
     """Kernle instance with test storage."""
-    k = Kernle(agent_id="test_agent", storage=storage)
+    k = Kernle(stack_id="test_agent", storage=storage)
     return k
 
 
@@ -38,7 +38,7 @@ def _make_episode(
 ) -> Episode:
     defaults = {
         "id": str(uuid.uuid4()),
-        "agent_id": "test_agent",
+        "stack_id": "test_agent",
         "objective": objective,
         "outcome": f"Outcome for {objective}",
         "outcome_type": outcome_type,
@@ -61,7 +61,7 @@ def _make_belief(
 ) -> Belief:
     defaults = {
         "id": str(uuid.uuid4()),
-        "agent_id": "test_agent",
+        "stack_id": "test_agent",
         "statement": statement,
         "belief_type": "pattern",
         "confidence": confidence,
@@ -82,7 +82,7 @@ def _make_entity_model(
 ) -> EntityModel:
     defaults = {
         "id": str(uuid.uuid4()),
-        "agent_id": "test_agent",
+        "stack_id": "test_agent",
         "entity_name": entity_name,
         "model_type": model_type,
         "observation": observation,

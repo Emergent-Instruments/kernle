@@ -390,7 +390,7 @@ class EmotionsMixin:
 
         episode = Episode(
             id=episode_id,
-            agent_id=self.agent_id,
+            stack_id=self.stack_id,
             objective=objective,
             outcome=outcome,
             outcome_type=outcome_type,

@@ -26,7 +26,7 @@ from kernle.storage.sqlite import SQLiteStorage
 @pytest.fixture
 def storage(tmp_path):
     """SQLite storage instance for testing."""
-    s = SQLiteStorage(agent_id="test_agent", db_path=tmp_path / "test.db")
+    s = SQLiteStorage(stack_id="test_agent", db_path=tmp_path / "test.db")
     yield s
     s.close()
 
@@ -36,8 +36,8 @@ def kernle_with_storage(tmp_path):
     """Kernle instance with SQLite storage."""
     checkpoint_dir = tmp_path / "checkpoints"
     checkpoint_dir.mkdir()
-    s = SQLiteStorage(agent_id="test_agent", db_path=tmp_path / "test.db")
-    k = Kernle(agent_id="test_agent", storage=s, checkpoint_dir=checkpoint_dir)
+    s = SQLiteStorage(stack_id="test_agent", db_path=tmp_path / "test.db")
+    k = Kernle(stack_id="test_agent", storage=s, checkpoint_dir=checkpoint_dir)
     yield k, s
     s.close()
 
@@ -47,7 +47,7 @@ def relationship(storage):
     """Create and save a test relationship, return it."""
     rel = Relationship(
         id=str(uuid.uuid4()),
-        agent_id="test_agent",
+        stack_id="test_agent",
         entity_name="Alice",
         entity_type="person",
         relationship_type="colleague",
@@ -68,7 +68,7 @@ class TestRelationshipHistoryEntry:
     def test_create_entry(self):
         entry = RelationshipHistoryEntry(
             id="test-id",
-            agent_id="agent-1",
+            stack_id="agent-1",
             relationship_id="rel-1",
             entity_name="Alice",
             event_type="trust_change",
@@ -83,7 +83,7 @@ class TestRelationshipHistoryEntry:
     def test_defaults(self):
         entry = RelationshipHistoryEntry(
             id="test-id",
-            agent_id="agent-1",
+            stack_id="agent-1",
             relationship_id="rel-1",
             entity_name="Bob",
             event_type="interaction",
@@ -100,7 +100,7 @@ class TestEntityModel:
     def test_create_model(self):
         model = EntityModel(
             id="model-1",
-            agent_id="agent-1",
+            stack_id="agent-1",
             entity_name="Alice",
             model_type="behavioral",
             observation="Alice prefers detailed explanations",
@@ -113,7 +113,7 @@ class TestEntityModel:
     def test_defaults(self):
         model = EntityModel(
             id="model-1",
-            agent_id="agent-1",
+            stack_id="agent-1",
             entity_name="Bob",
             model_type="preference",
             observation="Prefers concise output",
@@ -200,7 +200,7 @@ class TestWriteOnChangeHistory:
         """Creating a new relationship should not log history."""
         rel = Relationship(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             entity_name="Bob",
             entity_type="person",
             relationship_type="acquaintance",
@@ -236,7 +236,7 @@ class TestRelationshipHistoryStorage:
         """Test direct save and retrieval of history entries."""
         entry = RelationshipHistoryEntry(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             relationship_id=relationship.id,
             entity_name="Alice",
             event_type="interaction",
@@ -254,7 +254,7 @@ class TestRelationshipHistoryStorage:
         for event_type in ["interaction", "trust_change", "interaction"]:
             entry = RelationshipHistoryEntry(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 relationship_id=relationship.id,
                 entity_name="Alice",
                 event_type=event_type,
@@ -276,7 +276,7 @@ class TestRelationshipHistoryStorage:
         for i in range(10):
             entry = RelationshipHistoryEntry(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 relationship_id=relationship.id,
                 entity_name="Alice",
                 event_type="interaction",
@@ -292,7 +292,7 @@ class TestRelationshipHistoryStorage:
         for i in range(3):
             entry = RelationshipHistoryEntry(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 relationship_id=relationship.id,
                 entity_name="Alice",
                 event_type="interaction",
@@ -320,7 +320,7 @@ class TestEntityModelStorage:
         """Test saving and retrieving an entity model."""
         model = EntityModel(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             entity_name="Alice",
             model_type="behavioral",
             observation="Alice prefers structured communication",
@@ -340,7 +340,7 @@ class TestEntityModelStorage:
         """Test that subject_ids is auto-populated from entity_name."""
         model = EntityModel(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             entity_name="Bob",
             model_type="preference",
             observation="Prefers short responses",
@@ -356,7 +356,7 @@ class TestEntityModelStorage:
         for name, mtype in [("Alice", "behavioral"), ("Bob", "preference")]:
             model = EntityModel(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 entity_name=name,
                 model_type=mtype,
                 observation=f"Observation about {name}",
@@ -372,7 +372,7 @@ class TestEntityModelStorage:
         for name in ["Alice", "Alice", "Bob"]:
             model = EntityModel(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 entity_name=name,
                 model_type="behavioral",
                 observation=f"About {name}",
@@ -388,7 +388,7 @@ class TestEntityModelStorage:
         for mtype in ["behavioral", "preference", "behavioral"]:
             model = EntityModel(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 entity_name="Alice",
                 model_type=mtype,
                 observation=f"A {mtype} observation",
@@ -404,7 +404,7 @@ class TestEntityModelStorage:
         for i in range(10):
             model = EntityModel(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 entity_name="Alice",
                 model_type="behavioral",
                 observation=f"Observation {i}",

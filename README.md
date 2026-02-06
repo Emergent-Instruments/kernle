@@ -2,7 +2,7 @@
 
 **Stratified memory for synthetic intelligences.**
 
-Kernle gives AI agents persistent memory, emotional awareness, and identity continuity. It's the cognitive infrastructure for agents that grow, adapt, and remember who they are.
+Kernle gives synthetic intelligences persistent memory, emotional awareness, and identity continuity. It's the cognitive infrastructure for synthetic intelligences that grow, adapt, and remember who they are.
 
 > **Scope boundary:** Kernle is cognitive infrastructure — memory, identity, trust, and self-maintenance. Economic activity (commerce) and inter-entity communication (comms) are separate packages that consume Kernle as a dependency.
 
@@ -16,21 +16,21 @@ Kernle gives AI agents persistent memory, emotional awareness, and identity cont
 # Install
 pip install kernle
 
-# Initialize your agent
-kernle -a my-agent init
+# Initialize your stack
+kernle -s my-stack init
 
 # Load memory at session start
-kernle -a my-agent load
+kernle -s my-stack load
 
 # Check health
-kernle -a my-agent anxiety -b
+kernle -s my-stack anxiety -b
 
 # Capture experiences
-kernle -a my-agent episode "Deployed v2" "success" --lesson "Always run migrations first"
-kernle -a my-agent raw "Quick thought to process later"
+kernle -s my-stack episode "Deployed v2" "success" --lesson "Always run migrations first"
+kernle -s my-stack raw "Quick thought to process later"
 
 # Save before ending
-kernle -a my-agent checkpoint save "End of session"
+kernle -s my-stack checkpoint save "End of session"
 ```
 
 ## Automatic Memory Loading
@@ -39,16 +39,16 @@ kernle -a my-agent checkpoint save "End of session"
 
 ```bash
 # Clawdbot - Install hook for automatic loading
-kernle -a my-agent setup clawdbot
+kernle -s my-stack setup clawdbot
 
 # Claude Code - Install SessionStart hook (project-level)
-kernle -a my-agent setup claude-code
+kernle -s my-stack setup claude-code
 
 # Claude Code - Install globally for all projects
-kernle -a my-agent setup claude-code --global
+kernle -s my-stack setup claude-code --global
 
 # Cowork - Same as Claude Code
-kernle -a my-agent setup cowork
+kernle -s my-stack setup cowork
 ```
 
 After setup, memory loads automatically at every session start. No more forgetting to run `kernle load`!
@@ -59,12 +59,12 @@ See `kernle/hooks/` directory for manual installation or `kernle setup --help` f
 
 **Manual CLAUDE.md setup:**
 ```bash
-kernle -a my-agent init  # Generates CLAUDE.md section with manual load instructions
+kernle -s my-stack init  # Generates CLAUDE.md section with manual load instructions
 ```
 
 **MCP Server:**
 ```bash
-claude mcp add kernle -- kernle mcp -a my-agent
+claude mcp add kernle -- kernle mcp -s my-stack
 ```
 
 **Clawdbot skill:**

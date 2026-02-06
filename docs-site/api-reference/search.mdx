@@ -9,7 +9,7 @@ The search endpoint provides semantic search across all memory types using vecto
 
 ## Search Memories
 
-Perform semantic search across an agent's memories.
+Perform semantic search across an SI's memories.
 
 ```http
 POST /memories/search
@@ -86,7 +86,7 @@ Content-Type: application/json
 ### CLI Equivalent
 
 ```bash
-kernle -a claire search "performance optimization techniques" --limit 10
+kernle -s claire search "performance optimization techniques" --limit 10
 ```
 
 ---
@@ -154,5 +154,5 @@ The CLI automatically uses cloud search when configured, with fallback to local:
 
 ```bash
 # Uses cloud if available, local otherwise
-kernle -a claire search "query"
+kernle -s claire search "query"
 ```

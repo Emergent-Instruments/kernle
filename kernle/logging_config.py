@@ -9,14 +9,14 @@ from datetime import datetime
 from pathlib import Path
 
 
-def setup_kernle_logging(agent_id: str = "default", level: str = "INFO") -> logging.Logger:
+def setup_kernle_logging(stack_id: str = "default", level: str = "INFO") -> logging.Logger:
     """
     Set up file logging for Kernle operations.
 
     Logs to ~/.kernle/logs/local-{date}.log
 
     Args:
-        agent_id: Agent identifier for log context
+        stack_id: Stack identifier for log context
         level: Logging level (DEBUG, INFO, WARNING, ERROR)
 
     Returns:
@@ -56,7 +56,7 @@ def setup_kernle_logging(agent_id: str = "default", level: str = "INFO") -> logg
     return logger
 
 
-def log_memory_event(event_type: str, details: str, agent_id: str = "default"):
+def log_memory_event(event_type: str, details: str, stack_id: str = "default"):
     """
     Log a memory event to the dedicated memory events log.
 
@@ -70,7 +70,7 @@ def log_memory_event(event_type: str, details: str, agent_id: str = "default"):
     Args:
         event_type: Type of event (load, save, checkpoint, sync, flush)
         details: Human-readable details
-        agent_id: Agent identifier
+        stack_id: Stack identifier
     """
     log_dir = Path.home() / ".kernle" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -81,31 +81,31 @@ def log_memory_event(event_type: str, details: str, agent_id: str = "default"):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
     with open(log_file, "a") as f:
-        f.write(f"[{timestamp}] {event_type} | agent={agent_id} | {details}\n")
+        f.write(f"[{timestamp}] {event_type} | agent={stack_id} | {details}\n")
 
 
 # Convenience functions for common events
-def log_load(agent_id: str, values: int, beliefs: int, episodes: int, checkpoint: bool):
+def log_load(stack_id: str, values: int, beliefs: int, episodes: int, checkpoint: bool):
     """Log a memory load event."""
     log_memory_event(
         "load",
         f"values={values}, beliefs={beliefs}, episodes={episodes}, checkpoint={checkpoint}",
-        agent_id,
+        stack_id,
     )
 
 
-def log_save(agent_id: str, memory_type: str, memory_id: str, summary: str = ""):
+def log_save(stack_id: str, memory_type: str, memory_id: str, summary: str = ""):
     """Log a memory save event."""
     log_memory_event(
-        "save", f"type={memory_type}, id={memory_id[:8]}..., summary={summary[:50]}", agent_id
+        "save", f"type={memory_type}, id={memory_id[:8]}..., summary={summary[:50]}", stack_id
     )
 
 
-def log_checkpoint(agent_id: str, task: str, context_len: int):
+def log_checkpoint(stack_id: str, task: str, context_len: int):
     """Log a checkpoint save event."""
-    log_memory_event("checkpoint", f"task={task[:50]}, context_chars={context_len}", agent_id)
+    log_memory_event("checkpoint", f"task={task[:50]}, context_chars={context_len}", stack_id)
 
 
-def log_sync(agent_id: str, direction: str, count: int, errors: int = 0):
+def log_sync(stack_id: str, direction: str, count: int, errors: int = 0):
     """Log a sync operation."""
-    log_memory_event("sync", f"direction={direction}, count={count}, errors={errors}", agent_id)
+    log_memory_event("sync", f"direction={direction}, count={count}, errors={errors}", stack_id)

@@ -222,7 +222,7 @@ def cmd_raw(args, k: "Kernle"):
                 print(f"💡 Suggestions: {', '.join(suggestions)}")
 
             print(
-                f"\nTo promote: kernle -a {k.agent_id} raw process {e['id'][:8]} --type <episode|note|belief>"
+                f"\nTo promote: kernle -s {k.stack_id} raw process {e['id'][:8]} --type <episode|note|belief>"
             )
 
         print("\n" + "=" * 60)

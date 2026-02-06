@@ -14,9 +14,9 @@ def kernle_instance():
     """Create an isolated Kernle instance with temp storage."""
     with tempfile.TemporaryDirectory() as tmpdir:
         db_path = Path(tmpdir) / "test.db"
-        storage = SQLiteStorage(agent_id="test-promote", db_path=db_path)
+        storage = SQLiteStorage(stack_id="test-promote", db_path=db_path)
         k = Kernle(
-            agent_id="test-promote",
+            stack_id="test-promote",
             storage=storage,
             checkpoint_dir=Path(tmpdir),
         )

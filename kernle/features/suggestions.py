@@ -185,7 +185,7 @@ class SuggestionsMixin:
 
         return MemorySuggestion(
             id=str(uuid.uuid4()),
-            agent_id=self.agent_id,
+            stack_id=self.stack_id,
             memory_type="episode",
             content={
                 "objective": objective,
@@ -225,7 +225,7 @@ class SuggestionsMixin:
 
         return MemorySuggestion(
             id=str(uuid.uuid4()),
-            agent_id=self.agent_id,
+            stack_id=self.stack_id,
             memory_type="belief",
             content={
                 "statement": statement,
@@ -271,7 +271,7 @@ class SuggestionsMixin:
 
         return MemorySuggestion(
             id=str(uuid.uuid4()),
-            agent_id=self.agent_id,
+            stack_id=self.stack_id,
             memory_type="note",
             content={
                 "content": content,

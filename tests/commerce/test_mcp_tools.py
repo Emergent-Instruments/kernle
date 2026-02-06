@@ -17,10 +17,10 @@ from kernle.commerce.mcp import (
     TOOL_HANDLERS,
     call_commerce_tool,
     configure_commerce_services,
-    get_commerce_agent_id,
+    get_commerce_stack_id,
     get_commerce_tools,
     reset_commerce_services,
-    set_commerce_agent_id,
+    set_commerce_stack_id,
 )
 from kernle.commerce.skills.registry import InMemorySkillRegistry
 from kernle.commerce.wallet.service import WalletService
@@ -77,7 +77,7 @@ def configured_services(wallet_service, job_service, skill_registry):
         job_service=job_service,
         skill_registry=skill_registry,
     )
-    set_commerce_agent_id("test-agent")
+    set_commerce_stack_id("test-agent")
     return {
         "wallet": wallet_service,
         "job": job_service,
@@ -718,17 +718,17 @@ class TestErrorHandling:
 class TestAgentIdManagement:
     """Test agent ID management."""
 
-    def test_set_and_get_agent_id(self):
-        """set_commerce_agent_id should update get_commerce_agent_id."""
+    def test_set_and_get_stack_id(self):
+        """set_commerce_stack_id should update get_commerce_stack_id."""
         reset_commerce_services()
 
-        set_commerce_agent_id("new-agent-id")
-        assert get_commerce_agent_id() == "new-agent-id"
+        set_commerce_stack_id("new-agent-id")
+        assert get_commerce_stack_id() == "new-agent-id"
 
-    def test_default_agent_id(self):
+    def test_default_stack_id(self):
         """Default agent ID should be 'default'."""
         reset_commerce_services()
-        assert get_commerce_agent_id() == "default"
+        assert get_commerce_stack_id() == "default"
 
     @pytest.mark.asyncio
     async def test_different_agents_different_wallets(
@@ -742,12 +742,12 @@ class TestAgentIdManagement:
         )
 
         # Agent 1
-        set_commerce_agent_id("agent-1")
+        set_commerce_stack_id("agent-1")
         result1 = await call_commerce_tool("wallet_address", {})
         addr1 = get_text_content(result1)
 
         # Agent 2
-        set_commerce_agent_id("agent-2")
+        set_commerce_stack_id("agent-2")
         result2 = await call_commerce_tool("wallet_address", {})
         addr2 = get_text_content(result2)
 

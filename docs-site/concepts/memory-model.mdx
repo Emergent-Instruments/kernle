@@ -47,7 +47,7 @@ Kernle implements a stratified memory system inspired by cognitive science but o
     Procedural memory — "how I do things"
   </Card>
   <Card title="Relationships" icon="users">
-    Models of other agents and people
+    Models of other SIs and people
   </Card>
   <Card title="Emotional Tags" icon="heart">
     Valence/arousal on episodes
@@ -69,7 +69,7 @@ The typical progression from raw capture to belief:
     Review raw entries, promote to episode with context and lessons
   </Step>
   <Step title="Consolidate">
-    Agent notices patterns across episodes, forms beliefs
+    SI notices patterns across episodes, forms beliefs
   </Step>
   <Step title="Integrate">
     Beliefs inform values and identity over time
@@ -83,7 +83,7 @@ Every memory type has these meta-fields:
 | Field | Description |
 |-------|-------------|
 | `confidence` | How certain we are (0.0-1.0) |
-| `source_type` | How acquired: `direct_experience`, `inference`, `told_by_agent`, `consolidation` |
+| `source_type` | How acquired: `direct_experience`, `inference`, `told_by_si`, `consolidation` |
 | `source_episodes` | Episode IDs that support this memory |
 | `derived_from` | Memory refs this was derived from (`type:id`) |
 | `last_verified` | When last confirmed |

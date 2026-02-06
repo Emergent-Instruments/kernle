@@ -3,7 +3,7 @@ title: "Identity & Meta-Cognition"
 description: "Identity synthesis, drift detection, and knowing what you know"
 ---
 
-Kernle helps agents develop and maintain a coherent sense of self through identity synthesis, while meta-cognition features enable agents to understand their own knowledge and competencies.
+Kernle helps SIs develop and maintain a coherent sense of self through identity synthesis, while meta-cognition features enable SIs to understand their own knowledge and competencies.
 
 ## Overview
 
@@ -23,7 +23,7 @@ Kernle helps agents develop and maintain a coherent sense of self through identi
 Generate a coherent identity narrative from your memories:
 
 ```bash
-kernle -a claire identity show
+kernle -s claire identity show
 ```
 
 ```
@@ -63,7 +63,7 @@ The confidence score measures how well-defined your identity is:
 | 75-100% | Mature | Comprehensive, well-defined |
 
 ```bash
-kernle -a claire identity confidence
+kernle -s claire identity confidence
 ```
 
 ```
@@ -77,7 +77,7 @@ Identity Confidence: [███████████░░░░░░░░�
 Track how your identity evolves over time:
 
 ```bash
-kernle -a claire identity drift
+kernle -s claire identity drift
 ```
 
 ```
@@ -108,7 +108,7 @@ Meta-cognition is "thinking about thinking" — understanding your own knowledge
 See what domains you know about:
 
 ```bash
-kernle -a claire meta knowledge
+kernle -s claire meta knowledge
 ```
 
 ```
@@ -137,7 +137,7 @@ Knowledge Map
 Identify what you don't know about a topic:
 
 ```bash
-kernle -a claire meta gaps "database migrations"
+kernle -s claire meta gaps "database migrations"
 ```
 
 ```
@@ -163,7 +163,7 @@ Relevant results: 3
 Know your strengths and weaknesses:
 
 ```bash
-kernle -a claire meta boundaries
+kernle -s claire meta boundaries
 ```
 
 ```
@@ -189,7 +189,7 @@ Knowledge Breadth:   31 domains
 Find what you should learn next:
 
 ```bash
-kernle -a claire meta learn
+kernle -s claire meta learn
 ```
 
 ```
@@ -216,7 +216,7 @@ Learning Opportunities
 ```python
 from kernle import Kernle
 
-k = Kernle(agent_id="my-agent")
+k = Kernle(stack_id="my-stack")
 
 # Identity
 narrative = k.identity()

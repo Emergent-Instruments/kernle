@@ -25,7 +25,7 @@ def temp_db():
 @pytest.fixture
 def storage(temp_db, monkeypatch):
     """Create a SQLiteStorage instance for testing."""
-    s = SQLiteStorage(agent_id="test-agent", db_path=temp_db)
+    s = SQLiteStorage(stack_id="test-agent", db_path=temp_db)
     monkeypatch.setattr(s, "has_cloud_credentials", lambda: False)
     yield s
     s.close()
@@ -37,8 +37,8 @@ def kernle_instance(tmp_path):
     db_path = tmp_path / "test.db"
     checkpoint_dir = tmp_path / "checkpoints"
     checkpoint_dir.mkdir()
-    storage = SQLiteStorage(agent_id="test-agent", db_path=db_path)
-    return Kernle(agent_id="test-agent", storage=storage, checkpoint_dir=checkpoint_dir)
+    storage = SQLiteStorage(stack_id="test-agent", db_path=db_path)
+    return Kernle(stack_id="test-agent", storage=storage, checkpoint_dir=checkpoint_dir)
 
 
 class TestEpochStorage:
@@ -48,7 +48,7 @@ class TestEpochStorage:
         """Save an epoch and retrieve it by ID."""
         epoch = Epoch(
             id="epoch-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             epoch_number=1,
             name="onboarding",
             trigger_type="declared",
@@ -72,7 +72,7 @@ class TestEpochStorage:
         for i in range(1, 4):
             epoch = Epoch(
                 id=f"epoch-{i}",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 epoch_number=i,
                 name=f"era-{i}",
             )
@@ -90,7 +90,7 @@ class TestEpochStorage:
             storage.save_epoch(
                 Epoch(
                     id=f"epoch-{i}",
-                    agent_id="test-agent",
+                    stack_id="test-agent",
                     epoch_number=i,
                     name=f"era-{i}",
                 )
@@ -104,7 +104,7 @@ class TestEpochStorage:
         storage.save_epoch(
             Epoch(
                 id="epoch-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 epoch_number=1,
                 name="closed-era",
                 ended_at=storage._utc_now() if hasattr(storage, "_utc_now") else None,
@@ -113,7 +113,7 @@ class TestEpochStorage:
         storage.save_epoch(
             Epoch(
                 id="epoch-2",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 epoch_number=2,
                 name="open-era",
             )
@@ -134,7 +134,7 @@ class TestEpochStorage:
         storage.save_epoch(
             Epoch(
                 id="epoch-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 epoch_number=1,
                 name="to-close",
             )
@@ -158,7 +158,7 @@ class TestEpochStorage:
         storage.save_epoch(
             Epoch(
                 id="epoch-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 epoch_number=1,
                 name="already-closed",
             )
@@ -171,7 +171,7 @@ class TestEpochStorage:
         """Epoch stores key_belief_ids, key_relationship_ids, etc."""
         epoch = Epoch(
             id="epoch-rich",
-            agent_id="test-agent",
+            stack_id="test-agent",
             epoch_number=1,
             name="rich-epoch",
             key_belief_ids=["b1", "b2"],
@@ -192,7 +192,7 @@ class TestEpochStorage:
         """Epoch stores trigger_description."""
         epoch = Epoch(
             id="epoch-trigger",
-            agent_id="test-agent",
+            stack_id="test-agent",
             epoch_number=1,
             name="triggered-epoch",
             trigger_type="detected",
@@ -209,7 +209,7 @@ class TestEpochStorage:
         """Epoch with no trigger_description defaults to None."""
         epoch = Epoch(
             id="epoch-no-desc",
-            agent_id="test-agent",
+            stack_id="test-agent",
             epoch_number=1,
             name="no-desc",
         )
@@ -319,7 +319,7 @@ class TestEpochIdPropagation:
         """Episodes should store and retrieve epoch_id."""
         episode = Episode(
             id="ep-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Test",
             outcome="Done",
             outcome_type="success",
@@ -335,7 +335,7 @@ class TestEpochIdPropagation:
         """Episodes without epoch_id should have None."""
         episode = Episode(
             id="ep-2",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="No epoch",
             outcome="Done",
             outcome_type="success",
@@ -350,7 +350,7 @@ class TestEpochIdPropagation:
         """Beliefs should store and retrieve epoch_id."""
         belief = Belief(
             id="bel-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             statement="Testing is important",
             confidence=0.9,
             belief_type="principle",
@@ -366,7 +366,7 @@ class TestEpochIdPropagation:
         """Notes should store and retrieve epoch_id."""
         note = Note(
             id="note-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             content="A note in an epoch",
             note_type="observation",
             epoch_id="epoch-2",
@@ -388,7 +388,7 @@ class TestEpochFilteredLoading:
         storage.save_episode(
             Episode(
                 id="ep-e1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Epoch 1 task",
                 outcome="Done",
                 outcome_type="success",
@@ -398,7 +398,7 @@ class TestEpochFilteredLoading:
         storage.save_episode(
             Episode(
                 id="ep-e2",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Epoch 2 task",
                 outcome="Done",
                 outcome_type="success",
@@ -408,7 +408,7 @@ class TestEpochFilteredLoading:
         storage.save_episode(
             Episode(
                 id="ep-none",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Pre-epoch task",
                 outcome="Done",
                 outcome_type="success",
@@ -429,7 +429,7 @@ class TestEpochFilteredLoading:
         storage.save_belief(
             Belief(
                 id="bel-e1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Epoch 1 belief",
                 epoch_id="epoch-1",
             )
@@ -437,7 +437,7 @@ class TestEpochFilteredLoading:
         storage.save_belief(
             Belief(
                 id="bel-e2",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Epoch 2 belief",
                 epoch_id="epoch-2",
             )
@@ -452,7 +452,7 @@ class TestEpochFilteredLoading:
         storage.save_episode(
             Episode(
                 id="ep-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Task",
                 outcome="Done",
                 outcome_type="success",
@@ -462,7 +462,7 @@ class TestEpochFilteredLoading:
         storage.save_episode(
             Episode(
                 id="ep-2",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Task 2",
                 outcome="Done",
                 outcome_type="success",

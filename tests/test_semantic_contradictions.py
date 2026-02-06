@@ -14,16 +14,16 @@ from kernle.storage import SQLiteStorage
 def kernle_instance(tmp_path):
     """Create a Kernle instance with SQLite storage."""
     db_path = tmp_path / "test_semantic.db"
-    storage = SQLiteStorage(agent_id="test_agent", db_path=db_path)
-    return Kernle(agent_id="test_agent", storage=storage)
+    storage = SQLiteStorage(stack_id="test_agent", db_path=db_path)
+    return Kernle(stack_id="test_agent", storage=storage)
 
 
 @pytest.fixture
 def kernle_with_beliefs(tmp_path):
     """Create a Kernle instance with pre-populated beliefs."""
     db_path = tmp_path / "test_semantic_beliefs.db"
-    storage = SQLiteStorage(agent_id="test_agent", db_path=db_path)
-    k = Kernle(agent_id="test_agent", storage=storage)
+    storage = SQLiteStorage(stack_id="test_agent", db_path=db_path)
+    k = Kernle(stack_id="test_agent", storage=storage)
 
     # Add beliefs covering various contradiction scenarios
     k.belief("Testing is essential for code quality", confidence=0.9)
@@ -423,7 +423,7 @@ class TestFindSemanticContradictionsWithMock:
         # Create mock beliefs
         mock_belief = Belief(
             id="test-belief-1",
-            agent_id="test_agent",
+            stack_id="test_agent",
             statement="testing is unnecessary for development",
             confidence=0.7,
             times_reinforced=0,
@@ -460,7 +460,7 @@ class TestFindSemanticContradictionsWithMock:
 
         mock_belief = Belief(
             id="test-belief-2",
-            agent_id="test_agent",
+            stack_id="test_agent",
             statement="code reviews slow down development",
             confidence=0.6,
             times_reinforced=0,
@@ -494,7 +494,7 @@ class TestFindSemanticContradictionsWithMock:
 
         mock_belief = Belief(
             id="test-belief-3",
-            agent_id="test_agent",
+            stack_id="test_agent",
             statement="testing is important for code quality",
             confidence=0.8,
             times_reinforced=2,

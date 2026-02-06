@@ -41,7 +41,7 @@ def storage(temp_db, monkeypatch):
 
     Cloud credentials are disabled to ensure tests use local storage only.
     """
-    storage = SQLiteStorage(agent_id="test-agent", db_path=temp_db)
+    storage = SQLiteStorage(stack_id="test-agent", db_path=temp_db)
     # Disable cloud search to ensure test isolation
     monkeypatch.setattr(storage, "has_cloud_credentials", lambda: False)
     yield storage
@@ -54,7 +54,7 @@ class TestSQLiteStorageBasics:
     def test_storage_creation(self, storage, temp_db):
         """Storage creates database and directory."""
         assert temp_db.exists()
-        assert storage.agent_id == "test-agent"
+        assert storage.stack_id == "test-agent"
 
     def test_sqlite_vec_available(self, storage):
         """sqlite-vec should be available."""
@@ -71,7 +71,7 @@ class TestEpisodes:
     def test_save_and_get_episode(self, storage):
         episode = Episode(
             id="ep-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Test objective",
             outcome="Test outcome",
             outcome_type="success",
@@ -94,7 +94,7 @@ class TestEpisodes:
             storage.save_episode(
                 Episode(
                     id=f"ep-{i}",
-                    agent_id="test-agent",
+                    stack_id="test-agent",
                     objective=f"Objective {i}",
                     outcome=f"Outcome {i}",
                 )
@@ -106,7 +106,7 @@ class TestEpisodes:
     def test_episode_auto_id(self, storage):
         episode = Episode(
             id="",  # Empty ID
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Auto ID test",
             outcome="Should generate UUID",
         )
@@ -120,7 +120,7 @@ class TestNotes:
     def test_save_and_get_note(self, storage):
         note = Note(
             id="note-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             content="This is a test note",
             note_type="observation",
             speaker="user",
@@ -141,7 +141,7 @@ class TestBeliefs:
     def test_save_and_get_belief(self, storage):
         belief = Belief(
             id="belief-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             statement="Testing is important",
             belief_type="principle",
             confidence=0.95,
@@ -158,7 +158,7 @@ class TestBeliefs:
         storage.save_belief(
             Belief(
                 id="b1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Unique statement here",
             )
         )
@@ -177,7 +177,7 @@ class TestValues:
     def test_save_and_get_value(self, storage):
         value = Value(
             id="val-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             name="Reliability",
             statement="I prioritize dependability in my work",
             priority=90,
@@ -197,7 +197,7 @@ class TestGoals:
     def test_save_and_get_goal(self, storage):
         goal = Goal(
             id="goal-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             title="Complete project",
             description="Finish all tasks",
             priority="high",
@@ -217,7 +217,7 @@ class TestDrives:
     def test_save_and_get_drive(self, storage):
         drive = Drive(
             id="drive-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             drive_type="curiosity",
             intensity=0.8,
             focus_areas=["learning", "exploration"],
@@ -232,14 +232,14 @@ class TestDrives:
 
     def test_update_drive(self, storage):
         storage.save_drive(
-            Drive(id="d1", agent_id="test-agent", drive_type="growth", intensity=0.5)
+            Drive(id="d1", stack_id="test-agent", drive_type="growth", intensity=0.5)
         )
 
         # Update same drive type
         storage.save_drive(
             Drive(
                 id="d2",  # Different ID but same type
-                agent_id="test-agent",
+                stack_id="test-agent",
                 drive_type="growth",
                 intensity=0.9,
             )
@@ -255,7 +255,7 @@ class TestRelationships:
     def test_save_and_get_relationship(self, storage):
         rel = Relationship(
             id="rel-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             entity_name="Alice",
             entity_type="human",
             relationship_type="colleague",
@@ -274,7 +274,7 @@ class TestRelationships:
         storage.save_relationship(
             Relationship(
                 id="r1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 entity_name="Bob",
                 entity_type="human",
                 relationship_type="friend",
@@ -293,7 +293,7 @@ class TestVectorSearch:
         storage.save_episode(
             Episode(
                 id="ep1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Learn Python programming",
                 outcome="Mastered basic syntax",
             )
@@ -301,7 +301,7 @@ class TestVectorSearch:
         storage.save_episode(
             Episode(
                 id="ep2",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Write documentation",
                 outcome="Created user guide",
             )
@@ -316,16 +316,16 @@ class TestVectorSearch:
         storage.save_episode(
             Episode(
                 id="ep1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Database design",
                 outcome="Created schema",
             )
         )
         storage.save_note(
-            Note(id="note1", agent_id="test-agent", content="SQLite is a great embedded database")
+            Note(id="note1", stack_id="test-agent", content="SQLite is a great embedded database")
         )
         storage.save_belief(
-            Belief(id="b1", agent_id="test-agent", statement="Databases should be ACID compliant")
+            Belief(id="b1", stack_id="test-agent", statement="Databases should be ACID compliant")
         )
 
         results = storage.search("database", limit=10)
@@ -340,10 +340,10 @@ class TestVectorSearch:
     def test_search_with_type_filter(self, storage):
         storage.save_episode(
             Episode(
-                id="ep1", agent_id="test-agent", objective="Search test", outcome="Testing filters"
+                id="ep1", stack_id="test-agent", objective="Search test", outcome="Testing filters"
             )
         )
-        storage.save_note(Note(id="note1", agent_id="test-agent", content="Search test content"))
+        storage.save_note(Note(id="note1", stack_id="test-agent", content="Search test content"))
 
         results = storage.search("search test", record_types=["note"])
         assert all(r.record_type == "note" for r in results)
@@ -351,10 +351,10 @@ class TestVectorSearch:
     def test_search_scores_ranked(self, storage):
         """Search results should be ranked by similarity."""
         storage.save_note(
-            Note(id="n1", agent_id="test-agent", content="Machine learning and neural networks")
+            Note(id="n1", stack_id="test-agent", content="Machine learning and neural networks")
         )
         storage.save_note(
-            Note(id="n2", agent_id="test-agent", content="Cooking recipes and kitchen tips")
+            Note(id="n2", stack_id="test-agent", content="Cooking recipes and kitchen tips")
         )
 
         results = storage.search("deep learning AI", limit=5)
@@ -367,7 +367,7 @@ class TestSyncMetadata:
 
     def test_sync_metadata_on_save(self, storage):
         storage.save_episode(
-            Episode(id="ep1", agent_id="test-agent", objective="Sync test", outcome="Testing")
+            Episode(id="ep1", stack_id="test-agent", objective="Sync test", outcome="Testing")
         )
 
         episode = storage.get_episode("ep1")
@@ -378,9 +378,9 @@ class TestSyncMetadata:
 
     def test_pending_sync_count(self, storage):
         storage.save_episode(
-            Episode(id="ep1", agent_id="test-agent", objective="Test", outcome="Test")
+            Episode(id="ep1", stack_id="test-agent", objective="Test", outcome="Test")
         )
-        storage.save_note(Note(id="n1", agent_id="test-agent", content="Test"))
+        storage.save_note(Note(id="n1", stack_id="test-agent", content="Test"))
 
         pending = storage.get_pending_sync_count()
         assert pending >= 2  # At least our 2 records
@@ -391,10 +391,10 @@ class TestStats:
 
     def test_get_stats(self, storage):
         storage.save_episode(
-            Episode(id="ep1", agent_id="test-agent", objective="Test", outcome="Test")
+            Episode(id="ep1", stack_id="test-agent", objective="Test", outcome="Test")
         )
-        storage.save_note(Note(id="n1", agent_id="test-agent", content="Test"))
-        storage.save_belief(Belief(id="b1", agent_id="test-agent", statement="Test"))
+        storage.save_note(Note(id="n1", stack_id="test-agent", content="Test"))
+        storage.save_belief(Belief(id="b1", stack_id="test-agent", statement="Test"))
 
         stats = storage.get_stats()
         assert stats["episodes"] == 1
@@ -455,11 +455,11 @@ class TestOfflineOperation:
             old_env[key] = os.environ.pop(key, None)
 
         try:
-            storage = SQLiteStorage(agent_id="offline-agent", db_path=temp_db)
+            storage = SQLiteStorage(stack_id="offline-agent", db_path=temp_db)
 
             # All operations should work
             storage.save_note(
-                Note(id="n1", agent_id="offline-agent", content="Fully offline operation")
+                Note(id="n1", stack_id="offline-agent", content="Fully offline operation")
             )
 
             results = storage.search("offline")
@@ -492,9 +492,9 @@ class TestSyncQueue:
         """Test getting pending sync operations."""
         # Save some records (which automatically queue sync)
         storage.save_episode(
-            Episode(id="ep1", agent_id="test-agent", objective="Test", outcome="Test")
+            Episode(id="ep1", stack_id="test-agent", objective="Test", outcome="Test")
         )
-        storage.save_note(Note(id="n1", agent_id="test-agent", content="Test note"))
+        storage.save_note(Note(id="n1", stack_id="test-agent", content="Test note"))
 
         pending = storage.get_pending_sync_operations()
         assert len(pending) >= 2
@@ -513,7 +513,7 @@ class TestSyncQueue:
         storage.save_episode(
             Episode(
                 id="ep-with-data",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Data test",
                 outcome="Should have data in queue",
             )
@@ -532,9 +532,9 @@ class TestSyncQueue:
         """Test marking operations as synced."""
         # Create some pending operations
         storage.save_episode(
-            Episode(id="ep1", agent_id="test-agent", objective="Test", outcome="Test")
+            Episode(id="ep1", stack_id="test-agent", objective="Test", outcome="Test")
         )
-        storage.save_note(Note(id="n1", agent_id="test-agent", content="Test"))
+        storage.save_note(Note(id="n1", stack_id="test-agent", content="Test"))
 
         # Get pending
         pending = storage.get_pending_sync_operations()
@@ -554,13 +554,13 @@ class TestSyncQueue:
         """Test marking multiple operations as synced."""
         # Create operations
         storage.save_episode(
-            Episode(id="ep1", agent_id="test-agent", objective="Test1", outcome="Test1")
+            Episode(id="ep1", stack_id="test-agent", objective="Test1", outcome="Test1")
         )
         storage.save_episode(
-            Episode(id="ep2", agent_id="test-agent", objective="Test2", outcome="Test2")
+            Episode(id="ep2", stack_id="test-agent", objective="Test2", outcome="Test2")
         )
         storage.save_episode(
-            Episode(id="ep3", agent_id="test-agent", objective="Test3", outcome="Test3")
+            Episode(id="ep3", stack_id="test-agent", objective="Test3", outcome="Test3")
         )
 
         pending = storage.get_pending_sync_operations()
@@ -573,9 +573,9 @@ class TestSyncQueue:
         """Test getting sync status summary."""
         # Create some operations
         storage.save_episode(
-            Episode(id="ep1", agent_id="test-agent", objective="Test", outcome="Test")
+            Episode(id="ep1", stack_id="test-agent", objective="Test", outcome="Test")
         )
-        storage.save_note(Note(id="n1", agent_id="test-agent", content="Test"))
+        storage.save_note(Note(id="n1", stack_id="test-agent", content="Test"))
 
         status = storage.get_sync_status()
 
@@ -597,7 +597,7 @@ class TestSyncQueue:
     def test_sync_status_by_operation(self, storage):
         """Test sync status breakdown by operation type."""
         storage.save_episode(
-            Episode(id="ep1", agent_id="test-agent", objective="Test", outcome="Test")
+            Episode(id="ep1", stack_id="test-agent", objective="Test", outcome="Test")
         )
 
         status = storage.get_sync_status()
@@ -612,7 +612,7 @@ class TestSyncQueue:
         for i in range(3):
             storage.save_episode(
                 Episode(
-                    id="ep-same", agent_id="test-agent", objective=f"Update {i}", outcome="Test"
+                    id="ep-same", stack_id="test-agent", objective=f"Update {i}", outcome="Test"
                 )
             )
 
@@ -643,7 +643,7 @@ class TestBatchInsertion:
         episodes = [
             Episode(
                 id="ep-batch-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Batch test 1",
                 outcome="Success",
             )
@@ -663,7 +663,7 @@ class TestBatchInsertion:
         episodes = [
             Episode(
                 id=f"ep-batch-{i}",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective=f"Batch objective {i}",
                 outcome=f"Batch outcome {i}",
                 tags=["batch", f"test-{i}"],
@@ -686,13 +686,13 @@ class TestBatchInsertion:
         episodes = [
             Episode(
                 id="",  # Empty ID
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Auto ID test",
                 outcome="Success",
             ),
             Episode(
                 id="",  # Empty ID
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Auto ID test 2",
                 outcome="Success 2",
             ),
@@ -715,7 +715,7 @@ class TestBatchInsertion:
         beliefs = [
             Belief(
                 id=f"belief-batch-{i}",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement=f"Belief statement {i}",
                 confidence=0.8 + i * 0.02,
             )
@@ -742,7 +742,7 @@ class TestBatchInsertion:
         notes = [
             Note(
                 id=f"note-batch-{i}",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 content=f"Note content {i}",
                 note_type="note",
                 tags=["batch"],
@@ -765,7 +765,7 @@ class TestBatchInsertion:
         episodes = [
             Episode(
                 id="ep-full",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Full test",
                 outcome="Complete success",
                 outcome_type="success",
@@ -798,7 +798,7 @@ class TestBatchInsertion:
         episodes = [
             Episode(
                 id=f"ep-sync-{i}",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective=f"Sync test {i}",
                 outcome="Success",
             )
@@ -817,13 +817,13 @@ class TestBatchInsertion:
         episodes = [
             Episode(
                 id="ep-embed-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Python programming tutorial",
                 outcome="Learned basics",
             ),
             Episode(
                 id="ep-embed-2",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Database optimization",
                 outcome="Improved performance",
             ),
@@ -848,7 +848,7 @@ class TestProvenanceProtection:
         """source_type should not change on update."""
         episode = Episode(
             id="prov_test_1",
-            agent_id="test_agent",
+            stack_id="test_agent",
             objective="Test objective",
             outcome="Test outcome",
             source_type="direct_experience",
@@ -867,7 +867,7 @@ class TestProvenanceProtection:
         """derived_from should only allow adding, not removing."""
         episode = Episode(
             id="prov_test_2",
-            agent_id="test_agent",
+            stack_id="test_agent",
             objective="Test objective",
             outcome="Test outcome",
             derived_from=["episode:orig_1", "episode:orig_2"],
@@ -888,7 +888,7 @@ class TestProvenanceProtection:
         """confidence_history should only allow appending."""
         episode = Episode(
             id="prov_test_3",
-            agent_id="test_agent",
+            stack_id="test_agent",
             objective="Test objective",
             outcome="Test outcome",
             confidence_history=["0.8@2024-01-01", "0.9@2024-01-02"],

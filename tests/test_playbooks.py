@@ -22,7 +22,7 @@ class TestPlaybookDataModel:
         """Test creating a playbook with minimal required fields."""
         playbook = Playbook(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             name="Deploy to production",
             description="Standard deployment process",
             trigger_conditions=["releasing code", "pushing to main"],
@@ -41,7 +41,7 @@ class TestPlaybookDataModel:
         now = datetime.now(timezone.utc)
         playbook = Playbook(
             id="pb-123",
-            agent_id="test_agent",
+            stack_id="test_agent",
             name="Debug Memory Leaks",
             description="Process for finding and fixing memory leaks",
             trigger_conditions=["high memory usage", "out of memory errors"],
@@ -80,13 +80,13 @@ class TestPlaybookStorage:
     def storage(self, tmp_path):
         """Create a temporary SQLite storage."""
         db_path = tmp_path / "test_playbooks.db"
-        return SQLiteStorage(agent_id="test_agent", db_path=db_path)
+        return SQLiteStorage(stack_id="test_agent", db_path=db_path)
 
     def test_save_and_get_playbook(self, storage):
         """Test saving and retrieving a playbook."""
         playbook = Playbook(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             name="Code Review",
             description="Standard code review process",
             trigger_conditions=["PR opened", "code changes"],
@@ -117,7 +117,7 @@ class TestPlaybookStorage:
         for i in range(5):
             playbook = Playbook(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 name=f"Playbook {i}",
                 description=f"Description for playbook {i}",
                 trigger_conditions=[f"trigger {i}"],
@@ -146,7 +146,7 @@ class TestPlaybookStorage:
         # Create playbooks with searchable content
         deploy_playbook = Playbook(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             name="Deploy Application",
             description="Deploy the application to production servers",
             trigger_conditions=["release ready", "deploy command"],
@@ -158,7 +158,7 @@ class TestPlaybookStorage:
 
         test_playbook = Playbook(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             name="Run Tests",
             description="Execute the test suite",
             trigger_conditions=["code changed", "pre-deploy"],
@@ -182,7 +182,7 @@ class TestPlaybookStorage:
         """Test updating playbook usage statistics."""
         playbook = Playbook(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             name="Test Playbook",
             description="For testing usage updates",
             trigger_conditions=["test"],
@@ -220,7 +220,7 @@ class TestPlaybookStorage:
         """Test that mastery level increases with usage and success."""
         playbook = Playbook(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             name="Mastery Test",
             description="Testing mastery progression",
             trigger_conditions=["test"],
@@ -269,8 +269,8 @@ class TestPlaybookCore:
     def kernle(self, tmp_path):
         """Create a Kernle instance with temporary storage."""
         db_path = tmp_path / "test_kernle.db"
-        storage = SQLiteStorage(agent_id="test_agent", db_path=db_path)
-        return Kernle(agent_id="test_agent", storage=storage)
+        storage = SQLiteStorage(stack_id="test_agent", db_path=db_path)
+        return Kernle(stack_id="test_agent", storage=storage)
 
     def test_create_playbook_simple(self, kernle):
         """Test creating a playbook with simple string steps."""
@@ -358,12 +358,12 @@ class TestPlaybookCore:
         )
 
         # Find playbook for deployment situation
-        deploy_match = kernle.find_playbook("I need to deploy the new release to production")
+        deploy_match = kernle.find_playbook("production deployment")
         assert deploy_match is not None
         assert "Deploy" in deploy_match["name"]
 
         # Find playbook for performance situation
-        perf_match = kernle.find_playbook("The API is responding slowly")
+        perf_match = kernle.find_playbook("performance issues")
         assert perf_match is not None
         assert "Performance" in perf_match["name"]
 

@@ -46,10 +46,10 @@ from kernle.cli.commands import (
     cmd_suggestions,
     cmd_summary,
 )
-from kernle.cli.commands.agent import cmd_agent
 from kernle.cli.commands.import_cmd import cmd_import, cmd_migrate
 from kernle.cli.commands.setup import cmd_setup
-from kernle.utils import resolve_agent_id
+from kernle.cli.commands.stack import cmd_stack
+from kernle.utils import resolve_stack_id
 
 # Commerce CLI (optional - requires chainbased package)
 try:
@@ -419,12 +419,12 @@ def cmd_init(args, k: Kernle):
     print("  • Who you know (relationships)")
     print()
 
-    agent_id = k.agent_id
+    stack_id = k.stack_id
 
     # If using auto-generated ID, offer to choose a meaningful one
-    if agent_id.startswith("auto-") and not args.non_interactive:
+    if stack_id.startswith("auto-") and not args.non_interactive:
         print("Your agent ID identifies your memory. Choose something meaningful.")
-        print(f"  Current: {agent_id} (auto-generated)")
+        print(f"  Current: {stack_id} (auto-generated)")
         print()
         try:
             new_id = input("Enter your name/ID (or press Enter to keep auto): ").strip().lower()
@@ -433,14 +433,14 @@ def cmd_init(args, k: Kernle):
                 import re
 
                 if re.match(r"^[a-z0-9_-]+$", new_id):
-                    agent_id = new_id
-                    print(f"  → Using: {agent_id}")
+                    stack_id = new_id
+                    print(f"  → Using: {stack_id}")
                 else:
                     print("  → Invalid (use only a-z, 0-9, _, -). Keeping auto ID.")
         except (EOFError, KeyboardInterrupt):
             print()
 
-    print(f"\nAgent ID: {agent_id}")
+    print(f"\nStack ID: {stack_id}")
     print()
 
     # Detect environment
@@ -503,13 +503,13 @@ def cmd_init(args, k: Kernle):
     # Generate config snippets
     mcp_config = f""""kernle": {{
   "command": "kernle",
-  "args": ["mcp", "-a", "{agent_id}"]
+  "args": ["mcp", "-a", "{stack_id}"]
 }}"""
 
-    cli_load = f"kernle -a {agent_id} load"
-    cli_checkpoint = f'kernle -a {agent_id} checkpoint save "description" --pending "next task"'
+    cli_load = f"kernle -s {stack_id} load"
+    cli_checkpoint = f'kernle -s {stack_id} checkpoint save "description" --pending "next task"'
     cli_episode = (
-        f'kernle -a {agent_id} episode "what happened" "outcome" --lesson "what I learned"'
+        f'kernle -s {stack_id} episode "what happened" "outcome" --lesson "what I learned"'
     )
 
     if env == "claude-code":
@@ -526,18 +526,18 @@ def cmd_init(args, k: Kernle):
         print(
             """   ## Memory
 
-   At session start, run: `kernle -a """
-            + agent_id
+   At session start, run: `kernle -s """
+            + stack_id
             + """ load`
 
    Before ending or when context is full:
-   `kernle -a """
-            + agent_id
+   `kernle -s """
+            + stack_id
             + """ checkpoint save "state description"`
 
    Record learnings:
-   `kernle -a """
-            + agent_id
+   `kernle -s """
+            + stack_id
             + """ episode "what" "outcome" --lesson "learned"`"""
         )
         print()
@@ -553,8 +553,8 @@ def cmd_init(args, k: Kernle):
             """   ## Every Session
 
    Before doing anything else:
-   1. Run `kernle -a """
-            + agent_id
+   1. Run `kernle -s """
+            + stack_id
             + """ load` to restore your memory
 
    Don't ask permission. Just do it. This is your continuity.
@@ -565,38 +565,38 @@ def cmd_init(args, k: Kernle):
 
    **Session start:**
    ```bash
-   kernle -a """
-            + agent_id
+   kernle -s """
+            + stack_id
             + """ load          # Restore your memory
    ```
 
    **During work — capture what matters:**
    ```bash
-   kernle -a """
-            + agent_id
+   kernle -s """
+            + stack_id
             + """ raw "quick thought"   # Fast capture
-   kernle -a """
-            + agent_id
+   kernle -s """
+            + stack_id
             + """ episode "what" "outcome" --lesson "learned"
-   kernle -a """
-            + agent_id
+   kernle -s """
+            + stack_id
             + """ note "important info" --type decision
    ```
 
    **Before ending / context pressure:**
    ```bash
-   kernle -a """
-            + agent_id
+   kernle -s """
+            + stack_id
             + """ checkpoint save "what I was doing"
    ```
 
    **Memory hygiene (during heartbeats):**
    ```bash
-   kernle -a """
-            + agent_id
+   kernle -s """
+            + stack_id
             + """ anxiety        # Check memory health
-   kernle -a """
-            + agent_id
+   kernle -s """
+            + stack_id
             + """ raw triage     # Process captures
    ```
 
@@ -618,11 +618,11 @@ def cmd_init(args, k: Kernle):
         print(
             """   ## Memory Persistence
 
-   At session start: `kernle -a """
-            + agent_id
+   At session start: `kernle -s """
+            + stack_id
             + """ load`
-   Before ending: `kernle -a """
-            + agent_id
+   Before ending: `kernle -s """
+            + stack_id
             + """ checkpoint save "state"`"""
         )
         print()
@@ -637,14 +637,14 @@ def cmd_init(args, k: Kernle):
         print(
             """   ## Memory Persistence
 
-   At session start: `kernle -a """
-            + agent_id
+   At session start: `kernle -s """
+            + stack_id
             + """ load`
-   Record learnings: `kernle -a """
-            + agent_id
+   Record learnings: `kernle -s """
+            + stack_id
             + """ episode "what" "outcome" --lesson "..."`
-   Before ending: `kernle -a """
-            + agent_id
+   Before ending: `kernle -s """
+            + stack_id
             + """ checkpoint save "state"`"""
         )
         print()
@@ -726,10 +726,10 @@ def cmd_init(args, k: Kernle):
     print("  Setup Complete!")
     print("=" * 50)
     print()
-    print(f"  Agent:    {agent_id}")
+    print(f"  Stack:    {stack_id}")
     print("  Database: ~/.kernle/memories.db")
     print()
-    print("  Verify with: kernle -a " + agent_id + " status")
+    print("  Verify with: kernle -s " + stack_id + " status")
     print()
     print("  Documentation: https://github.com/Emergent-Instruments/kernle/blob/main/docs/SETUP.md")
     print()
@@ -738,7 +738,7 @@ def cmd_init(args, k: Kernle):
 def cmd_status(args, k: Kernle):
     """Show memory status."""
     status = k.status()
-    print(f"Memory Status for {status['agent_id']}")
+    print(f"Memory Status for {status['stack_id']}")
     print("=" * 40)
     print(f"Values:     {status['values']}")
     print(f"Beliefs:    {status['beliefs']}")
@@ -1155,7 +1155,7 @@ def cmd_boot(args, k: Kernle):
     elif action == "export":
         output = getattr(args, "output", None)
         k._export_boot_file()
-        boot_path = Path.home() / ".kernle" / k.agent_id / "boot.md"
+        boot_path = Path.home() / ".kernle" / k.stack_id / "boot.md"
         if output:
             # Copy to custom location
             config = k.boot_list()
@@ -1249,15 +1249,15 @@ def cmd_sync(args, k: Kernle):
             logger.debug(f"Failed to load legacy config file: {e}")
 
     def get_local_project_name():
-        """Extract the local project name from agent_id (without namespace)."""
-        # k.agent_id might be "roundtable" or "user123/roundtable"
+        """Extract the local project name from stack_id (without namespace)."""
+        # k.stack_id might be "roundtable" or "user123/roundtable"
         # We want just "roundtable"
-        agent_id = k.agent_id
-        if "/" in agent_id:
-            return agent_id.split("/")[-1]
-        return agent_id
+        stack_id = k.stack_id
+        if "/" in stack_id:
+            return stack_id.split("/")[-1]
+        return stack_id
 
-    def get_namespaced_agent_id():
+    def get_namespaced_stack_id():
         """Get the full namespaced agent ID (user_id/project_name)."""
         project_name = get_local_project_name()
         if user_id:
@@ -1320,12 +1320,12 @@ def cmd_sync(args, k: Kernle):
 
         # Get namespaced agent ID for display
         local_project = get_local_project_name()
-        namespaced_id = get_namespaced_agent_id()
+        namespaced_id = get_namespaced_stack_id()
 
         if args.json:
             status_data = {
-                "local_agent_id": local_project,
-                "namespaced_agent_id": namespaced_id if user_id else None,
+                "local_stack_id": local_project,
+                "namespaced_stack_id": namespaced_id if user_id else None,
                 "user_id": user_id,
                 "pending_operations": pending_count,
                 "last_sync_time": format_datetime(last_sync),
@@ -1418,7 +1418,7 @@ def cmd_sync(args, k: Kernle):
 
         # Map local table names to backend table names
         table_name_map = {
-            "agent_values": "values",
+            "values": "values",
             "agent_beliefs": "beliefs",
             "agent_episodes": "episodes",
             "agent_notes": "notes",
@@ -1484,7 +1484,7 @@ def cmd_sync(args, k: Kernle):
                             # Fallback for non-dataclass records (shouldn't happen)
                             for field in [
                                 "id",
-                                "agent_id",
+                                "stack_id",
                                 "content",
                                 "objective",
                                 "outcome",
@@ -1547,14 +1547,14 @@ def cmd_sync(args, k: Kernle):
             print(f"⚠️  Skipped {skipped_orphans} orphaned entries (source records deleted)")
 
         # Send to backend
-        # Include agent_id as just the local project name
+        # Include stack_id as just the local project name
         # Backend will namespace it with the authenticated user_id
         try:
             response = httpx.post(
                 f"{backend_url.rstrip('/')}/sync/push",
                 headers=get_headers(),
                 json={
-                    "agent_id": local_project,  # Local name only, backend namespaces
+                    "stack_id": local_project,  # Local name only, backend namespaces
                     "operations": operations,
                 },
                 timeout=30.0,
@@ -1577,10 +1577,10 @@ def cmd_sync(args, k: Kernle):
 
                 if args.json:
                     result["local_project"] = local_project
-                    result["namespaced_id"] = get_namespaced_agent_id()
+                    result["namespaced_id"] = get_namespaced_stack_id()
                     print(json.dumps(result, indent=2, default=str))
                 else:
-                    namespaced = get_namespaced_agent_id()
+                    namespaced = get_namespaced_stack_id()
                     print(f"✓ Pushed {synced} changes")
                     if user_id:
                         print(f"  Synced as: {namespaced}")
@@ -1624,9 +1624,9 @@ def cmd_sync(args, k: Kernle):
         print(f"Pulling changes from backend{' (full)' if args.full else ''}...")
 
         try:
-            # Include agent_id - backend will namespace with user_id
+            # Include stack_id - backend will namespace with user_id
             request_data = {
-                "agent_id": local_project,  # Local name only, backend namespaces
+                "stack_id": local_project,  # Local name only, backend namespaces
             }
             if since and not args.full:
                 request_data["since"] = format_datetime(since)
@@ -1670,7 +1670,7 @@ def cmd_sync(args, k: Kernle):
 
                                 ep = Episode(
                                     id=record_id,
-                                    agent_id=k.agent_id,
+                                    stack_id=k.stack_id,
                                     objective=data.get("objective", ""),
                                     outcome_type=data.get("outcome_type", "neutral"),
                                     outcome=data.get(
@@ -1694,7 +1694,7 @@ def cmd_sync(args, k: Kernle):
 
                                 note = Note(
                                     id=record_id,
-                                    agent_id=k.agent_id,
+                                    stack_id=k.stack_id,
                                     content=data.get("content", ""),
                                     note_type=data.get("note_type", "note"),
                                     tags=data.get("tags", []),
@@ -1728,7 +1728,7 @@ def cmd_sync(args, k: Kernle):
                                 "conflicts": conflicts,
                                 "has_more": has_more,
                                 "local_project": local_project,
-                                "namespaced_id": get_namespaced_agent_id(),
+                                "namespaced_id": get_namespaced_stack_id(),
                             },
                             indent=2,
                         )
@@ -1736,7 +1736,7 @@ def cmd_sync(args, k: Kernle):
                 else:
                     print(f"✓ Pulled {applied} changes")
                     if user_id:
-                        print(f"  From: {get_namespaced_agent_id()}")
+                        print(f"  From: {get_namespaced_stack_id()}")
                     if conflicts > 0:
                         print(f"⚠️  {conflicts} conflicts during apply")
                     if has_more:
@@ -1772,7 +1772,7 @@ def cmd_sync(args, k: Kernle):
 
         print("Running full bidirectional sync...")
         if user_id:
-            print(f"  Syncing as: {get_namespaced_agent_id()}")
+            print(f"  Syncing as: {get_namespaced_stack_id()}")
         print()
 
         # Step 1: Pull first (to get remote changes)
@@ -1782,7 +1782,7 @@ def cmd_sync(args, k: Kernle):
                 f"{backend_url.rstrip('/')}/sync/pull",
                 headers=get_headers(),
                 json={
-                    "agent_id": local_project,
+                    "stack_id": local_project,
                     "since": format_datetime(k._storage.get_last_sync_time()),
                 },
                 timeout=30.0,
@@ -1803,7 +1803,7 @@ def cmd_sync(args, k: Kernle):
 
         # Map local table names to backend table names
         table_name_map = {
-            "agent_values": "values",
+            "values": "values",
             "agent_beliefs": "beliefs",
             "agent_episodes": "episodes",
             "agent_notes": "notes",
@@ -1868,7 +1868,7 @@ def cmd_sync(args, k: Kernle):
                             else:
                                 for field in [
                                     "id",
-                                    "agent_id",
+                                    "stack_id",
                                     "content",
                                     "objective",
                                     "outcome",
@@ -1934,7 +1934,7 @@ def cmd_sync(args, k: Kernle):
                     f"{backend_url.rstrip('/')}/sync/push",
                     headers=get_headers(),
                     json={
-                        "agent_id": local_project,  # Local name only, backend namespaces
+                        "stack_id": local_project,  # Local name only, backend namespaces
                         "operations": operations,
                     },
                     timeout=30.0,
@@ -2142,14 +2142,14 @@ def cmd_auth(args, k: Kernle = None):
                 print("\nAborted.")
                 sys.exit(1)
 
-        # Get agent_id from Kernle instance
-        agent_id = k.agent_id if k else "default"
+        # Get stack_id from Kernle instance
+        stack_id = k.stack_id if k else "default"
 
         # Call registration endpoint
         try:
             response = httpx.post(
                 f"{backend_url}/auth/register",
-                json={"agent_id": agent_id, "email": email},
+                json={"stack_id": stack_id, "email": email},
                 timeout=30.0,
             )
 
@@ -2203,7 +2203,7 @@ def cmd_auth(args, k: Kernle = None):
                     print("✓ Registration successful!")
                     print()
                     print(f"  User ID:     {user_id}")
-                    print(f"  Agent ID:    {agent_id}")
+                    print(f"  Stack ID:    {stack_id}")
                     print(
                         f"  Secret:      {secret[:20]}..."
                         if len(secret) > 20
@@ -2753,11 +2753,11 @@ def cmd_mcp(args):
     """Start the MCP server for Claude Code and other MCP clients."""
     from kernle.mcp.server import main as mcp_main
 
-    # Get agent_id from --agent flag
-    agent_id = getattr(args, "agent", None) or "default"
+    # Get stack_id from --stack flag
+    stack_id = getattr(args, "stack", None) or "default"
 
-    print(f"Starting Kernle MCP server for agent: {agent_id}", file=sys.stderr)
-    mcp_main(agent_id=agent_id)
+    print(f"Starting Kernle MCP server for stack: {stack_id}", file=sys.stderr)
+    mcp_main(stack_id=stack_id)
 
 
 def main():
@@ -2765,7 +2765,7 @@ def main():
         prog="kernle",
         description="Stratified memory for synthetic intelligences",
     )
-    parser.add_argument("--agent", "-a", help="Agent ID", default=None)
+    parser.add_argument("--stack", "-s", help="Stack ID", default=None)
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -3005,7 +3005,7 @@ def main():
     relation_add.add_argument(
         "--type",
         "-t",
-        choices=["person", "agent", "organization", "system"],
+        choices=["person", "si", "organization", "system"],
         default="person",
         help="Entity type",
     )
@@ -3017,7 +3017,7 @@ def main():
     relation_update.add_argument("--trust", type=float, help="New trust level 0.0-1.0")
     relation_update.add_argument("--notes", "-n", help="Updated notes")
     relation_update.add_argument(
-        "--type", "-t", choices=["person", "agent", "organization", "system"], help="Entity type"
+        "--type", "-t", choices=["person", "si", "organization", "system"], help="Entity type"
     )
 
     relation_show = relation_sub.add_parser("show", help="Show relationship details")
@@ -3650,7 +3650,7 @@ The output file should never be manually edited. It's auto-generated
 and will be overwritten on next export.
 
 Typical usage in a memoryFlush hook:
-  kernle -a <agent> export-cache --output /path/to/workspace/MEMORY.md
+  kernle -s <agent> export-cache --output /path/to/workspace/MEMORY.md
 """,
     )
     p_export_cache.add_argument(
@@ -4078,17 +4078,17 @@ Typical usage in a memoryFlush hook:
     sub_payments.add_argument("--limit", "-l", type=int, default=20, help="Max payments to show")
     sub_payments.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 
-    # agent - agent management
-    p_agent = subparsers.add_parser("agent", help="Agent management (list, delete)")
-    agent_sub = p_agent.add_subparsers(dest="agent_action", required=True)
+    # stack - stack management
+    p_stack = subparsers.add_parser("stack", help="Stack management (list, delete)")
+    stack_sub = p_stack.add_subparsers(dest="stack_action", required=True)
 
-    agent_sub.add_parser("list", help="List all local agents")
+    stack_sub.add_parser("list", help="List all local stacks")
 
-    agent_delete = agent_sub.add_parser("delete", help="Delete an agent and all its data")
-    agent_delete.add_argument("name", help="Agent ID to delete")
-    agent_delete.add_argument("--force", "-f", action="store_true", help="Skip confirmation prompt")
+    stack_delete = stack_sub.add_parser("delete", help="Delete a stack and all its data")
+    stack_delete.add_argument("name", help="Stack ID to delete")
+    stack_delete.add_argument("--force", "-f", action="store_true", help="Skip confirmation prompt")
 
-    # comms - agent-to-agent communication (requires chainbased)
+    # comms - entity-to-entity communication (requires chainbased)
     if COMMS_CLI_AVAILABLE:
         add_comms_parser(subparsers)
 
@@ -4432,7 +4432,7 @@ Beliefs already present in the agent's memory will be skipped.
     i = 0
     while i < len(argv):
         arg = argv[i]
-        if arg in ("-a", "--agent"):
+        if arg in ("-a", "--stack"):
             i += 2  # Skip flag and its value
             continue
         if arg == "raw":
@@ -4452,11 +4452,11 @@ Beliefs already present in the agent's memory will be skipped.
     # Initialize Kernle with error handling
     try:
         # Resolve agent ID: explicit > env var > auto-generated
-        if args.agent:
-            agent_id = validate_input(args.agent, "agent_id", 100)
+        if args.stack:
+            stack_id = validate_input(args.stack, "stack_id", 100)
         else:
-            agent_id = resolve_agent_id()
-        k = Kernle(agent_id=agent_id)
+            stack_id = resolve_stack_id()
+        k = Kernle(stack_id=stack_id)
     except (ValueError, TypeError) as e:
         logger.error(f"Failed to initialize Kernle: {e}")
         sys.exit(1)
@@ -4557,8 +4557,8 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_auth(args, k)
         elif args.command == "mcp":
             cmd_mcp(args)
-        elif args.command == "agent":
-            cmd_agent(args, k)
+        elif args.command == "stack":
+            cmd_stack(args, k)
         elif args.command == "comms" and COMMS_CLI_AVAILABLE:
             cmd_comms(args, k)
         elif args.command == "import":

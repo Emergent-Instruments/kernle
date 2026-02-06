@@ -8,7 +8,7 @@ import type { HookHandler } from "../../hooks.js";
 
 const execAsync = promisify(exec);
 
-interface AgentBootstrapContext {
+interface BootstrapContext {
   workspaceDir?: string;
   sessionKey?: string;
   sessionId?: string;
@@ -17,9 +17,9 @@ interface AgentBootstrapContext {
 }
 
 /**
- * Extract agent ID from session key (e.g., "agent:claire:main" -> "claire")
+ * Extract stack ID from session key (e.g., "agent:claire:main" -> "claire")
  */
-function extractAgentId(sessionKey: string | undefined, workspaceDir: string | undefined): string {
+function extractStackId(sessionKey: string | undefined, workspaceDir: string | undefined): string {
   if (sessionKey) {
     const parts = sessionKey.split(":");
     if (parts.length >= 2 && parts[0] === "agent") {
@@ -41,21 +41,21 @@ function extractAgentId(sessionKey: string | undefined, workspaceDir: string | u
 /**
  * Execute kernle load and return output
  */
-async function loadKernleMemory(agentId: string): Promise<string | null> {
+async function loadKernleMemory(stackId: string): Promise<string | null> {
   try {
-    const { stdout } = await execAsync(`kernle -a ${agentId} load`, {
+    const { stdout } = await execAsync(`kernle -s ${stackId} load`, {
       timeout: 5000, // 5 second timeout
       maxBuffer: 1024 * 1024, // 1MB max output
     });
 
     return stdout.trim();
   } catch (error: any) {
-    // Kernle not installed, agent doesn't exist, or command failed
+    // Kernle not installed, stack doesn't exist, or command failed
     const stderr = error.stderr || error.message || "";
 
     // Only log if it's not a "not found" error
-    if (!stderr.includes("command not found") && !stderr.includes("No agent found")) {
-      console.warn(`[kernle-load] Failed to load memory for agent '${agentId}':`, stderr);
+    if (!stderr.includes("command not found") && !stderr.includes("No stack found")) {
+      console.warn(`[kernle-load] Failed to load memory for stack '${stackId}':`, stderr);
     }
 
     return null;
@@ -71,7 +71,7 @@ const kernleLoadHook: HookHandler = async (event) => {
     return;
   }
 
-  const context = event.context as AgentBootstrapContext;
+  const context = event.context as BootstrapContext;
 
   // Ensure we have bootstrap files array
   if (!context.bootstrapFiles) {
@@ -79,13 +79,13 @@ const kernleLoadHook: HookHandler = async (event) => {
   }
 
   const { workspaceDir, sessionKey } = context;
-  const agentId = extractAgentId(sessionKey, workspaceDir);
+  const stackId = extractStackId(sessionKey, workspaceDir);
 
   // Load Kernle memory
-  const memoryContent = await loadKernleMemory(agentId);
+  const memoryContent = await loadKernleMemory(stackId);
 
   if (!memoryContent) {
-    // Kernle not available or no memory for this agent - continue without it
+    // Kernle not available or no memory for this stack - continue without it
     return;
   }
 

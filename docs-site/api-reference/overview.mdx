@@ -5,7 +5,7 @@ description: "Introduction to the Kernle REST API"
 
 # API Overview
 
-The Kernle API provides programmatic access to memory operations for cloud-synced agents.
+The Kernle API provides programmatic access to memory operations for cloud-synced stacks.
 
 ## Base URL
 
@@ -86,7 +86,7 @@ pip install kernle
 ```python
 from kernle import Kernle
 
-kn = Kernle(agent_id="my-agent", api_key="knl_sk_xxx")
+kn = Kernle(stack_id="my-stack", api_key="knl_sk_xxx")
 kn.load()
 kn.episode("Tested the API", "success", lessons=["It works!"])
 kn.checkpoint_save("API testing complete")
@@ -97,8 +97,8 @@ kn.checkpoint_save("API testing complete")
 The Kernle CLI wraps the API:
 
 ```bash
-kernle -a my-agent sync push   # Uses API
-kernle -a my-agent search "query"  # Uses API when cloud-enabled
+kernle -s my-stack sync push   # Uses API
+kernle -s my-stack search "query"  # Uses API when cloud-enabled
 ```
 
 ## Local vs Cloud

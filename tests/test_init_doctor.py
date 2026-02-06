@@ -37,18 +37,18 @@ class TestGenerateSection:
         section = generate_section("claire", style="standard", include_per_message=True)
 
         assert "## Memory (Kernle)" in section
-        assert "kernle -a claire load" in section
-        assert "kernle -a claire anxiety" in section
+        assert "kernle -s claire load" in section
+        assert "kernle -s claire anxiety" in section
         assert "## Memory Health (Every Message)" in section
-        assert "kernle -a claire anxiety -b" in section
+        assert "kernle -s claire anxiety -b" in section
 
     def test_generate_minimal_section(self):
         """Test generating minimal section."""
         section = generate_section("test-agent", style="minimal", include_per_message=True)
 
         assert "## Kernle" in section
-        assert "kernle -a test-agent load" in section
-        assert "kernle -a test-agent anxiety -b" in section
+        assert "kernle -s test-agent load" in section
+        assert "kernle -s test-agent anxiety -b" in section
         assert "## Memory Health (Every Message)" in section
 
     def test_generate_combined_section(self):
@@ -56,7 +56,7 @@ class TestGenerateSection:
         section = generate_section("myagent", style="combined", include_per_message=True)
 
         assert "## Memory (Kernle)" in section
-        assert "kernle -a myagent load" in section
+        assert "kernle -s myagent load" in section
         assert "Every Message" in section
 
     def test_generate_without_per_message(self):
@@ -64,7 +64,7 @@ class TestGenerateSection:
         section = generate_section("agent1", style="standard", include_per_message=False)
 
         assert "## Memory (Kernle)" in section
-        assert "kernle -a agent1 load" in section
+        assert "kernle -s agent1 load" in section
         # Should NOT have per-message section
         assert "## Memory Health (Every Message)" not in section
 
@@ -153,7 +153,7 @@ class TestCmdInit:
     def mock_kernle(self):
         """Mock Kernle instance."""
         k = Mock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         return k
 
     def test_init_print_only(self, mock_kernle, tmp_path, monkeypatch):
@@ -174,7 +174,7 @@ class TestCmdInit:
 
         output = fake_out.getvalue()
         assert "Kernle Instructions for CLAUDE.md" in output
-        assert "kernle -a test-agent load" in output
+        assert "kernle -s test-agent load" in output
 
     def test_init_creates_file(self, mock_kernle, tmp_path, monkeypatch):
         """Test init creates CLAUDE.md when no file exists."""
@@ -194,7 +194,7 @@ class TestCmdInit:
 
         assert (tmp_path / "CLAUDE.md").exists()
         content = (tmp_path / "CLAUDE.md").read_text()
-        assert "kernle -a test-agent load" in content
+        assert "kernle -s test-agent load" in content
 
     def test_init_appends_to_existing(self, mock_kernle, tmp_path, monkeypatch):
         """Test init appends to existing file."""
@@ -219,7 +219,7 @@ class TestCmdInit:
         content = (tmp_path / "CLAUDE.md").read_text()
         assert "My Project" in content
         assert "Some existing content" in content
-        assert "kernle -a test-agent load" in content
+        assert "kernle -s test-agent load" in content
 
     def test_init_detects_existing_section(self, mock_kernle, tmp_path, monkeypatch):
         """Test init detects existing Kernle section."""
@@ -266,7 +266,7 @@ class TestCmdInit:
         content = (tmp_path / "CLAUDE.md").read_text()
         # Should have both old and new
         assert "Old instructions" in content
-        assert "kernle -a test-agent load" in content
+        assert "kernle -s test-agent load" in content
 
 
 class TestComplianceChecks:
@@ -343,7 +343,7 @@ class TestCmdDoctor:
     def mock_kernle(self):
         """Mock Kernle instance."""
         k = Mock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         return k
 
     def test_doctor_no_file(self, mock_kernle, tmp_path, monkeypatch):

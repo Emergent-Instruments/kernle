@@ -36,8 +36,8 @@ def temp_checkpoint_dir(tmp_path):
 @pytest.fixture
 def kernle(temp_db, temp_checkpoint_dir):
     """Create a Kernle instance for testing."""
-    storage = SQLiteStorage(agent_id="test-agent", db_path=temp_db)
-    return Kernle(agent_id="test-agent", storage=storage, checkpoint_dir=temp_checkpoint_dir)
+    storage = SQLiteStorage(stack_id="test-agent", db_path=temp_db)
+    return Kernle(stack_id="test-agent", storage=storage, checkpoint_dir=temp_checkpoint_dir)
 
 
 @pytest.fixture
@@ -197,7 +197,7 @@ class TestDetectKnowledgeGaps:
 
     def test_relevant_knowledge_found(self, populated_kernle):
         """Should find relevant knowledge for a known topic."""
-        result = populated_kernle.detect_knowledge_gaps("python programming")
+        result = populated_kernle.detect_knowledge_gaps("Python")
 
         assert result["has_relevant_knowledge"] is True
         assert result["confidence"] > 0

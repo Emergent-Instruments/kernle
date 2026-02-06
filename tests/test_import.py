@@ -198,15 +198,15 @@ class TestJsonExportFormat:
     """
 
     def test_export_structure_has_required_fields(self):
-        """JSON export should have agent_id and exported_at fields."""
+        """JSON export should have stack_id and exported_at fields."""
         # This tests the expected structure of Kernle's JSON export format
         # which is documented and used by the import command
-        required_fields = {"agent_id", "exported_at"}
+        required_fields = {"stack_id", "exported_at"}
         memory_types = {"values", "beliefs", "goals", "episodes", "notes"}
 
         # A minimal valid export
         export_data = {
-            "agent_id": "test-agent",
+            "stack_id": "test-agent",
             "exported_at": "2026-01-15T10:00:00Z",
             "values": [],
             "beliefs": [],
@@ -291,7 +291,7 @@ class TestImportIntegration:
     def kernle_instance(self, tmp_path):
         """Create a Kernle instance with temp storage."""
         try:
-            return Kernle(agent_id="test-import")
+            return Kernle(stack_id="test-import")
         except Exception as e:
             logger.debug(f"Kernle instance creation failed: {e}")
             pytest.skip("Could not create Kernle instance - schema may be changing")
@@ -348,7 +348,7 @@ class TestImportIntegration:
         assert len(data["notes"]) >= 1
 
         # Could be imported to another agent
-        assert data["agent_id"] == "test-import"
+        assert data["stack_id"] == "test-import"
 
 
 class TestEdgeCases:

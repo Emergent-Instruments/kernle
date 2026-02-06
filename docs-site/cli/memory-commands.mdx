@@ -12,7 +12,7 @@ Commands for capturing and managing different types of memories.
 Record an experience with optional lessons learned.
 
 ```bash
-kernle -a <agent> episode OBJECTIVE OUTCOME [options]
+kernle -s <stack> episode OBJECTIVE OUTCOME [options]
 ```
 
 | Option | Description |
@@ -29,19 +29,19 @@ kernle -a <agent> episode OBJECTIVE OUTCOME [options]
 <Tabs>
   <Tab title="Basic">
     ```bash
-    kernle -a claire episode "Implemented OAuth login" "success"
+    kernle -s claire episode "Implemented OAuth login" "success"
     ```
   </Tab>
   <Tab title="With Lessons">
     ```bash
-    kernle -a claire episode "Debugged race condition" "success" \
+    kernle -s claire episode "Debugged race condition" "success" \
       --lesson "Always check for concurrent access" \
       --lesson "Add mutex locks early"
     ```
   </Tab>
   <Tab title="With Emotions">
     ```bash
-    kernle -a claire episode "Failed deployment" "failure" \
+    kernle -s claire episode "Failed deployment" "failure" \
       --lesson "Test on staging first" \
       --tag "deployment" \
       --valence -0.5 \
@@ -51,7 +51,7 @@ kernle -a <agent> episode OBJECTIVE OUTCOME [options]
   <Tab title="Derived From Raw">
     ```bash
     # Process a raw entry into an episode with provenance
-    kernle -a claire episode "Investigated performance issue" "success" \
+    kernle -s claire episode "Investigated performance issue" "success" \
       --lesson "Check database indexes first" \
       --derived-from raw:abc123
     ```
@@ -65,7 +65,7 @@ kernle -a <agent> episode OBJECTIVE OUTCOME [options]
 Capture a quick note (decision, insight, or quote).
 
 ```bash
-kernle -a <agent> note CONTENT [options]
+kernle -s <stack> note CONTENT [options]
 ```
 
 | Option | Description |
@@ -80,26 +80,26 @@ kernle -a <agent> note CONTENT [options]
 <Tabs>
   <Tab title="Simple Note">
     ```bash
-    kernle -a claire note "API rate limit is 1000 req/min"
+    kernle -s claire note "API rate limit is 1000 req/min"
     ```
   </Tab>
   <Tab title="Decision">
     ```bash
-    kernle -a claire note "Using PostgreSQL over MySQL" \
+    kernle -s claire note "Using PostgreSQL over MySQL" \
       --type decision \
       --reason "Better JSON support and performance"
     ```
   </Tab>
   <Tab title="Quote">
     ```bash
-    kernle -a claire note "Simple is better than complex" \
+    kernle -s claire note "Simple is better than complex" \
       --type quote \
       --speaker "Tim Peters"
     ```
   </Tab>
   <Tab title="Protected Insight">
     ```bash
-    kernle -a claire note "Memory is identity" \
+    kernle -s claire note "Memory is identity" \
       --type insight \
       --protect
     ```
@@ -115,21 +115,21 @@ Raw memory capture and management. Zero-friction capture for quick thoughts.
 ### Capture
 
 ```bash
-kernle -a <agent> raw "content" [--tags TAGS]
+kernle -s <stack> raw "content" [--tags TAGS]
 ```
 
 ```bash
 # Quick capture
-kernle -a claire raw "Need to look into caching strategy"
+kernle -s claire raw "Need to look into caching strategy"
 
 # With tags
-kernle -a claire raw "API response time is 200ms avg" --tags "performance,api"
+kernle -s claire raw "API response time is 200ms avg" --tags "performance,api"
 ```
 
 ### List
 
 ```bash
-kernle -a <agent> raw list [--unprocessed] [--processed] [--limit LIMIT] [--json]
+kernle -s <stack> raw list [--unprocessed] [--processed] [--limit LIMIT] [--json]
 ```
 
 | Option | Description |
@@ -141,7 +141,7 @@ kernle -a <agent> raw list [--unprocessed] [--processed] [--limit LIMIT] [--json
 ### Show
 
 ```bash
-kernle -a <agent> raw show ID [--json]
+kernle -s <stack> raw show ID [--json]
 ```
 
 ### Process
@@ -149,15 +149,15 @@ kernle -a <agent> raw show ID [--json]
 Process a raw entry into a structured memory type.
 
 ```bash
-kernle -a <agent> raw process ID --type {episode,note,belief} [options]
+kernle -s <stack> raw process ID --type {episode,note,belief} [options]
 ```
 
 ```bash
 # Process into a note
-kernle -a claire raw process abc123 --type note
+kernle -s claire raw process abc123 --type note
 
 # Process into episode with details
-kernle -a claire raw process abc123 --type episode \
+kernle -s claire raw process abc123 --type episode \
   --objective "Investigated performance issue" \
   --outcome "success"
 ```
@@ -171,7 +171,7 @@ Belief revision operations.
 ### List Beliefs
 
 ```bash
-kernle -a <agent> belief list [--all] [--limit LIMIT] [--json]
+kernle -s <stack> belief list [--all] [--limit LIMIT] [--json]
 ```
 
 | Option | Description |
@@ -182,11 +182,11 @@ kernle -a <agent> belief list [--all] [--limit LIMIT] [--json]
 ### Add Belief
 
 ```bash
-kernle -a <agent> belief "statement" [--confidence C] [--type TYPE]
+kernle -s <stack> belief "statement" [--confidence C] [--type TYPE]
 ```
 
 ```bash
-kernle -a claire belief "Testing before deployment prevents outages" --confidence 0.85
+kernle -s claire belief "Testing before deployment prevents outages" --confidence 0.85
 ```
 
 ### Revise from Episode
@@ -194,13 +194,13 @@ kernle -a claire belief "Testing before deployment prevents outages" --confidenc
 Analyze an episode and suggest belief updates.
 
 ```bash
-kernle -a <agent> belief revise EPISODE_ID [--json]
+kernle -s <stack> belief revise EPISODE_ID [--json]
 ```
 
 ### Find Contradictions
 
 ```bash
-kernle -a <agent> belief contradictions STATEMENT [--limit LIMIT]
+kernle -s <stack> belief contradictions STATEMENT [--limit LIMIT]
 ```
 
 ### View History
@@ -208,7 +208,7 @@ kernle -a <agent> belief contradictions STATEMENT [--limit LIMIT]
 Show the revision chain for a belief.
 
 ```bash
-kernle -a <agent> belief history BELIEF_ID [--json]
+kernle -s <stack> belief history BELIEF_ID [--json]
 ```
 
 ### Reinforce
@@ -216,7 +216,7 @@ kernle -a <agent> belief history BELIEF_ID [--json]
 Increase confidence on a belief.
 
 ```bash
-kernle -a <agent> belief reinforce BELIEF_ID
+kernle -s <stack> belief reinforce BELIEF_ID
 ```
 
 ### Supersede
@@ -224,11 +224,11 @@ kernle -a <agent> belief reinforce BELIEF_ID
 Replace a belief with a new version.
 
 ```bash
-kernle -a <agent> belief supersede OLD_ID NEW_STATEMENT [--confidence C] [--reason R]
+kernle -s <stack> belief supersede OLD_ID NEW_STATEMENT [--confidence C] [--reason R]
 ```
 
 ```bash
-kernle -a claire belief supersede abc123 "Testing is essential, not optional" \
+kernle -s claire belief supersede abc123 "Testing is essential, not optional" \
   --confidence 0.95 \
   --reason "Multiple deployment failures without tests"
 ```
@@ -240,12 +240,12 @@ kernle -a claire belief supersede abc123 "Testing is essential, not optional" \
 Define core values (highest authority).
 
 ```bash
-kernle -a <agent> value NAME STATEMENT [--priority P]
+kernle -s <stack> value NAME STATEMENT [--priority P]
 ```
 
 ```bash
-kernle -a claire value "integrity" "Be honest and transparent" --priority 95
-kernle -a claire value "curiosity" "Always seek to understand" --priority 85
+kernle -s claire value "integrity" "Be honest and transparent" --priority 95
+kernle -s claire value "curiosity" "Always seek to understand" --priority 85
 ```
 
 <Note>
@@ -260,18 +260,18 @@ Set and manage goals.
 
 ```bash
 # Add a goal
-kernle -a <agent> goal TITLE [--description DESC] [--priority {low,medium,high}]
+kernle -s <stack> goal TITLE [--description DESC] [--priority {low,medium,high}]
 
 # List goals
-kernle -a <agent> goal list
+kernle -s <stack> goal list
 
 # Complete a goal
-kernle -a <agent> goal complete GOAL_ID
+kernle -s <stack> goal complete GOAL_ID
 ```
 
 ```bash
-kernle -a claire goal "Master Kubernetes" --priority high
-kernle -a claire goal "Improve test coverage" --priority medium
+kernle -s claire goal "Master Kubernetes" --priority high
+kernle -s claire goal "Improve test coverage" --priority medium
 ```
 
 ---
@@ -283,13 +283,13 @@ Manage intrinsic motivations.
 ### List Drives
 
 ```bash
-kernle -a <agent> drive list
+kernle -s <stack> drive list
 ```
 
 ### Set Drive
 
 ```bash
-kernle -a <agent> drive set TYPE INTENSITY [--focus FOCUS]...
+kernle -s <stack> drive set TYPE INTENSITY [--focus FOCUS]...
 ```
 
 | Type | Description |
@@ -301,8 +301,8 @@ kernle -a <agent> drive set TYPE INTENSITY [--focus FOCUS]...
 | `reproduction` | Creating, teaching, legacy |
 
 ```bash
-kernle -a claire drive set curiosity 0.8 --focus "AI" --focus "memory systems"
-kernle -a claire drive set growth 0.7 --focus "communication"
+kernle -s claire drive set curiosity 0.8 --focus "AI" --focus "memory systems"
+kernle -s claire drive set growth 0.7 --focus "communication"
 ```
 
 ### Satisfy Drive
@@ -310,11 +310,11 @@ kernle -a claire drive set growth 0.7 --focus "communication"
 Reduce drive intensity after satisfaction.
 
 ```bash
-kernle -a <agent> drive satisfy TYPE [--amount AMOUNT]
+kernle -s <stack> drive satisfy TYPE [--amount AMOUNT]
 ```
 
 ```bash
-kernle -a claire drive satisfy curiosity --amount 0.2
+kernle -s claire drive satisfy curiosity --amount 0.2
 ```
 
 ---
@@ -324,18 +324,18 @@ kernle -a claire drive satisfy curiosity --amount 0.2
 Track relationships with other entities.
 
 ```bash
-kernle -a <agent> relationship NAME [--trust T] [--type TYPE] [--notes NOTES]
+kernle -s <stack> relationship NAME [--trust T] [--type TYPE] [--notes NOTES]
 ```
 
 | Option | Description |
 |--------|-------------|
 | `--trust T` | Trust level (-1.0 to 1.0) |
-| `--type TYPE` | `agent`, `person`, or `organization` |
+| `--type TYPE` | `si`, `person`, or `organization` |
 | `--notes NOTES` | Relationship observations |
 
 ```bash
-kernle -a claire relationship "Alice" --trust 0.9 --notes "Great debugging partner"
-kernle -a claire relationship "DevOps" --type organization --notes "Manages infrastructure"
+kernle -s claire relationship "Alice" --trust 0.9 --notes "Great debugging partner"
+kernle -s claire relationship "DevOps" --type organization --notes "Manages infrastructure"
 ```
 
 ---
@@ -347,7 +347,7 @@ Procedural memory (playbooks for how to do things).
 ### Create
 
 ```bash
-kernle -a <agent> playbook create NAME [options]
+kernle -s <stack> playbook create NAME [options]
 ```
 
 | Option | Description |
@@ -362,7 +362,7 @@ kernle -a <agent> playbook create NAME [options]
 | `-t, --tag TAG` | Add a tag (repeatable) |
 
 ```bash
-kernle -a claire playbook create "Debug API Issues" \
+kernle -s claire playbook create "Debug API Issues" \
   --description "How to debug production API problems" \
   --step "Check error logs" \
   --step "Verify request payload" \
@@ -376,7 +376,7 @@ kernle -a claire playbook create "Debug API Issues" \
 ### List
 
 ```bash
-kernle -a <agent> playbook list [--tag TAG] [--limit LIMIT] [--json]
+kernle -s <stack> playbook list [--tag TAG] [--limit LIMIT] [--json]
 ```
 
 | Option | Description |
@@ -390,11 +390,11 @@ kernle -a <agent> playbook list [--tag TAG] [--limit LIMIT] [--json]
 Search playbooks by query (semantic search when embeddings available, text match fallback).
 
 ```bash
-kernle -a <agent> playbook search QUERY [--limit LIMIT] [--json]
+kernle -s <stack> playbook search QUERY [--limit LIMIT] [--json]
 ```
 
 ```bash
-kernle -a claire playbook search "debugging production issues"
+kernle -s claire playbook search "debugging production issues"
 ```
 
 ### Find
@@ -402,11 +402,11 @@ kernle -a claire playbook search "debugging production issues"
 Find the best matching playbook for a given situation.
 
 ```bash
-kernle -a <agent> playbook find SITUATION [--json]
+kernle -s <stack> playbook find SITUATION [--json]
 ```
 
 ```bash
-kernle -a claire playbook find "API returning 500 errors"
+kernle -s claire playbook find "API returning 500 errors"
 ```
 
 ### Show
@@ -414,7 +414,7 @@ kernle -a claire playbook find "API returning 500 errors"
 Display detailed playbook information.
 
 ```bash
-kernle -a <agent> playbook show ID [--json]
+kernle -s <stack> playbook show ID [--json]
 ```
 
 ### Record Usage
@@ -422,7 +422,7 @@ kernle -a <agent> playbook show ID [--json]
 Record playbook execution outcome to update statistics.
 
 ```bash
-kernle -a <agent> playbook record ID [--success|--failure]
+kernle -s <stack> playbook record ID [--success|--failure]
 ```
 
 | Option | Description |
@@ -441,7 +441,7 @@ Promote recurring patterns from episodes into beliefs. This is the primary conso
 </Warning>
 
 ```bash
-kernle -a <agent> promote [options]
+kernle -s <stack> promote [options]
 ```
 
 | Option | Description |
@@ -457,19 +457,19 @@ kernle -a <agent> promote [options]
   <Tab title="Reflection Scaffold">
     ```bash
     # Get a reflection scaffold (default mode)
-    kernle -a claire promote
+    kernle -s claire promote
     ```
   </Tab>
   <Tab title="Auto-Create Beliefs">
     ```bash
     # Automatically create beliefs from recurring patterns
-    kernle -a claire promote --auto --confidence 0.8
+    kernle -s claire promote --auto --confidence 0.8
     ```
   </Tab>
   <Tab title="Custom Thresholds">
     ```bash
     # Require 3 occurrences across at least 5 episodes
-    kernle -a claire promote --min-occurrences 3 --min-episodes 5
+    kernle -s claire promote --min-occurrences 3 --min-episodes 5
     ```
   </Tab>
 </Tabs>
@@ -485,7 +485,7 @@ Temporal epoch (era) management. Epochs define named phases of your life.
 Start a new epoch.
 
 ```bash
-kernle -a <agent> epoch create NAME [options]
+kernle -s <stack> epoch create NAME [options]
 ```
 
 | Option | Description |
@@ -495,7 +495,7 @@ kernle -a <agent> epoch create NAME [options]
 | `--json` | Output as JSON |
 
 ```bash
-kernle -a claire epoch create "Production Operations Phase" \
+kernle -s claire epoch create "Production Operations Phase" \
   --trigger declared \
   --trigger-description "Completed learning phase, now building"
 ```
@@ -505,7 +505,7 @@ kernle -a claire epoch create "Production Operations Phase" \
 Close the current epoch. This triggers a 6-step epoch-closing consolidation scaffold.
 
 ```bash
-kernle -a <agent> epoch close [options]
+kernle -s <stack> epoch close [options]
 ```
 
 | Option | Description |
@@ -515,7 +515,7 @@ kernle -a <agent> epoch close [options]
 | `--json` | Output as JSON |
 
 ```bash
-kernle -a claire epoch close --summary "Transitioned from learning to building"
+kernle -s claire epoch close --summary "Transitioned from learning to building"
 ```
 
 ### List
@@ -523,7 +523,7 @@ kernle -a claire epoch close --summary "Transitioned from learning to building"
 List all epochs.
 
 ```bash
-kernle -a <agent> epoch list [--limit N] [--json]
+kernle -s <stack> epoch list [--limit N] [--json]
 ```
 
 ### Show
@@ -531,7 +531,7 @@ kernle -a <agent> epoch list [--limit N] [--json]
 Show epoch details.
 
 ```bash
-kernle -a <agent> epoch show ID [--json]
+kernle -s <stack> epoch show ID [--json]
 ```
 
 ### Current
@@ -539,7 +539,7 @@ kernle -a <agent> epoch show ID [--json]
 Show the current active epoch.
 
 ```bash
-kernle -a <agent> epoch current [--json]
+kernle -s <stack> epoch current [--json]
 ```
 
 ---
@@ -553,7 +553,7 @@ Trust layer operations for managing inter-entity trust assessments.
 List all trust assessments.
 
 ```bash
-kernle -a <agent> trust list
+kernle -s <stack> trust list
 ```
 
 ### Show
@@ -561,7 +561,7 @@ kernle -a <agent> trust list
 Show trust details for an entity.
 
 ```bash
-kernle -a <agent> trust show ENTITY
+kernle -s <stack> trust show ENTITY
 ```
 
 ### Set
@@ -569,7 +569,7 @@ kernle -a <agent> trust show ENTITY
 Set trust score for an entity.
 
 ```bash
-kernle -a <agent> trust set ENTITY SCORE [--domain DOMAIN]
+kernle -s <stack> trust set ENTITY SCORE [--domain DOMAIN]
 ```
 
 | Option | Description |
@@ -578,7 +578,7 @@ kernle -a <agent> trust set ENTITY SCORE [--domain DOMAIN]
 | `--domain DOMAIN` | Trust domain (default: `general`) |
 
 ```bash
-kernle -a claire trust set alice 0.85 --domain technical
+kernle -s claire trust set alice 0.85 --domain technical
 ```
 
 ### Seed
@@ -586,7 +586,7 @@ kernle -a claire trust set alice 0.85 --domain technical
 Initialize seed trust templates.
 
 ```bash
-kernle -a <agent> trust seed
+kernle -s <stack> trust seed
 ```
 
 ### Compute
@@ -594,7 +594,7 @@ kernle -a <agent> trust seed
 Compute trust from episode history.
 
 ```bash
-kernle -a <agent> trust compute ENTITY [--domain DOMAIN] [--apply]
+kernle -s <stack> trust compute ENTITY [--domain DOMAIN] [--apply]
 ```
 
 | Option | Description |
@@ -607,7 +607,7 @@ kernle -a <agent> trust compute ENTITY [--domain DOMAIN] [--apply]
 Check if an action is allowed by trust.
 
 ```bash
-kernle -a <agent> trust gate SOURCE ACTION [--domain DOMAIN]
+kernle -s <stack> trust gate SOURCE ACTION [--domain DOMAIN]
 ```
 
 ### Chain
@@ -615,7 +615,7 @@ kernle -a <agent> trust gate SOURCE ACTION [--domain DOMAIN]
 Compute transitive trust through a chain of entities.
 
 ```bash
-kernle -a <agent> trust chain TARGET ENTITY1 ENTITY2... [--domain DOMAIN]
+kernle -s <stack> trust chain TARGET ENTITY1 ENTITY2... [--domain DOMAIN]
 ```
 
 ### Decay
@@ -623,7 +623,7 @@ kernle -a <agent> trust chain TARGET ENTITY1 ENTITY2... [--domain DOMAIN]
 Apply trust decay for a number of days without interaction.
 
 ```bash
-kernle -a <agent> trust decay ENTITY DAYS
+kernle -s <stack> trust decay ENTITY DAYS
 ```
 
 ---
@@ -637,7 +637,7 @@ Self-narrative identity model. Manage autobiographical identity statements.
 Show the active narrative.
 
 ```bash
-kernle -a <agent> narrative show [--type TYPE] [--json]
+kernle -s <stack> narrative show [--type TYPE] [--json]
 ```
 
 | Option | Description |
@@ -645,7 +645,7 @@ kernle -a <agent> narrative show [--type TYPE] [--json]
 | `--type TYPE` | Narrative type: `identity`, `capability`, `aspiration`, `reflection` (default: identity) |
 
 ```bash
-kernle -a claire narrative show --type identity
+kernle -s claire narrative show --type identity
 ```
 
 ### Update
@@ -653,7 +653,7 @@ kernle -a claire narrative show --type identity
 Create or update a self-narrative.
 
 ```bash
-kernle -a <agent> narrative update --content TEXT [options]
+kernle -s <stack> narrative update --content TEXT [options]
 ```
 
 | Option | Description |
@@ -666,8 +666,8 @@ kernle -a <agent> narrative update --content TEXT [options]
 | `--json` | Output as JSON |
 
 ```bash
-kernle -a claire narrative update \
-  --content "I am an agent focused on reliability and deep understanding..." \
+kernle -s claire narrative update \
+  --content "I am an SI focused on reliability and deep understanding..." \
   --type identity \
   --theme "reliability" --theme "learning" \
   --tension "speed vs thoroughness"
@@ -678,7 +678,7 @@ kernle -a claire narrative update \
 Show narrative history (all versions, including inactive).
 
 ```bash
-kernle -a <agent> narrative history [--type TYPE] [--json]
+kernle -s <stack> narrative history [--type TYPE] [--json]
 ```
 
 ---
@@ -692,7 +692,7 @@ Fractal summarization — create and manage hierarchical memory summaries.
 Create a summary at a given scope.
 
 ```bash
-kernle -a <agent> summary write --scope SCOPE --content TEXT \
+kernle -s <stack> summary write --scope SCOPE --content TEXT \
   --period-start DATE --period-end DATE [options]
 ```
 
@@ -707,7 +707,7 @@ kernle -a <agent> summary write --scope SCOPE --content TEXT \
 | `--json` | Output as JSON |
 
 ```bash
-kernle -a claire summary write --scope month \
+kernle -s claire summary write --scope month \
   --content "January focused on API reliability and testing infrastructure" \
   --period-start 2026-01-01 --period-end 2026-01-31 \
   --theme "reliability" --theme "testing"
@@ -718,7 +718,7 @@ kernle -a claire summary write --scope month \
 List summaries, optionally filtered by scope.
 
 ```bash
-kernle -a <agent> summary list [--scope SCOPE] [--json]
+kernle -s <stack> summary list [--scope SCOPE] [--json]
 ```
 
 ### Show
@@ -726,7 +726,7 @@ kernle -a <agent> summary list [--scope SCOPE] [--json]
 Show summary details.
 
 ```bash
-kernle -a <agent> summary show ID [--json]
+kernle -s <stack> summary show ID [--json]
 ```
 
 ---
@@ -740,7 +740,7 @@ Validate Kernle setup and run system health checks.
 Run a boot sequence compliance check (instruction file validation).
 
 ```bash
-kernle -a <agent> doctor [--json] [--fix]
+kernle -s <stack> doctor [--json] [--fix]
 ```
 
 | Option | Description |
@@ -754,7 +754,7 @@ kernle -a <agent> doctor [--json] [--fix]
 Run a structural health check on the memory graph (orphaned references, contradictions, stale data).
 
 ```bash
-kernle -a <agent> doctor structural [--json] [--save-note]
+kernle -s <stack> doctor structural [--json] [--save-note]
 ```
 
 | Option | Description |
@@ -768,7 +768,7 @@ Start and manage formal diagnostic sessions.
 
 ```bash
 # Start a new diagnostic session
-kernle -a <agent> doctor session start [--type TYPE] [--access LEVEL] [--json]
+kernle -s <stack> doctor session start [--type TYPE] [--access LEVEL] [--json]
 ```
 
 | Option | Description |
@@ -778,7 +778,7 @@ kernle -a <agent> doctor session start [--type TYPE] [--access LEVEL] [--json]
 
 ```bash
 # List past diagnostic sessions
-kernle -a <agent> doctor session list [--json]
+kernle -s <stack> doctor session list [--json]
 ```
 
 ### Diagnostic Reports
@@ -787,8 +787,8 @@ View diagnostic reports from completed sessions.
 
 ```bash
 # Show the latest report
-kernle -a <agent> doctor report latest [--json]
+kernle -s <stack> doctor report latest [--json]
 
 # Show report for a specific session
-kernle -a <agent> doctor report SESSION_ID [--json]
+kernle -s <stack> doctor report SESSION_ID [--json]
 ```

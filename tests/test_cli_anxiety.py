@@ -26,7 +26,7 @@ class TestCmdAnxiety:
                 "epoch_staleness": {"score": 0, "emoji": "🟢", "detail": "No epochs (not in use)"},
             },
             "timestamp": "2026-01-28T12:00:00Z",
-            "agent_id": "test",
+            "stack_id": "test",
         }
 
         args = Namespace(
@@ -86,7 +86,7 @@ class TestCmdAnxiety:
             "overall_emoji": "🟡",
             "dimensions": {},
             "timestamp": "2026-01-28T12:00:00Z",
-            "agent_id": "test",
+            "stack_id": "test",
         }
 
         args = Namespace(
@@ -121,7 +121,7 @@ class TestCmdAnxiety:
                 "epoch_staleness": {"score": 0, "emoji": "🟢", "detail": "No epochs (not in use)"},
             },
             "timestamp": "2026-01-28T12:00:00Z",
-            "agent_id": "test",
+            "stack_id": "test",
         }
         k.get_recommended_actions.return_value = [
             {

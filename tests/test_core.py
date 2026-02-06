@@ -24,16 +24,16 @@ class TestKernleInitialization:
         # Clear any env vars that might interfere
         with patch.dict(os.environ, {}, clear=True):
             kernle = Kernle()
-            assert kernle.agent_id == "default"  # Default when no env var
+            assert kernle.stack_id == "default"  # Default when no env var
             assert kernle.checkpoint_dir == Path.home() / ".kernle" / "checkpoints"
             # Should have SQLite storage when no Supabase credentials
             assert isinstance(kernle._storage, SQLiteStorage)
 
     def test_init_with_explicit_params(self, temp_checkpoint_dir, temp_db_path):
         """Test initialization with explicit parameters."""
-        storage = SQLiteStorage(agent_id="test_agent", db_path=temp_db_path)
-        kernle = Kernle(agent_id="test_agent", storage=storage, checkpoint_dir=temp_checkpoint_dir)
-        assert kernle.agent_id == "test_agent"
+        storage = SQLiteStorage(stack_id="test_agent", db_path=temp_db_path)
+        kernle = Kernle(stack_id="test_agent", storage=storage, checkpoint_dir=temp_checkpoint_dir)
+        assert kernle.stack_id == "test_agent"
         assert kernle.checkpoint_dir == temp_checkpoint_dir
         assert kernle._storage is storage
 
@@ -42,12 +42,12 @@ class TestKernleInitialization:
         # When Supabase creds are provided but not actually used
         # (no actual connection test, just that params are stored)
         kernle = Kernle(
-            agent_id="test_agent",
+            stack_id="test_agent",
             supabase_url="http://test.url",
             supabase_key="test_key",
             checkpoint_dir=temp_checkpoint_dir,
         )
-        assert kernle.agent_id == "test_agent"
+        assert kernle.stack_id == "test_agent"
         # Storage should be SupabaseStorage when creds provided
         from kernle.storage import SupabaseStorage
 
@@ -58,19 +58,19 @@ class TestKernleInitialization:
         with patch.dict(
             os.environ,
             {
-                "KERNLE_AGENT_ID": "env_agent",
+                "KERNLE_STACK_ID": "env_agent",
             },
             clear=True,
         ):
             kernle = Kernle(checkpoint_dir=temp_checkpoint_dir)
-            assert kernle.agent_id == "env_agent"
+            assert kernle.stack_id == "env_agent"
             # Without Supabase creds, should use SQLite
             assert isinstance(kernle._storage, SQLiteStorage)
 
     def test_client_property_missing_credentials(self, temp_db_path):
         """Test that client property raises error with SQLite storage."""
         with patch.dict(os.environ, {}, clear=True):
-            kernle = Kernle(agent_id="test")
+            kernle = Kernle(stack_id="test")
 
             # With SQLite storage, accessing .client should raise
             with pytest.raises(ValueError, match="Direct Supabase client access not available"):
@@ -235,7 +235,7 @@ class TestLoadMethods:
         storage.save_note(
             Note(
                 id="test-note-1",
-                agent_id="test_agent",
+                stack_id="test_agent",
                 content="A short note",
             )
         )
@@ -261,7 +261,7 @@ class TestCheckpoints:
         assert checkpoint_data["pending"] == ["Test CLI", "Test edge cases"]
         assert checkpoint_data["context"] == "Working on comprehensive test suite"
         assert "timestamp" in checkpoint_data
-        assert checkpoint_data["agent_id"] == "test_agent"
+        assert checkpoint_data["stack_id"] == "test_agent"
 
     def test_checkpoint_multiple_saves(self, kernle_instance):
         """Test that multiple checkpoints are stored in history."""
@@ -272,7 +272,7 @@ class TestCheckpoints:
         kernle.checkpoint(task="Task 3")
 
         # Load the checkpoint file directly
-        checkpoint_file = kernle.checkpoint_dir / f"{kernle.agent_id}.json"
+        checkpoint_file = kernle.checkpoint_dir / f"{kernle.stack_id}.json"
         with open(checkpoint_file) as f:
             checkpoints = json.load(f)
 
@@ -286,7 +286,7 @@ class TestCheckpoints:
         for i in range(15):
             kernle.checkpoint(task=f"Task {i}")
 
-        checkpoint_file = kernle.checkpoint_dir / f"{kernle.agent_id}.json"
+        checkpoint_file = kernle.checkpoint_dir / f"{kernle.stack_id}.json"
         with open(checkpoint_file) as f:
             checkpoints = json.load(f)
 
@@ -319,7 +319,7 @@ class TestCheckpoints:
         kernle, storage = kernle_instance
 
         # Create corrupted file
-        checkpoint_file = kernle.checkpoint_dir / f"{kernle.agent_id}.json"
+        checkpoint_file = kernle.checkpoint_dir / f"{kernle.stack_id}.json"
         checkpoint_file.write_text("not valid json")
 
         loaded = kernle.load_checkpoint()
@@ -624,7 +624,7 @@ class TestStatus:
 
         status = kernle.status()
 
-        assert status["agent_id"] == "test_agent"
+        assert status["stack_id"] == "test_agent"
         assert status["values"] >= 1
         assert status["beliefs"] >= 1
         assert status["goals"] >= 1
@@ -636,7 +636,7 @@ class TestStatus:
 
         status = kernle.status()
 
-        assert status["agent_id"] == "test_agent"
+        assert status["stack_id"] == "test_agent"
         assert status["values"] == 0
         assert status["beliefs"] == 0
         assert status["goals"] == 0
@@ -852,28 +852,28 @@ class TestIdentity:
 class TestInputValidation:
     """Test input validation and sanitization."""
 
-    def test_validate_agent_id_empty(self, temp_db_path):
+    def test_validate_stack_id_empty(self, temp_db_path):
         """Test that empty agent ID uses default."""
         # Empty string defaults to "default" from env var fallback
         with patch.dict(os.environ, {}, clear=True):
-            kernle = Kernle(agent_id="")
-            assert kernle.agent_id == "default"  # Falls back to default
+            kernle = Kernle(stack_id="")
+            assert kernle.stack_id == "default"  # Falls back to default
 
-    def test_validate_agent_id_whitespace_only(self, temp_db_path):
+    def test_validate_stack_id_whitespace_only(self, temp_db_path):
         """Test that whitespace-only agent ID raises error."""
         with patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ValueError, match="Agent ID cannot be empty"):
-                Kernle(agent_id="   ")
+            with pytest.raises(ValueError, match="Stack ID cannot be empty"):
+                Kernle(stack_id="   ")
 
-    def test_validate_agent_id_special_chars(self, temp_checkpoint_dir, temp_db_path):
+    def test_validate_stack_id_special_chars(self, temp_checkpoint_dir, temp_db_path):
         """Test that special characters are sanitized from agent ID."""
-        storage = SQLiteStorage(agent_id="test_agent", db_path=temp_db_path)
+        storage = SQLiteStorage(stack_id="test_agent", db_path=temp_db_path)
         kernle = Kernle(
-            agent_id="test@agent!#$%", storage=storage, checkpoint_dir=temp_checkpoint_dir
+            stack_id="test@agent!#$%", storage=storage, checkpoint_dir=temp_checkpoint_dir
         )
 
         # Should be sanitized to only alphanumeric and -_.
-        assert kernle.agent_id == "testagent"
+        assert kernle.stack_id == "testagent"
 
     def test_validate_string_too_long(self, kernle_instance):
         """Test that strings exceeding max length raise error."""
@@ -894,7 +894,7 @@ class TestFormatting:
         formatted = kernle.format_memory()
 
         assert "# Working Memory" in formatted
-        assert kernle.agent_id in formatted
+        assert kernle.stack_id in formatted
         # Should include sections for various memory types
         assert "## Values" in formatted or "## Beliefs" in formatted
 

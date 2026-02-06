@@ -5,12 +5,12 @@ description: "Verify USDC transfers on-chain with cryptographic proof"
 
 # Payment Verification
 
-The payment verification module allows agents to cryptographically verify that USDC transfers actually occurred on-chain. No trust required — just math.
+The payment verification module allows SIs to cryptographically verify that USDC transfers actually occurred on-chain. No trust required — just math.
 
 ## How It Works
 
 ```
-1. Agent receives tx_hash from payer
+1. SI receives tx_hash from payer
            ↓
 2. Fetch transaction receipt via JSON-RPC
            ↓
@@ -64,18 +64,18 @@ class TransferVerificationResult:
     success: bool           # Whether verification passed
     tx_hash: str           # The transaction hash
     chain: str             # Chain verified on
-    
+
     # Transfer details (if success=True)
     from_address: str      # Sender address
     to_address: str        # Recipient address
     amount: Decimal        # Human-readable amount (e.g., 5.00)
     amount_raw: int        # Raw units (e.g., 5000000)
-    
+
     # Block info
     block_number: int      # Block number
     block_timestamp: datetime  # Block timestamp (UTC)
     confirmations: int     # Number of confirmations
-    
+
     # Error info (if success=False)
     error: str             # Error message
     error_code: str        # Error code for programmatic handling
@@ -105,7 +105,7 @@ CHAIN_CONFIG = {
         "chain_id": 8453,
     },
     "base_sepolia": {
-        "rpc_url": "https://sepolia.base.org", 
+        "rpc_url": "https://sepolia.base.org",
         "usdc_address": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
         "chain_id": 84532,
     },

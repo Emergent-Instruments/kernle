@@ -59,11 +59,11 @@ def cmd_promote(args, k: "Kernle"):
         print()
         print("---")
         print("To promote automatically:")
-        print(f"  kernle -a {k.agent_id} promote --auto")
+        print(f"  kernle -s {k.stack_id} promote --auto")
         print()
         print("Or promote specific patterns manually:")
         print(
-            f'  kernle -a {k.agent_id} belief add "<statement>" '
+            f'  kernle -s {k.stack_id} belief add "<statement>" '
             f"--confidence 0.7 --source promotion"
         )
 
@@ -170,7 +170,7 @@ def cmd_identity(args, k: "Kernle"):
         if getattr(args, "json", False):
             print(json.dumps(identity, indent=2, default=str))
         else:
-            print(f"Identity Synthesis for {k.agent_id}")
+            print(f"Identity Synthesis for {k.stack_id}")
             print("=" * 50)
             print()
             print("## Narrative")
@@ -220,7 +220,7 @@ def cmd_identity(args, k: "Kernle"):
     elif args.identity_action == "confidence":
         confidence = k.get_identity_confidence()
         if args.json:
-            print(json.dumps({"agent_id": k.agent_id, "confidence": confidence}))
+            print(json.dumps({"stack_id": k.stack_id, "confidence": confidence}))
         else:
             bar = "█" * int(confidence * 20) + "░" * (20 - int(confidence * 20))
             print(f"Identity Confidence: [{bar}] {confidence:.0%}")

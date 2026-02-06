@@ -378,7 +378,7 @@ class AnxietyMixin:
             "overall_emoji": overall_emoji,
             "dimensions": dimensions,
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "agent_id": self.agent_id,
+            "stack_id": self.stack_id,
         }
 
         if detailed:

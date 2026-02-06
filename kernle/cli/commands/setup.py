@@ -16,12 +16,12 @@ def get_hooks_dir() -> Path:
     return kernle_pkg / "hooks"
 
 
-def _get_memory_flush_prompt(agent_id: str) -> str:
+def _get_memory_flush_prompt(stack_id: str) -> str:
     """Generate the memory flush prompt for pre-compaction checkpoint saving."""
     return f"""Before compaction, save your working state to Kernle:
 
 ```bash
-kernle -a {agent_id} checkpoint "<describe your current task>" --context "<progress and next steps>"
+kernle -s {stack_id} checkpoint "<describe your current task>" --context "<progress and next steps>"
 ```
 
 IMPORTANT: Be specific about what you're actually working on.
@@ -44,11 +44,11 @@ def _deep_merge(base: dict, updates: dict) -> dict:
     return result
 
 
-def setup_clawdbot(agent_id: str, force: bool = False, enable: bool = False) -> None:
+def setup_clawdbot(stack_id: str, force: bool = False, enable: bool = False) -> None:
     """Install Clawdbot/moltbot hook for automatic memory loading and checkpoint saving.
 
     Args:
-        agent_id: Agent identifier
+        stack_id: Stack identifier
         force: Overwrite existing hook files
         enable: Automatically enable hook and configure memoryFlush in clawdbot.json
     """
@@ -78,7 +78,7 @@ def setup_clawdbot(agent_id: str, force: bool = False, enable: bool = False) -> 
         print("   Use --force to overwrite")
         # Even if files exist, still try to enable if requested
         if enable:
-            _enable_clawdbot_hook(agent_id)
+            _enable_clawdbot_hook(stack_id)
         return
 
     # Create target directory
@@ -97,7 +97,7 @@ def setup_clawdbot(agent_id: str, force: bool = False, enable: bool = False) -> 
 
     # Handle enabling in config
     if enable:
-        _enable_clawdbot_hook(agent_id)
+        _enable_clawdbot_hook(stack_id)
     else:
         # Check current status and show instructions
         config_path = Path.home() / ".clawdbot" / "clawdbot.json"
@@ -128,10 +128,10 @@ def setup_clawdbot(agent_id: str, force: bool = False, enable: bool = False) -> 
         print("\nNext steps:")
         print("  1. Enable hook: kernle setup clawdbot --enable")
         print("  2. Restart Clawdbot gateway: clawdbot gateway restart")
-        print(f"  3. Memory will load automatically for agent '{agent_id}'")
+        print(f"  3. Memory will load automatically for agent '{stack_id}'")
 
 
-def _enable_clawdbot_hook(agent_id: str) -> bool:
+def _enable_clawdbot_hook(stack_id: str) -> bool:
     """Enable kernle-load hook and configure memoryFlush in clawdbot.json.
 
     This configures both:
@@ -152,7 +152,7 @@ def _enable_clawdbot_hook(agent_id: str) -> bool:
             config = {}
 
         # Build the config updates we want to apply
-        memory_flush_prompt = _get_memory_flush_prompt(agent_id)
+        memory_flush_prompt = _get_memory_flush_prompt(stack_id)
         kernle_config = {
             "hooks": {
                 "internal": {
@@ -215,7 +215,7 @@ def _enable_clawdbot_hook(agent_id: str) -> bool:
         print("⚠️  Restart Clawdbot gateway for changes to take effect:")
         print("   clawdbot gateway restart")
         print()
-        print(f"Memory will persist across sessions for agent '{agent_id}'")
+        print(f"Memory will persist across sessions for agent '{stack_id}'")
 
         return True
 
@@ -225,7 +225,7 @@ def _enable_clawdbot_hook(agent_id: str) -> bool:
         return False
 
 
-def setup_claude_code(agent_id: str, force: bool = False, global_install: bool = False) -> None:
+def setup_claude_code(stack_id: str, force: bool = False, global_install: bool = False) -> None:
     """Install Claude Code/Cowork SessionStart hook."""
     hooks_dir = get_hooks_dir()
     source = hooks_dir / "claude-code" / "settings.json"
@@ -257,7 +257,7 @@ def setup_claude_code(agent_id: str, force: bool = False, global_install: bool =
         template = f.read()
 
     # Replace placeholder
-    config_content = template.replace("YOUR_AGENT_NAME", agent_id)
+    config_content = template.replace("YOUR_AGENT_NAME", stack_id)
 
     # Create target directory
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -303,7 +303,7 @@ def setup_claude_code(agent_id: str, force: bool = False, global_install: bool =
     print(f"  Location: {target}")
     print("\nNext steps:")
     print(f"  1. Start a new Claude Code session in {'~' if global_install else 'this directory'}")
-    print(f"  2. Memory will load automatically for agent '{agent_id}'")
+    print(f"  2. Memory will load automatically for agent '{stack_id}'")
     print("\nVerify with: claude")
     print('Then ask: "What are my current values and goals?"')
 
@@ -322,7 +322,7 @@ def cmd_setup(args, k: "Kernle"):
     force = getattr(args, "force", False)
     enable = getattr(args, "enable", False)
     global_install = getattr(args, "global", False)
-    agent_id = k.agent_id
+    stack_id = k.stack_id
 
     if not platform:
         print("Available platforms:")
@@ -339,9 +339,9 @@ def cmd_setup(args, k: "Kernle"):
         return
 
     if platform == "clawdbot":
-        setup_clawdbot(agent_id, force, enable)
+        setup_clawdbot(stack_id, force, enable)
     elif platform in ("claude-code", "cowork"):
-        setup_claude_code(agent_id, force, global_install)
+        setup_claude_code(stack_id, force, global_install)
     else:
         print(f"❌ Unknown platform: {platform}")
         print("Available: clawdbot, claude-code, cowork")
