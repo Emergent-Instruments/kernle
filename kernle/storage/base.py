@@ -330,6 +330,7 @@ class Goal:
     agent_id: str
     title: str
     description: Optional[str] = None
+    goal_type: str = "task"  # task, aspiration, commitment, exploration
     priority: str = "medium"
     status: str = "active"
     created_at: Optional[datetime] = None
