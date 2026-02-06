@@ -2155,7 +2155,7 @@ class SQLiteStorage:
                  source_entity, subject_ids, access_grants, consent_grants,
                  epoch_id,
                  created_at, local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     episode.id,
@@ -2187,6 +2187,7 @@ class SQLiteStorage:
                     self._to_json(getattr(episode, "subject_ids", None)),
                     self._to_json(getattr(episode, "access_grants", None)),
                     self._to_json(getattr(episode, "consent_grants", None)),
+                    getattr(episode, "epoch_id", None),
                     episode.created_at.isoformat() if episode.created_at else now,
                     now,
                     episode.cloud_synced_at.isoformat() if episode.cloud_synced_at else None,

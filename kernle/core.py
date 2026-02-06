@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 # Import feature mixins
 from kernle.features import (
     AnxietyMixin,
+    ConsolidationMixin,
     EmotionsMixin,
     ForgettingMixin,
     KnowledgeMixin,
@@ -320,6 +321,7 @@ def compute_priority_score(memory_type: str, record: Any) -> float:
 
 class Kernle(
     AnxietyMixin,
+    ConsolidationMixin,
     EmotionsMixin,
     ForgettingMixin,
     KnowledgeMixin,
