@@ -3070,6 +3070,22 @@ def main():
     trust_gate.add_argument("gate_action", help="Action type")
     trust_gate.add_argument("--domain", "-d", help="Domain for domain-specific check")
 
+    trust_compute = trust_sub.add_parser("compute", help="Compute trust from episode history")
+    trust_compute.add_argument("entity", help="Entity identifier")
+    trust_compute.add_argument("--domain", "-d", default="general", help="Trust domain")
+    trust_compute.add_argument(
+        "--apply", action="store_true", help="Apply computed score to stored assessment"
+    )
+
+    trust_chain = trust_sub.add_parser("chain", help="Compute transitive trust through a chain")
+    trust_chain.add_argument("target", help="Target entity")
+    trust_chain.add_argument("chain", nargs="+", help="Chain of intermediary entities")
+    trust_chain.add_argument("--domain", "-d", default="general", help="Trust domain")
+
+    trust_decay = trust_sub.add_parser("decay", help="Apply trust decay for N days")
+    trust_decay.add_argument("entity", help="Entity identifier")
+    trust_decay.add_argument("days", type=float, help="Days since last interaction")
+
     # promote (episodes → beliefs)
     p_promote = subparsers.add_parser(
         "promote", help="Promote recurring patterns from episodes into beliefs"
