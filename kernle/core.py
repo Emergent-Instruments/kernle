@@ -32,7 +32,18 @@ from kernle.logging_config import (
 )
 
 # Import storage abstraction
-from kernle.storage import Belief, Drive, Episode, Goal, Note, Relationship, Value, get_storage
+from kernle.storage import (
+    Belief,
+    Drive,
+    Episode,
+    Goal,
+    Note,
+    Relationship,
+    TrustAssessment,
+    Value,
+    get_storage,
+)
+from kernle.storage.base import SEED_TRUST, TRUST_THRESHOLDS
 
 if TYPE_CHECKING:
     from kernle.storage import Storage as StorageProtocol
@@ -901,6 +912,11 @@ class Kernle(
             boot = self.boot_list()
             if boot:
                 batched_result["boot_config"] = boot
+
+            # Include trust summary
+            trust_summary = self._build_trust_summary()
+            if trust_summary:
+                batched_result["trust"] = trust_summary
 
             return batched_result
 
@@ -2186,6 +2202,143 @@ class Kernle(
         lines.append("")
         return lines
 
+    # === Trust Layer (KEP v3) ===
+
+    def seed_trust(self) -> int:
+        """Apply seed trust templates. Returns number of assessments created."""
+        created = 0
+        for seed in SEED_TRUST:
+            existing = self._storage.get_trust_assessment(seed["entity"])
+            if existing is None:
+                assessment = TrustAssessment(
+                    id=str(uuid.uuid4()),
+                    agent_id=self.agent_id,
+                    entity=seed["entity"],
+                    dimensions=seed["dimensions"],
+                    authority=seed.get("authority", []),
+                )
+                self._storage.save_trust_assessment(assessment)
+                created += 1
+        return created
+
+    def trust_list(self) -> List[Dict[str, Any]]:
+        """List all trust assessments."""
+        return [
+            {
+                "entity": a.entity,
+                "dimensions": a.dimensions,
+                "authority": a.authority or [],
+                "evidence_count": len(a.evidence_episode_ids or []),
+                "last_updated": a.last_updated.isoformat() if a.last_updated else None,
+            }
+            for a in self._storage.get_trust_assessments()
+        ]
+
+    def trust_show(self, entity: str) -> Optional[Dict[str, Any]]:
+        """Show detailed trust assessment for an entity."""
+        a = self._storage.get_trust_assessment(entity)
+        if a is None:
+            return None
+        return {
+            "id": a.id,
+            "entity": a.entity,
+            "dimensions": a.dimensions,
+            "authority": a.authority or [],
+            "evidence_episode_ids": a.evidence_episode_ids or [],
+            "last_updated": a.last_updated.isoformat() if a.last_updated else None,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+        }
+
+    def trust_set(
+        self,
+        entity: str,
+        domain: str = "general",
+        score: float = 0.5,
+        authority: Optional[List[Dict[str, Any]]] = None,
+    ) -> str:
+        """Set or update trust for an entity in a specific domain."""
+        score = max(0.0, min(1.0, score))
+        existing = self._storage.get_trust_assessment(entity)
+        if existing:
+            existing.dimensions[domain] = {"score": score}
+            if authority is not None:
+                existing.authority = authority
+            return self._storage.save_trust_assessment(existing)
+        else:
+            return self._storage.save_trust_assessment(
+                TrustAssessment(
+                    id=str(uuid.uuid4()),
+                    agent_id=self.agent_id,
+                    entity=entity,
+                    dimensions={domain: {"score": score}},
+                    authority=authority or [],
+                )
+            )
+
+    def gate_memory_input(
+        self,
+        source_entity: str,
+        action: str,
+        target: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Check whether a source entity has sufficient trust for an action.
+
+        This is advisory -- the agent retains sovereignty over final decisions.
+        """
+        threshold = TRUST_THRESHOLDS.get(action)
+        if threshold is None:
+            return {
+                "allowed": False,
+                "trust_level": 0.0,
+                "domain": "unknown",
+                "reason": f"Unknown action type: {action}",
+            }
+
+        assessment = self._storage.get_trust_assessment(source_entity)
+        if assessment is None:
+            return {
+                "allowed": False,
+                "trust_level": 0.0,
+                "domain": target or "general",
+                "reason": f"No trust assessment for entity: {source_entity}",
+            }
+
+        authority = assessment.authority or []
+        has_all_authority = any(a.get("scope") == "all" for a in authority)
+
+        domain = target or "general"
+        dims = assessment.dimensions or {}
+        domain_trust = dims.get(domain, dims.get("general", {}))
+        trust_score = domain_trust.get("score", 0.0) if isinstance(domain_trust, dict) else 0.0
+
+        allowed = trust_score >= threshold or has_all_authority
+        if allowed:
+            reason = f"Trust {trust_score:.2f} >= threshold {threshold:.2f} for {action}"
+        else:
+            reason = f"Trust {trust_score:.2f} < threshold {threshold:.2f} for {action}"
+
+        return {
+            "allowed": allowed,
+            "trust_level": trust_score,
+            "domain": domain,
+            "reason": reason,
+        }
+
+    def _build_trust_summary(self) -> Optional[Dict[str, Any]]:
+        """Build trust summary for load() output."""
+        assessments = self._storage.get_trust_assessments()
+        if not assessments:
+            return None
+        summary = {}
+        for a in assessments:
+            general = a.dimensions.get("general", {})
+            score = general.get("score", 0.0) if isinstance(general, dict) else 0.0
+            summary[a.entity] = {
+                "trust": round(score, 2),
+                "authority": [auth.get("scope", "unknown") for auth in (a.authority or [])],
+            }
+        return summary
+
     def export_cache(
         self,
         path: Optional[str] = None,
@@ -2491,6 +2644,90 @@ class Kernle(
         existing.version += 1
         self._storage.save_goal(existing)
         return True
+
+    # === Epoch Management ===
+
+    def epoch_create(
+        self,
+        name: str,
+        trigger_type: str = "manual",
+    ) -> str:
+        """Create a new epoch (temporal era).
+
+        Automatically closes any currently open epoch before creating a new one.
+
+        Args:
+            name: Name for this epoch (e.g., "onboarding", "production-v2")
+            trigger_type: What triggered this epoch (manual, milestone, shift)
+
+        Returns:
+            The new epoch's ID
+        """
+        from kernle.storage.base import Epoch
+
+        name = self._validate_string_input(name, "name", 200)
+        if trigger_type not in ("manual", "milestone", "shift"):
+            raise ValueError("trigger_type must be one of: manual, milestone, shift")
+
+        # Close any currently open epoch
+        current = self._storage.get_current_epoch()
+        if current:
+            self._storage.close_epoch(current.id, summary=None)
+
+        # Determine next epoch number
+        epochs = self._storage.get_epochs(limit=1)
+        next_number = (epochs[0].epoch_number + 1) if epochs else 1
+
+        epoch = Epoch(
+            id=str(uuid.uuid4()),
+            agent_id=self._agent_id,
+            epoch_number=next_number,
+            name=name,
+            started_at=datetime.now(timezone.utc),
+            trigger_type=trigger_type,
+        )
+
+        return self._storage.save_epoch(epoch)
+
+    def epoch_close(
+        self,
+        epoch_id: Optional[str] = None,
+        summary: Optional[str] = None,
+    ) -> bool:
+        """Close an epoch.
+
+        Args:
+            epoch_id: ID of epoch to close (defaults to current epoch)
+            summary: Optional summary of the epoch
+
+        Returns:
+            True if closed, False if not found or already closed
+        """
+        if epoch_id is None:
+            current = self._storage.get_current_epoch()
+            if not current:
+                return False
+            epoch_id = current.id
+        else:
+            epoch_id = self._validate_string_input(epoch_id, "epoch_id", 100)
+
+        if summary is not None:
+            summary = self._validate_string_input(summary, "summary", 2000)
+
+        return self._storage.close_epoch(epoch_id, summary=summary)
+
+    def get_current_epoch(self):
+        """Get the currently active epoch, if any."""
+        return self._storage.get_current_epoch()
+
+    def get_epochs(self, limit: int = 100):
+        """Get all epochs, most recent first."""
+        return self._storage.get_epochs(limit=limit)
+
+    def get_epoch(self, epoch_id: str):
+        """Get a specific epoch by ID."""
+        epoch_id = self._validate_string_input(epoch_id, "epoch_id", 100)
+        return self._storage.get_epoch(epoch_id)
 
     def update_belief(
         self,

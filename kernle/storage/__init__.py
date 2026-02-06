@@ -33,6 +33,7 @@ from .base import (
     SyncConflict,
     SyncResult,
     SyncStatus,
+    TrustAssessment,
     Value,
     parse_datetime,
     utc_now,
@@ -149,6 +150,7 @@ __all__ = [
     "SearchResult",
     "RawEntry",
     "MemorySuggestion",
+    "TrustAssessment",
     # Meta-memory types
     "SourceType",
     "ConfidenceChange",

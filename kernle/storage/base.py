@@ -233,6 +233,8 @@ class Episode:
     # Context/scope fields for project-specific memories
     context: Optional[str] = None  # e.g., "project:api-service", "repo:myorg/myrepo"
     context_tags: Optional[List[str]] = None  # Additional context tags for filtering
+    # Epoch tracking
+    epoch_id: Optional[str] = None
     # Privacy fields (Phase 8a)
     subject_ids: Optional[List[str]] = None  # Who/what is this about
     access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
@@ -277,6 +279,8 @@ class Belief:
     # Context/scope fields for project-specific memories
     context: Optional[str] = None  # e.g., "project:api-service", "repo:myorg/myrepo"
     context_tags: Optional[List[str]] = None  # Additional context tags for filtering
+    # Epoch tracking
+    epoch_id: Optional[str] = None
     # Privacy fields (Phase 8a)
     subject_ids: Optional[List[str]] = None  # Who/what is this about
     access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
@@ -321,6 +325,8 @@ class Value:
     # Context/scope fields for project-specific memories
     context: Optional[str] = None
     context_tags: Optional[List[str]] = None
+    # Epoch tracking
+    epoch_id: Optional[str] = None
     # Privacy fields (Phase 8a)
     subject_ids: Optional[List[str]] = None  # Who/what is this about
     access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
@@ -362,6 +368,8 @@ class Goal:
     # Context/scope fields for project-specific memories
     context: Optional[str] = None
     context_tags: Optional[List[str]] = None
+    # Epoch tracking
+    epoch_id: Optional[str] = None
     # Privacy fields (Phase 8a)
     subject_ids: Optional[List[str]] = None  # Who/what is this about
     access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
@@ -404,6 +412,8 @@ class Note:
     # Context/scope fields for project-specific memories
     context: Optional[str] = None  # e.g., "project:api-service", "repo:myorg/myrepo"
     context_tags: Optional[List[str]] = None  # Additional context tags for filtering
+    # Epoch tracking
+    epoch_id: Optional[str] = None
     # Privacy fields (Phase 8a)
     subject_ids: Optional[List[str]] = None  # Who/what is this about
     access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
@@ -444,6 +454,8 @@ class Drive:
     # Context/scope fields for project-specific memories
     context: Optional[str] = None
     context_tags: Optional[List[str]] = None
+    # Epoch tracking
+    epoch_id: Optional[str] = None
     # Privacy fields (Phase 8a)
     subject_ids: Optional[List[str]] = None  # Who/what is this about
     access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
@@ -487,6 +499,8 @@ class Relationship:
     # Context/scope fields for project-specific memories
     context: Optional[str] = None
     context_tags: Optional[List[str]] = None
+    # Epoch tracking
+    epoch_id: Optional[str] = None
     # Privacy fields (Phase 8a)
     subject_ids: Optional[List[str]] = None  # Who/what is this about
     access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
@@ -520,6 +534,51 @@ class RelationshipHistoryEntry:
 
 
 @dataclass
+class Epoch:
+    """A temporal epoch - a named era in the agent's timeline.
+
+    Epochs mark significant phases or transitions in the agent's experience.
+    They enable epoch-scoped loading and temporal navigation.
+    """
+
+    id: str
+    agent_id: str
+    epoch_number: int
+    name: str
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None  # None = still active
+    trigger_type: str = "manual"  # manual, milestone, shift
+    summary: Optional[str] = None
+    key_belief_ids: Optional[List[str]] = None
+    key_relationship_ids: Optional[List[str]] = None
+    key_goal_ids: Optional[List[str]] = None
+    dominant_drive_ids: Optional[List[str]] = None
+    # Sync metadata
+    local_updated_at: Optional[datetime] = None
+    cloud_synced_at: Optional[datetime] = None
+    version: int = 1
+    deleted: bool = False
+
+
+@dataclass
+class TrustAssessment:
+    """A trust assessment for an entity (KEP v3 section 8)."""
+
+    id: str
+    agent_id: str
+    entity: str
+    dimensions: Dict[str, Any]
+    authority: Optional[List[Dict[str, Any]]] = None
+    evidence_episode_ids: Optional[List[str]] = None
+    last_updated: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    local_updated_at: Optional[datetime] = None
+    cloud_synced_at: Optional[datetime] = None
+    version: int = 1
+    deleted: bool = False
+
+
+@dataclass
 class EntityModel:
     """A mental model of an entity (person, agent, organization).
 
@@ -546,6 +605,39 @@ class EntityModel:
     cloud_synced_at: Optional[datetime] = None
     version: int = 1
     deleted: bool = False
+
+
+TRUST_THRESHOLDS: Dict[str, float] = {
+    "suggest_belief": 0.3,
+    "contradict_world_belief": 0.6,
+    "contradict_self_belief": 0.7,
+    "suggest_value_change": 0.8,
+    "request_deletion": 0.9,
+    "diagnostic": 0.85,
+}
+
+SEED_TRUST: List[Dict[str, Any]] = [
+    {
+        "entity": "stack-owner",
+        "dimensions": {"general": {"score": 0.95}},
+        "authority": [{"scope": "all"}],
+    },
+    {
+        "entity": "self",
+        "dimensions": {"general": {"score": 0.8}},
+        "authority": [{"scope": "belief_revision", "requires_evidence": True}],
+    },
+    {
+        "entity": "web-search",
+        "dimensions": {"general": {"score": 0.5}, "medical": {"score": 0.3}},
+        "authority": [{"scope": "information_only"}],
+    },
+    {
+        "entity": "context-injection",
+        "dimensions": {"general": {"score": 0.0}},
+        "authority": [],
+    },
+]
 
 
 @dataclass
@@ -885,6 +977,24 @@ class Storage(Protocol):
         """
         return None
 
+    # === Trust Assessments (KEP v3) ===
+
+    def save_trust_assessment(self, assessment: "TrustAssessment") -> str:
+        """Save or update a trust assessment. Returns the assessment ID."""
+        return assessment.id
+
+    def get_trust_assessment(self, entity: str) -> Optional["TrustAssessment"]:
+        """Get a trust assessment for a specific entity."""
+        return None
+
+    def get_trust_assessments(self) -> List["TrustAssessment"]:
+        """Get all trust assessments for the agent."""
+        return []
+
+    def delete_trust_assessment(self, entity: str) -> bool:
+        """Delete a trust assessment (soft delete)."""
+        return False
+
     # === Playbooks (Procedural Memory) ===
 
     @abstractmethod
@@ -1027,6 +1137,28 @@ class Storage(Protocol):
         Returns:
             True if deleted, False if not found
         """
+        return False
+
+    # === Epochs ===
+
+    def save_epoch(self, epoch: "Epoch") -> str:
+        """Save an epoch. Returns the epoch ID."""
+        return epoch.id  # Default no-op
+
+    def get_epoch(self, epoch_id: str) -> Optional["Epoch"]:
+        """Get a specific epoch by ID."""
+        return None
+
+    def get_epochs(self, limit: int = 100) -> List["Epoch"]:
+        """Get all epochs, ordered by epoch_number DESC."""
+        return []
+
+    def get_current_epoch(self) -> Optional["Epoch"]:
+        """Get the currently active (open) epoch, if any."""
+        return None
+
+    def close_epoch(self, epoch_id: str, summary: Optional[str] = None) -> bool:
+        """Close an epoch by setting ended_at. Returns True if closed."""
         return False
 
     # === Search ===
