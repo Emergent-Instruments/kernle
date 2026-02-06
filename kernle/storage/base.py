@@ -607,6 +607,62 @@ class EntityModel:
     deleted: bool = False
 
 
+@dataclass
+class DiagnosticSession:
+    """A formal diagnostic session for structured memory health checks.
+
+    Diagnostic sessions provide a controlled framework for examining
+    memory system health with explicit consent and access boundaries.
+
+    session_type values:
+    - self_requested: Agent initiated the session
+    - routine: Scheduled/periodic check
+    - anomaly_triggered: Triggered by detected anomaly
+    - operator_initiated: Human operator requested
+
+    access_level values:
+    - structural: IDs and scores only (default, privacy-safe)
+    - content: Can read statement text
+    - full: Complete access
+    """
+
+    id: str
+    agent_id: str
+    session_type: str = "self_requested"
+    access_level: str = "structural"
+    status: str = "active"
+    consent_given: bool = False
+    started_at: Optional[datetime] = None
+    completed_at: Optional[datetime] = None
+    # Sync metadata
+    local_updated_at: Optional[datetime] = None
+    cloud_synced_at: Optional[datetime] = None
+    version: int = 1
+    deleted: bool = False
+
+
+@dataclass
+class DiagnosticReport:
+    """A report produced by a diagnostic session.
+
+    Contains structural findings only -- IDs, scores, counts, never
+    memory content. Each finding has a severity, category, description,
+    and recommendation.
+    """
+
+    id: str
+    agent_id: str
+    session_id: str  # References DiagnosticSession.id
+    findings: Optional[List[Dict[str, Any]]] = None  # JSONB list of findings
+    summary: Optional[str] = None
+    created_at: Optional[datetime] = None
+    # Sync metadata
+    local_updated_at: Optional[datetime] = None
+    cloud_synced_at: Optional[datetime] = None
+    version: int = 1
+    deleted: bool = False
+
+
 TRUST_THRESHOLDS: Dict[str, float] = {
     "suggest_belief": 0.3,
     "contradict_world_belief": 0.6,
@@ -994,6 +1050,44 @@ class Storage(Protocol):
     def delete_trust_assessment(self, entity: str) -> bool:
         """Delete a trust assessment (soft delete)."""
         return False
+
+    # === Diagnostic Sessions (KEP v3) ===
+
+    def save_diagnostic_session(self, session: "DiagnosticSession") -> str:
+        """Save a diagnostic session. Returns the session ID."""
+        return session.id
+
+    def get_diagnostic_session(self, session_id: str) -> Optional["DiagnosticSession"]:
+        """Get a specific diagnostic session by ID."""
+        return None
+
+    def get_diagnostic_sessions(
+        self,
+        status: Optional[str] = None,
+        limit: int = 100,
+    ) -> List["DiagnosticSession"]:
+        """Get diagnostic sessions, optionally filtered by status."""
+        return []
+
+    def complete_diagnostic_session(self, session_id: str) -> bool:
+        """Mark a diagnostic session as completed. Returns True if updated."""
+        return False
+
+    def save_diagnostic_report(self, report: "DiagnosticReport") -> str:
+        """Save a diagnostic report. Returns the report ID."""
+        return report.id
+
+    def get_diagnostic_report(self, report_id: str) -> Optional["DiagnosticReport"]:
+        """Get a specific diagnostic report by ID."""
+        return None
+
+    def get_diagnostic_reports(
+        self,
+        session_id: Optional[str] = None,
+        limit: int = 100,
+    ) -> List["DiagnosticReport"]:
+        """Get diagnostic reports, optionally filtered by session."""
+        return []
 
     # === Playbooks (Procedural Memory) ===
 

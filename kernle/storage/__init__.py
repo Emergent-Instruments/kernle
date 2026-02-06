@@ -15,6 +15,8 @@ from typing import Literal, Optional
 from .base import (
     Belief,
     ConfidenceChange,
+    DiagnosticReport,
+    DiagnosticSession,
     Drive,
     EntityModel,
     Episode,
@@ -151,6 +153,8 @@ __all__ = [
     "RawEntry",
     "MemorySuggestion",
     "TrustAssessment",
+    "DiagnosticSession",
+    "DiagnosticReport",
     # Meta-memory types
     "SourceType",
     "ConfidenceChange",
