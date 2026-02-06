@@ -23,6 +23,7 @@ class TestCmdAnxiety:
                 "raw_aging": {"score": 10, "emoji": "🟢", "detail": "fresh"},
                 "identity_coherence": {"score": 50, "emoji": "🟡", "detail": "developing"},
                 "memory_uncertainty": {"score": 30, "emoji": "🟢", "detail": "2 beliefs"},
+                "epoch_staleness": {"score": 0, "emoji": "🟢", "detail": "No epochs (not in use)"},
             },
             "timestamp": "2026-01-28T12:00:00Z",
             "agent_id": "test",
@@ -117,6 +118,7 @@ class TestCmdAnxiety:
                 "raw_aging": {"score": 30, "emoji": "🟢", "detail": "fresh"},
                 "identity_coherence": {"score": 70, "emoji": "🟠", "detail": "weak"},
                 "memory_uncertainty": {"score": 50, "emoji": "🟡", "detail": "4 beliefs"},
+                "epoch_staleness": {"score": 0, "emoji": "🟢", "detail": "No epochs (not in use)"},
             },
             "timestamp": "2026-01-28T12:00:00Z",
             "agent_id": "test",
@@ -350,6 +352,7 @@ class TestDetailedAndActions:
                 "raw_aging": {"score": 10, "emoji": "🟢", "detail": "1 day"},
                 "identity_coherence": {"score": 60, "emoji": "🟠", "detail": "developing"},
                 "memory_uncertainty": {"score": 40, "emoji": "🟡", "detail": "3 beliefs"},
+                "epoch_staleness": {"score": 0, "emoji": "🟢", "detail": "No epochs (not in use)"},
             },
             "recommendations": [
                 {
@@ -396,6 +399,7 @@ class TestDetailedAndActions:
                 "raw_aging": {"score": 20, "emoji": "🟢", "detail": "recent"},
                 "identity_coherence": {"score": 60, "emoji": "🟠", "detail": "developing"},
                 "memory_uncertainty": {"score": 50, "emoji": "🟡", "detail": "5 beliefs"},
+                "epoch_staleness": {"score": 0, "emoji": "🟢", "detail": "No epochs (not in use)"},
             },
         }
         k.get_recommended_actions.return_value = [
@@ -442,6 +446,7 @@ class TestAutoMode:
                 "raw_aging": {"score": 5, "emoji": "🟢", "detail": "fresh"},
                 "identity_coherence": {"score": 30, "emoji": "🟢", "detail": "stable"},
                 "memory_uncertainty": {"score": 20, "emoji": "🟢", "detail": "1 belief"},
+                "epoch_staleness": {"score": 0, "emoji": "🟢", "detail": "No epochs (not in use)"},
             },
         }
         k.get_recommended_actions.return_value = []
@@ -478,6 +483,7 @@ class TestAutoMode:
                 "raw_aging": {"score": 30, "emoji": "🟢", "detail": "recent"},
                 "identity_coherence": {"score": 50, "emoji": "🟡", "detail": "developing"},
                 "memory_uncertainty": {"score": 40, "emoji": "🟡", "detail": "4 beliefs"},
+                "epoch_staleness": {"score": 0, "emoji": "🟢", "detail": "No epochs (not in use)"},
             },
         }
         k.get_recommended_actions.return_value = [
@@ -518,6 +524,7 @@ class TestAutoMode:
                 "raw_aging": {"score": 30, "emoji": "🟢", "detail": "recent"},
                 "identity_coherence": {"score": 70, "emoji": "🟠", "detail": "weak"},
                 "memory_uncertainty": {"score": 40, "emoji": "🟡", "detail": "4 beliefs"},
+                "epoch_staleness": {"score": 0, "emoji": "🟢", "detail": "No epochs (not in use)"},
             },
         }
         k.get_recommended_actions.return_value = [
@@ -563,6 +570,7 @@ class TestAutoMode:
                 "raw_aging": {"score": 30, "emoji": "🟢", "detail": "recent"},
                 "identity_coherence": {"score": 50, "emoji": "🟡", "detail": "developing"},
                 "memory_uncertainty": {"score": 40, "emoji": "🟡", "detail": "4 beliefs"},
+                "epoch_staleness": {"score": 0, "emoji": "🟢", "detail": "No epochs (not in use)"},
             },
         }
         k.get_recommended_actions.return_value = [
@@ -603,6 +611,7 @@ class TestAutoMode:
                 "raw_aging": {"score": 30, "emoji": "🟢", "detail": "recent"},
                 "identity_coherence": {"score": 50, "emoji": "🟡", "detail": "developing"},
                 "memory_uncertainty": {"score": 40, "emoji": "🟡", "detail": "4 beliefs"},
+                "epoch_staleness": {"score": 0, "emoji": "🟢", "detail": "No epochs (not in use)"},
             },
         }
         k.get_recommended_actions.return_value = [
@@ -642,6 +651,7 @@ class TestAutoMode:
                 "raw_aging": {"score": 70, "emoji": "🟠", "detail": "stale"},
                 "identity_coherence": {"score": 80, "emoji": "🔴", "detail": "fragmented"},
                 "memory_uncertainty": {"score": 90, "emoji": "🔴", "detail": "many beliefs"},
+                "epoch_staleness": {"score": 0, "emoji": "🟢", "detail": "No epochs (not in use)"},
             },
         }
         k.get_recommended_actions.return_value = [
@@ -682,6 +692,7 @@ class TestAutoMode:
                 "raw_aging": {"score": 70, "emoji": "🟠", "detail": "stale"},
                 "identity_coherence": {"score": 80, "emoji": "🔴", "detail": "fragmented"},
                 "memory_uncertainty": {"score": 90, "emoji": "🔴", "detail": "many beliefs"},
+                "epoch_staleness": {"score": 0, "emoji": "🟢", "detail": "No epochs (not in use)"},
             },
         }
         k.get_recommended_actions.return_value = [
@@ -721,6 +732,7 @@ class TestAutoMode:
                 "raw_aging": {"score": 30, "emoji": "🟢", "detail": "recent"},
                 "identity_coherence": {"score": 50, "emoji": "🟡", "detail": "developing"},
                 "memory_uncertainty": {"score": 70, "emoji": "🟠", "detail": "many beliefs"},
+                "epoch_staleness": {"score": 0, "emoji": "🟢", "detail": "No epochs (not in use)"},
             },
         }
         k.get_recommended_actions.return_value = [
@@ -765,6 +777,7 @@ class TestAutoMode:
                 "raw_aging": {"score": 30, "emoji": "🟢", "detail": "recent"},
                 "identity_coherence": {"score": 50, "emoji": "🟡", "detail": "developing"},
                 "memory_uncertainty": {"score": 40, "emoji": "🟡", "detail": "4 beliefs"},
+                "epoch_staleness": {"score": 0, "emoji": "🟢", "detail": "No epochs (not in use)"},
             },
         }
         k.get_recommended_actions.return_value = [
@@ -803,6 +816,7 @@ class TestAutoMode:
                 "raw_aging": {"score": 30, "emoji": "🟢", "detail": "recent"},
                 "identity_coherence": {"score": 50, "emoji": "🟡", "detail": "developing"},
                 "memory_uncertainty": {"score": 40, "emoji": "🟡", "detail": "4 beliefs"},
+                "epoch_staleness": {"score": 0, "emoji": "🟢", "detail": "No epochs (not in use)"},
             },
         }
         k.get_recommended_actions.return_value = [
@@ -841,6 +855,7 @@ class TestAutoMode:
                 "raw_aging": {"score": 30, "emoji": "🟢", "detail": "recent"},
                 "identity_coherence": {"score": 50, "emoji": "🟡", "detail": "developing"},
                 "memory_uncertainty": {"score": 40, "emoji": "🟡", "detail": "4 beliefs"},
+                "epoch_staleness": {"score": 0, "emoji": "🟢", "detail": "No epochs (not in use)"},
             },
         }
         k.get_recommended_actions.return_value = [
@@ -884,6 +899,7 @@ class TestHighAnxietySuggestion:
                 "raw_aging": {"score": 50, "emoji": "🟡", "detail": "aging"},
                 "identity_coherence": {"score": 70, "emoji": "🟠", "detail": "developing"},
                 "memory_uncertainty": {"score": 60, "emoji": "🟠", "detail": "5 beliefs"},
+                "epoch_staleness": {"score": 0, "emoji": "🟢", "detail": "No epochs (not in use)"},
             },
         }
 

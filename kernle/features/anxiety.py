@@ -22,6 +22,7 @@ class AnxietyMixin:
     - Raw aging: Unprocessed raw entries getting stale
     - Identity coherence: Strength of self-model
     - Memory uncertainty: Low-confidence beliefs
+    - Epoch staleness: Time since last epoch transition
     """
 
     # Anxiety level thresholds and colors
@@ -33,14 +34,15 @@ class AnxietyMixin:
         (86, 100): ("⚫", "Critical"),
     }
 
-    # Dimension weights for composite score
+    # Dimension weights for composite score (7-factor model)
     ANXIETY_WEIGHTS = {
-        "context_pressure": 0.30,
+        "context_pressure": 0.25,
         "unsaved_work": 0.20,
         "consolidation_debt": 0.15,
-        "raw_aging": 0.15,
+        "raw_aging": 0.10,
         "identity_coherence": 0.10,
         "memory_uncertainty": 0.10,
+        "epoch_staleness": 0.10,
     }
 
     def _get_anxiety_level(self: "Kernle", score: int) -> tuple:
@@ -109,13 +111,47 @@ class AnxietyMixin:
 
         return len(raw_entries), aging_count, oldest_age_hours
 
+    def _get_epoch_staleness_months(self: "Kernle") -> Optional[float]:
+        """Get months since the current epoch started, or since the last epoch ended.
+
+        Returns None if the epochs table has no data (feature not in use).
+        """
+        try:
+            current_epoch = self._storage.get_current_epoch()
+            if current_epoch and current_epoch.started_at:
+                started = current_epoch.started_at
+                if isinstance(started, str):
+                    started = datetime.fromisoformat(started.replace("Z", "+00:00"))
+                now = datetime.now(timezone.utc)
+                delta = now - started
+                return delta.total_seconds() / (30.44 * 86400)  # average days per month
+
+            # No active epoch -- check if there are any closed epochs
+            epochs = self._storage.get_epochs(limit=1)
+            if not epochs:
+                return None  # No epochs at all -- feature not in use
+
+            # Last epoch was closed; measure from its ended_at
+            last = epochs[0]
+            if last.ended_at:
+                ended = last.ended_at
+                if isinstance(ended, str):
+                    ended = datetime.fromisoformat(ended.replace("Z", "+00:00"))
+                now = datetime.now(timezone.utc)
+                delta = now - ended
+                return delta.total_seconds() / (30.44 * 86400)
+
+            return None
+        except Exception:
+            return None  # Graceful degradation if epochs not available
+
     def get_anxiety_report(
         self: "Kernle",
         context_tokens: Optional[int] = None,
         context_limit: int = 200000,
         detailed: bool = False,
     ) -> dict:
-        """Calculate memory anxiety across 6 dimensions.
+        """Calculate memory anxiety across 7 dimensions.
 
         This measures the functional anxiety of a synthetic intelligence
         facing finite context and potential memory loss.
@@ -292,6 +328,40 @@ class AnxietyMixin:
             "raw_value": aging_count,
             "detail": raw_aging_detail,
             "emoji": self._get_anxiety_level(raw_aging_score)[0],
+        }
+
+        # 7. Epoch Staleness (0-100%)
+        epoch_months = self._get_epoch_staleness_months()
+        if epoch_months is None:
+            # Epochs not in use -- neutral score
+            epoch_staleness_score = 0
+            epoch_staleness_detail = "No epochs (not in use)"
+        elif epoch_months < 6:
+            # Calm: < 6 months
+            epoch_staleness_score = int(epoch_months * 5)  # 0-30 range
+            epoch_staleness_detail = f"{epoch_months:.1f} months (current epoch is fresh)"
+        elif epoch_months < 12:
+            # Aware: 6-12 months
+            epoch_staleness_score = int(30 + (epoch_months - 6) * 6.7)  # 30-70 range
+            epoch_staleness_detail = (
+                f"{epoch_months:.1f} months (consider whether current epoch is still accurate)"
+            )
+        elif epoch_months < 18:
+            # Elevated: 12-18 months
+            epoch_staleness_score = int(70 + (epoch_months - 12) * 4)  # 70-90 range
+            epoch_staleness_detail = (
+                f"{epoch_months:.1f} months (significant time without deep reflection)"
+            )
+        else:
+            # High: > 18 months
+            epoch_staleness_score = min(100, int(90 + (epoch_months - 18) * 1.67))
+            epoch_staleness_detail = f"{epoch_months:.1f} months (likely overdue for epoch review)"
+
+        dimensions["epoch_staleness"] = {
+            "score": min(100, epoch_staleness_score),
+            "raw_value": epoch_months,
+            "detail": epoch_staleness_detail,
+            "emoji": self._get_anxiety_level(epoch_staleness_score)[0],
         }
 
         # Calculate composite score (weighted average)
