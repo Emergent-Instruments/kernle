@@ -945,3 +945,58 @@ class TestStackIdValidation:
         """SQLiteStorage must reject stack IDs with path traversal."""
         with pytest.raises(ValueError, match=match):
             SQLiteStorage(stack_id=bad_id, db_path=temp_db)
+
+
+class TestReadOnlyEnvironmentFallback:
+    """Tests for SQLiteStorage initialization when home directory is not writable."""
+
+    def test_falls_back_to_temp_dir_when_home_not_writable(self, tmp_path):
+        """SQLiteStorage should fall back to temp dir when ~/.kernle is not writable."""
+        from unittest.mock import patch
+
+        # Point home to a read-only directory
+        readonly_home = tmp_path / "readonly_home"
+        readonly_home.mkdir()
+
+        with (
+            patch("kernle.storage.sqlite.get_kernle_home", return_value=readonly_home / ".kernle"),
+            patch.object(Path, "mkdir", side_effect=PermissionError("Read-only filesystem")),
+        ):
+            # Attempting without explicit db_path should fall back to tempdir
+            # We can't easily make mkdir fail for some paths but not others,
+            # so test the _resolve_db_path method directly
+            pass
+
+        # More targeted test: use _resolve_db_path directly
+        storage = SQLiteStorage(stack_id="test-agent", db_path=tmp_path / "test.db")
+        try:
+            with patch(
+                "kernle.storage.sqlite.get_kernle_home",
+                return_value=readonly_home / ".kernle",
+            ):
+                # Simulate mkdir failing for the default path
+                original_mkdir = Path.mkdir
+
+                def mock_mkdir(self_path, *args, **kwargs):
+                    if str(self_path).startswith(str(readonly_home)):
+                        raise PermissionError("Read-only filesystem")
+                    return original_mkdir(self_path, *args, **kwargs)
+
+                with patch.object(Path, "mkdir", mock_mkdir):
+                    resolved = storage._resolve_db_path(None)
+                    # Should NOT be under the readonly home
+                    assert not str(resolved).startswith(str(readonly_home))
+                    # Should be under temp dir
+                    assert ".kernle" in str(resolved)
+                    assert "memories.db" in str(resolved)
+        finally:
+            storage.close()
+
+    def test_explicit_db_path_does_not_fallback(self, tmp_path):
+        """When db_path is explicitly provided, no fallback should occur."""
+        explicit_path = tmp_path / "explicit.db"
+        storage = SQLiteStorage(stack_id="test-agent", db_path=explicit_path)
+        try:
+            assert storage.db_path == explicit_path.resolve()
+        finally:
+            storage.close()
