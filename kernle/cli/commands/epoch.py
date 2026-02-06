@@ -13,10 +13,13 @@ def cmd_epoch(args, k: "Kernle"):
     """Handle epoch subcommands."""
     if args.epoch_action == "create":
         name = validate_input(args.name, "name", 200)
-        trigger = getattr(args, "trigger", "manual") or "manual"
+        trigger = getattr(args, "trigger", "declared") or "declared"
+        trigger_desc = getattr(args, "trigger_description", None)
 
         try:
-            epoch_id = k.epoch_create(name=name, trigger_type=trigger)
+            epoch_id = k.epoch_create(
+                name=name, trigger_type=trigger, trigger_description=trigger_desc
+            )
             if args.json:
                 print(json.dumps({"epoch_id": epoch_id, "name": name}))
             else:
@@ -97,6 +100,7 @@ def cmd_epoch(args, k: "Kernle"):
                 "started_at": epoch.started_at.isoformat() if epoch.started_at else None,
                 "ended_at": epoch.ended_at.isoformat() if epoch.ended_at else None,
                 "trigger_type": epoch.trigger_type,
+                "trigger_description": epoch.trigger_description,
                 "summary": epoch.summary,
                 "key_belief_ids": epoch.key_belief_ids,
                 "key_relationship_ids": epoch.key_relationship_ids,
@@ -114,6 +118,8 @@ def cmd_epoch(args, k: "Kernle"):
             print(f"  ID: {epoch.id}")
             print(f"  Period: {started} - {ended}")
             print(f"  Trigger: {epoch.trigger_type}")
+            if epoch.trigger_description:
+                print(f"  Trigger description: {epoch.trigger_description}")
             if epoch.summary:
                 print(f"  Summary: {epoch.summary}")
             if epoch.key_belief_ids:

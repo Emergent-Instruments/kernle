@@ -1,7 +1,7 @@
 """Tests for temporal epoch (era tracking) functionality.
 
 Tests epoch CRUD operations at both storage and core API levels,
-including epoch_id propagation to memory types.
+including epoch_id propagation to memory types and epoch-filtered loading.
 """
 
 import tempfile
@@ -51,7 +51,7 @@ class TestEpochStorage:
             agent_id="test-agent",
             epoch_number=1,
             name="onboarding",
-            trigger_type="manual",
+            trigger_type="declared",
         )
         result_id = storage.save_epoch(epoch)
         assert result_id == "epoch-1"
@@ -60,7 +60,7 @@ class TestEpochStorage:
         assert retrieved is not None
         assert retrieved.name == "onboarding"
         assert retrieved.epoch_number == 1
-        assert retrieved.trigger_type == "manual"
+        assert retrieved.trigger_type == "declared"
 
     def test_get_epoch_not_found(self, storage):
         """Getting a nonexistent epoch returns None."""
@@ -188,6 +188,37 @@ class TestEpochStorage:
         assert retrieved.key_goal_ids == ["g1", "g2", "g3"]
         assert retrieved.dominant_drive_ids == ["d1"]
 
+    def test_epoch_trigger_description(self, storage):
+        """Epoch stores trigger_description."""
+        epoch = Epoch(
+            id="epoch-trigger",
+            agent_id="test-agent",
+            epoch_number=1,
+            name="triggered-epoch",
+            trigger_type="detected",
+            trigger_description="Major role change detected",
+        )
+        storage.save_epoch(epoch)
+
+        retrieved = storage.get_epoch("epoch-trigger")
+        assert retrieved is not None
+        assert retrieved.trigger_type == "detected"
+        assert retrieved.trigger_description == "Major role change detected"
+
+    def test_epoch_trigger_description_none(self, storage):
+        """Epoch with no trigger_description defaults to None."""
+        epoch = Epoch(
+            id="epoch-no-desc",
+            agent_id="test-agent",
+            epoch_number=1,
+            name="no-desc",
+        )
+        storage.save_epoch(epoch)
+
+        retrieved = storage.get_epoch("epoch-no-desc")
+        assert retrieved is not None
+        assert retrieved.trigger_description is None
+
 
 class TestEpochCore:
     """Test epoch operations via the Kernle core API."""
@@ -206,9 +237,20 @@ class TestEpochCore:
 
     def test_epoch_create_with_trigger(self, kernle_instance):
         """epoch_create accepts a trigger_type."""
-        epoch_id = kernle_instance.epoch_create(name="milestone", trigger_type="milestone")
+        epoch_id = kernle_instance.epoch_create(name="detected-shift", trigger_type="detected")
         epoch = kernle_instance.get_epoch(epoch_id)
-        assert epoch.trigger_type == "milestone"
+        assert epoch.trigger_type == "detected"
+
+    def test_epoch_create_with_trigger_description(self, kernle_instance):
+        """epoch_create accepts a trigger_description."""
+        epoch_id = kernle_instance.epoch_create(
+            name="system-epoch",
+            trigger_type="system",
+            trigger_description="Automated consolidation threshold reached",
+        )
+        epoch = kernle_instance.get_epoch(epoch_id)
+        assert epoch.trigger_type == "system"
+        assert epoch.trigger_description == "Automated consolidation threshold reached"
 
     def test_epoch_create_invalid_trigger(self, kernle_instance):
         """epoch_create rejects invalid trigger types."""
@@ -335,3 +377,138 @@ class TestEpochIdPropagation:
         retrieved = next((n for n in notes if n.id == "note-1"), None)
         assert retrieved is not None
         assert retrieved.epoch_id == "epoch-2"
+
+
+class TestEpochFilteredLoading:
+    """Test load_all with epoch_id filtering."""
+
+    def test_load_all_filters_by_epoch_id(self, storage):
+        """load_all with epoch_id only returns memories from that epoch."""
+        # Create episodes in different epochs
+        storage.save_episode(
+            Episode(
+                id="ep-e1",
+                agent_id="test-agent",
+                objective="Epoch 1 task",
+                outcome="Done",
+                outcome_type="success",
+                epoch_id="epoch-1",
+            )
+        )
+        storage.save_episode(
+            Episode(
+                id="ep-e2",
+                agent_id="test-agent",
+                objective="Epoch 2 task",
+                outcome="Done",
+                outcome_type="success",
+                epoch_id="epoch-2",
+            )
+        )
+        storage.save_episode(
+            Episode(
+                id="ep-none",
+                agent_id="test-agent",
+                objective="Pre-epoch task",
+                outcome="Done",
+                outcome_type="success",
+            )
+        )
+
+        # Load all without filter - should get all 3
+        all_data = storage.load_all()
+        assert len(all_data["episodes"]) == 3
+
+        # Load with epoch_id filter - should get only epoch-1
+        filtered = storage.load_all(epoch_id="epoch-1")
+        assert len(filtered["episodes"]) == 1
+        assert filtered["episodes"][0].id == "ep-e1"
+
+    def test_load_all_epoch_filter_beliefs(self, storage):
+        """load_all epoch_id filtering works on beliefs."""
+        storage.save_belief(
+            Belief(
+                id="bel-e1",
+                agent_id="test-agent",
+                statement="Epoch 1 belief",
+                epoch_id="epoch-1",
+            )
+        )
+        storage.save_belief(
+            Belief(
+                id="bel-e2",
+                agent_id="test-agent",
+                statement="Epoch 2 belief",
+                epoch_id="epoch-2",
+            )
+        )
+
+        filtered = storage.load_all(epoch_id="epoch-1")
+        assert len(filtered["beliefs"]) == 1
+        assert filtered["beliefs"][0].id == "bel-e1"
+
+    def test_load_all_no_epoch_filter_returns_all(self, storage):
+        """load_all without epoch_id returns everything."""
+        storage.save_episode(
+            Episode(
+                id="ep-1",
+                agent_id="test-agent",
+                objective="Task",
+                outcome="Done",
+                outcome_type="success",
+                epoch_id="epoch-1",
+            )
+        )
+        storage.save_episode(
+            Episode(
+                id="ep-2",
+                agent_id="test-agent",
+                objective="Task 2",
+                outcome="Done",
+                outcome_type="success",
+            )
+        )
+
+        data = storage.load_all()
+        assert len(data["episodes"]) == 2
+
+    def test_load_with_epoch_id(self, kernle_instance):
+        """Kernle.load(epoch_id=...) filters memory to that epoch."""
+        k = kernle_instance
+
+        # Create an epoch and some memories
+        epoch_id = k.epoch_create(name="test-epoch")
+
+        # Record an episode in the epoch
+        ep_id = k.episode(
+            objective="Epoch task",
+            outcome="Done",
+            lessons=["test"],
+        )
+
+        # Manually set epoch_id on the stored episode
+        ep = k._storage.get_episode(ep_id)
+        ep.epoch_id = epoch_id
+        k._storage.save_episode(ep)
+
+        # Record another episode without epoch
+        k.episode(
+            objective="No epoch task",
+            outcome="Done",
+            lessons=["test"],
+        )
+
+        # Load without epoch filter
+        full = k.load()
+        full_episodes = full.get("episodes", [])
+
+        # Load with epoch filter
+        filtered = k.load(epoch_id=epoch_id)
+        filtered_episodes = filtered.get("episodes", [])
+
+        # Full load should have more episodes than filtered
+        assert len(full_episodes) >= len(filtered_episodes)
+        # Filtered should only have epoch-tagged episodes
+        for ep_data in filtered_episodes:
+            if isinstance(ep_data, dict):
+                assert ep_data.get("epoch_id") == epoch_id
