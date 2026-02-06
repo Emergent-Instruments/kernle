@@ -6,7 +6,8 @@ to diagnose continuity issues and understand memory flow.
 
 import logging
 from datetime import datetime
-from pathlib import Path
+
+from kernle.utils import get_kernle_home
 
 
 def setup_kernle_logging(stack_id: str = "default", level: str = "INFO") -> logging.Logger:
@@ -23,7 +24,7 @@ def setup_kernle_logging(stack_id: str = "default", level: str = "INFO") -> logg
         Configured logger
     """
     # Create logs directory
-    log_dir = Path.home() / ".kernle" / "logs"
+    log_dir = get_kernle_home() / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
     # Daily log file
@@ -72,7 +73,7 @@ def log_memory_event(event_type: str, details: str, stack_id: str = "default"):
         details: Human-readable details
         stack_id: Stack identifier
     """
-    log_dir = Path.home() / ".kernle" / "logs"
+    log_dir = get_kernle_home() / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
 
     today = datetime.now().strftime("%Y-%m-%d")

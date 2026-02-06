@@ -49,7 +49,7 @@ from kernle.cli.commands import (
 from kernle.cli.commands.import_cmd import cmd_import, cmd_migrate
 from kernle.cli.commands.setup import cmd_setup
 from kernle.cli.commands.stack import cmd_stack
-from kernle.utils import resolve_stack_id
+from kernle.utils import get_kernle_home, resolve_stack_id
 
 # Commerce CLI (optional - requires chainbased package)
 try:
@@ -403,7 +403,6 @@ def cmd_search(args, k: Kernle):
 
 def cmd_init(args, k: Kernle):
     """Initialize Kernle for a new environment."""
-    from pathlib import Path
 
     print("=" * 50)
     print("  🌱 Welcome to Kernle")
@@ -1155,7 +1154,7 @@ def cmd_boot(args, k: Kernle):
     elif action == "export":
         output = getattr(args, "output", None)
         k._export_boot_file()
-        boot_path = Path.home() / ".kernle" / k.stack_id / "boot.md"
+        boot_path = get_kernle_home() / k.stack_id / "boot.md"
         if output:
             # Copy to custom location
             config = k.boot_list()
@@ -1200,7 +1199,6 @@ def cmd_sync(args, k: Kernle):
     """Handle sync subcommands for local-to-cloud synchronization."""
     import os
     from datetime import datetime, timezone
-    from pathlib import Path
 
     # Load credentials with priority:
     # 1. ~/.kernle/credentials.json (preferred)
@@ -1212,7 +1210,7 @@ def cmd_sync(args, k: Kernle):
     user_id = None
 
     # Try credentials.json first (preferred)
-    credentials_path = Path.home() / ".kernle" / "credentials.json"
+    credentials_path = get_kernle_home() / "credentials.json"
     if credentials_path.exists():
         try:
             import json as json_module
@@ -1236,7 +1234,7 @@ def cmd_sync(args, k: Kernle):
         user_id = os.environ.get("KERNLE_USER_ID")
 
     # Legacy fallback: check config.json
-    config_path = Path.home() / ".kernle" / "config.json"
+    config_path = get_kernle_home() / "config.json"
     if config_path.exists() and (not backend_url or not auth_token):
         try:
             import json as json_module
@@ -2022,9 +2020,7 @@ def cmd_sync(args, k: Kernle):
 
 def get_credentials_path():
     """Get the path to the credentials file."""
-    from pathlib import Path
-
-    return Path.home() / ".kernle" / "credentials.json"
+    return get_kernle_home() / "credentials.json"
 
 
 def load_credentials():

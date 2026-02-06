@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from kernle.utils import get_kernle_home
+
 from .base import (
     Belief,
     DiagnosticReport,
@@ -920,7 +922,7 @@ class SQLiteStorage:
         embedder: Optional[EmbeddingProvider] = None,
     ):
         self.stack_id = stack_id
-        self.db_path = self._validate_db_path(db_path or Path.home() / ".kernle" / "memories.db")
+        self.db_path = self._validate_db_path(db_path or get_kernle_home() / "memories.db")
         self.cloud_storage = cloud_storage  # For sync
 
         # Connectivity cache
@@ -1115,7 +1117,7 @@ class SQLiteStorage:
         auth_token = None
 
         # Try credentials.json first
-        credentials_path = Path.home() / ".kernle" / "credentials.json"
+        credentials_path = get_kernle_home() / "credentials.json"
         if credentials_path.exists():
             try:
                 with open(credentials_path) as f:
@@ -1132,7 +1134,7 @@ class SQLiteStorage:
 
         # Try config.json as fallback
         if not backend_url or not auth_token:
-            config_path = Path.home() / ".kernle" / "config.json"
+            config_path = get_kernle_home() / "config.json"
             if config_path.exists():
                 try:
                     with open(config_path) as f:
@@ -5659,7 +5661,7 @@ class SQLiteStorage:
             return False
 
         # Check config file
-        config_path = Path.home() / ".kernle" / "config.json"
+        config_path = get_kernle_home() / "config.json"
         if config_path.exists():
             try:
                 with open(config_path) as f:

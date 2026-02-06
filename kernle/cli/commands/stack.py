@@ -2,10 +2,10 @@
 
 import logging
 import shutil
-from pathlib import Path
 from typing import TYPE_CHECKING
 
 from kernle.storage.sqlite import validate_table_name
+from kernle.utils import get_kernle_home
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +27,7 @@ def cmd_stack(args: "argparse.Namespace", k: "Kernle") -> None:
 
 def _list_stacks(args: "argparse.Namespace", k: "Kernle") -> None:
     """List all local agents."""
-    kernle_dir = Path.home() / ".kernle"
+    kernle_dir = get_kernle_home()
 
     if not kernle_dir.exists():
         print("No agents found (Kernle not initialized)")
@@ -121,7 +121,7 @@ def _delete_stack(args: "argparse.Namespace", k: "Kernle") -> None:
         print("   Switch to a different stack first with: kernle -s <other> ...")
         return
 
-    kernle_dir = Path.home() / ".kernle"
+    kernle_dir = get_kernle_home()
     db_path = kernle_dir / "memories.db"
     agent_dir = kernle_dir / stack_id
 
