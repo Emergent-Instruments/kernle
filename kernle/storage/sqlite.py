@@ -2754,6 +2754,10 @@ class SQLiteStorage:
                     is_active = ?,
                     context = ?,
                     context_tags = ?,
+                    belief_scope = ?,
+                    source_domain = ?,
+                    cross_domain_applications = ?,
+                    abstraction_level = ?,
                     local_updated_at = ?,
                     deleted = ?,
                     version = version + 1

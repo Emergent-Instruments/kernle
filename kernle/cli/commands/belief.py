@@ -152,6 +152,21 @@ def cmd_belief(args, k: "Kernle"):
         # Get beliefs from storage directly for more detail
         beliefs = k._storage.get_beliefs(limit=args.limit, include_inactive=args.all)
 
+        # Client-side filtering by scope/domain/abstraction (KEP v3)
+        scope_filter = getattr(args, "scope", None)
+        domain_filter = getattr(args, "domain", None)
+        abstraction_filter = getattr(args, "abstraction_level", None)
+        if scope_filter:
+            beliefs = [b for b in beliefs if getattr(b, "belief_scope", "world") == scope_filter]
+        if domain_filter:
+            beliefs = [b for b in beliefs if getattr(b, "source_domain", None) == domain_filter]
+        if abstraction_filter:
+            beliefs = [
+                b
+                for b in beliefs
+                if getattr(b, "abstraction_level", "specific") == abstraction_filter
+            ]
+
         if args.json:
             data = [
                 {
@@ -162,6 +177,10 @@ def cmd_belief(args, k: "Kernle"):
                     "is_active": b.is_active,
                     "supersedes": b.supersedes,
                     "superseded_by": b.superseded_by,
+                    "belief_scope": getattr(b, "belief_scope", "world"),
+                    "source_domain": getattr(b, "source_domain", None),
+                    "cross_domain_applications": getattr(b, "cross_domain_applications", None),
+                    "abstraction_level": getattr(b, "abstraction_level", "specific"),
                     "created_at": b.created_at.isoformat() if b.created_at else None,
                 }
                 for b in beliefs
@@ -173,13 +192,19 @@ def cmd_belief(args, k: "Kernle"):
             print("=" * 60)
 
             for b in beliefs:
-                status = "🟢" if b.is_active else "⚫"
-                conf_bar = "█" * int(b.confidence * 5) + "░" * (5 - int(b.confidence * 5))
+                status = "\U0001f7e2" if b.is_active else "\u26ab"
+                conf_bar = "\u2588" * int(b.confidence * 5) + "\u2591" * (5 - int(b.confidence * 5))
                 reinf = f"(+{b.times_reinforced})" if b.times_reinforced > 0 else ""
+                scope = getattr(b, "belief_scope", "world")
+                scope_tag = f" [{scope}]" if scope != "world" else ""
 
-                print(f"\n{status} [{conf_bar}] {b.confidence:.0%} {reinf}")
+                print(f"\n{status} [{conf_bar}] {b.confidence:.0%} {reinf}{scope_tag}")
                 print(f"   {b.statement[:60]}{'...' if len(b.statement) > 60 else ''}")
                 print(f"   ID: {b.id[:8]}...")
+
+                domain = getattr(b, "source_domain", None)
+                if domain:
+                    print(f"   Domain: {domain}")
 
                 if b.supersedes:
                     print(f"   Supersedes: {b.supersedes[:8]}...")
