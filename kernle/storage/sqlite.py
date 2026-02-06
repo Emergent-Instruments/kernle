@@ -2526,6 +2526,17 @@ class SQLiteStorage:
             consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
         )
 
+    def get_episodes_by_source_entity(self, source_entity: str, limit: int = 500) -> List[Episode]:
+        """Get episodes associated with a source entity for trust computation."""
+        query = """
+            SELECT * FROM episodes
+            WHERE agent_id = ? AND source_entity = ? AND deleted = 0 AND is_forgotten = 0
+            ORDER BY created_at DESC LIMIT ?
+        """
+        with self._connect() as conn:
+            rows = conn.execute(query, (self.agent_id, source_entity, limit)).fetchall()
+        return [self._row_to_episode(row) for row in rows]
+
     def update_episode_emotion(
         self, episode_id: str, valence: float, arousal: float, tags: Optional[List[str]] = None
     ) -> bool:

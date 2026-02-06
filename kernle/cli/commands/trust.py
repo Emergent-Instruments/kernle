@@ -113,10 +113,81 @@ def cmd_trust(args, k: "Kernle"):
         print(f"  Trust level: {result['trust_level']:.2f}")
         print(f"  Domain: {result['domain']}")
 
+    elif action == "compute":
+        entity = args.entity
+        domain = getattr(args, "domain", "general") or "general"
+        apply_result = getattr(args, "apply", False)
+
+        result = k.trust_compute(entity, domain=domain)
+
+        if result.get("source") == "default":
+            print(f"No episode history for: {entity}")
+            print(f"  Default trust: {int(result['score'] * 100)}%")
+        else:
+            pct = int(result["score"] * 100)
+            bar = "\u2588" * (pct // 10) + "\u2591" * (10 - pct // 10)
+            print(f"Computed trust for: {entity}")
+            print(f"  Score: [{bar}] {pct}%")
+            print(
+                f"  Episodes: {result['total']} ({result['positive']:.1f} positive, {result['negative']:.1f} negative)"
+            )
+
+            if "self_trust_floor" in result:
+                floor_pct = int(result["self_trust_floor"] * 100)
+                print(f"  Self-trust floor: {floor_pct}%")
+
+        if apply_result:
+            k.trust_set(entity, domain=domain, score=result["score"])
+            print("  Applied to stored assessment.")
+
+    elif action == "chain":
+        target = args.target
+        chain = args.chain
+        domain = getattr(args, "domain", "general") or "general"
+
+        result = k.trust_chain(target, chain, domain=domain)
+
+        pct = int(result["score"] * 100)
+        bar = "\u2588" * (pct // 10) + "\u2591" * (10 - pct // 10)
+        print(f"Transitive trust to: {target}")
+        print(f"  Chain: {' -> '.join(chain)} -> {target}")
+        print(f"  Domain: {domain}")
+        print(f"  Score: [{bar}] {pct}%")
+        print()
+        print("  Hops:")
+        for hop in result.get("hops", []):
+            h_pct = int(hop["direct_trust"] * 100)
+            c_pct = int(hop["cumulative"] * 100)
+            print(
+                f"    {hop['entity']}: {h_pct}% direct, decay {hop['depth_decay']:.2f}, cumulative {c_pct}%"
+            )
+
+    elif action == "decay":
+        entity = args.entity
+        days = args.days
+
+        result = k.apply_trust_decay(entity, days)
+
+        if result.get("error"):
+            print(f"Error: {result['error']}")
+            return
+
+        print(f"Applied trust decay for: {entity}")
+        print(f"  Days without interaction: {days}")
+        print(f"  Decay factor: {result['decay_factor']:.4f}")
+        print()
+        for domain, dim_data in result.get("dimensions", {}).items():
+            if isinstance(dim_data, dict):
+                pct = int(dim_data.get("score", 0) * 100)
+                print(f"  {domain}: {pct}%")
+
     else:
-        print("Usage: kernle trust {list|show|set|seed|gate}")
+        print("Usage: kernle trust {list|show|set|seed|gate|compute|chain|decay}")
         print("  list                     List all trust assessments")
         print("  show <entity>            Show trust details for an entity")
         print("  set <entity> <score>     Set trust score for an entity")
         print("  seed                     Initialize seed trust templates")
         print("  gate <source> <action>   Check if action is allowed by trust")
+        print("  compute <entity>         Compute trust from episode history")
+        print("  chain <target> <e1 e2>   Compute transitive trust through a chain")
+        print("  decay <entity> <days>    Apply trust decay for N days")
