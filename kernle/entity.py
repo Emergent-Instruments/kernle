@@ -511,12 +511,11 @@ class Entity:
             statement=statement,
             priority=priority,
             created_at=datetime.now(timezone.utc),
-            is_protected=foundational or True,  # Values protected by default
+            is_protected=foundational,
             source_type="direct_experience",
             context=context,
             context_tags=context_tags,
         )
-        v.source_entity = f"core:{self._core_id}"
         return stack.save_value(v)
 
     def goal(
