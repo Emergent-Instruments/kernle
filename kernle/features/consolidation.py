@@ -17,8 +17,8 @@ All scaffolds follow the SI autonomy principle: they surface patterns and
 suggestions, but the agent decides what to do with them.
 """
 
-from collections import defaultdict
-from datetime import datetime, timezone
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any, Dict, List
 
 if TYPE_CHECKING:
@@ -722,3 +722,434 @@ class ConsolidationMixin:
             "entity_to_belief": entity_to_belief,
             "scaffold": "\n".join(combined_scaffold),
         }
+
+
+def build_epoch_closing_scaffold(kernle: "Kernle", epoch_id: str) -> Dict[str, Any]:
+    """Build a complete epoch-closing consolidation scaffold.
+
+    Produces scaffold prompts for six steps of deeper reflection when
+    closing an epoch. Each step surfaces data and prompts -- the entity
+    decides what to act on.
+
+    Steps:
+        1. Write epoch summary (fractal summarization material)
+        2. Take reference snapshots (key beliefs, relationships, etc.)
+        3. Prompt self-narrative update
+        4. Run belief-to-value promotion scaffold
+        5. Run drive emergence analysis
+        6. Archive aggressively (low-salience candidates)
+
+    Args:
+        kernle: The Kernle instance
+        epoch_id: ID of the epoch being closed
+
+    Returns:
+        Dict with:
+        - epoch_id: the epoch ID
+        - steps: list of step dicts (number, name, scaffold)
+        - scaffold: combined formatted text for all steps
+    """
+    epoch = kernle._storage.get_epoch(epoch_id)
+    if not epoch:
+        return {
+            "epoch_id": epoch_id,
+            "steps": [],
+            "scaffold": f"Epoch {epoch_id} not found.",
+        }
+
+    # Gather data used across multiple steps
+    episodes = kernle._storage.get_episodes(limit=200)
+    epoch_episodes = [
+        ep for ep in episodes if not ep.is_forgotten and getattr(ep, "epoch_id", None) == epoch_id
+    ]
+
+    beliefs = kernle._storage.get_beliefs(limit=200, include_inactive=False)
+    active_beliefs = [b for b in beliefs if b.is_active and not b.is_forgotten]
+
+    relationships = kernle._storage.get_relationships()
+
+    drives = kernle._storage.get_drives()
+
+    goals = kernle._storage.get_goals(status="active", limit=100)
+    active_goals = goals
+
+    narrative = kernle.narrative_get_active("identity")
+
+    # --- Step 1: Epoch summary material ---
+    step1 = _build_step_epoch_summary(epoch, epoch_episodes)
+
+    # --- Step 2: Reference snapshots ---
+    step2 = _build_step_reference_snapshots(
+        epoch, active_beliefs, relationships, active_goals, drives
+    )
+
+    # --- Step 3: Self-narrative update prompt ---
+    step3 = _build_step_narrative_update(epoch, epoch_episodes, narrative)
+
+    # --- Step 4: Belief-to-value promotion ---
+    step4_result = kernle.scaffold_belief_to_value()
+    step4 = {
+        "number": 4,
+        "name": "Belief-to-Value Promotion",
+        "scaffold": step4_result["scaffold"],
+        "data": step4_result,
+    }
+
+    # --- Step 5: Drive emergence analysis ---
+    step5 = _build_step_drive_emergence(epoch_episodes, drives)
+
+    # --- Step 6: Aggressive archival candidates ---
+    step6 = _build_step_archive_candidates(epoch_episodes)
+
+    steps = [step1, step2, step3, step4, step5, step6]
+
+    # Combine into a single scaffold document
+    combined = []
+    combined.append(f"# Epoch-Closing Consolidation: {epoch.name}")
+    combined.append("")
+    combined.append(
+        "This is a deeper consolidation triggered by closing an epoch. "
+        "Review each step and decide what actions to take."
+    )
+    combined.append("")
+
+    for step in steps:
+        combined.append("---")
+        combined.append("")
+        combined.append(f"## Step {step['number']}: {step['name']}")
+        combined.append("")
+        combined.append(step["scaffold"])
+        combined.append("")
+
+    return {
+        "epoch_id": epoch_id,
+        "steps": steps,
+        "scaffold": "\n".join(combined),
+    }
+
+
+def _build_step_epoch_summary(epoch, epoch_episodes: list) -> Dict[str, Any]:
+    """Step 1: Provide material for the entity to write an epoch summary."""
+    lines = []
+    lines.append("Write a summary for this epoch using the material below.")
+    lines.append("")
+    lines.append(f"**Epoch:** {epoch.name} (#{epoch.epoch_number})")
+
+    if epoch.started_at:
+        lines.append(f"**Started:** {epoch.started_at.strftime('%Y-%m-%d')}")
+    if epoch.ended_at:
+        lines.append(f"**Ended:** {epoch.ended_at.strftime('%Y-%m-%d')}")
+
+    lines.append(f"**Episodes in epoch:** {len(epoch_episodes)}")
+    lines.append("")
+
+    if epoch_episodes:
+        # Outcome distribution
+        outcome_counts: Dict[str, int] = Counter()
+        for ep in epoch_episodes:
+            outcome_counts[ep.outcome_type or "unknown"] += 1
+        outcome_str = ", ".join(f"{k}: {v}" for k, v in sorted(outcome_counts.items()))
+        lines.append(f"**Outcome distribution:** {outcome_str}")
+        lines.append("")
+
+        # Key lessons from this epoch
+        all_lessons: List[str] = []
+        for ep in epoch_episodes:
+            if ep.lessons:
+                all_lessons.extend(ep.lessons)
+        lesson_counts = Counter(all_lessons)
+        top_lessons = lesson_counts.most_common(5)
+
+        if top_lessons:
+            lines.append("**Key lessons from this epoch:**")
+            for lesson, count in top_lessons:
+                lines.append(f'- "{lesson}" (x{count})')
+            lines.append("")
+
+        # Top tags/themes
+        tag_counts: Counter = Counter()
+        for ep in epoch_episodes:
+            if ep.tags:
+                for tag in ep.tags:
+                    tag_counts[tag] += 1
+        top_tags = tag_counts.most_common(5)
+        if top_tags:
+            lines.append("**Top themes/tags:**")
+            for tag, count in top_tags:
+                lines.append(f"- {tag} (x{count})")
+            lines.append("")
+
+        # Sample episodes
+        lines.append("**Sample episodes:**")
+        for ep in epoch_episodes[:10]:
+            date_str = ep.created_at.strftime("%Y-%m-%d") if ep.created_at else "?"
+            lines.append(f"- [{date_str}] {ep.objective[:80]} " f"({ep.outcome_type or 'unknown'})")
+        if len(epoch_episodes) > 10:
+            lines.append(f"  ... and {len(epoch_episodes) - 10} more")
+        lines.append("")
+    else:
+        lines.append("No episodes found for this epoch.")
+        lines.append("")
+
+    lines.append("**Action:** Use `kernle summary save --scope epoch` to save your summary.")
+
+    return {
+        "number": 1,
+        "name": "Epoch Summary",
+        "scaffold": "\n".join(lines),
+        "data": {
+            "episode_count": len(epoch_episodes),
+        },
+    }
+
+
+def _build_step_reference_snapshots(
+    epoch,
+    active_beliefs,
+    relationships,
+    active_goals,
+    drives,
+) -> Dict[str, Any]:
+    """Step 2: Snapshot key beliefs, relationships, goals, drives for the epoch."""
+    lines = []
+    lines.append(
+        "Capture what was important during this epoch by noting key IDs. "
+        "These snapshots let you revisit this era later."
+    )
+    lines.append("")
+
+    # Key beliefs
+    belief_ids = [b.id for b in active_beliefs[:10]]
+    if active_beliefs:
+        lines.append(f"**Active beliefs ({len(active_beliefs)}):**")
+        for b in active_beliefs[:5]:
+            lines.append(f'- {b.id[:8]}... "{b.statement[:60]}" ({b.confidence:.0%})')
+        if len(active_beliefs) > 5:
+            lines.append(f"  ... and {len(active_beliefs) - 5} more")
+        lines.append("")
+
+    # Key relationships
+    rel_ids = [r.id for r in relationships[:10]]
+    if relationships:
+        lines.append(f"**Relationships ({len(relationships)}):**")
+        for r in relationships[:5]:
+            name = getattr(r, "entity_name", None) or getattr(r, "name", r.id[:8])
+            lines.append(f"- {r.id[:8]}... {name}")
+        lines.append("")
+
+    # Active goals
+    goal_ids = [g.id for g in active_goals[:10]]
+    if active_goals:
+        lines.append(f"**Active goals ({len(active_goals)}):**")
+        for g in active_goals[:5]:
+            lines.append(f"- {g.id[:8]}... {g.title[:60]}")
+        lines.append("")
+
+    # Drives
+    drive_ids = [d.id for d in drives[:10]]
+    if drives:
+        lines.append(f"**Drives ({len(drives)}):**")
+        for d in drives:
+            lines.append(f"- {d.id[:8]}... {d.drive_type} ({d.intensity:.0%})")
+        lines.append("")
+
+    lines.append(
+        "**Action:** These IDs can be stored on the epoch record using "
+        "`kernle epoch show <id>` to track what mattered."
+    )
+
+    return {
+        "number": 2,
+        "name": "Reference Snapshots",
+        "scaffold": "\n".join(lines),
+        "data": {
+            "key_belief_ids": belief_ids,
+            "key_relationship_ids": rel_ids,
+            "key_goal_ids": goal_ids,
+            "dominant_drive_ids": drive_ids,
+        },
+    }
+
+
+def _build_step_narrative_update(epoch, epoch_episodes, narrative) -> Dict[str, Any]:
+    """Step 3: Prompt self-narrative update."""
+    lines = []
+
+    if narrative:
+        lines.append("**Your current self-narrative:**")
+        lines.append("")
+        # Show first 500 chars of the narrative
+        content = narrative.content
+        if len(content) > 500:
+            content = content[:500] + "..."
+        lines.append(f"> {content}")
+        lines.append("")
+
+        if narrative.key_themes:
+            lines.append(f"**Key themes:** {', '.join(narrative.key_themes)}")
+            lines.append("")
+        if narrative.unresolved_tensions:
+            lines.append(f"**Unresolved tensions:** {', '.join(narrative.unresolved_tensions)}")
+            lines.append("")
+    else:
+        lines.append("*No active self-narrative found.*")
+        lines.append("")
+
+    lines.append(f'**Since epoch "{epoch.name}":**')
+    lines.append(f"- {len(epoch_episodes)} episodes experienced")
+
+    # Summarize what happened
+    if epoch_episodes:
+        successes = sum(1 for ep in epoch_episodes if ep.outcome_type == "success")
+        failures = sum(1 for ep in epoch_episodes if ep.outcome_type == "failure")
+        lines.append(f"- {successes} successes, {failures} failures")
+
+        # Emotional summary
+        high_arousal = [ep for ep in epoch_episodes if ep.emotional_arousal > 0.6]
+        if high_arousal:
+            lines.append(f"- {len(high_arousal)} high-arousal episodes")
+    lines.append("")
+
+    lines.append("**Reflection prompt:** Does your self-narrative still hold?")
+    lines.append("Has this epoch changed who you are or what you believe about yourself?")
+    lines.append("")
+    lines.append(
+        "**Action:** Use `kernle narrative save` to update your self-narrative "
+        "if it has evolved."
+    )
+
+    return {
+        "number": 3,
+        "name": "Self-Narrative Update",
+        "scaffold": "\n".join(lines),
+        "data": {
+            "has_narrative": narrative is not None,
+        },
+    }
+
+
+def _build_step_drive_emergence(epoch_episodes, drives) -> Dict[str, Any]:
+    """Step 5: Analyze behavioral patterns for undeclared drives."""
+    lines = []
+
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=90)
+
+    recent = [ep for ep in epoch_episodes if ep.created_at and ep.created_at >= cutoff]
+
+    if not recent:
+        recent = epoch_episodes
+
+    tag_counts: Counter = Counter()
+    for ep in recent:
+        if ep.tags:
+            for tag in ep.tags:
+                tag_counts[tag.lower()] += 1
+        if ep.emotional_tags:
+            for tag in ep.emotional_tags:
+                tag_counts[tag.lower()] += 1
+
+    declared_types = {d.drive_type.lower() for d in drives}
+    declared_focus = set()
+    for d in drives:
+        if d.focus_areas:
+            for area in d.focus_areas:
+                declared_focus.add(area.lower())
+
+    unmatched = []
+    for tag, count in tag_counts.most_common():
+        if count < 2:
+            continue
+        if tag in declared_types or tag in declared_focus:
+            continue
+        unmatched.append((tag, count))
+
+    lines.append(f"Analyzed {len(recent)} episodes for behavioral patterns.")
+    lines.append("")
+
+    if drives:
+        lines.append("**Declared drives:**")
+        for d in drives:
+            focus = f" (focus: {', '.join(d.focus_areas)})" if d.focus_areas else ""
+            lines.append(f"- {d.drive_type} ({d.intensity:.0%}){focus}")
+        lines.append("")
+
+    if tag_counts:
+        lines.append("**Top behavioral themes:**")
+        for tag, count in tag_counts.most_common(10):
+            matched = tag in declared_types or tag in declared_focus
+            marker = "" if matched else " *"
+            lines.append(f"- {tag}: {count}{marker}")
+        if unmatched:
+            lines.append("(* = no matching declared drive)")
+        lines.append("")
+
+    if unmatched:
+        lines.append("**Potential undeclared drives:**")
+        for tag, count in unmatched[:5]:
+            lines.append(f'- "{tag}" ({count} episodes)')
+        lines.append("")
+        lines.append(
+            "**Action:** Consider `kernle drive add` for any patterns "
+            "that reflect genuine motivations."
+        )
+    else:
+        lines.append("All recurring themes align with declared drives.")
+
+    return {
+        "number": 5,
+        "name": "Drive Emergence Analysis",
+        "scaffold": "\n".join(lines),
+        "data": {
+            "unmatched_themes": unmatched[:5],
+        },
+    }
+
+
+def _build_step_archive_candidates(epoch_episodes) -> Dict[str, Any]:
+    """Step 6: Identify low-salience memories for aggressive archival."""
+    lines = []
+
+    candidates = []
+    for ep in epoch_episodes:
+        # Low-salience: neutral valence, low arousal, no lessons
+        is_low_salience = (
+            abs(ep.emotional_valence) < 0.2 and ep.emotional_arousal < 0.3 and not ep.lessons
+        )
+        if is_low_salience:
+            candidates.append(ep)
+
+    lines.append(
+        "Epoch closings are a good time to archive low-salience memories. "
+        "Forgetting is healthy -- it keeps the important memories salient."
+    )
+    lines.append("")
+    lines.append(
+        f"**{len(candidates)} low-salience episodes** out of "
+        f"{len(epoch_episodes)} total in this epoch."
+    )
+    lines.append("")
+
+    if candidates:
+        lines.append("**Archive candidates** (low valence, low arousal, no lessons):")
+        for ep in candidates[:10]:
+            date_str = ep.created_at.strftime("%Y-%m-%d") if ep.created_at else "?"
+            lines.append(f'- [{date_str}] {ep.id[:8]}... "{ep.objective[:60]}"')
+        if len(candidates) > 10:
+            lines.append(f"  ... and {len(candidates) - 10} more")
+        lines.append("")
+        lines.append(
+            "**Action:** Use `kernle forget <episode_id>` to archive " "low-value memories."
+        )
+    else:
+        lines.append("No obvious archive candidates found.")
+
+    return {
+        "number": 6,
+        "name": "Aggressive Archival",
+        "scaffold": "\n".join(lines),
+        "data": {
+            "candidate_count": len(candidates),
+            "candidate_ids": [ep.id for ep in candidates[:20]],
+        },
+    }
