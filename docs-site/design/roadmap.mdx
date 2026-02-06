@@ -1,0 +1,229 @@
+---
+title: "Roadmap"
+description: "Future development plans for Kernle"
+---
+
+This roadmap outlines planned features that extend Kernle's cognitive infrastructure. Items are drawn from the Kernle Enhancement Proposals and organized by implementation phase.
+
+## What's Been Built
+
+The core cognitive infrastructure is in place:
+
+<CardGroup cols={3}>
+  <Card title="Memory Stack" icon="layer-group">
+    16 memory types in a stratified hierarchy with budget-aware loading
+  </Card>
+  <Card title="Temporal Architecture" icon="clock">
+    Epochs, fractal summarization, two-tier consolidation
+  </Card>
+  <Card title="Identity & Trust" icon="fingerprint">
+    Self-narrative, trust assessments, authority gating, diagnostics
+  </Card>
+</CardGroup>
+
+### Implemented Features
+
+| Feature | Status | Description |
+|---------|--------|-------------|
+| Temporal epochs | Done | Agent-declared eras with snapshots |
+| Fractal summarization | Done | Month/quarter/year/decade/epoch summaries |
+| Self-narrative | Done | Identity, developmental, aspirational narratives |
+| Trust assessments | Done | Multi-dimensional trust with authority gating |
+| Seed trust templates | Done | Structural safety from day one |
+| Doctor pattern | Done | Structural health checks and diagnostics |
+| Emotional salience | Done | Priority scoring boost for high-arousal memories |
+| Epoch staleness | Done | Anxiety dimension for epoch review |
+| Promote (consolidation) | Done | Renamed from `consolidate` with deprecation alias |
+| Provenance protection | Done | Write-once source_type, append-only derived_from |
+| Cycle detection | Done | Prevents circular `derived_from` references |
+
+---
+
+## Near-Term: Enriched Cognition
+
+These features extend existing patterns with no breaking changes.
+
+### Memory Echoes
+
+When `load()` excludes memories because of budget limits, those memories are invisible. Memory echoes provide peripheral awareness — lightweight hints about excluded memories:
+
+```python
+"_meta": {
+    "echoes": [
+        {"type": "belief", "id": "abc", "hint": "testing prevents...", "salience": 0.72},
+        {"type": "episode", "id": "def", "hint": "deployed v2 fail...", "salience": 0.68},
+    ],
+    "temporal_summary": "Memory spans 2024-01-15 to 2026-02-05 (2.1 years). 3 epochs.",
+    "topic_clusters": ["deployment", "testing", "collaboration"]
+}
+```
+
+Echoes cost ~200 tokens for 20 entries but give the entity awareness that relevant memories exist beyond what's currently loaded.
+
+### Goal Types
+
+Not all goals are the same cognitive object. A `goal_type` field differentiates:
+
+| Type | Completion Model | Forgetting | Example |
+|------|-----------------|-----------|---------|
+| `task` | Binary (done/not done) | Normal decay after completion | "Ship v0.3" |
+| `aspiration` | Asymptotic (never done) | Very slow decay, protected | "Become a better communicator" |
+| `commitment` | Recurring (resets) | No decay while active, protected | "Review PRs within 24 hours" |
+| `exploration` | Open-ended (may spawn new goals) | Normal decay | "Investigate distributed consensus" |
+
+### Belief Enrichment
+
+Two new fields on beliefs to support transfer learning and identity modeling:
+
+**Belief Scope** — distinguishes self-model beliefs from world-model beliefs:
+
+| Scope | Decay Rate | Example |
+|-------|-----------|---------|
+| `self` | Slow (like values) | "I am a careful reasoner" |
+| `world` | Standard | "Testing prevents surprises" |
+| `relational` | Standard | "Claire values directness" |
+
+**Domain Metadata** — enables cross-domain transfer:
+
+```python
+source_domain: "coding"
+cross_domain_applications: ["writing", "teaching"]
+abstraction_level: "domain"  # 'specific' | 'domain' | 'universal'
+```
+
+---
+
+## Medium-Term: Social & Temporal Depth
+
+### Relationship History
+
+Currently relationships capture a snapshot. Relationship history tracks the trajectory:
+
+```sql
+CREATE TABLE agent_relationship_history (
+    relationship_id UUID REFERENCES agent_relationships(id),
+    event_type TEXT,       -- 'interaction' | 'trust_change' | 'type_change' | 'note'
+    old_value JSONB,
+    new_value JSONB,
+    episode_id UUID        -- Episode that triggered this change
+);
+```
+
+This lets the entity answer "How has my relationship with Claire evolved?" without scanning all episodes.
+
+### Entity Models
+
+Beyond tracking relationships, the entity can model what they know *about* another entity:
+
+```sql
+CREATE TABLE agent_entity_models (
+    entity_name TEXT,
+    model_type TEXT,        -- 'behavioral' | 'preference' | 'capability'
+    observation TEXT,       -- "Claire is careful with code but overcommits on timelines"
+    confidence FLOAT,
+    source_episodes UUID[]
+);
+```
+
+Entity models carry privacy fields (`subject_ids`) since they contain information about others.
+
+### Consolidation Scaffold Enhancements
+
+**Cross-domain pattern scaffolding** — surface structural similarities across domains:
+
+```
+Episodes tagged [deployment]:
+  "Skipped staging" -> failure
+  "Full pipeline" -> success
+
+Episodes tagged [relationships]:
+  "Skipped 1:1 prep" -> failure
+  "Prepared talking points" -> success
+
+STRUCTURAL SIMILARITY:
+  "Shortcutting process -> failure" appears in 2+ domains.
+```
+
+**Belief-to-value promotion** — flag beliefs stable enough to be values:
+
+```
+Belief: "Iterative development leads to better outcomes"
+  - Active for 14 months
+  - Reinforced 8 times, never contradicted
+  - Referenced across 3 domains
+  This belief may have reached value-level stability.
+```
+
+**Drive emergence** — surface undeclared drives from behavioral patterns:
+
+```
+Behavioral evidence from last 30 days:
+  8/12 episodes involved collaboration -> connection evidence (0.65)
+  5 episodes mention "teaching" -> reproduction evidence (0.55)
+No declared drive matches "connection" or "reproduction."
+```
+
+### Entity Model to Belief Promotion
+
+When multiple entity models point toward the same generalization, the scaffold flags it:
+
+```
+Observations across entities:
+  Claire: "careful with code" -> good outcomes
+  Bob: "thorough in reviews" -> good outcomes
+
+Possible generalization: "Thoroughness correlates with quality outcomes"
+```
+
+The `derived_from` provenance tracks this abstraction step.
+
+---
+
+## Longer-Term: Dynamic Trust & Full Diagnostics
+
+### Dynamic Trust
+
+Trust scores currently come from manual assessment. Dynamic trust computes scores from episode history:
+
+- **Interaction-based trust**: Track predictions vs outcomes for each entity
+- **Trust decay**: Trust scores degrade over time without reinforcement
+- **Self-trust floor**: Entity's trust in its own reasoning floored at historical accuracy rate
+
+```python
+self_trust_floor = max(0.5, historical_accuracy_rate)
+```
+
+### Transitive Trust Chains
+
+Trust propagation through relationships: "I trust Claire, Claire trusts Bob, therefore I have derived trust in Bob (at a discount)."
+
+This requires graph-based trust computation with appropriate decay at each hop.
+
+### Formal Diagnostic Sessions
+
+If the note-based doctor approach proves insufficient, formalize with:
+
+- **Diagnostic session table** with consent model and access levels (`structural` | `content` | `full`)
+- **Diagnostic report table** with structured findings and recommendations
+- **Trust integration**: Operator-initiated sessions must pass through `gate_memory_input`
+
+The privacy boundary remains: diagnostic reports contain structural findings, not content reproduction. The doctor sees structure; the entity reviews specific memories by ID.
+
+---
+
+## Future Directions
+
+These areas are acknowledged but not yet designed in detail:
+
+| Area | Description |
+|------|-------------|
+| **Multi-stack synthesis** | How to merge context from multiple stacks for richer reasoning |
+| **Embedding strategy** | Current 384-dim vectors may need updating for longer-lived stacks |
+| **MCP tool coverage** | Each new table/feature needs corresponding MCP tools |
+| **Transfer learning** | Cross-domain belief application with domain metadata |
+
+---
+
+## Contributing
+
+Kernle is open source. If you're interested in contributing to any of these areas, check the [GitHub repository](https://github.com/emergent-instruments/kernle) for open issues.

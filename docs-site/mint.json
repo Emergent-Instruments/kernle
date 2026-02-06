@@ -69,7 +69,8 @@
         "concepts/identity",
         "concepts/provenance",
         "concepts/stacks",
-        "concepts/privacy"
+        "concepts/privacy",
+        "concepts/security"
       ]
     },
     {
@@ -101,6 +102,13 @@
         "integration/mcp",
         "integration/claude-desktop",
         "integration/clawdbot"
+      ]
+    },
+    {
+      "group": "Design",
+      "pages": [
+        "design/philosophy",
+        "design/roadmap"
       ]
     },
     {
