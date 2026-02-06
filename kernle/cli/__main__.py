@@ -27,6 +27,9 @@ from kernle.cli.commands import (
     cmd_belief,
     cmd_consolidate,
     cmd_doctor,
+    cmd_doctor_report,
+    cmd_doctor_session_list,
+    cmd_doctor_session_start,
     cmd_doctor_structural,
     cmd_emotion,
     cmd_forget,
@@ -2958,6 +2961,36 @@ def main():
         "--save-note", action="store_true", help="Store findings as a diagnostic note"
     )
 
+    # doctor session subcommands
+    p_doctor_session = doctor_sub.add_parser("session", help="Manage diagnostic sessions")
+    session_sub = p_doctor_session.add_subparsers(dest="session_action")
+
+    p_session_start = session_sub.add_parser("start", help="Start a new diagnostic session")
+    p_session_start.add_argument(
+        "--type",
+        "-t",
+        default="self_requested",
+        help="Session type: self_requested, routine, anomaly_triggered, operator_initiated",
+    )
+    p_session_start.add_argument(
+        "--access",
+        "-a",
+        default="structural",
+        help="Access level: structural (IDs/scores only), content, full",
+    )
+    p_session_start.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    p_session_list = session_sub.add_parser("list", help="List diagnostic sessions")
+    p_session_list.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # doctor report subcommand
+    p_doctor_report = doctor_sub.add_parser("report", help="Show a diagnostic report")
+    p_doctor_report.add_argument(
+        "session_id",
+        help="Session ID or report ID (or 'latest' for most recent)",
+    )
+    p_doctor_report.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
     # relation (social graph / relationships)
     p_relation = subparsers.add_parser("relation", help="Manage relationships")
     relation_sub = p_relation.add_subparsers(dest="relation_action", required=True)
@@ -4315,8 +4348,19 @@ Beliefs already present in the agent's memory will be skipped.
         elif args.command == "init":
             cmd_init_md(args, k)
         elif args.command == "doctor":
-            if getattr(args, "doctor_action", None) == "structural":
+            doctor_action = getattr(args, "doctor_action", None)
+            if doctor_action == "structural":
                 cmd_doctor_structural(args, k)
+            elif doctor_action == "session":
+                session_action = getattr(args, "session_action", None)
+                if session_action == "start":
+                    cmd_doctor_session_start(args, k)
+                elif session_action == "list":
+                    cmd_doctor_session_list(args, k)
+                else:
+                    print("Usage: kernle doctor session {start|list}")
+            elif doctor_action == "report":
+                cmd_doctor_report(args, k)
             else:
                 cmd_doctor(args, k)
         elif args.command == "trust":

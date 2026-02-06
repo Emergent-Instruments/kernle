@@ -20,6 +20,8 @@ from .base import (
     TRUST_DEPTH_DECAY,
     Belief,
     ConfidenceChange,
+    DiagnosticReport,
+    DiagnosticSession,
     Drive,
     EntityModel,
     Episode,
@@ -156,6 +158,8 @@ __all__ = [
     "RawEntry",
     "MemorySuggestion",
     "TrustAssessment",
+    "DiagnosticSession",
+    "DiagnosticReport",
     # Dynamic trust constants
     "DEFAULT_TRUST",
     "TRUST_DECAY_RATE",

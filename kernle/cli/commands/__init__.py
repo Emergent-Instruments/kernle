@@ -5,7 +5,13 @@ Each module contains related command handlers extracted from __main__.py.
 
 from kernle.cli.commands.anxiety import cmd_anxiety
 from kernle.cli.commands.belief import cmd_belief
-from kernle.cli.commands.doctor import cmd_doctor, cmd_doctor_structural
+from kernle.cli.commands.doctor import (
+    cmd_doctor,
+    cmd_doctor_report,
+    cmd_doctor_session_list,
+    cmd_doctor_session_start,
+    cmd_doctor_structural,
+)
 from kernle.cli.commands.emotion import cmd_emotion
 from kernle.cli.commands.forget import cmd_forget
 from kernle.cli.commands.identity import cmd_consolidate, cmd_identity, cmd_promote
@@ -23,6 +29,9 @@ __all__ = [
     "cmd_consolidate",
     "cmd_promote",
     "cmd_doctor",
+    "cmd_doctor_report",
+    "cmd_doctor_session_list",
+    "cmd_doctor_session_start",
     "cmd_doctor_structural",
     "cmd_emotion",
     "cmd_forget",
