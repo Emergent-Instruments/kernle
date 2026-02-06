@@ -48,6 +48,7 @@ from .embeddings import (
     HashEmbedder,
     pack_embedding,
 )
+from .lineage import check_derived_from_cycle
 
 if TYPE_CHECKING:
     from .base import Storage as StorageProtocol
@@ -2415,6 +2416,9 @@ class SQLiteStorage:
         if not episode.id:
             episode.id = str(uuid.uuid4())
 
+        if episode.derived_from:
+            check_derived_from_cycle(self, "episode", episode.id, episode.derived_from)
+
         now = self._now()
         episode.local_updated_at = self._parse_datetime(now)
 
@@ -2930,6 +2934,9 @@ class SQLiteStorage:
         if not belief.id:
             belief.id = str(uuid.uuid4())
 
+        if belief.derived_from:
+            check_derived_from_cycle(self, "belief", belief.id, belief.derived_from)
+
         now = self._now()
 
         with self._connect() as conn:
@@ -3314,6 +3321,9 @@ class SQLiteStorage:
         if not value.id:
             value.id = str(uuid.uuid4())
 
+        if value.derived_from:
+            check_derived_from_cycle(self, "value", value.id, value.derived_from)
+
         now = self._now()
 
         with self._connect() as conn:
@@ -3441,6 +3451,9 @@ class SQLiteStorage:
         """Save a goal."""
         if not goal.id:
             goal.id = str(uuid.uuid4())
+
+        if goal.derived_from:
+            check_derived_from_cycle(self, "goal", goal.id, goal.derived_from)
 
         now = self._now()
 
@@ -3603,6 +3616,9 @@ class SQLiteStorage:
         """Save a note."""
         if not note.id:
             note.id = str(uuid.uuid4())
+
+        if note.derived_from:
+            check_derived_from_cycle(self, "note", note.id, note.derived_from)
 
         now = self._now()
 
@@ -3799,6 +3815,9 @@ class SQLiteStorage:
         if not drive.id:
             drive.id = str(uuid.uuid4())
 
+        if drive.derived_from:
+            check_derived_from_cycle(self, "drive", drive.id, drive.derived_from)
+
         now = self._now()
 
         with self._connect() as conn:
@@ -3955,6 +3974,11 @@ class SQLiteStorage:
         """Save or update a relationship. Logs history on changes."""
         if not relationship.id:
             relationship.id = str(uuid.uuid4())
+
+        if relationship.derived_from:
+            check_derived_from_cycle(
+                self, "relationship", relationship.id, relationship.derived_from
+            )
 
         now = self._now()
 
@@ -6630,6 +6654,7 @@ class SQLiteStorage:
             updates.append("source_episodes = ?")
             params.append(self._to_json(source_episodes))
         if derived_from is not None:
+            check_derived_from_cycle(self, memory_type, memory_id, derived_from)
             updates.append("derived_from = ?")
             params.append(self._to_json(derived_from))
         if last_verified is not None:

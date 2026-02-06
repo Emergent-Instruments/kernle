@@ -457,12 +457,7 @@ class TestTraceLineage:
         assert "episode:ep-trace-1" in refs
 
     def test_trace_cycle_detection(self, storage):
-        """Should detect cycles without infinite loops."""
-        from kernle import Kernle
-
-        k = Kernle.__new__(Kernle)
-        k._storage = storage
-
+        """Cycles should be prevented at save time (ValueError on circular derived_from)."""
         storage.save_belief(
             Belief(
                 id="b-cyc-1",
@@ -471,18 +466,16 @@ class TestTraceLineage:
                 derived_from=["belief:b-cyc-2"],
             )
         )
-        storage.save_belief(
-            Belief(
-                id="b-cyc-2",
-                agent_id="test-agent",
-                statement="Circular B",
-                derived_from=["belief:b-cyc-1"],
+        # Attempting to create a cycle should raise ValueError
+        with pytest.raises(ValueError, match="Circular derived_from reference detected"):
+            storage.save_belief(
+                Belief(
+                    id="b-cyc-2",
+                    agent_id="test-agent",
+                    statement="Circular B",
+                    derived_from=["belief:b-cyc-1"],
+                )
             )
-        )
-
-        chain = k.trace_lineage("belief", "b-cyc-1", max_depth=20)
-        cycle_entries = [e for e in chain if e.get("cycle_detected")]
-        assert len(cycle_entries) > 0
 
 
 class TestReverseTrace:
