@@ -672,6 +672,12 @@ TRUST_THRESHOLDS: Dict[str, float] = {
     "diagnostic": 0.85,
 }
 
+# Dynamic trust constants (KEP v3 section 8.6-8.7)
+DEFAULT_TRUST: float = 0.5  # Neutral trust for unknown entities
+TRUST_DECAY_RATE: float = 0.01  # Per-day decay factor toward neutral
+TRUST_DEPTH_DECAY: float = 0.85  # 15% decay per hop in transitive chains
+SELF_TRUST_FLOOR: float = 0.5  # Minimum self-trust (overridden by accuracy)
+
 SEED_TRUST: List[Dict[str, Any]] = [
     {
         "entity": "stack-owner",
@@ -1087,6 +1093,12 @@ class Storage(Protocol):
         limit: int = 100,
     ) -> List["DiagnosticReport"]:
         """Get diagnostic reports, optionally filtered by session."""
+        return []
+
+    def get_episodes_by_source_entity(
+        self, source_entity: str, limit: int = 500
+    ) -> List["Episode"]:
+        """Get episodes associated with a source entity for trust computation."""
         return []
 
     # === Playbooks (Procedural Memory) ===

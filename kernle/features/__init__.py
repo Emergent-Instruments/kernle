@@ -5,6 +5,7 @@ functionality to the main Kernle class.
 """
 
 from kernle.features.anxiety import AnxietyMixin
+from kernle.features.consolidation import ConsolidationMixin
 from kernle.features.emotions import EmotionsMixin
 from kernle.features.forgetting import ForgettingMixin
 from kernle.features.knowledge import KnowledgeMixin
@@ -20,6 +21,7 @@ from kernle.features.suggestions import SuggestionsMixin
 
 __all__ = [
     "AnxietyMixin",
+    "ConsolidationMixin",
     "DecayConfig",
     "DEFAULT_DECAY_CONFIGS",
     "DEFAULT_DECAY_FLOOR",

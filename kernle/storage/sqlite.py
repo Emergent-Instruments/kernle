@@ -2250,7 +2250,7 @@ class SQLiteStorage:
                  source_entity, subject_ids, access_grants, consent_grants,
                  epoch_id,
                  created_at, local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     episode.id,
@@ -2282,6 +2282,7 @@ class SQLiteStorage:
                     self._to_json(getattr(episode, "subject_ids", None)),
                     self._to_json(getattr(episode, "access_grants", None)),
                     self._to_json(getattr(episode, "consent_grants", None)),
+                    getattr(episode, "epoch_id", None),
                     episode.created_at.isoformat() if episode.created_at else now,
                     now,
                     episode.cloud_synced_at.isoformat() if episode.cloud_synced_at else None,
@@ -2619,6 +2620,17 @@ class SQLiteStorage:
             access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
             consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
         )
+
+    def get_episodes_by_source_entity(self, source_entity: str, limit: int = 500) -> List[Episode]:
+        """Get episodes associated with a source entity for trust computation."""
+        query = """
+            SELECT * FROM episodes
+            WHERE agent_id = ? AND source_entity = ? AND deleted = 0 AND is_forgotten = 0
+            ORDER BY created_at DESC LIMIT ?
+        """
+        with self._connect() as conn:
+            rows = conn.execute(query, (self.agent_id, source_entity, limit)).fetchall()
+        return [self._row_to_episode(row) for row in rows]
 
     def update_episode_emotion(
         self, episode_id: str, valence: float, arousal: float, tags: Optional[List[str]] = None

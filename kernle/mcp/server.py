@@ -262,6 +262,11 @@ def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
                 validate_number(arguments.get("min_episodes"), "min_episodes", 1, 100, 3)
             )
 
+        elif name == "memory_consolidate_advanced":
+            sanitized["episode_limit"] = int(
+                validate_number(arguments.get("episode_limit"), "episode_limit", 1, 500, 100)
+            )
+
         elif name == "memory_status":
             # No parameters to validate
             pass
@@ -810,6 +815,20 @@ TOOLS = [
                     "type": "integer",
                     "description": "Minimum episodes required for full consolidation (default: 3)",
                     "default": 3,
+                },
+            },
+        },
+    ),
+    Tool(
+        name="memory_consolidate_advanced",
+        description="Get an advanced consolidation scaffold with cross-domain pattern analysis, belief-to-value promotion candidates, and entity model-to-belief generalizations. Surfaces deeper patterns across your memories for reflection. Kernle provides the analysis; you decide what to act on.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "episode_limit": {
+                    "type": "integer",
+                    "description": "Maximum episodes to analyze for cross-domain patterns (default: 100)",
+                    "default": 100,
                 },
             },
         },
@@ -1421,6 +1440,11 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
             lines.append(f"Episodes reviewed: {len(episodes)} | Beliefs on file: {len(beliefs)}")
 
             result = "\n".join(lines)
+
+        elif name == "memory_consolidate_advanced":
+            episode_limit = sanitized_args.get("episode_limit", 100)
+            advanced = k.scaffold_advanced_consolidation(episode_limit=episode_limit)
+            result = advanced["scaffold"]
 
         elif name == "memory_status":
             status = k.status()
