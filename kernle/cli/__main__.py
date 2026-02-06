@@ -43,6 +43,7 @@ from kernle.cli.commands import (
     cmd_stats,
     cmd_subscription,
     cmd_suggestions,
+    cmd_summary,
 )
 from kernle.cli.commands.agent import cmd_agent
 from kernle.cli.commands.import_cmd import cmd_import, cmd_migrate
@@ -3852,6 +3853,41 @@ Typical usage in a memoryFlush hook:
     epoch_current = epoch_sub.add_parser("current", help="Show current active epoch")
     epoch_current.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 
+    # summary (fractal summarization)
+    p_summary = subparsers.add_parser("summary", help="Fractal summarization")
+    summary_sub = p_summary.add_subparsers(dest="summary_action", required=True)
+
+    # kernle summary write --scope SCOPE --content TEXT --period-start DATE --period-end DATE
+    summary_write = summary_sub.add_parser("write", help="Create a summary")
+    summary_write.add_argument(
+        "--scope",
+        "-s",
+        required=True,
+        choices=["month", "quarter", "year", "decade", "epoch"],
+        help="Temporal scope",
+    )
+    summary_write.add_argument("--content", "-c", required=True, help="Summary content")
+    summary_write.add_argument("--period-start", required=True, help="Period start (ISO date)")
+    summary_write.add_argument("--period-end", required=True, help="Period end (ISO date)")
+    summary_write.add_argument("--theme", "-t", action="append", help="Key theme (repeatable)")
+    summary_write.add_argument("--epoch-id", help="Associated epoch ID")
+    summary_write.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle summary list [--scope SCOPE]
+    summary_list = summary_sub.add_parser("list", help="List summaries")
+    summary_list.add_argument(
+        "--scope",
+        "-s",
+        choices=["month", "quarter", "year", "decade", "epoch"],
+        help="Filter by scope",
+    )
+    summary_list.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle summary show <id>
+    summary_show = summary_sub.add_parser("show", help="Show summary details")
+    summary_show.add_argument("id", help="Summary ID")
+    summary_show.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
     # sync (local-to-cloud synchronization)
     p_sync = subparsers.add_parser("sync", help="Sync with remote backend")
     sync_sub = p_sync.add_subparsers(dest="sync_action", required=True)
@@ -4438,6 +4474,8 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_forget(args, k)
         elif args.command == "epoch":
             cmd_epoch(args, k)
+        elif args.command == "summary":
+            cmd_summary(args, k)
         elif args.command == "playbook":
             cmd_playbook(args, k)
         elif args.command == "raw":

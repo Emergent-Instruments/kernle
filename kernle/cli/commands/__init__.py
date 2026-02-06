@@ -23,6 +23,7 @@ from kernle.cli.commands.raw import cmd_raw, resolve_raw_id
 from kernle.cli.commands.stats import cmd_stats
 from kernle.cli.commands.subscription import cmd_subscription
 from kernle.cli.commands.suggestions import cmd_suggestions, resolve_suggestion_id
+from kernle.cli.commands.summary import cmd_summary
 
 __all__ = [
     "cmd_anxiety",
@@ -45,6 +46,7 @@ __all__ = [
     "cmd_stats",
     "cmd_suggestions",
     "cmd_subscription",
+    "cmd_summary",
     "resolve_raw_id",
     "resolve_suggestion_id",
 ]

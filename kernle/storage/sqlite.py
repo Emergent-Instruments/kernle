@@ -33,6 +33,7 @@ from .base import (
     Relationship,
     RelationshipHistoryEntry,
     SearchResult,
+    Summary,
     SyncConflict,
     SyncResult,
     TrustAssessment,
@@ -53,7 +54,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 20  # Add diagnostic sessions and reports tables
+SCHEMA_VERSION = 21  # Add agent_summaries table (fractal summarization)
 
 # Maximum size for merged arrays during sync to prevent resource exhaustion
 MAX_SYNC_ARRAY_SIZE = 500
@@ -135,6 +136,7 @@ ALLOWED_TABLES = frozenset(
         "agent_epochs",  # KEP v3 temporal epochs
         "agent_diagnostic_sessions",  # KEP v3 diagnostic sessions
         "agent_diagnostic_reports",  # KEP v3 diagnostic reports
+        "agent_summaries",  # KEP v3 fractal summarization
     }
 )
 
@@ -827,6 +829,28 @@ CREATE TABLE IF NOT EXISTS agent_diagnostic_reports (
 );
 CREATE INDEX IF NOT EXISTS idx_diag_reports_agent ON agent_diagnostic_reports(agent_id);
 CREATE INDEX IF NOT EXISTS idx_diag_reports_session ON agent_diagnostic_reports(session_id);
+
+-- Agent summaries (fractal summarization)
+CREATE TABLE IF NOT EXISTS agent_summaries (
+    id TEXT PRIMARY KEY,
+    agent_id TEXT NOT NULL,
+    scope TEXT NOT NULL,                         -- 'month' | 'quarter' | 'year' | 'decade' | 'epoch'
+    period_start TEXT NOT NULL,
+    period_end TEXT NOT NULL,
+    epoch_id TEXT,
+    content TEXT NOT NULL,                        -- Agent-written narrative compression
+    key_themes TEXT,                              -- JSON array
+    supersedes TEXT,                              -- JSON array of lower-scope summary IDs this covers
+    is_protected INTEGER DEFAULT 1,              -- Never forgotten
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    cloud_synced_at TEXT,
+    version INTEGER DEFAULT 1,
+    deleted INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_summaries_agent ON agent_summaries(agent_id);
+CREATE INDEX IF NOT EXISTS idx_summaries_scope ON agent_summaries(agent_id, scope);
+CREATE INDEX IF NOT EXISTS idx_summaries_period ON agent_summaries(agent_id, period_start, period_end);
 
 -- Embedding metadata (tracks what's been embedded)
 CREATE TABLE IF NOT EXISTS embedding_meta (
@@ -2035,6 +2059,41 @@ class SQLiteStorage:
                     except Exception as e:
                         if "duplicate column" not in str(e).lower():
                             logger.warning(f"Failed to add epoch_id to {tbl}: {e}")
+
+        # v21: Add agent_summaries table (fractal summarization)
+        if "agent_summaries" not in table_names:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS agent_summaries (
+                    id TEXT PRIMARY KEY,
+                    agent_id TEXT NOT NULL,
+                    scope TEXT NOT NULL,
+                    period_start TEXT NOT NULL,
+                    period_end TEXT NOT NULL,
+                    epoch_id TEXT,
+                    content TEXT NOT NULL,
+                    key_themes TEXT,
+                    supersedes TEXT,
+                    is_protected INTEGER DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    cloud_synced_at TEXT,
+                    version INTEGER DEFAULT 1,
+                    deleted INTEGER DEFAULT 0
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_summaries_agent " "ON agent_summaries(agent_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_summaries_scope "
+                "ON agent_summaries(agent_id, scope)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_summaries_period "
+                "ON agent_summaries(agent_id, period_start, period_end)"
+            )
+            logger.info("Created agent_summaries table")
+            conn.commit()
 
         if "agent_epochs" not in table_names:
             conn.execute("""
@@ -4169,6 +4228,94 @@ class SQLiteStorage:
             key_goal_ids=self._from_json(self._safe_get(row, "key_goal_ids", None)),
             dominant_drive_ids=self._from_json(self._safe_get(row, "dominant_drive_ids", None)),
             local_updated_at=self._parse_datetime(row["local_updated_at"]),
+            cloud_synced_at=self._parse_datetime(self._safe_get(row, "cloud_synced_at", None)),
+            version=row["version"],
+            deleted=bool(row["deleted"]),
+        )
+
+    # === Summaries (Fractal Summarization) ===
+
+    def save_summary(self, summary: Summary) -> str:
+        """Save a summary. Returns the summary ID."""
+        if not summary.id:
+            summary.id = str(uuid.uuid4())
+
+        now = self._now()
+
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO agent_summaries
+                (id, agent_id, scope, period_start, period_end, epoch_id,
+                 content, key_themes, supersedes, is_protected,
+                 created_at, updated_at, cloud_synced_at, version, deleted)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                (
+                    summary.id,
+                    self.agent_id,
+                    summary.scope,
+                    summary.period_start,
+                    summary.period_end,
+                    summary.epoch_id,
+                    summary.content,
+                    self._to_json(summary.key_themes),
+                    self._to_json(summary.supersedes),
+                    1 if summary.is_protected else 0,
+                    summary.created_at.isoformat() if summary.created_at else now,
+                    now,
+                    summary.cloud_synced_at.isoformat() if summary.cloud_synced_at else None,
+                    summary.version,
+                    1 if summary.deleted else 0,
+                ),
+            )
+            conn.commit()
+
+        return summary.id
+
+    def get_summary(self, summary_id: str) -> Optional[Summary]:
+        """Get a specific summary by ID."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM agent_summaries WHERE id = ? AND agent_id = ? AND deleted = 0",
+                (summary_id, self.agent_id),
+            ).fetchone()
+
+        return self._row_to_summary(row) if row else None
+
+    def list_summaries(self, agent_id: str, scope: Optional[str] = None) -> List[Summary]:
+        """Get summaries, optionally filtered by scope."""
+        with self._connect() as conn:
+            if scope:
+                rows = conn.execute(
+                    "SELECT * FROM agent_summaries WHERE agent_id = ? AND scope = ? AND deleted = 0 "
+                    "ORDER BY period_start DESC",
+                    (self.agent_id, scope),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM agent_summaries WHERE agent_id = ? AND deleted = 0 "
+                    "ORDER BY period_start DESC",
+                    (self.agent_id,),
+                ).fetchall()
+
+        return [self._row_to_summary(row) for row in rows]
+
+    def _row_to_summary(self, row: sqlite3.Row) -> Summary:
+        """Convert a row to a Summary."""
+        return Summary(
+            id=row["id"],
+            agent_id=row["agent_id"],
+            scope=row["scope"],
+            period_start=row["period_start"],
+            period_end=row["period_end"],
+            epoch_id=self._safe_get(row, "epoch_id", None),
+            content=row["content"],
+            key_themes=self._from_json(self._safe_get(row, "key_themes", None)),
+            supersedes=self._from_json(self._safe_get(row, "supersedes", None)),
+            is_protected=bool(self._safe_get(row, "is_protected", 1)),
+            created_at=self._parse_datetime(row["created_at"]),
+            updated_at=self._parse_datetime(row["updated_at"]),
             cloud_synced_at=self._parse_datetime(self._safe_get(row, "cloud_synced_at", None)),
             version=row["version"],
             deleted=bool(row["deleted"]),

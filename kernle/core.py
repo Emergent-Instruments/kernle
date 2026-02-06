@@ -40,6 +40,7 @@ from kernle.storage import (
     Goal,
     Note,
     Relationship,
+    Summary,
     TrustAssessment,
     Value,
     get_storage,
@@ -78,10 +79,15 @@ TOKEN_ESTIMATION_SAFETY_MARGIN = 1.3
 MEMORY_TYPE_PRIORITIES = {
     "checkpoint": 1.00,  # Always loaded first
     "value": 0.90,
+    "summary_decade": 0.95,
+    "summary_epoch": 0.85,
+    "summary_year": 0.80,
     "belief": 0.70,
     "goal": 0.65,
     "drive": 0.60,
+    "summary_quarter": 0.50,
     "episode": 0.40,
+    "summary_month": 0.35,
     "note": 0.35,
     "relationship": 0.30,
 }
@@ -252,17 +258,25 @@ def _build_memory_echoes(
     }
 
 
+def _get_record_attr(record: Any, attr: str, default: Any = None) -> Any:
+    """Get an attribute from a record, supporting both dataclass and dict."""
+    if hasattr(record, attr):
+        return getattr(record, attr, default)
+    if isinstance(record, dict):
+        return record.get(attr, default)
+    return default
+
+
 def compute_priority_score(memory_type: str, record: Any) -> float:
     """Compute priority score for a memory record.
 
-    The score combines the base type priority with record-specific factors:
-    - Values: priority field (0-100 -> 0.0-1.0)
-    - Beliefs: confidence (0.0-1.0)
-    - Goals: recency (newer = higher)
-    - Drives: intensity (0.0-1.0)
-    - Episodes: recency (newer = higher)
-    - Notes: recency (newer = higher)
-    - Relationships: last_interaction recency
+    The score combines three weighted factors:
+    - 55% type weight (base priority for memory type * type-specific factor)
+    - 35% record factors (confidence, recency, etc.)
+    - 10% emotional salience (abs(valence) * arousal * time-decay)
+
+    Emotional salience uses a 90-day half-life decay so high-impact episodes
+    remain cognitively available longer than standard 30-day salience.
 
     Args:
         memory_type: Type of memory (value, belief, etc.)
@@ -276,50 +290,55 @@ def compute_priority_score(memory_type: str, record: Any) -> float:
     # Get record value based on type
     if memory_type == "value":
         # priority is 0-100, normalize to 0-1
-        priority = (
-            getattr(record, "priority", 50)
-            if hasattr(record, "priority")
-            else record.get("priority", 50)
-        )
+        priority = _get_record_attr(record, "priority", 50)
         type_factor = priority / 100.0
     elif memory_type == "belief":
-        type_factor = (
-            getattr(record, "confidence", 0.8)
-            if hasattr(record, "confidence")
-            else record.get("confidence", 0.8)
-        )
+        type_factor = _get_record_attr(record, "confidence", 0.8)
     elif memory_type == "drive":
-        type_factor = (
-            getattr(record, "intensity", 0.5)
-            if hasattr(record, "intensity")
-            else record.get("intensity", 0.5)
-        )
+        type_factor = _get_record_attr(record, "intensity", 0.5)
     elif memory_type in ("goal", "episode", "note"):
         # For time-based priority, we'd need to compute recency
         # For now, use a default factor (records are already sorted by recency)
         type_factor = 0.7
     elif memory_type == "relationship":
         # Use sentiment as a factor
-        sentiment = (
-            getattr(record, "sentiment", 0.0)
-            if hasattr(record, "sentiment")
-            else record.get("sentiment", 0.0)
-        )
+        sentiment = _get_record_attr(record, "sentiment", 0.0)
         type_factor = (sentiment + 1) / 2  # Normalize -1..1 to 0..1
+    elif memory_type.startswith("summary_"):
+        # Summaries use scope-based priority directly
+        type_factor = 0.8
     else:
         type_factor = 0.5
 
-    # Combine base priority with type-specific factor
-    # Weight: 60% type priority, 40% record-specific factor
-    score = base_priority * 0.6 + type_factor * 0.4
+    type_weight = base_priority  # base priority for this memory type
+    record_factors = type_factor  # type-specific factor (confidence, priority, etc.)
+
+    # Emotional salience: abs(valence) * arousal * time-decay(90-day half-life)
+    valence = _get_record_attr(record, "emotional_valence", 0.0)
+    arousal = _get_record_attr(record, "emotional_arousal", 0.0)
+
+    emotional_salience = 0.0
+    if abs(valence) > 0 or arousal > 0:
+        half_life = 90.0  # 3x standard 30-day salience
+        days_since = 0.0
+        created_at = _get_record_attr(record, "created_at", None)
+        if created_at is not None:
+            try:
+                if isinstance(created_at, str):
+                    created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                now = datetime.now(timezone.utc)
+                delta = now - created_at
+                days_since = max(0.0, delta.total_seconds() / 86400.0)
+            except (ValueError, TypeError):
+                pass
+        emotional_salience = abs(valence) * arousal * (half_life / (days_since + half_life))
+
+    # Weighted combination: 55% type weight, 35% record factors, 10% emotional salience
+    score = 0.55 * type_weight + 0.35 * record_factors + 0.10 * emotional_salience
 
     # Belief scope boost: self-beliefs get +0.05 priority (KEP v3)
     if memory_type == "belief":
-        belief_scope = (
-            getattr(record, "belief_scope", "world")
-            if hasattr(record, "belief_scope")
-            else record.get("belief_scope", "world")
-        )
+        belief_scope = _get_record_attr(record, "belief_scope", "world")
         if belief_scope == "self":
             score = min(1.0, score + 0.05)
 
@@ -696,6 +715,19 @@ class Kernle(
             for r in batched.get("relationships", []):
                 candidates.append((compute_priority_score("relationship", r), "relationship", r))
 
+            # Summaries - with supersession logic
+            all_summaries = self._storage.list_summaries(self.agent_id)
+            # Collect IDs superseded by higher-scope summaries
+            superseded_ids = set()
+            for s in all_summaries:
+                if s.supersedes:
+                    superseded_ids.update(s.supersedes)
+            # Only include non-superseded summaries
+            for s in all_summaries:
+                if s.id not in superseded_ids:
+                    scope_key = f"summary_{s.scope}"
+                    candidates.append((compute_priority_score(scope_key, s), "summary", s))
+
             # Sort by priority descending
             candidates.sort(key=lambda x: x[0], reverse=True)
 
@@ -712,6 +744,7 @@ class Kernle(
                 "episodes": [],
                 "notes": [],
                 "relationships": [],
+                "summaries": [],
             }
 
             selected_indices = set()
@@ -731,6 +764,8 @@ class Kernle(
                     text = record.content
                 elif memory_type == "relationship":
                     text = f"{record.entity_name}: {record.notes or ''}"
+                elif memory_type == "summary":
+                    text = f"[{record.scope}] {record.content}"
                 else:
                     text = str(record)
 
@@ -757,6 +792,8 @@ class Kernle(
                         selected["notes"].append(record)
                     elif memory_type == "relationship":
                         selected["relationships"].append(record)
+                    elif memory_type == "summary":
+                        selected["summaries"].append(record)
 
                     remaining_budget -= tokens
                     selected_count += 1
@@ -882,6 +919,21 @@ class Kernle(
                         or datetime.min.replace(tzinfo=timezone.utc),
                         reverse=True,
                     )
+                ],
+                "summaries": [
+                    {
+                        "id": s.id,
+                        "scope": s.scope,
+                        "period_start": s.period_start,
+                        "period_end": s.period_end,
+                        "content": (
+                            truncate_at_word_boundary(s.content, max_item_chars)
+                            if truncate
+                            else s.content
+                        ),
+                        "key_themes": s.key_themes,
+                    }
+                    for s in selected["summaries"]
                 ],
                 "_meta": {
                     "budget_used": budget - remaining_budget,
@@ -2958,6 +3010,70 @@ class Kernle(
         """Get a specific epoch by ID."""
         epoch_id = self._validate_string_input(epoch_id, "epoch_id", 100)
         return self._storage.get_epoch(epoch_id)
+
+    # === Summaries (Fractal Summarization) ===
+
+    def summary_save(
+        self,
+        content: str,
+        scope: str,
+        period_start: str,
+        period_end: str,
+        key_themes: Optional[List[str]] = None,
+        supersedes: Optional[List[str]] = None,
+        epoch_id: Optional[str] = None,
+    ) -> str:
+        """Create or update a summary.
+
+        Args:
+            content: Agent-written narrative compression
+            scope: Temporal scope ('month', 'quarter', 'year', 'decade', 'epoch')
+            period_start: Start of the period (ISO date)
+            period_end: End of the period (ISO date)
+            key_themes: Key themes/topics covered
+            supersedes: IDs of lower-scope summaries this covers
+            epoch_id: Associated epoch ID
+
+        Returns:
+            The summary ID
+        """
+
+        valid_scopes = ("month", "quarter", "year", "decade", "epoch")
+        if scope not in valid_scopes:
+            raise ValueError(f"scope must be one of: {', '.join(valid_scopes)}")
+
+        content = self._validate_string_input(content, "content", 10000)
+        period_start = self._validate_string_input(period_start, "period_start", 30)
+        period_end = self._validate_string_input(period_end, "period_end", 30)
+
+        summary = Summary(
+            id=str(uuid.uuid4()),
+            agent_id=self.agent_id,
+            scope=scope,
+            period_start=period_start,
+            period_end=period_end,
+            epoch_id=epoch_id,
+            content=content,
+            key_themes=key_themes,
+            supersedes=supersedes,
+            is_protected=True,
+            created_at=datetime.now(timezone.utc),
+        )
+
+        return self._storage.save_summary(summary)
+
+    def summary_get(self, summary_id: str):
+        """Get a specific summary by ID."""
+        summary_id = self._validate_string_input(summary_id, "summary_id", 100)
+        return self._storage.get_summary(summary_id)
+
+    def summary_list(self, scope: Optional[str] = None):
+        """Get all summaries, optionally filtered by scope."""
+        if scope:
+            valid_scopes = ("month", "quarter", "year", "decade", "epoch")
+            if scope not in valid_scopes:
+                raise ValueError(f"scope must be one of: {', '.join(valid_scopes)}")
+        return self._storage.list_summaries(self.agent_id, scope=scope)
 
     def update_belief(
         self,

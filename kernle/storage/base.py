@@ -664,6 +664,34 @@ class DiagnosticReport:
     deleted: bool = False
 
 
+@dataclass
+class Summary:
+    """An agent summary - fractal narrative compression across time scales.
+
+    Summaries provide hierarchical compression of the agent's experience
+    at different temporal scopes: month, quarter, year, decade, epoch.
+    Higher-scope summaries supersede lower-scope ones, enabling efficient
+    memory loading by skipping covered lower-scope summaries.
+    """
+
+    id: str
+    agent_id: str
+    scope: str  # 'month' | 'quarter' | 'year' | 'decade' | 'epoch'
+    period_start: str  # ISO date string
+    period_end: str  # ISO date string
+    content: str  # Agent-written narrative compression
+    epoch_id: Optional[str] = None
+    key_themes: Optional[List[str]] = None  # JSON array
+    supersedes: Optional[List[str]] = None  # JSON array of lower-scope summary IDs
+    is_protected: bool = True  # Never forgotten
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    # Sync metadata
+    cloud_synced_at: Optional[datetime] = None
+    version: int = 1
+    deleted: bool = False
+
+
 TRUST_THRESHOLDS: Dict[str, float] = {
     "suggest_belief": 0.3,
     "contradict_world_belief": 0.6,
@@ -1245,6 +1273,20 @@ class Storage(Protocol):
             True if deleted, False if not found
         """
         return False
+
+    # === Summaries (Fractal Summarization) ===
+
+    def save_summary(self, summary: "Summary") -> str:
+        """Save a summary. Returns the summary ID."""
+        return summary.id
+
+    def get_summary(self, summary_id: str) -> Optional["Summary"]:
+        """Get a specific summary by ID."""
+        return None
+
+    def list_summaries(self, agent_id: str, scope: Optional[str] = None) -> List["Summary"]:
+        """Get summaries, optionally filtered by scope."""
+        return []
 
     # === Epochs ===
 
