@@ -2681,10 +2681,6 @@ class SQLiteStorage:
                     forgotten_reason = ?,
                     context = ?,
                     context_tags = ?,
-                    belief_scope = ?,
-                    source_domain = ?,
-                    cross_domain_applications = ?,
-                    abstraction_level = ?,
                     local_updated_at = ?,
                     version = version + 1
                 WHERE id = ? AND stack_id = ? AND version = ?
