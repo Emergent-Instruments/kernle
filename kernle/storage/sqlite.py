@@ -593,7 +593,8 @@ CREATE TABLE IF NOT EXISTS agent_epochs (
     name TEXT NOT NULL,
     started_at TEXT NOT NULL,
     ended_at TEXT,              -- NULL = still active
-    trigger_type TEXT DEFAULT 'manual',  -- manual, milestone, shift
+    trigger_type TEXT DEFAULT 'declared',  -- declared, detected, system
+    trigger_description TEXT,
     summary TEXT,
     key_belief_ids TEXT,        -- JSON array
     key_relationship_ids TEXT,  -- JSON array
@@ -2044,7 +2045,8 @@ class SQLiteStorage:
                     name TEXT NOT NULL,
                     started_at TEXT NOT NULL,
                     ended_at TEXT,
-                    trigger_type TEXT DEFAULT 'manual',
+                    trigger_type TEXT DEFAULT 'declared',
+                    trigger_description TEXT,
                     summary TEXT,
                     key_belief_ids TEXT,
                     key_relationship_ids TEXT,
@@ -2064,6 +2066,16 @@ class SQLiteStorage:
             )
             conn.execute("CREATE INDEX IF NOT EXISTS idx_epochs_active ON agent_epochs(ended_at)")
             logger.info("Created agent_epochs table")
+        else:
+            # Migrate existing agent_epochs table
+            epoch_cols = get_columns("agent_epochs")
+            if "trigger_description" not in epoch_cols:
+                try:
+                    conn.execute("ALTER TABLE agent_epochs ADD COLUMN trigger_description TEXT")
+                    logger.info("Added trigger_description column to agent_epochs")
+                except Exception as e:
+                    if "duplicate column" not in str(e).lower():
+                        logger.warning(f"Failed to add trigger_description: {e}")
         conn.commit()
 
     def _check_sqlite_vec(self) -> bool:
@@ -4065,10 +4077,11 @@ class SQLiteStorage:
                 """
                 INSERT OR REPLACE INTO agent_epochs
                 (id, agent_id, epoch_number, name, started_at, ended_at,
-                 trigger_type, summary, key_belief_ids, key_relationship_ids,
+                 trigger_type, trigger_description, summary,
+                 key_belief_ids, key_relationship_ids,
                  key_goal_ids, dominant_drive_ids,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     epoch.id,
@@ -4078,6 +4091,7 @@ class SQLiteStorage:
                     epoch.started_at.isoformat() if epoch.started_at else now,
                     epoch.ended_at.isoformat() if epoch.ended_at else None,
                     epoch.trigger_type,
+                    epoch.trigger_description,
                     epoch.summary,
                     self._to_json(epoch.key_belief_ids),
                     self._to_json(epoch.key_relationship_ids),
@@ -4147,7 +4161,8 @@ class SQLiteStorage:
             name=row["name"],
             started_at=self._parse_datetime(row["started_at"]),
             ended_at=self._parse_datetime(row["ended_at"]),
-            trigger_type=self._safe_get(row, "trigger_type", "manual"),
+            trigger_type=self._safe_get(row, "trigger_type", "declared"),
+            trigger_description=self._safe_get(row, "trigger_description", None),
             summary=self._safe_get(row, "summary", None),
             key_belief_ids=self._from_json(self._safe_get(row, "key_belief_ids", None)),
             key_relationship_ids=self._from_json(self._safe_get(row, "key_relationship_ids", None)),
@@ -6056,6 +6071,7 @@ class SQLiteStorage:
         notes_limit: Optional[int] = 5,
         drives_limit: Optional[int] = None,
         relationships_limit: Optional[int] = None,
+        epoch_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Load all memory types in a single database connection.
 
@@ -6072,6 +6088,7 @@ class SQLiteStorage:
             notes_limit: Max notes to load (None = 1000 for budget loading)
             drives_limit: Max drives to load (None = all drives)
             relationships_limit: Max relationships to load (None = all relationships)
+            epoch_id: If set, filter candidates to this epoch only
 
         Returns:
             Dict with keys: values, beliefs, goals, drives, episodes, notes, relationships
@@ -6094,71 +6111,78 @@ class SQLiteStorage:
             "relationships": [],
         }
 
+        # Build epoch filter clause
+        epoch_clause = ""
+        epoch_params: tuple = ()
+        if epoch_id:
+            epoch_clause = " AND epoch_id = ?"
+            epoch_params = (epoch_id,)
+
         with self._connect() as conn:
             # Values - ordered by priority, exclude forgotten
             rows = conn.execute(
-                "SELECT * FROM agent_values WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 ORDER BY priority DESC LIMIT ?",
-                (self.agent_id, _values_limit),
+                f"SELECT * FROM agent_values WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} ORDER BY priority DESC LIMIT ?",
+                (self.agent_id, *epoch_params, _values_limit),
             ).fetchall()
             result["values"] = [self._row_to_value(row) for row in rows]
 
             # Beliefs - ordered by confidence, exclude forgotten
             rows = conn.execute(
-                "SELECT * FROM beliefs WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 AND (is_active = 1 OR is_active IS NULL) ORDER BY confidence DESC LIMIT ?",
-                (self.agent_id, _beliefs_limit),
+                f"SELECT * FROM beliefs WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 AND (is_active = 1 OR is_active IS NULL){epoch_clause} ORDER BY confidence DESC LIMIT ?",
+                (self.agent_id, *epoch_params, _beliefs_limit),
             ).fetchall()
             result["beliefs"] = [self._row_to_belief(row) for row in rows]
 
             # Goals - filtered by status, exclude forgotten
             if goals_status and goals_status != "all":
                 rows = conn.execute(
-                    "SELECT * FROM goals WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 AND status = ? ORDER BY created_at DESC LIMIT ?",
-                    (self.agent_id, goals_status, _goals_limit),
+                    f"SELECT * FROM goals WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 AND status = ?{epoch_clause} ORDER BY created_at DESC LIMIT ?",
+                    (self.agent_id, goals_status, *epoch_params, _goals_limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT * FROM goals WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 ORDER BY created_at DESC LIMIT ?",
-                    (self.agent_id, _goals_limit),
+                    f"SELECT * FROM goals WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} ORDER BY created_at DESC LIMIT ?",
+                    (self.agent_id, *epoch_params, _goals_limit),
                 ).fetchall()
             result["goals"] = [self._row_to_goal(row) for row in rows]
 
             # Drives - all for agent (or limited), exclude forgotten
             if drives_limit is not None:
                 rows = conn.execute(
-                    "SELECT * FROM drives WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 LIMIT ?",
-                    (self.agent_id, drives_limit),
+                    f"SELECT * FROM drives WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} LIMIT ?",
+                    (self.agent_id, *epoch_params, drives_limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT * FROM drives WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0",
-                    (self.agent_id,),
+                    f"SELECT * FROM drives WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause}",
+                    (self.agent_id, *epoch_params),
                 ).fetchall()
             result["drives"] = [self._row_to_drive(row) for row in rows]
 
             # Episodes - most recent, exclude forgotten
             rows = conn.execute(
-                "SELECT * FROM episodes WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 ORDER BY created_at DESC LIMIT ?",
-                (self.agent_id, _episodes_limit),
+                f"SELECT * FROM episodes WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} ORDER BY created_at DESC LIMIT ?",
+                (self.agent_id, *epoch_params, _episodes_limit),
             ).fetchall()
             result["episodes"] = [self._row_to_episode(row) for row in rows]
 
             # Notes - most recent, exclude forgotten
             rows = conn.execute(
-                "SELECT * FROM notes WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 ORDER BY created_at DESC LIMIT ?",
-                (self.agent_id, _notes_limit),
+                f"SELECT * FROM notes WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} ORDER BY created_at DESC LIMIT ?",
+                (self.agent_id, *epoch_params, _notes_limit),
             ).fetchall()
             result["notes"] = [self._row_to_note(row) for row in rows]
 
             # Relationships - all for agent (or limited), exclude forgotten
             if relationships_limit is not None:
                 rows = conn.execute(
-                    "SELECT * FROM relationships WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0 LIMIT ?",
-                    (self.agent_id, relationships_limit),
+                    f"SELECT * FROM relationships WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} LIMIT ?",
+                    (self.agent_id, *epoch_params, relationships_limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    "SELECT * FROM relationships WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0",
-                    (self.agent_id,),
+                    f"SELECT * FROM relationships WHERE agent_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause}",
+                    (self.agent_id, *epoch_params),
                 ).fetchall()
             result["relationships"] = [self._row_to_relationship(row) for row in rows]
 

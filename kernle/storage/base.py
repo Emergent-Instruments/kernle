@@ -547,7 +547,8 @@ class Epoch:
     name: str
     started_at: Optional[datetime] = None
     ended_at: Optional[datetime] = None  # None = still active
-    trigger_type: str = "manual"  # manual, milestone, shift
+    trigger_type: str = "declared"  # declared, detected, system
+    trigger_description: Optional[str] = None
     summary: Optional[str] = None
     key_belief_ids: Optional[List[str]] = None
     key_relationship_ids: Optional[List[str]] = None
@@ -1395,6 +1396,7 @@ class Storage(Protocol):
         notes_limit: Optional[int] = 5,
         drives_limit: Optional[int] = None,
         relationships_limit: Optional[int] = None,
+        epoch_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Load all memory types in a single operation (optional optimization).
 
@@ -1414,6 +1416,7 @@ class Storage(Protocol):
             notes_limit: Max notes to load (None = use high limit for budget loading)
             drives_limit: Max drives to load (None = all drives)
             relationships_limit: Max relationships to load (None = all relationships)
+            epoch_id: If set, filter candidates to this epoch only
 
         Returns:
             Dict with keys: values, beliefs, goals, drives, episodes, notes, relationships

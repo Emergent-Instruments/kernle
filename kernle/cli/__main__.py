@@ -3816,14 +3816,19 @@ Typical usage in a memoryFlush hook:
     p_epoch = subparsers.add_parser("epoch", help="Temporal epoch (era) management")
     epoch_sub = p_epoch.add_subparsers(dest="epoch_action", required=True)
 
-    # kernle epoch create <name> [--trigger TYPE]
+    # kernle epoch create <name> [--trigger TYPE] [--trigger-description TEXT]
     epoch_create = epoch_sub.add_parser("create", help="Create a new epoch")
     epoch_create.add_argument("name", help="Name/label for the epoch")
     epoch_create.add_argument(
         "--trigger",
         "-t",
-        default="manual",
-        help="Trigger type (manual, life_event, role_change, etc.)",
+        default="declared",
+        help="Trigger type (declared, detected, system)",
+    )
+    epoch_create.add_argument(
+        "--trigger-description",
+        "-d",
+        help="Description of what triggered this epoch",
     )
     epoch_create.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 

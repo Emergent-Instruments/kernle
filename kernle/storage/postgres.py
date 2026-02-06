@@ -1095,6 +1095,7 @@ class SupabaseStorage:
         notes_limit: Optional[int] = 5,
         drives_limit: Optional[int] = None,
         relationships_limit: Optional[int] = None,
+        epoch_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Load all memory types in a single operation.
 
@@ -1182,6 +1183,13 @@ class SupabaseStorage:
             result["relationships"] = relationships
         except Exception as e:
             logger.warning(f"Failed to load relationships: {e}")
+
+        # Apply epoch filtering if specified
+        if epoch_id:
+            for key in result:
+                result[key] = [
+                    item for item in result[key] if getattr(item, "epoch_id", None) == epoch_id
+                ]
 
         return result
 

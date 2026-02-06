@@ -593,6 +593,7 @@ class Kernle(
         max_item_chars: int = DEFAULT_MAX_ITEM_CHARS,
         sync: Optional[bool] = None,
         track_access: bool = True,
+        epoch_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Load working memory context with budget-aware selection.
 
@@ -618,6 +619,8 @@ class Kernle(
             track_access: If True (default), record access for salience tracking.
                 Set to False for internal operations (like sync) that should not
                 affect salience decay.
+            epoch_id: If set, filter candidates to this specific epoch before
+                budget selection. NULL epoch_id memories are excluded.
 
         Returns:
             Dict containing all memory layers
@@ -658,6 +661,7 @@ class Kernle(
             notes_limit=None,
             drives_limit=None,
             relationships_limit=None,
+            epoch_id=epoch_id,
         )
 
         if batched is not None:
@@ -2868,7 +2872,8 @@ class Kernle(
     def epoch_create(
         self,
         name: str,
-        trigger_type: str = "manual",
+        trigger_type: str = "declared",
+        trigger_description: Optional[str] = None,
     ) -> str:
         """Create a new epoch (temporal era).
 
@@ -2876,7 +2881,8 @@ class Kernle(
 
         Args:
             name: Name for this epoch (e.g., "onboarding", "production-v2")
-            trigger_type: What triggered this epoch (manual, milestone, shift)
+            trigger_type: What triggered this epoch (declared, detected, system)
+            trigger_description: Optional description of the trigger event
 
         Returns:
             The new epoch's ID
@@ -2884,8 +2890,13 @@ class Kernle(
         from kernle.storage.base import Epoch
 
         name = self._validate_string_input(name, "name", 200)
-        if trigger_type not in ("manual", "milestone", "shift"):
-            raise ValueError("trigger_type must be one of: manual, milestone, shift")
+        if trigger_type not in ("declared", "detected", "system"):
+            raise ValueError("trigger_type must be one of: declared, detected, system")
+
+        if trigger_description is not None:
+            trigger_description = self._validate_string_input(
+                trigger_description, "trigger_description", 500
+            )
 
         # Close any currently open epoch
         current = self._storage.get_current_epoch()
@@ -2903,6 +2914,7 @@ class Kernle(
             name=name,
             started_at=datetime.now(timezone.utc),
             trigger_type=trigger_type,
+            trigger_description=trigger_description,
         )
 
         return self._storage.save_epoch(epoch)
