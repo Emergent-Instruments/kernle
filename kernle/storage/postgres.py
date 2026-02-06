@@ -43,6 +43,7 @@ from .base import (
     parse_datetime,
     utc_now,
 )
+from .lineage import check_derived_from_cycle
 
 logger = logging.getLogger(__name__)
 
@@ -1309,6 +1310,7 @@ class SupabaseStorage:
         if source_episodes is not None:
             update_data["source_episodes"] = source_episodes
         if derived_from is not None:
+            check_derived_from_cycle(self, memory_type, memory_id, derived_from)
             update_data["derived_from"] = derived_from
         if last_verified is not None:
             update_data["last_verified"] = last_verified.isoformat()
