@@ -5355,22 +5355,39 @@ class SQLiteStorage:
 
             return playbooks
         else:
-            # Fall back to text search
+            # Fall back to tokenized text search
+            tokens = self._tokenize_query(query)
+            columns = ["name", "description", "trigger_conditions"]
             with self._connect() as conn:
-                search_pattern = f"%{query}%"
+                if tokens:
+                    filt, filt_params = self._build_token_filter(tokens, columns)
+                else:
+                    # All words too short, use full-phrase match
+                    search_pattern = f"%{query}%"
+                    filt = "(name LIKE ? OR description LIKE ? OR trigger_conditions LIKE ?)"
+                    filt_params = [search_pattern, search_pattern, search_pattern]
                 cur = conn.execute(
-                    """
+                    f"""
                     SELECT * FROM playbooks
                     WHERE stack_id = ? AND deleted = 0
-                    AND (name LIKE ? OR description LIKE ? OR trigger_conditions LIKE ?)
+                    AND {filt}
                     ORDER BY times_used DESC
                     LIMIT ?
                 """,
-                    (self.stack_id, search_pattern, search_pattern, search_pattern, limit),
+                    [self.stack_id] + filt_params + [limit],
                 )
                 rows = cur.fetchall()
 
-            return [self._row_to_playbook(row) for row in rows]
+            playbooks = [self._row_to_playbook(row) for row in rows]
+            if tokens:
+                # Sort by token match score
+                def _score(pb: "Playbook") -> float:
+                    triggers = " ".join(pb.trigger_conditions) if pb.trigger_conditions else ""
+                    combined = f"{pb.name or ''} {pb.description or ''} {triggers}"
+                    return self._token_match_score(combined, tokens)
+
+                playbooks.sort(key=_score, reverse=True)
+            return playbooks
 
     def update_playbook_usage(self, playbook_id: str, success: bool) -> bool:
         """Update playbook usage statistics."""
@@ -6374,86 +6391,155 @@ class SQLiteStorage:
             return converter(row), record_type
         return None, None
 
+    @staticmethod
+    def _tokenize_query(query: str) -> List[str]:
+        """Split a search query into meaningful tokens (words with 3+ chars)."""
+        return [w for w in query.split() if len(w) >= 3]
+
+    @staticmethod
+    def _build_token_filter(tokens: List[str], columns: List[str]) -> tuple:
+        """Build a tokenized OR filter for multiple columns.
+
+        Returns (sql_fragment, params) where sql_fragment is a parenthesized
+        OR expression matching any token in any column, and params is the
+        list of LIKE pattern values.
+        """
+        clauses = []
+        params: list = []
+        for token in tokens:
+            pattern = f"%{token}%"
+            for col in columns:
+                clauses.append(f"{col} LIKE ?")
+                params.append(pattern)
+        sql = f"({' OR '.join(clauses)})"
+        return sql, params
+
+    @staticmethod
+    def _token_match_score(text: str, tokens: List[str]) -> float:
+        """Score a text by fraction of query tokens it contains (case-insensitive)."""
+        if not tokens:
+            return 1.0
+        lower = text.lower()
+        hits = sum(1 for t in tokens if t.lower() in lower)
+        return hits / len(tokens)
+
     def _text_search(
         self, query: str, limit: int, types: List[str], requesting_entity: Optional[str] = None
     ) -> List[SearchResult]:
-        """Fallback text-based search using LIKE."""
+        """Fallback text-based search using tokenized LIKE matching."""
         results = []
-        search_term = f"%{query}%"
+        tokens = self._tokenize_query(query)
         access_filter, access_params = self._build_access_filter(requesting_entity)
+
+        # If no meaningful tokens, fall back to full-phrase match
+        if not tokens:
+            search_term = f"%{query}%"
+        else:
+            search_term = None
 
         with self._connect() as conn:
             if "episode" in types:
+                columns = ["objective", "outcome", "lessons"]
+                if tokens:
+                    filt, filt_params = self._build_token_filter(tokens, columns)
+                else:
+                    filt = "(objective LIKE ? OR outcome LIKE ? OR lessons LIKE ?)"
+                    filt_params = [search_term, search_term, search_term]
                 rows = conn.execute(
                     f"""SELECT * FROM episodes
                        WHERE stack_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
-                       AND (objective LIKE ? OR outcome LIKE ? OR lessons LIKE ?){access_filter}
+                       AND {filt}{access_filter}
                        LIMIT ?""",
-                    [self.stack_id, search_term, search_term, search_term]
-                    + access_params
-                    + [limit],
+                    [self.stack_id] + filt_params + access_params + [limit],
                 ).fetchall()
                 for row in rows:
-                    results.append(
-                        SearchResult(
-                            record=self._row_to_episode(row), record_type="episode", score=1.0
-                        )
-                    )
+                    ep = self._row_to_episode(row)
+                    combined = f"{ep.objective or ''} {ep.outcome or ''} {ep.lessons or ''}"
+                    score = self._token_match_score(combined, tokens) if tokens else 1.0
+                    results.append(SearchResult(record=ep, record_type="episode", score=score))
 
             if "note" in types:
+                columns = ["content"]
+                if tokens:
+                    filt, filt_params = self._build_token_filter(tokens, columns)
+                else:
+                    filt = "content LIKE ?"
+                    filt_params = [search_term]
                 rows = conn.execute(
                     f"""SELECT * FROM notes
                        WHERE stack_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
-                       AND content LIKE ?{access_filter}
+                       AND {filt}{access_filter}
                        LIMIT ?""",
-                    [self.stack_id, search_term] + access_params + [limit],
+                    [self.stack_id] + filt_params + access_params + [limit],
                 ).fetchall()
                 for row in rows:
-                    results.append(
-                        SearchResult(record=self._row_to_note(row), record_type="note", score=1.0)
-                    )
+                    note = self._row_to_note(row)
+                    score = self._token_match_score(note.content or "", tokens) if tokens else 1.0
+                    results.append(SearchResult(record=note, record_type="note", score=score))
 
             if "belief" in types:
+                columns = ["statement"]
+                if tokens:
+                    filt, filt_params = self._build_token_filter(tokens, columns)
+                else:
+                    filt = "statement LIKE ?"
+                    filt_params = [search_term]
                 rows = conn.execute(
                     f"""SELECT * FROM beliefs
                        WHERE stack_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
-                       AND statement LIKE ?{access_filter}
+                       AND {filt}{access_filter}
                        LIMIT ?""",
-                    [self.stack_id, search_term] + access_params + [limit],
+                    [self.stack_id] + filt_params + access_params + [limit],
                 ).fetchall()
                 for row in rows:
-                    results.append(
-                        SearchResult(
-                            record=self._row_to_belief(row), record_type="belief", score=1.0
-                        )
+                    belief = self._row_to_belief(row)
+                    score = (
+                        self._token_match_score(belief.statement or "", tokens) if tokens else 1.0
                     )
+                    results.append(SearchResult(record=belief, record_type="belief", score=score))
 
             if "value" in types:
+                columns = ["name", "statement"]
+                if tokens:
+                    filt, filt_params = self._build_token_filter(tokens, columns)
+                else:
+                    filt = "(name LIKE ? OR statement LIKE ?)"
+                    filt_params = [search_term, search_term]
                 rows = conn.execute(
                     f"""SELECT * FROM agent_values
                        WHERE stack_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
-                       AND (name LIKE ? OR statement LIKE ?){access_filter}
+                       AND {filt}{access_filter}
                        LIMIT ?""",
-                    [self.stack_id, search_term, search_term] + access_params + [limit],
+                    [self.stack_id] + filt_params + access_params + [limit],
                 ).fetchall()
                 for row in rows:
-                    results.append(
-                        SearchResult(record=self._row_to_value(row), record_type="value", score=1.0)
-                    )
+                    val = self._row_to_value(row)
+                    combined = f"{val.name or ''} {val.statement or ''}"
+                    score = self._token_match_score(combined, tokens) if tokens else 1.0
+                    results.append(SearchResult(record=val, record_type="value", score=score))
 
             if "goal" in types:
+                columns = ["title", "description"]
+                if tokens:
+                    filt, filt_params = self._build_token_filter(tokens, columns)
+                else:
+                    filt = "(title LIKE ? OR description LIKE ?)"
+                    filt_params = [search_term, search_term]
                 rows = conn.execute(
                     f"""SELECT * FROM goals
                        WHERE stack_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
-                       AND (title LIKE ? OR description LIKE ?){access_filter}
+                       AND {filt}{access_filter}
                        LIMIT ?""",
-                    [self.stack_id, search_term, search_term] + access_params + [limit],
+                    [self.stack_id] + filt_params + access_params + [limit],
                 ).fetchall()
                 for row in rows:
-                    results.append(
-                        SearchResult(record=self._row_to_goal(row), record_type="goal", score=1.0)
-                    )
+                    goal = self._row_to_goal(row)
+                    combined = f"{goal.title or ''} {goal.description or ''}"
+                    score = self._token_match_score(combined, tokens) if tokens else 1.0
+                    results.append(SearchResult(record=goal, record_type="goal", score=score))
 
+        # Sort by token match score descending
+        results.sort(key=lambda r: r.score, reverse=True)
         return results[:limit]
 
     # === Stats ===
