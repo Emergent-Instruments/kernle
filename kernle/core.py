@@ -2898,7 +2898,7 @@ class Kernle(
 
         epoch = Epoch(
             id=str(uuid.uuid4()),
-            agent_id=self._agent_id,
+            agent_id=self.agent_id,
             epoch_number=next_number,
             name=name,
             started_at=datetime.now(timezone.utc),

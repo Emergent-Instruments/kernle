@@ -32,6 +32,7 @@ from kernle.cli.commands import (
     cmd_doctor_session_start,
     cmd_doctor_structural,
     cmd_emotion,
+    cmd_epoch,
     cmd_forget,
     cmd_identity,
     cmd_init_md,
@@ -3811,6 +3812,41 @@ Typical usage in a memoryFlush hook:
     )
     forget_salience.add_argument("id", help="Memory ID")
 
+    # epoch (temporal era tracking)
+    p_epoch = subparsers.add_parser("epoch", help="Temporal epoch (era) management")
+    epoch_sub = p_epoch.add_subparsers(dest="epoch_action", required=True)
+
+    # kernle epoch create <name> [--trigger TYPE]
+    epoch_create = epoch_sub.add_parser("create", help="Create a new epoch")
+    epoch_create.add_argument("name", help="Name/label for the epoch")
+    epoch_create.add_argument(
+        "--trigger",
+        "-t",
+        default="manual",
+        help="Trigger type (manual, life_event, role_change, etc.)",
+    )
+    epoch_create.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle epoch close [--id ID] [--summary TEXT]
+    epoch_close = epoch_sub.add_parser("close", help="Close the current epoch")
+    epoch_close.add_argument("--id", help="Epoch ID (defaults to current)")
+    epoch_close.add_argument("--summary", "-s", help="Summary of the epoch")
+    epoch_close.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle epoch list [--limit N]
+    epoch_list = epoch_sub.add_parser("list", help="List epochs")
+    epoch_list.add_argument("--limit", "-l", type=int, default=20, help="Max epochs to show")
+    epoch_list.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle epoch show <id>
+    epoch_show = epoch_sub.add_parser("show", help="Show epoch details")
+    epoch_show.add_argument("id", help="Epoch ID")
+    epoch_show.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # kernle epoch current
+    epoch_current = epoch_sub.add_parser("current", help="Show current active epoch")
+    epoch_current.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
     # sync (local-to-cloud synchronization)
     p_sync = subparsers.add_parser("sync", help="Sync with remote backend")
     sync_sub = p_sync.add_subparsers(dest="sync_action", required=True)
@@ -4395,6 +4431,8 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_stats(args, k)
         elif args.command == "forget":
             cmd_forget(args, k)
+        elif args.command == "epoch":
+            cmd_epoch(args, k)
         elif args.command == "playbook":
             cmd_playbook(args, k)
         elif args.command == "raw":
