@@ -57,7 +57,7 @@ def tmp_db(tmp_path):
 @pytest.fixture
 def stack(tmp_db):
     """Create an SQLiteStack instance with a temp database."""
-    return SQLiteStack(stack_id="test-stack", db_path=tmp_db)
+    return SQLiteStack(stack_id="test-stack", db_path=tmp_db, components=[])
 
 
 @pytest.fixture
