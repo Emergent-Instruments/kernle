@@ -14,7 +14,6 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
 
-# Import feature mixins
 from kernle.features import (
     AnxietyMixin,
     ConsolidationMixin,
@@ -54,6 +53,9 @@ from kernle.storage.base import (
     TRUST_DEPTH_DECAY,
     TRUST_THRESHOLDS,
 )
+
+# Import feature mixins
+from kernle.utils import get_kernle_home
 
 if TYPE_CHECKING:
     from kernle.storage import Storage as StorageProtocol
@@ -404,7 +406,7 @@ class Kernle(
             stack_id or os.environ.get("KERNLE_STACK_ID", "default")
         )
         self.checkpoint_dir = self._validate_checkpoint_dir(
-            checkpoint_dir or Path.home() / ".kernle" / "checkpoints"
+            checkpoint_dir or get_kernle_home() / "checkpoints"
         )
 
         # Store credentials for backwards compatibility
@@ -2269,7 +2271,7 @@ class Kernle(
         config = self.boot_list()
         if not config:
             # Remove boot file if config is empty
-            boot_path = Path.home() / ".kernle" / self.stack_id / "boot.md"
+            boot_path = get_kernle_home() / self.stack_id / "boot.md"
             if boot_path.exists():
                 boot_path.unlink()
             return
@@ -2288,7 +2290,7 @@ class Kernle(
         )
         lines.append("")
 
-        boot_path = Path.home() / ".kernle" / self.stack_id / "boot.md"
+        boot_path = get_kernle_home() / self.stack_id / "boot.md"
         boot_path.parent.mkdir(parents=True, exist_ok=True)
         boot_path.write_text("\n".join(lines), encoding="utf-8")
 

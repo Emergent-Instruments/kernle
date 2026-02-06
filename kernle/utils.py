@@ -6,7 +6,16 @@ import hashlib
 import os
 import platform
 import subprocess
+from pathlib import Path
 from typing import Optional
+
+
+def get_kernle_home() -> Path:
+    """Get the Kernle data directory. Uses KERNLE_DATA_DIR env var if set, otherwise ~/.kernle."""
+    custom = os.environ.get("KERNLE_DATA_DIR")
+    if custom:
+        return Path(custom)
+    return Path.home() / ".kernle"
 
 
 def _get_git_root() -> Optional[str]:

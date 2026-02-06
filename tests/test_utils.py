@@ -1,9 +1,10 @@
 """Tests for kernle.utils module."""
 
 import os
+from pathlib import Path
 from unittest.mock import patch
 
-from kernle.utils import generate_default_stack_id, resolve_stack_id
+from kernle.utils import generate_default_stack_id, get_kernle_home, resolve_stack_id
 
 
 class TestGenerateDefaultAgentId:
@@ -129,3 +130,31 @@ class TestResolveAgentId:
         with patch.dict(os.environ, {"KERNLE_STACK_ID": "from-env"}):
             result = resolve_stack_id(None)
             assert result == "from-env"
+
+
+class TestGetKernleHome:
+    """Tests for get_kernle_home function."""
+
+    def test_default_returns_dot_kernle(self, monkeypatch):
+        """Without env var, should return ~/.kernle."""
+        monkeypatch.delenv("KERNLE_DATA_DIR", raising=False)
+        result = get_kernle_home()
+        assert result == Path.home() / ".kernle"
+
+    def test_env_var_overrides_default(self, monkeypatch):
+        """KERNLE_DATA_DIR should override the default path."""
+        monkeypatch.setenv("KERNLE_DATA_DIR", "/tmp/custom")
+        result = get_kernle_home()
+        assert result == Path("/tmp/custom")
+
+    def test_env_var_returns_path_object(self, monkeypatch):
+        """Result should always be a Path object."""
+        monkeypatch.setenv("KERNLE_DATA_DIR", "/tmp/custom")
+        result = get_kernle_home()
+        assert isinstance(result, Path)
+
+    def test_default_returns_path_object(self, monkeypatch):
+        """Default result should also be a Path object."""
+        monkeypatch.delenv("KERNLE_DATA_DIR", raising=False)
+        result = get_kernle_home()
+        assert isinstance(result, Path)

@@ -15,8 +15,9 @@ import sys
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import TYPE_CHECKING, Optional
+
+from kernle.utils import get_kernle_home
 
 if TYPE_CHECKING:
     import argparse
@@ -73,7 +74,7 @@ TIER_ORDER = ["free", "core", "pro", "enterprise"]
 
 def _load_credentials() -> dict:
     """Load credentials from ~/.kernle/credentials.json."""
-    creds_path = Path.home() / ".kernle" / "credentials.json"
+    creds_path = get_kernle_home() / "credentials.json"
     if not creds_path.exists():
         return {}
     try:
