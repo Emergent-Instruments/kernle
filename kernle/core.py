@@ -3277,6 +3277,10 @@ class Kernle(
             if result.record_type != "belief":
                 continue
 
+            # Filter by similarity threshold
+            if result.score < similarity_threshold:
+                continue
+
             belief = result.record
             belief_stmt_lower = belief.statement.lower().strip()
 
