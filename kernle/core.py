@@ -5325,9 +5325,10 @@ class Kernle(
         return build_epoch_closing_scaffold(self, epoch_id)
 
     def consolidate(self, min_episodes: int = 3) -> Dict[str, Any]:
-        """Run memory consolidation.
+        """Deprecated: use promote() instead.
 
-        Analyzes recent episodes to extract patterns, lessons, and beliefs.
+        Run memory consolidation (legacy). Analyzes recent episodes to
+        extract patterns, lessons, and beliefs.
 
         Args:
             min_episodes: Minimum episodes required to consolidate
@@ -5335,6 +5336,13 @@ class Kernle(
         Returns:
             Consolidation results
         """
+        import warnings
+
+        warnings.warn(
+            "Kernle.consolidate() is deprecated, use Kernle.promote() instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         episodes = self._storage.get_episodes(limit=50)
 
         if len(episodes) < min_episodes:

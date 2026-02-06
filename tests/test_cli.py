@@ -17,6 +17,7 @@ from kernle.cli.__main__ import (
     cmd_episode,
     cmd_load,
     cmd_note,
+    cmd_promote,
     cmd_search,
     cmd_status,
     cmd_temporal,
@@ -586,122 +587,160 @@ class TestDriveCommands:
         assert "Drive 'nonexistent' not found" in fake_out.getvalue()
 
 
-class TestConsolidateCommand:
-    """Test memory consolidation command (reflection prompt output)."""
+class TestPromoteCommand:
+    """Test promote command (episode -> belief promotion)."""
 
-    def test_cmd_consolidate_outputs_reflection_prompt(self, mock_kernle):
-        """Test consolidate command outputs guided reflection prompt."""
-        from datetime import datetime
-
-        # Create mock episode objects
-        mock_episode = Mock()
-        mock_episode.objective = "Debug OAuth flow"
-        mock_episode.outcome = "Fixed CORS and token verification"
-        mock_episode.outcome_type = "success"
-        mock_episode.lessons = ["Always check CORS first", "Use JWKS for token verification"]
-        mock_episode.created_at = datetime(2024, 1, 15)
-        mock_episode.emotional_valence = 0.5
-        mock_episode.emotional_arousal = 0.3
-        mock_episode.emotional_tags = ["satisfaction"]
-        mock_episode.is_forgotten = False
-
-        # Create mock belief objects
-        mock_belief = Mock()
-        mock_belief.statement = "Test before committing"
-        mock_belief.confidence = 0.85
-        mock_belief.is_active = True
-        mock_belief.is_forgotten = False
-
-        # Mock storage
-        mock_storage = Mock()
-        mock_storage.get_episodes.return_value = [mock_episode]
-        mock_storage.get_beliefs.return_value = [mock_belief]
-        mock_kernle._storage = mock_storage
+    def test_cmd_promote_shows_suggestions(self, mock_kernle):
+        """Test promote command shows promotion suggestions."""
+        mock_kernle.promote.return_value = {
+            "episodes_scanned": 10,
+            "patterns_found": 2,
+            "suggestions": [
+                {
+                    "lesson": "Always test first",
+                    "count": 3,
+                    "source_episodes": ["ep1", "ep2", "ep3"],
+                    "promoted": False,
+                },
+            ],
+            "beliefs_created": 0,
+        }
         mock_kernle.agent_id = "test_agent"
 
-        args = argparse.Namespace(min_episodes=3, limit=20)
+        args = argparse.Namespace(
+            auto=False,
+            min_occurrences=2,
+            min_episodes=3,
+            confidence=0.7,
+            limit=50,
+            json=False,
+        )
 
         with patch("sys.stdout", new=StringIO()) as fake_out:
-            cmd_consolidate(args, mock_kernle)
+            cmd_promote(args, mock_kernle)
 
         output = fake_out.getvalue()
-
-        # Check output structure
-        assert "## Memory Consolidation - Reflection Prompt" in output
-        assert "1 recent episodes" in output
-        assert "### Recent Episodes:" in output
-        assert "Debug OAuth flow" in output
-        assert "Fixed CORS and token verification" in output
-        assert '["Always check CORS first", "Use JWKS for token verification"]' in output
-        assert "### Current Beliefs (for context):" in output
-        assert "Test before committing" in output
-        assert "confidence: 0.85" in output
-        assert "### Reflection Questions:" in output
-        assert "kernle -a test_agent belief add" in output
-        assert "kernle -a test_agent belief reinforce" in output
-        assert "You (the agent) do the reasoning" in output
-
-    def test_cmd_consolidate_with_repeated_lessons(self, mock_kernle):
-        """Test that repeated lessons are detected and shown."""
-        from datetime import datetime
-
-        # Create mock episodes with repeated lessons
-        mock_ep1 = Mock()
-        mock_ep1.objective = "Task 1"
-        mock_ep1.outcome = "Done"
-        mock_ep1.outcome_type = "success"
-        mock_ep1.lessons = ["Always test first"]
-        mock_ep1.created_at = datetime(2024, 1, 15)
-        mock_ep1.emotional_valence = 0.0
-        mock_ep1.emotional_arousal = 0.0
-        mock_ep1.emotional_tags = None
-        mock_ep1.is_forgotten = False
-
-        mock_ep2 = Mock()
-        mock_ep2.objective = "Task 2"
-        mock_ep2.outcome = "Done"
-        mock_ep2.outcome_type = "success"
-        mock_ep2.lessons = ["Always test first"]  # Same lesson
-        mock_ep2.created_at = datetime(2024, 1, 16)
-        mock_ep2.emotional_valence = 0.0
-        mock_ep2.emotional_arousal = 0.0
-        mock_ep2.emotional_tags = None
-        mock_ep2.is_forgotten = False
-
-        mock_storage = Mock()
-        mock_storage.get_episodes.return_value = [mock_ep1, mock_ep2]
-        mock_storage.get_beliefs.return_value = []
-        mock_kernle._storage = mock_storage
-        mock_kernle.agent_id = "test_agent"
-
-        args = argparse.Namespace(min_episodes=3, limit=20)
-
-        with patch("sys.stdout", new=StringIO()) as fake_out:
-            cmd_consolidate(args, mock_kernle)
-
-        output = fake_out.getvalue()
-
-        # Check pattern detection
-        assert "### Patterns Detected:" in output
+        assert "Promotion Results" in output
+        assert "Episodes scanned: 10" in output
+        assert "Patterns found: 2" in output
         assert "Always test first" in output
-        assert "appears 2 times" in output
 
-    def test_cmd_consolidate_no_episodes(self, mock_kernle):
-        """Test consolidate command with no episodes."""
-        mock_storage = Mock()
-        mock_storage.get_episodes.return_value = []
-        mock_storage.get_beliefs.return_value = []
-        mock_kernle._storage = mock_storage
+    def test_cmd_promote_no_patterns(self, mock_kernle):
+        """Test promote command with no patterns found."""
+        mock_kernle.promote.return_value = {
+            "episodes_scanned": 5,
+            "patterns_found": 0,
+            "suggestions": [],
+            "beliefs_created": 0,
+        }
         mock_kernle.agent_id = "test_agent"
 
-        args = argparse.Namespace(min_episodes=3, limit=20)
+        args = argparse.Namespace(
+            auto=False,
+            min_occurrences=2,
+            min_episodes=3,
+            confidence=0.7,
+            limit=50,
+            json=False,
+        )
 
         with patch("sys.stdout", new=StringIO()) as fake_out:
-            cmd_consolidate(args, mock_kernle)
+            cmd_promote(args, mock_kernle)
 
         output = fake_out.getvalue()
-        assert "0 recent episodes" in output
-        assert "No episodes recorded yet" in output
+        assert "No recurring patterns found" in output
+
+    def test_cmd_promote_json_output(self, mock_kernle):
+        """Test promote command with JSON output."""
+        result = {
+            "episodes_scanned": 10,
+            "patterns_found": 1,
+            "suggestions": [],
+            "beliefs_created": 0,
+        }
+        mock_kernle.promote.return_value = result
+
+        args = argparse.Namespace(
+            auto=False,
+            min_occurrences=2,
+            min_episodes=3,
+            confidence=0.7,
+            limit=50,
+            json=True,
+        )
+
+        with patch("sys.stdout", new=StringIO()) as fake_out:
+            cmd_promote(args, mock_kernle)
+
+        output = fake_out.getvalue()
+        parsed = json.loads(output)
+        assert parsed["episodes_scanned"] == 10
+
+
+class TestConsolidateDeprecatedAlias:
+    """Test that 'consolidate' works as a deprecated alias for 'promote'."""
+
+    def test_cmd_consolidate_prints_deprecation_warning(self, mock_kernle):
+        """Test consolidate command prints deprecation warning to stderr."""
+        mock_kernle.promote.return_value = {
+            "episodes_scanned": 5,
+            "patterns_found": 0,
+            "suggestions": [],
+            "beliefs_created": 0,
+        }
+        mock_kernle.agent_id = "test_agent"
+
+        args = argparse.Namespace(
+            auto=False,
+            min_occurrences=2,
+            min_episodes=3,
+            confidence=0.7,
+            limit=50,
+            json=False,
+        )
+
+        with patch("sys.stderr", new=StringIO()) as fake_err:
+            with patch("sys.stdout", new=StringIO()):
+                cmd_consolidate(args, mock_kernle)
+
+        err_output = fake_err.getvalue()
+        assert "deprecated" in err_output.lower()
+        assert "promote" in err_output
+
+    def test_cmd_consolidate_delegates_to_promote(self, mock_kernle):
+        """Test consolidate command delegates to promote and produces same output."""
+        mock_kernle.promote.return_value = {
+            "episodes_scanned": 10,
+            "patterns_found": 1,
+            "suggestions": [
+                {
+                    "lesson": "Always test first",
+                    "count": 3,
+                    "source_episodes": ["ep1", "ep2", "ep3"],
+                    "promoted": False,
+                },
+            ],
+            "beliefs_created": 0,
+        }
+        mock_kernle.agent_id = "test_agent"
+
+        args = argparse.Namespace(
+            auto=False,
+            min_occurrences=2,
+            min_episodes=3,
+            confidence=0.7,
+            limit=50,
+            json=False,
+        )
+
+        with patch("sys.stderr", new=StringIO()):
+            with patch("sys.stdout", new=StringIO()) as fake_out:
+                cmd_consolidate(args, mock_kernle)
+
+        output = fake_out.getvalue()
+        # Should produce promote output, not the old consolidation output
+        assert "Promotion Results" in output
+        assert "Always test first" in output
 
 
 class TestTemporalCommand:
