@@ -1,0 +1,1576 @@
+"""
+kernle Protocol Definitions
+============================
+
+The complete interface contracts for the kernle component system.
+
+Protocol version: 1
+
+Components and their roles:
+- Core (torso):  The bus. Connects everything. Has an ID. Routes operations.
+- Stack (head):  A memory system. Self-contained. Attachable/detachable.
+- Plugin (limb): A capability. Manages its own state. Removable without residue.
+- Model (heart): The thinking engine. Required. Interchangeable. Affects behavior.
+
+The "entity" is the composition — no single component IS the entity.
+
+Package structure:
+- kernle-core:  Core, protocols, shared types, plugin/stack management, CLI
+- kernle-stack: Default memory implementation (SQLite, embeddings, features)
+- plugins:      Independent packages (chainbased, etc.) discovered via entry points
+
+Design principles:
+- Components are peers, not parent-child
+- core_id and stack_id are both first-class identifiers
+- Plugins never touch the stack schema — they write memories through the core
+- When a plugin is removed, only memories remain (in the stack)
+- Everything works locally (local model) or with cloud providers
+- Stacks are many-to-many with cores (multiple heads, shared stacks)
+- Interchangeability of all components is a feature, not a limitation
+
+Error handling philosophy:
+- Routed operations (core -> stack) raise NoActiveStackError if no stack attached
+- Plugin context methods return None if no active stack (plugins handle gracefully)
+- Invalid arguments raise ValueError
+- Storage failures raise StorageError (stack-specific subclass)
+- Plugin failures are isolated — one plugin's error doesn't crash the core
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import datetime
+from enum import Enum
+from pathlib import Path
+from typing import (
+    Any,
+    Callable,
+    Iterator,
+    Optional,
+    Protocol,
+    runtime_checkable,
+)
+
+# =============================================================================
+# PROTOCOL VERSION
+# =============================================================================
+# Bumped when protocols change in incompatible ways. Components check this
+# to verify they're speaking the same language.
+
+PROTOCOL_VERSION = 1
+
+
+# =============================================================================
+# ERRORS
+# =============================================================================
+
+
+class KernleError(Exception):
+    """Base for all kernle errors."""
+
+    pass
+
+
+class NoActiveStackError(KernleError):
+    """Raised when a routed operation has no active stack to route to."""
+
+    pass
+
+
+class PluginError(KernleError):
+    """Raised when a plugin fails. Isolated — doesn't crash the core."""
+
+    pass
+
+
+class StorageError(KernleError):
+    """Raised by stack implementations on storage failures."""
+
+    pass
+
+
+# =============================================================================
+# SHARED TYPES
+# =============================================================================
+# These live in kernle-core. Imported by stacks, plugins, and the core itself.
+#
+# Memory dataclasses (Episode, Belief, Value, Goal, Note, Drive, Relationship,
+# RawEntry, Playbook, TrustAssessment, EntityModel, Epoch, Summary,
+# SelfNarrative, MemorySuggestion) are defined in kernle.types.
+#
+# They are the shared vocabulary. A plugin creates an Episode; the stack
+# stores it. The types are the contract between them.
+#
+# Trust and Relationships:
+# - Relationship is a record of knowing another entity (with a trust_level
+#   convenience field for quick access).
+# - TrustAssessment is a detailed, domain-scoped trust evaluation with
+#   evidence and scoring. Multiple assessments can exist per relationship.
+# - compute_trust() aggregates TrustAssessments into a score.
+# - relationship.trust_level is typically the latest compute_trust() result
+#   for that entity. The stack may update it automatically or on request.
+# =============================================================================
+
+
+class MemoryType(str, Enum):
+    """All memory record types in the system."""
+
+    EPISODE = "episode"
+    BELIEF = "belief"
+    VALUE = "value"
+    GOAL = "goal"
+    NOTE = "note"
+    DRIVE = "drive"
+    RELATIONSHIP = "relationship"
+    RAW = "raw"
+    PLAYBOOK = "playbook"
+    TRUST_ASSESSMENT = "trust_assessment"
+    ENTITY_MODEL = "entity_model"
+    EPOCH = "epoch"
+    SUMMARY = "summary"
+    SELF_NARRATIVE = "self_narrative"
+    SUGGESTION = "suggestion"
+
+
+@dataclass
+class SearchResult:
+    """A search result from any stack."""
+
+    memory_type: str
+    memory_id: str
+    content: str
+    score: float
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class SyncResult:
+    """Result of a sync operation."""
+
+    pushed: int = 0
+    pulled: int = 0
+    conflicts: int = 0
+    errors: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ModelCapabilities:
+    """What a model implementation can do."""
+
+    model_id: str
+    provider: str  # "anthropic", "openai", "ollama", "llamacpp", etc.
+    context_window: int
+    max_output_tokens: int = 4096
+    supports_tools: bool = False
+    supports_vision: bool = False
+    supports_streaming: bool = True
+
+
+@dataclass
+class ModelMessage:
+    """A message in a conversation."""
+
+    role: str  # "system", "user", "assistant", "tool"
+    content: str | list[dict[str, Any]]
+    name: Optional[str] = None
+    tool_call_id: Optional[str] = None
+    tool_calls: Optional[list[dict[str, Any]]] = None
+
+
+@dataclass
+class ModelResponse:
+    """Complete response from a model."""
+
+    content: str
+    tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    usage: dict[str, int] = field(default_factory=dict)
+    stop_reason: Optional[str] = None
+    model_id: Optional[str] = None
+
+
+@dataclass
+class ModelChunk:
+    """A streaming chunk from a model."""
+
+    content: str = ""
+    tool_call: Optional[dict[str, Any]] = None
+    is_final: bool = False
+    usage: Optional[dict[str, int]] = None
+
+
+@dataclass
+class ToolDefinition:
+    """A tool that can be offered to the model."""
+
+    name: str
+    description: str
+    input_schema: dict[str, Any]
+    handler: Optional[Callable] = None
+
+
+@dataclass
+class PluginHealth:
+    """Health check result for a plugin."""
+
+    healthy: bool
+    message: str = ""
+    details: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class StackInfo:
+    """Metadata about an attached stack."""
+
+    stack_id: str
+    alias: str
+    schema_version: int
+    stats: dict[str, int] = field(default_factory=dict)
+    is_active: bool = False
+
+
+@dataclass
+class PluginInfo:
+    """Metadata about a plugin (loaded or discovered)."""
+
+    name: str
+    version: str
+    description: str
+    capabilities: list[str] = field(default_factory=list)
+    is_loaded: bool = False
+
+
+@dataclass
+class Binding:
+    """A snapshot of the current composition.
+
+    Captures which model, stacks, and plugins are bound to a core.
+    Can be saved to disk and restored to recreate the same composition.
+    """
+
+    core_id: str
+    model_config: dict[str, Any]  # provider, model_id, params
+    stacks: dict[str, str]  # alias -> stack_id
+    active_stack_alias: Optional[str] = None
+    plugins: list[str] = field(default_factory=list)  # plugin names
+    created_at: Optional[datetime] = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+# =============================================================================
+# MODEL PROTOCOL — Heart/Lungs
+# =============================================================================
+# Required. Interchangeable. Differences in model produce meaningfully
+# different behavior — that's acknowledged, not hidden. Swapping from
+# Claude to Llama changes how the entity thinks. That's fine.
+# =============================================================================
+
+
+@runtime_checkable
+class ModelProtocol(Protocol):
+    """Interface for the thinking engine.
+
+    Implementations: AnthropicModel, OpenAIModel, OllamaModel,
+    LlamaCppModel, VLLMModel, etc.
+    """
+
+    @property
+    def model_id(self) -> str:
+        """Identifier (e.g., 'claude-sonnet-4-5-20250929', 'llama3:8b')."""
+        ...
+
+    @property
+    def capabilities(self) -> ModelCapabilities:
+        """What this model can do."""
+        ...
+
+    def generate(
+        self,
+        messages: list[ModelMessage],
+        *,
+        tools: Optional[list[ToolDefinition]] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        system: Optional[str] = None,
+    ) -> ModelResponse:
+        """Generate a complete response."""
+        ...
+
+    def stream(
+        self,
+        messages: list[ModelMessage],
+        *,
+        tools: Optional[list[ToolDefinition]] = None,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        system: Optional[str] = None,
+    ) -> Iterator[ModelChunk]:
+        """Stream a response chunk by chunk."""
+        ...
+
+
+# =============================================================================
+# INFERENCE SERVICE — Narrow model access for stack components
+# =============================================================================
+# When the core attaches a stack, it can provide an InferenceService.
+# This gives stack components (consolidation, suggestions, etc.) access
+# to model capabilities WITHOUT the stack knowing about ModelProtocol.
+#
+# If no core is attached, or the core has no model, inference_service
+# is None. Components that need inference degrade gracefully.
+# =============================================================================
+
+
+@runtime_checkable
+class InferenceService(Protocol):
+    """Narrow interface the core provides to stacks for inference.
+
+    Not the full ModelProtocol — just what stack components need.
+    The core implements this by routing to whatever model is bound.
+    """
+
+    def infer(self, prompt: str, *, system: Optional[str] = None) -> str:
+        """Generate text from a prompt. Returns the response string.
+
+        Used by stack components for:
+        - Consolidation: synthesize episodes into beliefs
+        - Suggestions: extract patterns from recent memories
+        - Emotional tagging: detect valence/arousal from text
+        """
+        ...
+
+    def embed(self, text: str) -> list[float]:
+        """Embed text into a vector. Returns floats.
+
+        Used by embedding components. The core routes this to
+        whatever embedding provider or model is configured.
+        """
+        ...
+
+    def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        """Batch embed. Default: loop over embed()."""
+        ...
+
+    @property
+    def embedding_dimension(self) -> int:
+        """Dimension of vectors produced by embed()."""
+        ...
+
+    @property
+    def embedding_provider_id(self) -> str:
+        """Stable ID for the current embedding source.
+
+        Used by stacks to detect when re-indexing is needed.
+        e.g., 'ngram-v1', 'sentence-transformers/all-MiniLM-L6-v2'
+        """
+        ...
+
+
+# =============================================================================
+# STACK COMPONENT PROTOCOL — Swappable sub-components of the stack
+# =============================================================================
+# The stack has a component system, parallel to how the core has plugins.
+# Components extend what the stack can do. Some are required (embedding
+# for search), most are optional (emotional tagging, anxiety, etc.).
+#
+# Components hook into the stack's lifecycle: memory saves, loads,
+# searches, and periodic maintenance. They receive an InferenceService
+# if one is available (provided by the core on attach).
+#
+# The current kernle mixins (Anxiety, Emotions, Consolidation, Forgetting,
+# Knowledge, MetaMemory, Suggestions) map directly to stack components.
+#
+# Discovery via entry point: kernle.stack_components
+#
+# Required vs optional:
+# - A component declares required=True if the stack can't function without it
+# - The stack refuses to operate if a required component is missing
+# - Optional components enhance behavior — their absence means graceful
+#   degradation, not failure
+# =============================================================================
+
+
+@runtime_checkable
+class StackComponentProtocol(Protocol):
+    """Interface for stack sub-components.
+
+    Implementations: EmbeddingComponent, ForgettingComponent,
+    ConsolidationComponent, EmotionalTaggingComponent,
+    AnxietyComponent, SuggestionComponent, MetaMemoryComponent, etc.
+    """
+
+    @property
+    def name(self) -> str:
+        """Component identifier (e.g., 'embedding', 'forgetting')."""
+        ...
+
+    @property
+    def version(self) -> str:
+        """Semantic version."""
+        ...
+
+    @property
+    def required(self) -> bool:
+        """Whether the stack needs this component to function.
+
+        True: stack refuses to operate without it (e.g., embedding).
+        False: stack works without it, just with reduced capability.
+        """
+        ...
+
+    @property
+    def needs_inference(self) -> bool:
+        """Whether this component needs model inference.
+
+        If True and no InferenceService is available, the component
+        should degrade gracefully (skip inference-dependent operations,
+        not crash).
+        """
+        ...
+
+    def attach(
+        self,
+        stack_id: str,
+        inference: Optional[InferenceService] = None,
+    ) -> None:
+        """Called when the component is added to a stack.
+
+        Args:
+            stack_id: The stack this component is joining.
+            inference: Model access, if available. None if the stack
+                      is detached from any core, or the core has no model.
+        """
+        ...
+
+    def detach(self) -> None:
+        """Called when the component is removed from a stack."""
+        ...
+
+    def set_inference(self, inference: Optional[InferenceService]) -> None:
+        """Update the inference service.
+
+        Called when the stack is attached/detached from a core,
+        or when the core's model changes. None means inference
+        is no longer available.
+        """
+        ...
+
+    # ---- Lifecycle Hooks ----
+    # The stack calls these at appropriate moments. Components
+    # implement the ones they care about. Default: no-op.
+
+    def on_save(self, memory_type: str, memory_id: str, memory: Any) -> Any:
+        """Called after a memory is saved.
+
+        Can modify the memory (e.g., add emotional tags) by returning
+        the modified version. Return None to leave unchanged.
+
+        Examples:
+        - EmotionalTagging: detect valence/arousal, add to metadata
+        - MetaMemory: initialize confidence tracking
+        - Embedding: generate and store vector
+        """
+        ...
+
+    def on_search(
+        self,
+        query: str,
+        results: list[SearchResult],
+    ) -> list[SearchResult]:
+        """Called after search results are assembled.
+
+        Can re-rank, filter, or augment results.
+        Return the (possibly modified) results list.
+
+        Examples:
+        - Forgetting: filter out low-salience results
+        - Emotional: boost emotionally relevant results
+        """
+        ...
+
+    def on_load(self, context: dict[str, Any]) -> None:
+        """Called during load() assembly.
+
+        Contribute to the working memory context.
+
+        Examples:
+        - Anxiety: add current anxiety levels
+        - Forgetting: add forgetting statistics
+        """
+        ...
+
+    def on_maintenance(self) -> dict[str, Any]:
+        """Called during periodic maintenance.
+
+        Do background work: forgetting sweeps, suggestion extraction,
+        consolidation passes, embedding re-indexing, etc.
+
+        Returns stats about what was done.
+        """
+        ...
+
+
+# =============================================================================
+# STACK PROTOCOL — Head
+# =============================================================================
+# A self-contained memory system. Knows nothing about models or core plugins.
+# Stores, retrieves, searches, and maintains memories. That's it.
+#
+# A stack can be:
+# - Attached to one core, or many, or none
+# - Shared between entities (collaborative memory)
+# - Forked/snapshotted for experimentation
+# - Swapped at runtime (context switching)
+#
+# The stack's schema is sovereign. Nothing outside the stack modifies it.
+#
+# The stack has components (sub-plugins) that extend its capabilities.
+# Components are discovered via the kernle.stack_components entry point
+# and are swappable at runtime. Embedding is just one such component.
+#
+# PROVENANCE AND WRITE DISCIPLINE:
+#
+# Memories should be written through an attached core following protocol
+# standards. The core ensures full provenance: source attribution,
+# timestamps, context tags, derived_from chains, and source_type tracking.
+# This provenance is not just metadata — it is functionally important.
+# Consolidation, trust computation, forgetting, and meta-memory all
+# depend on knowing where a memory came from and how it was formed.
+#
+# A detached stack is a portable data artifact — it can be opened,
+# queried, exported, synced, and maintained by scripts or tooling.
+# But it is not an autonomous system. Direct writes to a detached
+# stack produce memories with incomplete provenance (no source
+# attribution, no context from the core's current composition).
+# This is sometimes necessary for migration, repair, or bootstrap,
+# but it degrades the stack's ability to reason about its own contents.
+# Like doctoring medical records — sometimes clinically necessary,
+# never clean, and should be minimized.
+#
+# The save_*() methods on the stack are low-level storage operations.
+# They accept whatever is passed to them. The core's routed methods
+# (episode(), belief(), etc.) are the protocol-compliant entry points
+# that ensure provenance is complete before calling save_*().
+# =============================================================================
+
+
+@runtime_checkable
+class StackProtocol(Protocol):
+    """Interface for a memory system.
+
+    A self-contained, portable unit of memory. The stack's value is
+    independence of lifecycle — it persists unchanged when the core
+    is reconfigured, the model is swapped, or plugins come and go.
+
+    The intended write path is: core -> stack (with full provenance).
+    Direct writes are possible but produce incomplete provenance.
+
+    Implementations: SQLiteStack (default), PostgresStack, InMemoryStack.
+    """
+
+    @property
+    def stack_id(self) -> str:
+        """Unique identifier for this stack."""
+        ...
+
+    @property
+    def schema_version(self) -> int:
+        """Current schema version of this stack's storage."""
+        ...
+
+    # ---- Component Management ----
+
+    @property
+    def components(self) -> dict[str, StackComponentProtocol]:
+        """All loaded components, keyed by name."""
+        ...
+
+    def add_component(self, component: StackComponentProtocol) -> None:
+        """Add a component to this stack.
+
+        Calls component.attach() with the stack_id and current
+        inference service (if any).
+        """
+        ...
+
+    def remove_component(self, name: str) -> None:
+        """Remove a component.
+
+        Raises if the component is required and no replacement
+        is provided.
+        """
+        ...
+
+    def get_component(self, name: str) -> Optional[StackComponentProtocol]:
+        """Get a component by name. Returns None if not loaded."""
+        ...
+
+    def maintenance(self) -> dict[str, Any]:
+        """Run maintenance on all components.
+
+        Calls on_maintenance() on each component. Returns
+        combined stats keyed by component name.
+        """
+        ...
+
+    # ---- Write Operations (Low-Level) ----
+    # These are raw storage operations. They persist whatever is passed
+    # to them without enforcing provenance completeness.
+    #
+    # The INTENDED write path is through the core's routed methods
+    # (core.episode(), core.belief(), etc.) which populate provenance
+    # fields (source, source_type, derived_from, context) before
+    # calling these. Plugins write through PluginContext, which also
+    # ensures provenance (source="plugin:{name}").
+    #
+    # Direct calls to save_*() are for migration, repair, import,
+    # and testing. Memories written this way may have incomplete
+    # provenance, which degrades consolidation, trust, and forgetting.
+
+    def save_episode(self, episode: Any) -> str: ...
+    def save_belief(self, belief: Any) -> str: ...
+    def save_value(self, value: Any) -> str: ...
+    def save_goal(self, goal: Any) -> str: ...
+    def save_note(self, note: Any) -> str: ...
+    def save_drive(self, drive: Any) -> str: ...
+    def save_relationship(self, relationship: Any) -> str: ...
+    def save_raw(self, raw: Any) -> str: ...
+    def save_playbook(self, playbook: Any) -> str: ...
+    def save_epoch(self, epoch: Any) -> str: ...
+    def save_summary(self, summary: Any) -> str: ...
+    def save_self_narrative(self, narrative: Any) -> str: ...
+    def save_suggestion(self, suggestion: Any) -> str: ...
+
+    # ---- Batch Write ----
+
+    def save_episodes_batch(self, episodes: list[Any]) -> list[str]: ...
+    def save_beliefs_batch(self, beliefs: list[Any]) -> list[str]: ...
+    def save_notes_batch(self, notes: list[Any]) -> list[str]: ...
+
+    # ---- Read Operations ----
+
+    def get_episodes(
+        self,
+        *,
+        limit: int = 50,
+        tags: Optional[list[str]] = None,
+        context: Optional[str] = None,
+        include_forgotten: bool = False,
+    ) -> list[Any]: ...
+
+    def get_beliefs(
+        self,
+        *,
+        limit: int = 50,
+        belief_type: Optional[str] = None,
+        min_confidence: Optional[float] = None,
+        context: Optional[str] = None,
+        include_forgotten: bool = False,
+    ) -> list[Any]: ...
+
+    def get_values(
+        self,
+        *,
+        limit: int = 50,
+        context: Optional[str] = None,
+        include_forgotten: bool = False,
+    ) -> list[Any]: ...
+
+    def get_goals(
+        self,
+        *,
+        limit: int = 50,
+        status: Optional[str] = None,
+        context: Optional[str] = None,
+        include_forgotten: bool = False,
+    ) -> list[Any]: ...
+
+    def get_notes(
+        self,
+        *,
+        limit: int = 50,
+        note_type: Optional[str] = None,
+        context: Optional[str] = None,
+        include_forgotten: bool = False,
+    ) -> list[Any]: ...
+
+    def get_drives(self, *, include_expired: bool = False) -> list[Any]: ...
+
+    def get_relationships(
+        self,
+        *,
+        entity_id: Optional[str] = None,
+        entity_type: Optional[str] = None,
+        min_trust: Optional[float] = None,
+    ) -> list[Any]: ...
+
+    def get_raw(
+        self,
+        *,
+        limit: int = 50,
+        tags: Optional[list[str]] = None,
+    ) -> list[Any]: ...
+
+    def get_memory(self, memory_type: str, memory_id: str) -> Optional[Any]:
+        """Get any single memory by type and ID."""
+        ...
+
+    # ---- Search ----
+
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        record_types: Optional[list[str]] = None,
+        context: Optional[str] = None,
+        min_confidence: Optional[float] = None,
+    ) -> list[SearchResult]:
+        """Semantic search across all memory types."""
+        ...
+
+    # ---- Working Memory ----
+
+    def load(
+        self,
+        *,
+        token_budget: int = 8000,
+        context: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Assemble working memory within a token budget.
+
+        Returns a structured dict of the most relevant current memories.
+        """
+        ...
+
+    # ---- Meta-Memory ----
+
+    def record_access(self, memory_type: str, memory_id: str) -> bool:
+        """Record that a memory was accessed (strengthens salience)."""
+        ...
+
+    def update_memory_meta(
+        self,
+        memory_type: str,
+        memory_id: str,
+        *,
+        confidence: Optional[float] = None,
+        tags: Optional[list[str]] = None,
+    ) -> bool:
+        """Update metadata on an existing memory."""
+        ...
+
+    def forget_memory(
+        self,
+        memory_type: str,
+        memory_id: str,
+        reason: str,
+    ) -> bool:
+        """Soft-delete a memory (can be recovered)."""
+        ...
+
+    def recover_memory(self, memory_type: str, memory_id: str) -> bool:
+        """Recover a forgotten memory."""
+        ...
+
+    def protect_memory(
+        self,
+        memory_type: str,
+        memory_id: str,
+        protected: bool = True,
+    ) -> bool:
+        """Protect/unprotect a memory from forgetting."""
+        ...
+
+    # ---- Trust Layer ----
+
+    def save_trust_assessment(self, assessment: Any) -> str: ...
+
+    def get_trust_assessments(
+        self,
+        *,
+        entity_id: Optional[str] = None,
+        domain: Optional[str] = None,
+    ) -> list[Any]: ...
+
+    def compute_trust(
+        self,
+        entity_id: str,
+        domain: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Compute aggregate trust for an entity."""
+        ...
+
+    # ---- Features ----
+
+    def consolidate(
+        self,
+        *,
+        context: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Run memory consolidation.
+
+        Finds patterns across episodes, strengthens repeated lessons
+        into beliefs, surfaces suggestions for review.
+        """
+        ...
+
+    def apply_forgetting(
+        self,
+        *,
+        protect_identity: bool = True,
+    ) -> dict[str, Any]:
+        """Apply salience-based forgetting."""
+        ...
+
+    # ---- Sync ----
+
+    def sync(self) -> SyncResult:
+        """Sync with remote storage (if configured)."""
+        ...
+
+    def pull_changes(self, *, since: Optional[datetime] = None) -> SyncResult:
+        """Pull changes from remote."""
+        ...
+
+    def get_pending_sync_count(self) -> int: ...
+    def is_online(self) -> bool: ...
+
+    # ---- Stats & Export ----
+
+    def get_stats(self) -> dict[str, int]:
+        """Counts of each memory type."""
+        ...
+
+    def dump(
+        self,
+        *,
+        format: str = "markdown",
+        include_raw: bool = True,
+        include_forgotten: bool = False,
+    ) -> str:
+        """Export all memories as a formatted string."""
+        ...
+
+    def export(self, path: str, *, format: str = "markdown") -> None:
+        """Export all memories to a file."""
+        ...
+
+    # ---- Composition Hooks ----
+    # Called by the core when this stack is attached/detached.
+    # The core provides an InferenceService so stack components
+    # that need model access can use it.
+
+    def on_attach(
+        self,
+        core_id: str,
+        inference: Optional[InferenceService] = None,
+    ) -> None:
+        """Called when this stack is attached to a core.
+
+        The stack should:
+        - Track the core_id (for shared stack coordination)
+        - Pass the inference service to components that need it
+        - Enable inference-dependent features if inference is provided
+
+        Args:
+            core_id: The core attaching this stack.
+            inference: Model access for components. None if the core
+                      has no model bound yet.
+        """
+        ...
+
+    def on_detach(self, core_id: str) -> None:
+        """Called when this stack is detached from a core.
+
+        The stack should:
+        - Stop tracking this core_id
+        - If no other cores are attached, set inference to None
+          on all components (graceful degradation)
+        """
+        ...
+
+    def on_model_changed(
+        self,
+        inference: Optional[InferenceService],
+    ) -> None:
+        """Called when the attached core's model changes.
+
+        The stack should update the inference service on all
+        components. If inference is None, the model was removed.
+        """
+        ...
+
+
+# =============================================================================
+# PLUGIN CONTEXT — What the core gives to plugins
+# =============================================================================
+# This is the plugin's window into the system. Mediated access only.
+# The plugin never sees raw stacks, raw models, or raw connections.
+#
+# Memory writes go through here, tagged with the plugin's identity
+# as the source. When the plugin is removed, these memories remain
+# in the stack — they belong to the stack now, attributed to the plugin.
+# =============================================================================
+
+
+@runtime_checkable
+class PluginContext(Protocol):
+    """Mediated interface from core to an active plugin."""
+
+    @property
+    def core_id(self) -> str:
+        """The core this plugin is attached to."""
+        ...
+
+    @property
+    def active_stack_id(self) -> Optional[str]:
+        """The currently active stack's ID (None if no stack)."""
+        ...
+
+    @property
+    def plugin_name(self) -> str:
+        """This plugin's name (used for source attribution)."""
+        ...
+
+    # ---- Memory Write ----
+    # All writes are automatically attributed with source=f"plugin:{plugin_name}"
+    # so the stack knows where memories came from.
+
+    def episode(
+        self,
+        objective: str,
+        outcome: str,
+        *,
+        lessons: Optional[list[str]] = None,
+        repeat: Optional[list[str]] = None,
+        avoid: Optional[list[str]] = None,
+        tags: Optional[list[str]] = None,
+        context: Optional[str] = None,
+    ) -> Optional[str]:
+        """Write an episode. Returns memory ID or None if no active stack."""
+        ...
+
+    def belief(
+        self,
+        statement: str,
+        *,
+        belief_type: str = "fact",
+        confidence: float = 0.8,
+        context: Optional[str] = None,
+    ) -> Optional[str]:
+        """Write a belief."""
+        ...
+
+    def value(
+        self,
+        name: str,
+        statement: str,
+        *,
+        priority: int = 50,
+        context: Optional[str] = None,
+    ) -> Optional[str]:
+        """Write a value."""
+        ...
+
+    def goal(
+        self,
+        title: str,
+        *,
+        description: Optional[str] = None,
+        goal_type: str = "task",
+        priority: str = "medium",
+        context: Optional[str] = None,
+    ) -> Optional[str]:
+        """Write a goal."""
+        ...
+
+    def note(
+        self,
+        content: str,
+        *,
+        note_type: str = "note",
+        tags: Optional[list[str]] = None,
+        context: Optional[str] = None,
+    ) -> Optional[str]:
+        """Write a note."""
+        ...
+
+    def relationship(
+        self,
+        other_entity_id: str,
+        *,
+        trust_level: Optional[float] = None,
+        interaction_type: Optional[str] = None,
+        notes: Optional[str] = None,
+        entity_type: Optional[str] = None,
+    ) -> Optional[str]:
+        """Write or update a relationship."""
+        ...
+
+    def raw(
+        self,
+        content: str,
+        *,
+        tags: Optional[list[str]] = None,
+    ) -> Optional[str]:
+        """Write a raw entry."""
+        ...
+
+    # ---- Memory Read ----
+
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        record_types: Optional[list[str]] = None,
+        context: Optional[str] = None,
+    ) -> list[SearchResult]:
+        """Search the active stack."""
+        ...
+
+    def get_relationships(
+        self,
+        *,
+        entity_id: Optional[str] = None,
+        entity_type: Optional[str] = None,
+        min_trust: Optional[float] = None,
+    ) -> list[Any]:
+        """Read relationships from the active stack."""
+        ...
+
+    def get_goals(
+        self,
+        *,
+        status: Optional[str] = None,
+        context: Optional[str] = None,
+    ) -> list[Any]:
+        """Read goals from the active stack."""
+        ...
+
+    # ---- Trust ----
+
+    def trust_set(
+        self,
+        entity: str,
+        domain: str,
+        score: float,
+        *,
+        evidence: Optional[str] = None,
+    ) -> Optional[str]:
+        """Set trust for an entity in a domain."""
+        ...
+
+    def trust_get(
+        self,
+        entity: str,
+        *,
+        domain: Optional[str] = None,
+    ) -> list[Any]:
+        """Get trust assessments for an entity."""
+        ...
+
+    # ---- Plugin's Own Storage ----
+
+    def get_data_dir(self) -> Path:
+        """Directory for this plugin's operational state.
+
+        Scoped: ~/.kernle/plugins/{plugin_name}/data/
+        The plugin owns this directory entirely. It is expected to
+        clean it up in deactivate(). If the plugin is uninstalled,
+        the core removes this directory.
+        """
+        ...
+
+    def get_config(self, key: str, default: Any = None) -> Any:
+        """Read plugin-specific configuration.
+
+        Reads from the plugin's config namespace. Configuration
+        is stored by the core, not by the plugin.
+        """
+        ...
+
+    def get_secret(self, key: str) -> Optional[str]:
+        """Read a secret (API key, credential).
+
+        Secrets are stored securely by the core and scoped to the
+        plugin. Never persisted in memory stacks.
+        """
+        ...
+
+
+# =============================================================================
+# PLUGIN PROTOCOL — Limbs
+# =============================================================================
+# A capability extension. Manages its own operational state. Removable.
+#
+# Lifecycle:
+#   1. Discovery:  Core finds plugin via entry point (kernle.plugins group)
+#   2. Load:       Core calls activate(context) — plugin initializes
+#   3. Use:        Plugin provides CLI commands, MCP tools, actions
+#   4. Unload:     Core calls deactivate() — plugin cleans up everything
+#
+# After unload, the only trace is memories written to the stack through
+# the context during the plugin's lifetime. Those memories belong to the
+# stack now. The plugin itself is gone completely.
+# =============================================================================
+
+
+@runtime_checkable
+class PluginProtocol(Protocol):
+    """Interface for capability extensions.
+
+    Implementations: chainbased, web-search, code-executor, etc.
+    """
+
+    @property
+    def name(self) -> str:
+        """Plugin identifier. Used for namespacing, config, data dir."""
+        ...
+
+    @property
+    def version(self) -> str:
+        """Semantic version of this plugin."""
+        ...
+
+    @property
+    def protocol_version(self) -> int:
+        """The PROTOCOL_VERSION this plugin was built against.
+
+        The core checks this on load. If it doesn't match, the core
+        warns (or refuses to load if major incompatibility).
+        """
+        ...
+
+    @property
+    def description(self) -> str:
+        """One-line description."""
+        ...
+
+    def capabilities(self) -> list[str]:
+        """What this plugin can do.
+
+        Used for discovery, status display, and source tagging.
+        e.g., ['commerce', 'wallet', 'escrow', 'jobs']
+        """
+        ...
+
+    def activate(self, context: PluginContext) -> None:
+        """Initialize the plugin.
+
+        Called when loaded into a core. The plugin should:
+        - Store the context reference for later use
+        - Initialize its own operational state
+        - Set up any connections it needs (APIs, services)
+        - Restore state from get_data_dir() if applicable
+
+        Args:
+            context: Mediated access to core, stacks, and config.
+        """
+        ...
+
+    def deactivate(self) -> None:
+        """Shut down the plugin.
+
+        Called when unloaded from a core. The plugin MUST:
+        - Close all connections
+        - Flush any pending operations
+        - Clean up files in get_data_dir() if ephemeral
+        - Release all resources
+
+        After this returns, the plugin is gone. The only residue
+        is memories written to the stack through the context.
+        """
+        ...
+
+    def register_cli(self, subparsers: Any) -> None:
+        """Add subcommands to the core's CLI.
+
+        Args:
+            subparsers: The argparse subparsers action from the core CLI.
+                       Add commands like: subparsers.add_parser('wallet', ...)
+        """
+        ...
+
+    def register_tools(self) -> list[ToolDefinition]:
+        """Return tool definitions for MCP / model integration.
+
+        These tools become available to the model when this plugin
+        is active. The core registers them with the MCP server.
+        """
+        ...
+
+    def on_load(self, load_context: dict[str, Any]) -> None:
+        """Contribute to `kernle load` working memory output.
+
+        Called when the core assembles working memory. The plugin
+        can add operational state that the model should know about.
+
+        Args:
+            load_context: The working memory dict being built.
+                         Add your key: load_context['chainbased'] = {...}
+        """
+        ...
+
+    def on_status(self, status: dict[str, Any]) -> None:
+        """Contribute to `kernle status` output.
+
+        Args:
+            status: The status dict being built.
+        """
+        ...
+
+    def health_check(self) -> PluginHealth:
+        """Check if the plugin is functioning correctly.
+
+        Called by `kernle doctor` or on demand.
+        """
+        ...
+
+
+# =============================================================================
+# CORE PROTOCOL — Torso
+# =============================================================================
+# The bus. Connects stacks, plugins, and the model. Has an ID.
+# Routes operations. Manages the composition.
+#
+# The core is not "the entity." The entity is the composition.
+# But the core is what holds the composition together.
+#
+# The core_id persists across reconfigurations. Swap the model,
+# change the stacks, add/remove plugins — the core_id stays.
+# =============================================================================
+
+
+@runtime_checkable
+class CoreProtocol(Protocol):
+    """Interface for the coordinator.
+
+    The default implementation is kernle.core.Entity.
+    """
+
+    @property
+    def core_id(self) -> str:
+        """This core's persistent identifier."""
+        ...
+
+    # ---- Model ----
+
+    @property
+    def model(self) -> Optional[ModelProtocol]:
+        """The currently bound model (None if not yet configured)."""
+        ...
+
+    def set_model(self, model: ModelProtocol) -> None:
+        """Bind a model to this core.
+
+        Replaces any previously bound model.
+        """
+        ...
+
+    # ---- Stacks ----
+
+    @property
+    def active_stack(self) -> Optional[StackProtocol]:
+        """The currently active stack (None if none attached)."""
+        ...
+
+    @property
+    def stacks(self) -> dict[str, StackInfo]:
+        """All attached stacks, keyed by alias."""
+        ...
+
+    def attach_stack(
+        self,
+        stack: StackProtocol,
+        *,
+        alias: Optional[str] = None,
+        set_active: bool = True,
+    ) -> str:
+        """Attach a memory stack.
+
+        Args:
+            stack: The stack to attach.
+            alias: Friendly name. Defaults to stack_id.
+            set_active: Make this the active stack.
+
+        Returns:
+            The alias assigned to this stack.
+        """
+        ...
+
+    def detach_stack(self, alias: str) -> None:
+        """Detach a stack.
+
+        The stack continues to exist independently — it's just
+        no longer connected to this core.
+        """
+        ...
+
+    def set_active_stack(self, alias: str) -> None:
+        """Switch which attached stack is active.
+
+        All routed memory operations go to the active stack.
+        """
+        ...
+
+    # ---- Plugins ----
+
+    @property
+    def plugins(self) -> dict[str, PluginInfo]:
+        """All loaded plugins, keyed by name."""
+        ...
+
+    def load_plugin(self, plugin: PluginProtocol) -> None:
+        """Load and activate a plugin.
+
+        Creates a PluginContext for this plugin and calls activate().
+        Registers the plugin's CLI commands and MCP tools.
+        """
+        ...
+
+    def unload_plugin(self, name: str) -> None:
+        """Deactivate and unload a plugin.
+
+        Calls deactivate(), unregisters CLI commands and tools,
+        removes the plugin from the core.
+        """
+        ...
+
+    def discover_plugins(self) -> list[PluginInfo]:
+        """Discover installed plugins via entry points.
+
+        Scans the 'kernle.plugins' entry point group for available
+        plugins, whether currently loaded or not.
+        """
+        ...
+
+    # ---- Routed Memory Operations ----
+    # The proper write path for memories. These methods:
+    # 1. Populate provenance fields (source, source_type, timestamps)
+    # 2. Set context from the core's current composition
+    # 3. Route to the active stack's save_*() methods
+    # 4. Trigger component hooks (on_save) via the stack
+    #
+    # This is how memories should be created. Direct stack.save_*()
+    # calls bypass provenance and should be reserved for maintenance.
+    #
+    # Raise NoActiveStackError if no stack is attached.
+
+    def episode(
+        self,
+        objective: str,
+        outcome: str,
+        *,
+        lessons: Optional[list[str]] = None,
+        repeat: Optional[list[str]] = None,
+        avoid: Optional[list[str]] = None,
+        tags: Optional[list[str]] = None,
+        derived_from: Optional[list[str]] = None,
+        source: Optional[str] = None,
+        context: Optional[str] = None,
+        context_tags: Optional[list[str]] = None,
+    ) -> str: ...
+
+    def belief(
+        self,
+        statement: str,
+        *,
+        type: str = "fact",
+        confidence: float = 0.8,
+        foundational: bool = False,
+        context: Optional[str] = None,
+        context_tags: Optional[list[str]] = None,
+        source: Optional[str] = None,
+        derived_from: Optional[list[str]] = None,
+    ) -> str: ...
+
+    def value(
+        self,
+        name: str,
+        statement: str,
+        *,
+        priority: int = 50,
+        type: str = "core_value",
+        foundational: bool = False,
+        context: Optional[str] = None,
+        context_tags: Optional[list[str]] = None,
+    ) -> str: ...
+
+    def goal(
+        self,
+        title: str,
+        *,
+        description: Optional[str] = None,
+        goal_type: str = "task",
+        priority: str = "medium",
+        context: Optional[str] = None,
+        context_tags: Optional[list[str]] = None,
+    ) -> str: ...
+
+    def note(
+        self,
+        content: str,
+        *,
+        type: str = "note",
+        speaker: Optional[str] = None,
+        reason: Optional[str] = None,
+        tags: Optional[list[str]] = None,
+        protect: bool = False,
+        derived_from: Optional[list[str]] = None,
+        source: Optional[str] = None,
+        context: Optional[str] = None,
+        context_tags: Optional[list[str]] = None,
+    ) -> str: ...
+
+    def drive(
+        self,
+        drive_type: str,
+        *,
+        intensity: float = 0.5,
+        focus_areas: Optional[list[str]] = None,
+        decay_hours: int = 24,
+        context: Optional[str] = None,
+        context_tags: Optional[list[str]] = None,
+    ) -> str: ...
+
+    def relationship(
+        self,
+        other_stack_id: str,
+        *,
+        trust_level: Optional[float] = None,
+        notes: Optional[str] = None,
+        interaction_type: Optional[str] = None,
+        entity_type: Optional[str] = None,
+    ) -> str: ...
+
+    def raw(
+        self,
+        content: str,
+        *,
+        tags: Optional[list[str]] = None,
+        source: Optional[str] = None,
+    ) -> str: ...
+
+    # ---- Routed Search & Load ----
+
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        record_types: Optional[list[str]] = None,
+        context: Optional[str] = None,
+    ) -> list[SearchResult]: ...
+
+    def load(
+        self,
+        *,
+        token_budget: int = 8000,
+        context: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Assemble working memory.
+
+        Loads from the active stack, then calls on_load() on all
+        active plugins so they can contribute operational state.
+        """
+        ...
+
+    def status(self) -> dict[str, Any]:
+        """Full system status.
+
+        Includes: core info, model info, stack stats, plugin status.
+        Calls on_status() on all active plugins.
+        """
+        ...
+
+    # ---- Routed Trust ----
+
+    def trust_set(
+        self,
+        entity: str,
+        domain: str,
+        score: float,
+        *,
+        evidence: Optional[str] = None,
+    ) -> str: ...
+
+    def trust_get(
+        self,
+        entity: str,
+        *,
+        domain: Optional[str] = None,
+    ) -> list[Any]: ...
+
+    def trust_list(
+        self,
+        *,
+        domain: Optional[str] = None,
+        min_score: Optional[float] = None,
+    ) -> list[Any]: ...
+
+    # ---- Routed Sync ----
+
+    def sync(self) -> SyncResult: ...
+    def checkpoint(self, message: str = "") -> str: ...
+
+    # ---- Binding Management ----
+
+    def get_binding(self) -> Binding:
+        """Snapshot the current composition."""
+        ...
+
+    def save_binding(self, path: Optional[Path] = None) -> Path:
+        """Save the binding to disk for later restoration."""
+        ...
+
+    @classmethod
+    def from_binding(
+        cls,
+        binding: Binding | Path,
+    ) -> "CoreProtocol":
+        """Restore a core from a saved binding.
+
+        Reconnects the model, attaches stacks, loads plugins.
+        """
+        ...
+
+
+# =============================================================================
+# ENTRY POINTS
+# =============================================================================
+# All components register via pyproject.toml entry points.
+# The core discovers them at runtime via importlib.metadata.
+#
+# Core plugins (limbs):
+#   [project.entry-points."kernle.plugins"]
+#   chainbased = "chainbased:ChainbasedPlugin"
+#
+# Stack implementations:
+#   [project.entry-points."kernle.stacks"]
+#   sqlite = "kernle_stack:SQLiteStack"
+#   postgres = "kernle_stack:PostgresStack"
+#
+# Model implementations:
+#   [project.entry-points."kernle.models"]
+#   anthropic = "kernle_anthropic:AnthropicModel"
+#   ollama = "kernle_ollama:OllamaModel"
+#
+# Stack components (stack sub-plugins):
+#   [project.entry-points."kernle.stack_components"]
+#   embedding-ngram = "kernle_stack:LocalNgramEmbedding"
+#   embedding-st = "kernle_embeddings_st:SentenceTransformerEmbedding"
+#   embedding-ollama = "kernle_ollama:OllamaEmbedding"
+#   forgetting = "kernle_stack:SalienceForgetting"
+#   consolidation = "kernle_stack:EpisodicConsolidation"
+#   emotional-tagging = "kernle_stack:EmotionalTagging"
+#   anxiety = "kernle_stack:AnxietyDetection"
+#   suggestions = "kernle_stack:SuggestionExtraction"
+#   meta-memory = "kernle_stack:MetaMemoryTracking"
+#
+# =============================================================================
+
+ENTRY_POINT_GROUP_PLUGINS = "kernle.plugins"
+ENTRY_POINT_GROUP_STACKS = "kernle.stacks"
+ENTRY_POINT_GROUP_MODELS = "kernle.models"
+ENTRY_POINT_GROUP_STACK_COMPONENTS = "kernle.stack_components"
