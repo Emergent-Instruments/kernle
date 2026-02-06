@@ -31,6 +31,7 @@ from kernle.protocols import (
     StackInfo,
     StackProtocol,
     SyncResult,
+    ToolDefinition,
 )
 from kernle.types import (
     Belief,
@@ -310,6 +311,7 @@ class Entity:
         self._active_stack_alias: Optional[str] = None
         self._plugins: dict[str, PluginProtocol] = {}
         self._plugin_contexts: dict[str, _PluginContextImpl] = {}
+        self._plugin_tools: dict[str, list[ToolDefinition]] = {}
         self._plugin_configs: dict[str, dict[str, Any]] = {}
         self._plugin_secrets: dict[str, dict[str, str]] = {}
 
@@ -391,17 +393,31 @@ class Entity:
 
     # ---- Plugin Management ----
 
-    def load_plugin(self, plugin: PluginProtocol) -> None:
+    def load_plugin(self, plugin: PluginProtocol, *, subparsers: Any = None) -> None:
         context = _PluginContextImpl(self, plugin.name)
         plugin.activate(context)
         self._plugins[plugin.name] = plugin
         self._plugin_contexts[plugin.name] = context
+        # Register tools
+        try:
+            tools = plugin.register_tools()
+            if tools:
+                self._plugin_tools[plugin.name] = tools
+        except Exception as e:
+            logger.warning("Plugin '%s' tool registration failed: %s", plugin.name, e)
+        # Register CLI commands if subparsers provided
+        if subparsers is not None:
+            try:
+                plugin.register_cli(subparsers)
+            except Exception as e:
+                logger.warning("Plugin '%s' CLI registration failed: %s", plugin.name, e)
 
     def unload_plugin(self, name: str) -> None:
         plugin = self._plugins.pop(name, None)
         if plugin:
             plugin.deactivate()
         self._plugin_contexts.pop(name, None)
+        self._plugin_tools.pop(name, None)
 
     def discover_plugins(self) -> list[PluginInfo]:
         discovered = discover_plugins()
@@ -417,6 +433,13 @@ class Entity:
                 )
             )
         return result
+
+    def get_all_plugin_tools(self) -> list[ToolDefinition]:
+        """Get all tools from all loaded plugins."""
+        tools: list[ToolDefinition] = []
+        for plugin_tools in self._plugin_tools.values():
+            tools.extend(plugin_tools)
+        return tools
 
     # ---- Routed Memory Operations (Provenance Enforcement) ----
 

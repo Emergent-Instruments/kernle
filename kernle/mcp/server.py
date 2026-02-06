@@ -44,6 +44,10 @@ mcp = Server("kernle")
 # Global stack_id for MCP session
 _mcp_stack_id: str = "default"
 
+# Registry for plugin tools (populated via register_plugin_tools)
+_plugin_tools: Dict[str, Tool] = {}  # namespaced_name -> Tool
+_plugin_handlers: Dict[str, Any] = {}  # namespaced_name -> handler callable
+
 
 def set_stack_id(stack_id: str) -> None:
     """Set the agent ID for this MCP session."""
@@ -59,6 +63,32 @@ def get_kernle() -> Kernle:
     if not hasattr(get_kernle, "_instance"):
         get_kernle._instance = Kernle(_mcp_stack_id)  # type: ignore[attr-defined]
     return get_kernle._instance  # type: ignore[attr-defined]
+
+
+def register_plugin_tools(plugin_name: str, tools: list) -> None:
+    """Register a plugin's tools with the MCP server.
+
+    Tools are namespaced as ``{plugin_name}.{tool_name}`` to avoid
+    collisions with built-in tools or other plugins.
+    """
+    for td in tools:
+        namespaced = f"{plugin_name}.{td.name}"
+        _plugin_tools[namespaced] = Tool(
+            name=namespaced,
+            description=f"[{plugin_name}] {td.description}",
+            inputSchema=td.input_schema,
+        )
+        if td.handler is not None:
+            _plugin_handlers[namespaced] = td.handler
+
+
+def unregister_plugin_tools(plugin_name: str) -> None:
+    """Remove all tools registered by a plugin."""
+    prefix = f"{plugin_name}."
+    to_remove = [name for name in _plugin_tools if name.startswith(prefix)]
+    for name in to_remove:
+        _plugin_tools.pop(name, None)
+        _plugin_handlers.pop(name, None)
 
 
 # =============================================================================
@@ -411,6 +441,10 @@ def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
                 arguments.get("query"), "query", max_length=1000, required=True
             )
             sanitized["limit"] = int(validate_number(arguments.get("limit"), "limit", 1, 500, 50))
+
+        elif name in _plugin_handlers:
+            # Plugin tools bypass built-in validation; plugins own their schemas
+            sanitized = dict(arguments)
 
         else:
             raise ValueError(f"Unknown tool: {name}")
@@ -1173,8 +1207,8 @@ TOOLS = [
 
 @mcp.list_tools()
 async def list_tools() -> list[Tool]:
-    """List available memory tools."""
-    return list(TOOLS)
+    """List available memory tools, including plugin-provided tools."""
+    return list(TOOLS) + list(_plugin_tools.values())
 
 
 @mcp.call_tool()
@@ -1813,6 +1847,15 @@ Checkpoint: {"Yes" if status["checkpoint"] else "No"}"""
                     lines.append(f"  {t}: {count}")
                 lines.append("\nUse memory_suggestions_list to review pending suggestions.")
                 result = "\n".join(lines)
+
+        elif name in _plugin_handlers:
+            # Dispatch to plugin tool handler
+            handler = _plugin_handlers[name]
+            handler_result = handler(sanitized_args)
+            if isinstance(handler_result, str):
+                result = handler_result
+            else:
+                result = json.dumps(handler_result, indent=2, default=str)
 
         else:
             # This should never happen due to validation, but handle gracefully
