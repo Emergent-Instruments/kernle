@@ -53,7 +53,7 @@ STACK_ID = "contract-test-stack"
 def stack(tmp_path):
     """Create a fresh SQLiteStack for each test."""
     db_path = tmp_path / "contract_test.db"
-    return SQLiteStack(stack_id=STACK_ID, db_path=db_path)
+    return SQLiteStack(stack_id=STACK_ID, db_path=db_path, components=[])
 
 
 def _uid() -> str:

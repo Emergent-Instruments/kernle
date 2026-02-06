@@ -75,6 +75,14 @@ kernle-mcp = "kernle.mcp.server:main"
 [project.entry-points."kernle.models"]
 
 [project.entry-points."kernle.stack_components"]
+embedding = "kernle.stack.components.embedding:EmbeddingComponent"
+forgetting = "kernle.stack.components.forgetting:ForgettingComponent"
+consolidation = "kernle.stack.components.consolidation:ConsolidationComponent"
+emotions = "kernle.stack.components.emotions:EmotionalTaggingComponent"
+anxiety = "kernle.stack.components.anxiety:AnxietyComponent"
+suggestions = "kernle.stack.components.suggestions:SuggestionComponent"
+metamemory = "kernle.stack.components.metamemory:MetaMemoryComponent"
+knowledge = "kernle.stack.components.knowledge:KnowledgeComponent"
 
 [project.urls]
 Homepage = "https://kernle.ai"

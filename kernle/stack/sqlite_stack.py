@@ -138,6 +138,7 @@ class SQLiteStack(
         db_path: Optional[Path] = None,
         cloud_storage: Optional[Any] = None,
         embedder: Optional[Any] = None,
+        components: Optional[List[StackComponentProtocol]] = None,
     ):
         self._backend = SQLiteStorage(
             stack_id=stack_id,
@@ -154,6 +155,14 @@ class SQLiteStack(
         # Composition state
         self._attached_core_id: Optional[str] = None
         self._inference: Optional[InferenceService] = None
+
+        # Auto-load components: None = defaults, [] = bare, list = explicit
+        if components is None:
+            from kernle.stack.components import get_default_components
+
+            components = get_default_components()
+        for component in components:
+            self.add_component(component)
 
     # ---- Properties ----
 
@@ -179,6 +188,8 @@ class SQLiteStack(
         if name in self._components:
             raise ValueError(f"Component '{name}' already registered")
         component.attach(self.stack_id, self._inference)
+        if hasattr(component, "set_storage"):
+            component.set_storage(self._storage)
         self._components[name] = component
 
     def remove_component(self, name: str) -> None:
