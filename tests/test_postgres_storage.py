@@ -23,11 +23,11 @@ class TestSupabaseStorageInit:
     def test_init_with_explicit_credentials(self):
         """Test initialization with explicit URL and key."""
         storage = SupabaseStorage(
-            agent_id="test_agent",
+            stack_id="test_agent",
             supabase_url="https://example.supabase.co",
             supabase_key="test-key-12345",
         )
-        assert storage.agent_id == "test_agent"
+        assert storage.stack_id == "test_agent"
         assert storage.supabase_url == "https://example.supabase.co"
         assert storage.supabase_key == "test-key-12345"
         assert storage._client is None  # Lazy loaded
@@ -37,7 +37,7 @@ class TestSupabaseStorageInit:
         monkeypatch.setenv("KERNLE_SUPABASE_URL", "https://env.supabase.co")
         monkeypatch.setenv("KERNLE_SUPABASE_KEY", "env-key-67890")
 
-        storage = SupabaseStorage(agent_id="test_agent")
+        storage = SupabaseStorage(stack_id="test_agent")
         assert storage.supabase_url == "https://env.supabase.co"
         assert storage.supabase_key == "env-key-67890"
 
@@ -46,7 +46,7 @@ class TestSupabaseStorageInit:
         monkeypatch.setenv("SUPABASE_URL", "https://fallback.supabase.co")
         monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "fallback-key")
 
-        storage = SupabaseStorage(agent_id="test_agent")
+        storage = SupabaseStorage(stack_id="test_agent")
         assert storage.supabase_url == "https://fallback.supabase.co"
         assert storage.supabase_key == "fallback-key"
 
@@ -57,7 +57,7 @@ class TestSupabaseStorageInit:
         monkeypatch.delenv("KERNLE_SUPABASE_KEY", raising=False)
         monkeypatch.delenv("SUPABASE_SERVICE_ROLE_KEY", raising=False)
 
-        storage = SupabaseStorage(agent_id="test_agent")
+        storage = SupabaseStorage(stack_id="test_agent")
 
         with pytest.raises(ValueError, match="Supabase credentials required"):
             _ = storage.client
@@ -65,7 +65,7 @@ class TestSupabaseStorageInit:
     def test_client_lazy_load_invalid_url_format(self):
         """Test that accessing client raises error with invalid URL format."""
         storage = SupabaseStorage(
-            agent_id="test_agent", supabase_url="not-a-valid-url", supabase_key="test-key"
+            stack_id="test_agent", supabase_url="not-a-valid-url", supabase_key="test-key"
         )
 
         with pytest.raises(ValueError, match="(Invalid|must use HTTPS)"):
@@ -74,7 +74,7 @@ class TestSupabaseStorageInit:
     def test_client_lazy_load_empty_key(self):
         """Test that accessing client raises error with empty key."""
         storage = SupabaseStorage(
-            agent_id="test_agent",
+            stack_id="test_agent",
             supabase_url="https://example.supabase.co",
             supabase_key="   ",  # Whitespace only
         )
@@ -240,7 +240,7 @@ def supabase_storage(mock_supabase_client):
     client, storage = mock_supabase_client
 
     supabase = SupabaseStorage(
-        agent_id="test_agent", supabase_url="https://test.supabase.co", supabase_key="test-key"
+        stack_id="test_agent", supabase_url="https://test.supabase.co", supabase_key="test-key"
     )
     # Inject the mock client directly
     supabase._client = client
@@ -260,7 +260,7 @@ class TestSupabaseEpisodes:
 
         episode = Episode(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             objective="Test objective",
             outcome="Test outcome",
             outcome_type="success",
@@ -284,7 +284,7 @@ class TestSupabaseEpisodes:
         db["episodes"].append(
             {
                 "id": str(uuid.uuid4()),
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "First task",
                 "outcome": "Completed",
                 "outcome_type": "success",
@@ -307,7 +307,7 @@ class TestSupabaseEpisodes:
         db["episodes"].append(
             {
                 "id": ep_id,
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "Specific episode",
                 "outcome": "Done",
                 "outcome_type": "success",
@@ -327,7 +327,7 @@ class TestSupabaseEpisodes:
         db["episodes"].append(
             {
                 "id": ep_id,
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "Emotional episode",
                 "outcome": "Felt good",
                 "emotional_valence": 0.0,
@@ -352,7 +352,7 @@ class TestSupabaseBeliefs:
 
         belief = Belief(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             statement="Testing is valuable",
             belief_type="value",
             confidence=0.9,
@@ -369,7 +369,7 @@ class TestSupabaseBeliefs:
         db["beliefs"].append(
             {
                 "id": str(uuid.uuid4()),
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "statement": "Code should be tested",
                 "belief_type": "fact",
                 "confidence": 0.85,
@@ -389,7 +389,7 @@ class TestSupabaseBeliefs:
         db["beliefs"].append(
             {
                 "id": str(uuid.uuid4()),
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "statement": "Unique statement",
                 "belief_type": "fact",
                 "is_active": True,
@@ -414,7 +414,7 @@ class TestSupabaseValues:
 
         value = Value(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             name="Quality",
             statement="Quality over quantity",
             priority=80,
@@ -431,7 +431,7 @@ class TestSupabaseValues:
         db["values"].append(
             {
                 "id": str(uuid.uuid4()),
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "name": "Integrity",
                 "statement": "Be honest and transparent",
                 "priority": 90,
@@ -457,7 +457,7 @@ class TestSupabaseGoals:
 
         goal = Goal(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             title="Write tests",
             description="Achieve good test coverage",
             priority="high",
@@ -475,7 +475,7 @@ class TestSupabaseGoals:
         db["goals"].append(
             {
                 "id": str(uuid.uuid4()),
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "title": "Ship feature",
                 "description": "Complete the feature",
                 "priority": "high",
@@ -501,7 +501,7 @@ class TestSupabaseNotes:
 
         note = Note(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             content="Important insight",
             note_type="insight",
             tags=["important"],
@@ -518,7 +518,7 @@ class TestSupabaseNotes:
         db["notes"].append(
             {
                 "id": str(uuid.uuid4()),
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "content": "A curated memory",
                 "source": "curated",
                 "metadata": {"note_type": "note", "tags": []},
@@ -543,7 +543,7 @@ class TestSupabaseDrives:
 
         drive = Drive(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             drive_type="curiosity",
             intensity=0.7,
             focus_areas=["learning", "exploration"],
@@ -559,7 +559,7 @@ class TestSupabaseDrives:
         db["drives"].append(
             {
                 "id": str(uuid.uuid4()),
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "drive_type": "growth",
                 "intensity": 0.8,
                 "focus_areas": ["improvement"],
@@ -608,11 +608,11 @@ class TestSupabaseStats:
         storage, db = supabase_storage
 
         # Add some test data
-        db["episodes"].append({"id": "1", "agent_id": "test_agent"})
-        db["beliefs"].append({"id": "1", "agent_id": "test_agent", "is_active": True})
-        db["values"].append({"id": "1", "agent_id": "test_agent", "is_active": True})
-        db["goals"].append({"id": "1", "agent_id": "test_agent", "status": "active"})
-        db["notes"].append({"id": "1", "agent_id": "test_agent", "source": "curated"})
+        db["episodes"].append({"id": "1", "stack_id": "test_agent"})
+        db["beliefs"].append({"id": "1", "stack_id": "test_agent", "is_active": True})
+        db["values"].append({"id": "1", "stack_id": "test_agent", "is_active": True})
+        db["goals"].append({"id": "1", "stack_id": "test_agent", "status": "active"})
+        db["notes"].append({"id": "1", "stack_id": "test_agent", "source": "curated"})
 
         stats = storage.get_stats()
         assert "episodes" in stats
@@ -635,7 +635,7 @@ class TestSupabaseSearch:
         db["episodes"].append(
             {
                 "id": str(uuid.uuid4()),
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "Implement feature X",
                 "outcome": "Successfully deployed",
                 "lessons": ["Plan ahead"],
@@ -653,7 +653,7 @@ class TestSupabaseSearch:
         db["notes"].append(
             {
                 "id": str(uuid.uuid4()),
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "content": "Important discovery about testing",
                 "source": "curated",
                 "metadata": {},
@@ -679,7 +679,7 @@ class TestSupabaseMetaMemory:
         db["episodes"].append(
             {
                 "id": ep_id,
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "Test memory",
                 "outcome": "Found",
                 "created_at": datetime.now(timezone.utc).isoformat(),
@@ -709,7 +709,7 @@ class TestSupabasePlaybooks:
 
         playbook = Playbook(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             name="Deploy to Production",
             description="Standard deployment process",
             trigger_conditions=["release ready", "deploy command"],
@@ -741,7 +741,7 @@ class TestSupabasePlaybooks:
         db["playbooks"].append(
             {
                 "id": pb_id,
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "name": "Code Review",
                 "description": "Review code changes",
                 "trigger_conditions": ["PR opened"],
@@ -780,7 +780,7 @@ class TestSupabasePlaybooks:
             db["playbooks"].append(
                 {
                     "id": str(uuid.uuid4()),
-                    "agent_id": "test_agent",
+                    "stack_id": "test_agent",
                     "name": f"Playbook {i}",
                     "description": f"Description {i}",
                     "trigger_conditions": [f"trigger {i}"],
@@ -810,7 +810,7 @@ class TestSupabasePlaybooks:
         db["playbooks"].append(
             {
                 "id": str(uuid.uuid4()),
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "name": "Database Migration",
                 "description": "Migrate database schema safely",
                 "trigger_conditions": ["schema change"],
@@ -829,7 +829,7 @@ class TestSupabasePlaybooks:
         db["playbooks"].append(
             {
                 "id": str(uuid.uuid4()),
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "name": "Cache Flush",
                 "description": "Clear application cache",
                 "trigger_conditions": ["stale data"],
@@ -863,7 +863,7 @@ class TestSupabasePlaybooks:
         db["playbooks"].append(
             {
                 "id": pb_id,
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "name": "Test Playbook",
                 "description": "For testing usage updates",
                 "trigger_conditions": [],
@@ -903,7 +903,7 @@ class TestSupabasePlaybooks:
         db["playbooks"].append(
             {
                 "id": pb_id,
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "name": "Mastery Test",
                 "description": "Testing mastery progression",
                 "trigger_conditions": [],
@@ -942,7 +942,7 @@ class TestSupabaseForgetting:
         db["episodes"].append(
             {
                 "id": ep_id,
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "Test episode",
                 "outcome": "Success",
                 "times_accessed": 0,
@@ -967,7 +967,7 @@ class TestSupabaseForgetting:
         db["episodes"].append(
             {
                 "id": ep_id,
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "Test episode",
                 "outcome": "Success",
                 "times_accessed": 5,
@@ -1003,7 +1003,7 @@ class TestSupabaseForgetting:
             [
                 {
                     "id": ep_id1,
-                    "agent_id": "test_agent",
+                    "stack_id": "test_agent",
                     "objective": "Episode 1",
                     "outcome": "Success",
                     "times_accessed": 0,
@@ -1011,7 +1011,7 @@ class TestSupabaseForgetting:
                 },
                 {
                     "id": ep_id2,
-                    "agent_id": "test_agent",
+                    "stack_id": "test_agent",
                     "objective": "Episode 2",
                     "outcome": "Success",
                     "times_accessed": 0,
@@ -1031,7 +1031,7 @@ class TestSupabaseForgetting:
         db["episodes"].append(
             {
                 "id": ep_id,
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "Test episode",
                 "outcome": "Success",
                 "is_protected": False,
@@ -1058,7 +1058,7 @@ class TestSupabaseForgetting:
         db["episodes"].append(
             {
                 "id": ep_id,
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "Protected episode",
                 "outcome": "Success",
                 "is_protected": True,
@@ -1081,7 +1081,7 @@ class TestSupabaseForgetting:
         db["episodes"].append(
             {
                 "id": ep_id,
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "Already forgotten",
                 "outcome": "Success",
                 "is_protected": False,
@@ -1102,7 +1102,7 @@ class TestSupabaseForgetting:
         db["episodes"].append(
             {
                 "id": ep_id,
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "Forgotten episode",
                 "outcome": "Success",
                 "is_forgotten": True,
@@ -1128,7 +1128,7 @@ class TestSupabaseForgetting:
         db["episodes"].append(
             {
                 "id": ep_id,
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "Normal episode",
                 "outcome": "Success",
                 "is_forgotten": False,
@@ -1147,7 +1147,7 @@ class TestSupabaseForgetting:
         db["episodes"].append(
             {
                 "id": ep_id,
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "Test episode",
                 "outcome": "Success",
                 "is_protected": False,
@@ -1169,7 +1169,7 @@ class TestSupabaseForgetting:
         db["episodes"].append(
             {
                 "id": ep_id,
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "Test episode",
                 "outcome": "Success",
                 "is_protected": True,
@@ -1192,7 +1192,7 @@ class TestSupabaseForgetting:
         db["episodes"].append(
             {
                 "id": "old-episode",
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "Old episode",
                 "outcome": "Meh",
                 "confidence": 0.3,
@@ -1208,7 +1208,7 @@ class TestSupabaseForgetting:
         db["episodes"].append(
             {
                 "id": "protected-episode",
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "Protected episode",
                 "outcome": "Important",
                 "confidence": 0.3,
@@ -1223,7 +1223,7 @@ class TestSupabaseForgetting:
         db["episodes"].append(
             {
                 "id": "forgotten-episode",
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "Already forgotten",
                 "outcome": "Old",
                 "confidence": 0.3,
@@ -1251,7 +1251,7 @@ class TestSupabaseForgetting:
         db["episodes"].append(
             {
                 "id": "high-salience",
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "High salience",
                 "outcome": "Great",
                 "confidence": 0.9,
@@ -1267,7 +1267,7 @@ class TestSupabaseForgetting:
         db["episodes"].append(
             {
                 "id": "low-salience",
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "Low salience",
                 "outcome": "Meh",
                 "confidence": 0.2,
@@ -1297,7 +1297,7 @@ class TestSupabaseForgetting:
         db["episodes"].append(
             {
                 "id": "forgotten-1",
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "Forgotten 1",
                 "outcome": "Old",
                 "is_forgotten": True,
@@ -1310,7 +1310,7 @@ class TestSupabaseForgetting:
         db["episodes"].append(
             {
                 "id": "forgotten-2",
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "Forgotten 2",
                 "outcome": "Old",
                 "is_forgotten": True,
@@ -1324,7 +1324,7 @@ class TestSupabaseForgetting:
         db["episodes"].append(
             {
                 "id": "active",
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "Active",
                 "outcome": "Current",
                 "is_forgotten": False,
@@ -1347,7 +1347,7 @@ class TestSupabaseForgetting:
         db["episodes"].append(
             {
                 "id": "active",
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "objective": "Active",
                 "outcome": "Current",
                 "is_forgotten": False,
@@ -1366,7 +1366,7 @@ class TestSupabaseForgetting:
         db["beliefs"].append(
             {
                 "id": belief_id,
-                "agent_id": "test_agent",
+                "stack_id": "test_agent",
                 "statement": "Test belief",
                 "belief_type": "fact",
                 "confidence": 0.5,
@@ -1383,15 +1383,15 @@ class TestSupabaseForgetting:
         updated = db["beliefs"][0]
         assert updated["is_forgotten"] is True
 
-    def test_forget_note_uses_agent_id(self, supabase_storage):
-        """Test that forgetting notes uses agent_id correctly."""
+    def test_forget_note_uses_stack_id(self, supabase_storage):
+        """Test that forgetting notes uses stack_id correctly."""
         storage, db = supabase_storage
 
         note_id = str(uuid.uuid4())
         db["notes"].append(
             {
                 "id": note_id,
-                "agent_id": "test_agent",  # Notes use agent_id, not agent_id
+                "stack_id": "test_agent",  # Notes use stack_id, not stack_id
                 "content": "Test note",
                 "source": "curated",
                 "is_protected": False,

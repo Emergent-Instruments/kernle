@@ -60,7 +60,7 @@ class TestSalienceCalculation:
 
         episode = Episode(
             id="test-old-episode",
-            agent_id=kernle.agent_id,
+            stack_id=kernle.stack_id,
             objective="Old test episode",
             outcome="success",
             outcome_type="success",
@@ -111,7 +111,7 @@ class TestForgettingCandidates:
 
         episode = Episode(
             id="old-forgettable",
-            agent_id=kernle.agent_id,
+            stack_id=kernle.stack_id,
             objective="Old forgettable episode",
             outcome="meh",
             outcome_type="partial",
@@ -136,7 +136,7 @@ class TestForgettingCandidates:
 
         episode = Episode(
             id="protected-episode",
-            agent_id=kernle.agent_id,
+            stack_id=kernle.stack_id,
             objective="Protected episode",
             outcome="important",
             outcome_type="success",
@@ -333,7 +333,7 @@ class TestForgettingCycle:
 
         episode = Episode(
             id="dry-run-test",
-            agent_id=kernle.agent_id,
+            stack_id=kernle.stack_id,
             objective="Dry run test",
             outcome="meh",
             outcome_type="partial",
@@ -362,7 +362,7 @@ class TestForgettingCycle:
 
         episode = Episode(
             id="live-run-test",
-            agent_id=kernle.agent_id,
+            stack_id=kernle.stack_id,
             objective="Live run test",
             outcome="meh",
             outcome_type="partial",

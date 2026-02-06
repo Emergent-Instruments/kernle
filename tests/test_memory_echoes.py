@@ -70,7 +70,7 @@ class TestGetMemoryHintText:
     def test_episode_hint(self):
         ep = Episode(
             id="ep1",
-            agent_id="a",
+            stack_id="a",
             objective="Debug the login flow",
             outcome="Fixed the auth bug",
         )
@@ -81,7 +81,7 @@ class TestGetMemoryHintText:
     def test_belief_hint(self):
         b = Belief(
             id="b1",
-            agent_id="a",
+            stack_id="a",
             statement="Testing leads to reliable software",
         )
         result = _get_memory_hint_text("belief", b)
@@ -90,7 +90,7 @@ class TestGetMemoryHintText:
     def test_note_hint(self):
         n = Note(
             id="n1",
-            agent_id="a",
+            stack_id="a",
             content="Important decision about architecture",
         )
         result = _get_memory_hint_text("note", n)
@@ -99,7 +99,7 @@ class TestGetMemoryHintText:
     def test_value_hint(self):
         v = Value(
             id="v1",
-            agent_id="a",
+            stack_id="a",
             name="Quality",
             statement="Software should be tested",
         )
@@ -110,7 +110,7 @@ class TestGetMemoryHintText:
     def test_goal_hint(self):
         g = Goal(
             id="g1",
-            agent_id="a",
+            stack_id="a",
             title="Improve coverage",
             description="Write tests for edge cases",
         )
@@ -120,7 +120,7 @@ class TestGetMemoryHintText:
     def test_drive_hint(self):
         d = Drive(
             id="d1",
-            agent_id="a",
+            stack_id="a",
             drive_type="growth",
             focus_areas=["learning", "improvement"],
         )
@@ -131,7 +131,7 @@ class TestGetMemoryHintText:
     def test_relationship_hint(self):
         r = Relationship(
             id="r1",
-            agent_id="a",
+            stack_id="a",
             entity_name="Alice",
             entity_type="human",
             relationship_type="collaborator",
@@ -148,7 +148,7 @@ class TestGetRecordTags:
     def test_episode_tags(self):
         ep = Episode(
             id="ep1",
-            agent_id="a",
+            stack_id="a",
             objective="test",
             outcome="pass",
             tags=["testing", "dev"],
@@ -162,7 +162,7 @@ class TestGetRecordTags:
     def test_drive_focus_areas(self):
         d = Drive(
             id="d1",
-            agent_id="a",
+            stack_id="a",
             drive_type="growth",
             focus_areas=["learning", "improvement"],
         )
@@ -173,7 +173,7 @@ class TestGetRecordTags:
     def test_no_tags(self):
         ep = Episode(
             id="ep1",
-            agent_id="a",
+            stack_id="a",
             objective="test",
             outcome="pass",
         )
@@ -191,7 +191,7 @@ class TestBuildMemoryEchoes:
         for i in range(count):
             record = Note(
                 id=f"note-{i}",
-                agent_id="a",
+                stack_id="a",
                 content=f"This is note number {i} with some extra words for testing purposes",
                 tags=["tag-a", "tag-b"] if i % 2 == 0 else ["tag-c"],
                 created_at=base_time + timedelta(days=i * 30),
@@ -228,7 +228,7 @@ class TestBuildMemoryEchoes:
         """Hints should be truncated to ~8 words."""
         record = Note(
             id="n1",
-            agent_id="a",
+            stack_id="a",
             content="word1 word2 word3 word4 word5 word6 word7 word8 word9 word10 word11",
             created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
         )
@@ -243,7 +243,7 @@ class TestBuildMemoryEchoes:
         """Short hints should not be truncated."""
         record = Note(
             id="n1",
-            agent_id="a",
+            stack_id="a",
             content="Short note",
             created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
         )
@@ -259,7 +259,7 @@ class TestBuildMemoryEchoes:
         for i in range(3):
             record = Note(
                 id=f"n{i}",
-                agent_id="a",
+                stack_id="a",
                 content=f"note {i}",
                 created_at=base_time + timedelta(days=i * 180),
             )
@@ -276,7 +276,7 @@ class TestBuildMemoryEchoes:
 
     def test_temporal_summary_none_when_no_dates(self):
         """Temporal summary should be None when no records have dates."""
-        record = Note(id="n1", agent_id="a", content="no date")
+        record = Note(id="n1", stack_id="a", content="no date")
         excluded = [(0.5, "note", record)]
         result = _build_memory_echoes(excluded)
         assert result["temporal_summary"] is None
@@ -288,7 +288,7 @@ class TestBuildMemoryEchoes:
             tags = ["python", "testing"] if i < 6 else ["deployment"]
             record = Note(
                 id=f"n{i}",
-                agent_id="a",
+                stack_id="a",
                 content=f"note {i}",
                 tags=tags,
                 created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
@@ -311,7 +311,7 @@ class TestBuildMemoryEchoes:
             tags = [f"tag-{i % 8}"]
             record = Note(
                 id=f"n{i}",
-                agent_id="a",
+                stack_id="a",
                 content=f"note {i}",
                 tags=tags,
                 created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
@@ -325,7 +325,7 @@ class TestBuildMemoryEchoes:
         """Echo salience should match the candidate's priority score."""
         record = Note(
             id="n1",
-            agent_id="a",
+            stack_id="a",
             content="test note",
             created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
         )
@@ -337,7 +337,7 @@ class TestBuildMemoryEchoes:
         """Echo type field should match the memory type."""
         ep = Episode(
             id="ep1",
-            agent_id="a",
+            stack_id="a",
             objective="test",
             outcome="pass",
             created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
@@ -356,9 +356,9 @@ class TestLoadWithEchoes:
         checkpoint_dir = tmp_path / "checkpoints"
         checkpoint_dir.mkdir()
 
-        storage = SQLiteStorage(agent_id="test_agent", db_path=db_path)
+        storage = SQLiteStorage(stack_id="test_agent", db_path=db_path)
         kernle = Kernle(
-            agent_id="test_agent",
+            stack_id="test_agent",
             storage=storage,
             checkpoint_dir=checkpoint_dir,
         )
@@ -369,7 +369,7 @@ class TestLoadWithEchoes:
         for i in range(memory_count):
             note = Note(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 content=f"This is a detailed note about topic number {i} with enough words to consume tokens in the budget allocation process",
                 note_type="observation",
                 tags=["topic-a", "topic-b"] if i % 3 == 0 else ["topic-c", "topic-d"],
@@ -381,7 +381,7 @@ class TestLoadWithEchoes:
         for i in range(20):
             ep = Episode(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 objective=f"Complete task {i} which involves various steps and planning",
                 outcome=f"Successfully finished with lessons learned about approach {i}",
                 outcome_type="success",
@@ -464,9 +464,9 @@ class TestLoadWithEchoes:
         checkpoint_dir = tmp_path / "checkpoints_no_echoes"
         checkpoint_dir.mkdir()
 
-        storage = SQLiteStorage(agent_id="test_agent", db_path=db_path)
+        storage = SQLiteStorage(stack_id="test_agent", db_path=db_path)
         kernle = Kernle(
-            agent_id="test_agent",
+            stack_id="test_agent",
             storage=storage,
             checkpoint_dir=checkpoint_dir,
         )
@@ -474,7 +474,7 @@ class TestLoadWithEchoes:
         # Add just one small note
         note = Note(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             content="Short note",
             created_at=datetime(2024, 1, 1, tzinfo=timezone.utc),
         )

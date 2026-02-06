@@ -18,8 +18,8 @@ from kernle.storage import SQLiteStorage
 def kernle_with_beliefs(tmp_path):
     """Create a Kernle instance with some initial beliefs."""
     db_path = tmp_path / "test_beliefs.db"
-    storage = SQLiteStorage(agent_id="test_agent", db_path=db_path)
-    k = Kernle(agent_id="test_agent", storage=storage)
+    storage = SQLiteStorage(stack_id="test_agent", db_path=db_path)
+    k = Kernle(stack_id="test_agent", storage=storage)
 
     # Add some initial beliefs
     k.belief("I should always validate user input", type="principle", confidence=0.9)
@@ -35,8 +35,8 @@ def kernle_with_beliefs(tmp_path):
 def kernle_fresh(tmp_path):
     """Create a fresh Kernle instance."""
     db_path = tmp_path / "test_fresh.db"
-    storage = SQLiteStorage(agent_id="test_agent", db_path=db_path)
-    return Kernle(agent_id="test_agent", storage=storage)
+    storage = SQLiteStorage(stack_id="test_agent", db_path=db_path)
+    return Kernle(stack_id="test_agent", storage=storage)
 
 
 class TestFindContradictions:
@@ -460,15 +460,15 @@ class TestBeliefDataclassFields:
         db_path = tmp_path / "persist_test.db"
 
         # Create and save belief
-        storage1 = SQLiteStorage(agent_id="test_agent", db_path=db_path)
-        k1 = Kernle(agent_id="test_agent", storage=storage1)
+        storage1 = SQLiteStorage(stack_id="test_agent", db_path=db_path)
+        k1 = Kernle(stack_id="test_agent", storage=storage1)
 
         belief_id = k1.belief("Test belief", confidence=0.7)
         k1.reinforce_belief(belief_id)
         k1.reinforce_belief(belief_id)
 
         # Reopen storage
-        storage2 = SQLiteStorage(agent_id="test_agent", db_path=db_path)
+        storage2 = SQLiteStorage(stack_id="test_agent", db_path=db_path)
         beliefs = storage2.get_beliefs(include_inactive=True)
         belief = next((b for b in beliefs if b.id == belief_id), None)
 

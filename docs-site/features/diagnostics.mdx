@@ -23,7 +23,7 @@ The doctor pattern provides structured diagnostic sessions for evaluating memory
 
 Memory systems degrade over time. References break, beliefs accumulate contradictions, relationships go stale, and goals lose relevance. The doctor pattern provides a principled approach to memory health:
 
-- **Early detection**: Find problems before they affect agent behavior
+- **Early detection**: Find problems before they affect SI behavior
 - **Privacy-safe**: Structural checks use IDs and scores only, never memory content
 - **Audit trail**: Diagnostic sessions and reports are persisted for review
 - **Trust-gated**: Operator-initiated sessions require sufficient trust
@@ -35,7 +35,7 @@ Memory systems degrade over time. References break, beliefs accumulate contradic
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | `str` | Unique identifier |
-| `agent_id` | `str` | Owning agent |
+| `stack_id` | `str` | Owning stack |
 | `session_type` | `str` | Who initiated: `self_requested`, `routine`, `anomaly_triggered`, or `operator_initiated` |
 | `access_level` | `str` | What the session can see: `structural`, `content`, or `full` |
 | `status` | `str` | Session status: `active`, `completed`, or `cancelled` |
@@ -47,7 +47,7 @@ Memory systems degrade over time. References break, beliefs accumulate contradic
 
 | Type | Description |
 |------|-------------|
-| `self_requested` | Agent initiated the session |
+| `self_requested` | SI initiated the session |
 | `routine` | Scheduled or periodic check |
 | `anomaly_triggered` | Triggered by detected anomaly |
 | `operator_initiated` | Human operator requested (requires trust gate) |
@@ -71,7 +71,7 @@ Operator-initiated sessions are gated by trust. The `stack-owner` entity must ha
 | Field | Type | Description |
 |-------|------|-------------|
 | `id` | `str` | Unique identifier |
-| `agent_id` | `str` | Owning agent |
+| `stack_id` | `str` | Owning stack |
 | `session_id` | `str` | References the `DiagnosticSession` that produced this report |
 | `findings` | `List[Dict]` | List of findings, each with `severity`, `category`, `description`, `recommendation` |
 | `summary` | `str` | Human-readable summary of findings |
@@ -101,14 +101,14 @@ Severity levels: `error`, `warning`, `info`.
 The default `doctor` command checks instruction file compliance:
 
 ```bash
-kernle -a claire doctor
+kernle -s claire doctor
 ```
 
 ```
 ╔══════════════════════════════════════════════════╗
 ║         Kernle Doctor - System Health            ║
 ╚══════════════════════════════════════════════════╝
-  Agent: claire
+  Stack: claire
   Seed Beliefs Version: 3
   Instruction File: CLAUDE.md
 
@@ -132,7 +132,7 @@ INSTRUCTION FILE CHECKS
 Include seed beliefs and platform hook verification:
 
 ```bash
-kernle -a claire doctor --full
+kernle -s claire doctor --full
 ```
 
 This adds two additional sections:
@@ -154,7 +154,7 @@ PLATFORM HOOKS
 Attempt to fix instruction file issues automatically:
 
 ```bash
-kernle -a claire doctor --fix
+kernle -s claire doctor --fix
 ```
 
 ### Structural Health Check
@@ -162,14 +162,14 @@ kernle -a claire doctor --fix
 Analyze the memory graph for structural issues:
 
 ```bash
-kernle -a claire doctor structural
+kernle -s claire doctor structural
 ```
 
 ```
 =======================================================
   Kernle Doctor - Structural Health Check
 =======================================================
-  Agent: claire
+  Stack: claire
 
   Findings: 1 errors, 3 warnings, 2 info
 
@@ -195,7 +195,7 @@ INFO
 Save findings as a diagnostic note:
 
 ```bash
-kernle -a claire doctor structural --save-note
+kernle -s claire doctor structural --save-note
 ```
 
 ### Structural Checks Performed
@@ -218,20 +218,20 @@ For structured, auditable diagnostics with consent tracking:
 
 ```bash
 # Self-requested session (default)
-kernle -a claire doctor session start
+kernle -s claire doctor session start
 
 # Routine check
-kernle -a claire doctor session start --type routine
+kernle -s claire doctor session start --type routine
 
 # Operator-initiated (trust-gated)
-kernle -a claire doctor session start --type operator_initiated
+kernle -s claire doctor session start --type operator_initiated
 ```
 
 ```
 =======================================================
   Kernle Doctor - Diagnostic Session
 =======================================================
-  Agent: claire
+  Stack: claire
   Session: a1b2c3d4e5f6...
   Type: self_requested
   Access: structural
@@ -256,14 +256,14 @@ WARNINGS
 ### List Sessions
 
 ```bash
-kernle -a claire doctor session list
+kernle -s claire doctor session list
 ```
 
 ```
 =======================================================
   Kernle Doctor - Diagnostic Sessions
 =======================================================
-  Agent: claire
+  Stack: claire
 
   [done]   a1b2c3d4e5f6...  self_requested        2026-02-01 10:30
   [done]   b2c3d4e5f6a7...  routine               2026-01-15 09:00
@@ -273,10 +273,10 @@ kernle -a claire doctor session list
 
 ```bash
 # View the latest report
-kernle -a claire doctor report latest
+kernle -s claire doctor report latest
 
 # View a specific report by session ID
-kernle -a claire doctor report a1b2c3d4e5f6
+kernle -s claire doctor report a1b2c3d4e5f6
 ```
 
 ---
@@ -289,7 +289,7 @@ from kernle.storage.base import DiagnosticSession, DiagnosticReport
 import uuid
 from datetime import datetime, timezone
 
-k = Kernle(agent_id="my-agent")
+k = Kernle(stack_id="my-stack")
 
 # Run the basic doctor check (instruction file compliance)
 # This is primarily a CLI command; programmatic usage works through storage
@@ -297,7 +297,7 @@ k = Kernle(agent_id="my-agent")
 # Create a diagnostic session
 session = DiagnosticSession(
     id=str(uuid.uuid4()),
-    agent_id=k.agent_id,
+    stack_id=k.stack_id,
     session_type="self_requested",
     access_level="structural",
     status="active",
@@ -313,7 +313,7 @@ findings = run_structural_checks(k)
 # Create a report from findings
 report = DiagnosticReport(
     id=str(uuid.uuid4()),
-    agent_id=k.agent_id,
+    stack_id=k.stack_id,
     session_id=session.id,
     findings=[f.to_dict() for f in findings],
     summary=f"Found {len(findings)} issue(s)",

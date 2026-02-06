@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'kernle -a YOUR_AGENT_NAME load 2>/dev/null || echo \"# Kernle Memory\\n\\nKernle not available in this session.\"'"
+            "command": "bash -c 'kernle -s YOUR_STACK_NAME load 2>/dev/null || echo \"# Kernle Memory\\n\\nKernle not available in this session.\"'"
           }
         ]
       }

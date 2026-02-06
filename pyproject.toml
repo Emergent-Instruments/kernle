@@ -16,7 +16,7 @@ authors = [
 keywords = [
     "ai",
     "memory",
-    "agents",
+    "stacks",
     "llm",
     "mcp",
     "claude",

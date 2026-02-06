@@ -29,16 +29,16 @@ class TestPrivacyFields:
     def setup_method(self):
         """Set up test storage."""
         self.tmpdir = Path(tempfile.mkdtemp())
-        self.storage = SQLiteStorage(agent_id="test-privacy", db_path=self.tmpdir / "test.db")
+        self.storage = SQLiteStorage(stack_id="test-privacy", db_path=self.tmpdir / "test.db")
         self.kernle = Kernle(
-            agent_id="test-privacy", storage=self.storage, checkpoint_dir=self.tmpdir
+            stack_id="test-privacy", storage=self.storage, checkpoint_dir=self.tmpdir
         )
 
     def test_episode_privacy_fields_storage(self):
         """Test privacy fields are stored and retrieved for episodes."""
         episode = Episode(
             id=str(uuid.uuid4()),
-            agent_id="test-privacy",
+            stack_id="test-privacy",
             objective="Test objective",
             outcome="Test outcome",
             subject_ids=["user123", "project456"],
@@ -58,7 +58,7 @@ class TestPrivacyFields:
         """Test privacy fields are stored and retrieved for beliefs."""
         belief = Belief(
             id=str(uuid.uuid4()),
-            agent_id="test-privacy",
+            stack_id="test-privacy",
             statement="Test belief",
             subject_ids=["user123"],
             access_grants=["team_lead"],
@@ -77,7 +77,7 @@ class TestPrivacyFields:
         """Test privacy fields are stored and retrieved for values."""
         value = Value(
             id=str(uuid.uuid4()),
-            agent_id="test-privacy",
+            stack_id="test-privacy",
             name="Test Value",
             statement="Test value statement",
             subject_ids=["user123"],
@@ -97,7 +97,7 @@ class TestPrivacyFields:
         """Test privacy fields are stored and retrieved for goals."""
         goal = Goal(
             id=str(uuid.uuid4()),
-            agent_id="test-privacy",
+            stack_id="test-privacy",
             title="Test Goal",
             description="Test goal description",
             subject_ids=None,
@@ -117,7 +117,7 @@ class TestPrivacyFields:
         """Test privacy fields are stored and retrieved for notes."""
         note = Note(
             id=str(uuid.uuid4()),
-            agent_id="test-privacy",
+            stack_id="test-privacy",
             content="Test note content",
             subject_ids=["user123", "user456"],
             access_grants=None,  # Private to self
@@ -136,7 +136,7 @@ class TestPrivacyFields:
         """Test privacy fields are stored and retrieved for drives."""
         drive = Drive(
             id=str(uuid.uuid4()),
-            agent_id="test-privacy",
+            stack_id="test-privacy",
             drive_type="achievement",
             intensity=0.8,
             subject_ids=["self"],
@@ -156,7 +156,7 @@ class TestPrivacyFields:
         """Test privacy fields are stored and retrieved for relationships."""
         relationship = Relationship(
             id=str(uuid.uuid4()),
-            agent_id="test-privacy",
+            stack_id="test-privacy",
             entity_name="Test Person",
             entity_type="human",
             relationship_type="colleague",
@@ -177,7 +177,7 @@ class TestPrivacyFields:
         """Test privacy fields are stored and retrieved for playbooks."""
         playbook = Playbook(
             id=str(uuid.uuid4()),
-            agent_id="test-privacy",
+            stack_id="test-privacy",
             name="Test Playbook",
             description="Test playbook description",
             trigger_conditions=["condition1"],
@@ -203,12 +203,12 @@ class TestAccessControl:
     def setup_method(self):
         """Set up test storage with sample data."""
         self.tmpdir = Path(tempfile.mkdtemp())
-        self.storage = SQLiteStorage(agent_id="test-privacy", db_path=self.tmpdir / "test.db")
+        self.storage = SQLiteStorage(stack_id="test-privacy", db_path=self.tmpdir / "test.db")
 
         # Create test episodes with different privacy levels
         self.public_episode = Episode(
             id="episode_public",
-            agent_id="test-privacy",
+            stack_id="test-privacy",
             objective="Public episode",
             outcome="Public outcome",
             access_grants=["team_lead", "manager", "public"],
@@ -216,7 +216,7 @@ class TestAccessControl:
 
         self.team_episode = Episode(
             id="episode_team",
-            agent_id="test-privacy",
+            stack_id="test-privacy",
             objective="Team episode",
             outcome="Team outcome",
             access_grants=["team_lead", "team_member"],
@@ -224,7 +224,7 @@ class TestAccessControl:
 
         self.private_episode = Episode(
             id="episode_private",
-            agent_id="test-privacy",
+            stack_id="test-privacy",
             objective="Private episode",
             outcome="Private outcome",
             access_grants=None,  # Private to self
@@ -232,7 +232,7 @@ class TestAccessControl:
 
         self.empty_grants_episode = Episode(
             id="episode_empty",
-            agent_id="test-privacy",
+            stack_id="test-privacy",
             objective="Empty grants episode",
             outcome="Empty grants outcome",
             access_grants=[],  # Empty = private to self
@@ -336,7 +336,7 @@ class TestSchemaMigration:
     def test_privacy_columns_added_to_all_tables(self):
         """Test that privacy columns are added to all memory tables."""
         tmpdir = Path(tempfile.mkdtemp())
-        storage = SQLiteStorage(agent_id="test-migration", db_path=tmpdir / "test.db")
+        storage = SQLiteStorage(stack_id="test-migration", db_path=tmpdir / "test.db")
 
         # Check that privacy columns exist in all tables
         with storage._connect() as conn:
@@ -363,7 +363,7 @@ class TestSchemaMigration:
     def test_schema_version_updated(self):
         """Test that schema version is updated to 16."""
         tmpdir = Path(tempfile.mkdtemp())
-        storage = SQLiteStorage(agent_id="test-version", db_path=tmpdir / "test.db")
+        storage = SQLiteStorage(stack_id="test-version", db_path=tmpdir / "test.db")
 
         with storage._connect() as conn:
             version = conn.execute("SELECT version FROM schema_version").fetchone()
@@ -376,14 +376,14 @@ class TestAllMemoryTypes:
     def setup_method(self):
         """Set up test storage."""
         self.tmpdir = Path(tempfile.mkdtemp())
-        self.storage = SQLiteStorage(agent_id="test-all-types", db_path=self.tmpdir / "test.db")
+        self.storage = SQLiteStorage(stack_id="test-all-types", db_path=self.tmpdir / "test.db")
 
     def test_all_memory_types_support_privacy_fields(self):
         """Test that all memory types can store and retrieve privacy fields."""
         # Episode
         episode = Episode(
             id=str(uuid.uuid4()),
-            agent_id="test-all-types",
+            stack_id="test-all-types",
             objective="Test",
             outcome="Test",
             subject_ids=["s1"],
@@ -397,7 +397,7 @@ class TestAllMemoryTypes:
         # Belief
         belief = Belief(
             id=str(uuid.uuid4()),
-            agent_id="test-all-types",
+            stack_id="test-all-types",
             statement="Test belief",
             subject_ids=["s2"],
             access_grants=["a2"],
@@ -410,7 +410,7 @@ class TestAllMemoryTypes:
         # Value
         value = Value(
             id=str(uuid.uuid4()),
-            agent_id="test-all-types",
+            stack_id="test-all-types",
             name="Test",
             statement="Test value",
             subject_ids=["s3"],
@@ -424,7 +424,7 @@ class TestAllMemoryTypes:
         # Goal
         goal = Goal(
             id=str(uuid.uuid4()),
-            agent_id="test-all-types",
+            stack_id="test-all-types",
             title="Test Goal",
             subject_ids=["s4"],
             access_grants=["a4"],
@@ -439,7 +439,7 @@ class TestAllMemoryTypes:
         # Note
         note = Note(
             id=str(uuid.uuid4()),
-            agent_id="test-all-types",
+            stack_id="test-all-types",
             content="Test note",
             subject_ids=["s5"],
             access_grants=["a5"],
@@ -452,7 +452,7 @@ class TestAllMemoryTypes:
         # Drive
         drive = Drive(
             id=str(uuid.uuid4()),
-            agent_id="test-all-types",
+            stack_id="test-all-types",
             drive_type="test_drive",
             subject_ids=["s6"],
             access_grants=["a6"],
@@ -465,7 +465,7 @@ class TestAllMemoryTypes:
         # Relationship
         relationship = Relationship(
             id=str(uuid.uuid4()),
-            agent_id="test-all-types",
+            stack_id="test-all-types",
             entity_name="Test Entity",
             entity_type="human",
             relationship_type="colleague",
@@ -480,7 +480,7 @@ class TestAllMemoryTypes:
         # Playbook
         playbook = Playbook(
             id=str(uuid.uuid4()),
-            agent_id="test-all-types",
+            stack_id="test-all-types",
             name="Test Playbook",
             description="Test",
             trigger_conditions=["t1"],
@@ -499,7 +499,7 @@ class TestAllMemoryTypes:
         # Create record without privacy fields (simulating old data)
         episode = Episode(
             id=str(uuid.uuid4()),
-            agent_id="test-all-types",
+            stack_id="test-all-types",
             objective="Old episode",
             outcome="Old outcome",
             # No privacy fields set

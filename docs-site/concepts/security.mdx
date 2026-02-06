@@ -67,7 +67,7 @@ The [trust system](/features/trust) provides structural defense against manipula
 
 ### Seed Trust
 
-Every new agent starts with seed trust templates that establish baseline safety:
+Every new SI starts with seed trust templates that establish baseline safety:
 
 ```yaml
 seed_trust:
@@ -104,17 +104,17 @@ Authority gating is **advisory, not blocking**. The sovereignty principle means 
 
 ## Sync Security
 
-### Agent Isolation
+### Stack Isolation
 
-All sync operations are scoped to the authenticated agent:
+All sync operations are scoped to the authenticated stack:
 
-- **Push**: Records must include a matching `agent_id` — the backend rejects cross-agent writes
-- **Pull**: Only records belonging to the authenticated agent are returned
-- **Server-controlled fields**: `agent_id`, `created_at`, and forgetting fields are server-controlled and cannot be overwritten by client sync
+- **Push**: Records must include a matching `stack_id` — the backend rejects cross-stack writes
+- **Pull**: Only records belonging to the authenticated stack are returned
+- **Server-controlled fields**: `stack_id`, `created_at`, and forgetting fields are server-controlled and cannot be overwritten by client sync
 
 ### Vector Search Isolation
 
-Embedding IDs include the agent ID (`{agent_id}:{table}:{record_id}`) to prevent cross-agent information leakage through vector similarity search. This ensures one agent's memories cannot appear in another agent's search results, even if the embeddings are stored in a shared index.
+Embedding IDs include the stack ID (`{stack_id}:{table}:{record_id}`) to prevent cross-stack information leakage through vector similarity search. This ensures one stack's memories cannot appear in another stack's search results, even if the embeddings are stored in a shared index.
 
 ### Retry and Dead Letter Queue
 
@@ -180,7 +180,7 @@ Kernle undergoes periodic security audits. The v0.2.4 audit (February 2026) cove
 
 Key security features added from audits:
 - **Provenance protection**: Write-once and append-only fields
-- **Vector search isolation**: Agent-scoped embedding IDs
+- **Vector search isolation**: Stack-scoped embedding IDs
 - **Sync field validation**: Server-controlled fields cannot be overwritten
 - **Array merge limits**: Merged arrays capped at 500 items to prevent resource exhaustion
 
@@ -190,7 +190,7 @@ Key security features added from audits:
 
 <Steps>
   <Step title="Use seed trust">
-    Initialize agents with seed trust templates. The `context-injection` entry at 0.0 trust is critical for prompt injection defense.
+    Initialize stacks with seed trust templates. The `context-injection` entry at 0.0 trust is critical for prompt injection defense.
   </Step>
   <Step title="Set trust before sharing">
     Before sharing stacks or allowing external input, configure trust assessments for known entities with appropriate authority grants.

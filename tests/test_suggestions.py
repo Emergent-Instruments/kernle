@@ -84,7 +84,7 @@ class TestSuggestionExtraction:
 
         raw_entry = RawEntry(
             id="raw-123",
-            agent_id="test-agent",
+            stack_id="test-agent",
             content="Completed the authentication module. It was successful. Lesson learned: testing early saves time.",
             timestamp=datetime.now(timezone.utc),
             source="cli",
@@ -111,7 +111,7 @@ class TestSuggestionExtraction:
 
         raw_entry = RawEntry(
             id="raw-456",
-            agent_id="test-agent",
+            stack_id="test-agent",
             content="I believe that TypeScript is always better than plain JavaScript for large projects.",
             timestamp=datetime.now(timezone.utc),
             source="cli",
@@ -135,7 +135,7 @@ class TestSuggestionExtraction:
         # (decision word, reason, but no episode/belief patterns)
         raw_entry = RawEntry(
             id="raw-789",
-            agent_id="test-agent",
+            stack_id="test-agent",
             content="I noticed something interesting about the codebase. It seems noteworthy that the architecture uses a clean separation.",
             timestamp=datetime.now(timezone.utc),
             source="cli",
@@ -157,7 +157,7 @@ class TestSuggestionExtraction:
 
         raw_entry = RawEntry(
             id="raw-123",
-            agent_id="test-agent",
+            stack_id="test-agent",
             content="Completed the task successfully. This was a great learning experience.",
             timestamp=datetime.now(timezone.utc),
             source="cli",
@@ -180,7 +180,7 @@ class TestSuggestionStorage:
 
         suggestion = MemorySuggestion(
             id="sug-123",
-            agent_id="test-agent",
+            stack_id="test-agent",
             memory_type="episode",
             content={"objective": "Test objective", "outcome": "Test outcome"},
             confidence=0.75,
@@ -214,7 +214,7 @@ class TestSuggestionStorage:
         suggestions = [
             MemorySuggestion(
                 id="sug-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 memory_type="episode",
                 content={},
                 confidence=0.8,
@@ -224,7 +224,7 @@ class TestSuggestionStorage:
             ),
             MemorySuggestion(
                 id="sug-2",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 memory_type="belief",
                 content={},
                 confidence=0.7,
@@ -234,7 +234,7 @@ class TestSuggestionStorage:
             ),
             MemorySuggestion(
                 id="sug-3",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 memory_type="episode",
                 content={},
                 confidence=0.6,
@@ -274,7 +274,7 @@ class TestSuggestionStorage:
 
         suggestion = MemorySuggestion(
             id="sug-update",
-            agent_id="test-agent",
+            stack_id="test-agent",
             memory_type="episode",
             content={},
             confidence=0.8,
@@ -310,7 +310,7 @@ class TestSuggestionStorage:
 
         suggestion = MemorySuggestion(
             id="sug-delete",
-            agent_id="test-agent",
+            stack_id="test-agent",
             memory_type="note",
             content={},
             confidence=0.5,
@@ -344,7 +344,7 @@ class TestPromotionWorkflow:
         # Create a suggestion
         suggestion = MemorySuggestion(
             id="sug-promote-ep",
-            agent_id="test-agent",
+            stack_id="test-agent",
             memory_type="episode",
             content={
                 "objective": "Implement feature X",
@@ -394,7 +394,7 @@ class TestPromotionWorkflow:
 
         suggestion = MemorySuggestion(
             id="sug-modify",
-            agent_id="test-agent",
+            stack_id="test-agent",
             memory_type="belief",
             content={
                 "statement": "Original statement",
@@ -437,7 +437,7 @@ class TestPromotionWorkflow:
 
         suggestion = MemorySuggestion(
             id="sug-reject",
-            agent_id="test-agent",
+            stack_id="test-agent",
             memory_type="note",
             content={"content": "Not useful"},
             confidence=0.3,
@@ -467,7 +467,7 @@ class TestPromotionWorkflow:
 
         suggestion = MemorySuggestion(
             id="sug-already-promoted",
-            agent_id="test-agent",
+            stack_id="test-agent",
             memory_type="episode",
             content={"objective": "Test", "outcome": "Done"},
             confidence=0.8,
@@ -542,7 +542,7 @@ class TestStatsIncludesSuggestions:
         for i in range(3):
             suggestion = MemorySuggestion(
                 id=f"sug-stats-{i}",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 memory_type="episode",
                 content={},
                 confidence=0.7,

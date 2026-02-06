@@ -1,4 +1,4 @@
-"""Tests for fractal summarization (agent_summaries memory type).
+"""Tests for fractal summarization (summaries memory type).
 
 Covers:
 - Storage: save, get, list
@@ -19,13 +19,13 @@ from kernle.storage.base import Summary
 
 
 @pytest.fixture
-def agent_id():
+def stack_id():
     return f"test-agent-{uuid.uuid4().hex[:8]}"
 
 
 @pytest.fixture
-def k(agent_id):
-    return Kernle(agent_id=agent_id)
+def k(stack_id):
+    return Kernle(stack_id=stack_id)
 
 
 # === Dataclass Tests ===
@@ -35,7 +35,7 @@ class TestSummaryDataclass:
     def test_summary_defaults(self):
         s = Summary(
             id="s1",
-            agent_id="agent1",
+            stack_id="agent1",
             scope="quarter",
             period_start="2025-01-01",
             period_end="2025-03-31",
@@ -52,7 +52,7 @@ class TestSummaryDataclass:
         now = datetime.now(timezone.utc)
         s = Summary(
             id="s2",
-            agent_id="agent1",
+            stack_id="agent1",
             scope="year",
             period_start="2025-01-01",
             period_end="2025-12-31",
@@ -265,7 +265,7 @@ class TestPriorityScoring:
     def test_compute_priority_for_summary(self):
         s = Summary(
             id="s1",
-            agent_id="a1",
+            stack_id="a1",
             scope="year",
             period_start="2025-01-01",
             period_end="2025-12-31",
@@ -277,7 +277,7 @@ class TestPriorityScoring:
     def test_different_scopes_different_scores(self):
         s = Summary(
             id="s1",
-            agent_id="a1",
+            stack_id="a1",
             scope="decade",
             period_start="2020-01-01",
             period_end="2029-12-31",
@@ -386,4 +386,4 @@ class TestSchemaVersion:
     def test_schema_version_updated(self):
         from kernle.storage.sqlite import SCHEMA_VERSION
 
-        assert SCHEMA_VERSION == 22
+        assert SCHEMA_VERSION == 23

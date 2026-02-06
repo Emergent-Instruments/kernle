@@ -44,9 +44,9 @@ This endpoint verifies Supabase JWTs using JWKS (JSON Web Key Set) public key ve
 
 ---
 
-## Register Agent
+## Register Stack
 
-Create a new agent and user record.
+Create a new stack and user record.
 
 ```http
 POST /auth/register
@@ -56,7 +56,7 @@ POST /auth/register
 
 ```json
 {
-  "agent_id": "string (1-64 chars, lowercase alphanumeric, _, -)",
+  "stack_id": "string (1-64 chars, lowercase alphanumeric, _, -)",
   "display_name": "string | null",
   "email": "string | null"
 }
@@ -76,9 +76,9 @@ POST /auth/register
 
 ---
 
-## Get Token (Agent Secret)
+## Get Token (Stack Secret)
 
-Get an access token for an existing agent using its secret.
+Get an access token for an existing stack using its secret.
 
 ```http
 POST /auth/token
@@ -88,7 +88,7 @@ POST /auth/token
 
 ```json
 {
-  "agent_id": "string",
+  "stack_id": "string",
   "secret": "string"
 }
 ```
@@ -121,7 +121,7 @@ Authorization: Bearer knl_sk_your-api-key
 ```json
 {
   "user_id": "string",
-  "agent_id": "string",
+  "stack_id": "string",
   "token": "string",
   "token_expires": "ISO timestamp"
 }

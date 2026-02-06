@@ -121,7 +121,7 @@ def _import_json(file_path: Path, k: "Kernle", dry_run: bool, skip_duplicates: b
         print("Error: JSON must be an object at the root level")
         return
 
-    source_agent = data.get("agent_id", "unknown")
+    source_agent = data.get("stack_id", "unknown")
     exported_at = data.get("exported_at", "unknown")
 
     print(
@@ -1057,7 +1057,7 @@ def _migrate_from_clawdbot(args: "argparse.Namespace", k: "Kernle") -> None:
     print("\n--- Post-migration suggestions ---")
     print("1. Consider replacing flat files with stubs:")
     print(
-        f"   echo '# Memory managed by Kernle. Run: kernle -a {k.agent_id} load' > {workspace}/MEMORY.md"
+        f"   echo '# Memory managed by Kernle. Run: kernle -s {k.stack_id} load' > {workspace}/MEMORY.md"
     )
     print("\n2. Keep SOUL.md and AGENTS.md as-is (they're boot instructions)")
     print(f"\n3. Archive daily notes: mv {workspace}/memory {workspace}/memory-archived")
@@ -1317,7 +1317,7 @@ def _migrate_seed_beliefs(args: "argparse.Namespace", k: "Kernle") -> None:
             to_add.append(belief)
 
     # Show summary
-    print(f"Seed Beliefs Migration for agent: {k.agent_id}")
+    print(f"Seed Beliefs Migration for stack: {k.stack_id}")
     print("=" * 60)
     print(f"\nLevel: {tier_name}")
     print(f"Beliefs in scope: {len(beliefs_to_add)}")
@@ -1327,7 +1327,7 @@ def _migrate_seed_beliefs(args: "argparse.Namespace", k: "Kernle") -> None:
     if not to_add:
         print("\n✓ All seed beliefs are already present!")
         if level == "minimal":
-            print(f"\nTo add full set: kernle -a {k.agent_id} migrate seed-beliefs full")
+            print(f"\nTo add full set: kernle -s {k.stack_id} migrate seed-beliefs full")
         return
 
     if dry_run:
@@ -1363,7 +1363,7 @@ def _migrate_seed_beliefs(args: "argparse.Namespace", k: "Kernle") -> None:
             errors.append(f"{belief['statement'][:30]}...: {e}")
 
     print(f"\n{'='*60}")
-    print(f"✓ Added {added} seed beliefs to {k.agent_id}")
+    print(f"✓ Added {added} seed beliefs to {k.stack_id}")
 
     if skipped:
         print(f"  Skipped {len(skipped)} already present")
@@ -1375,10 +1375,10 @@ def _migrate_seed_beliefs(args: "argparse.Namespace", k: "Kernle") -> None:
 
     # Suggest next steps
     print("\n--- Next steps ---")
-    print(f"1. Review beliefs: kernle -a {k.agent_id} belief list")
-    print(f"2. Check memory health: kernle -a {k.agent_id} anxiety")
+    print(f"1. Review beliefs: kernle -s {k.stack_id} belief list")
+    print(f"2. Check memory health: kernle -s {k.stack_id} anxiety")
     if level == "minimal":
-        print(f"3. For full foundation: kernle -a {k.agent_id} migrate seed-beliefs full")
+        print(f"3. For full foundation: kernle -s {k.stack_id} migrate seed-beliefs full")
     else:
         print("3. The meta-belief encourages questioning — that's by design!")
 
@@ -1491,7 +1491,7 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
         if dry_run:
             return
     else:
-        print(f"Provenance Backfill for agent: {k.agent_id}")
+        print(f"Provenance Backfill for stack: {k.stack_id}")
         print("=" * 60)
         print(f"Memories needing updates: {len(updates)}")
 
@@ -1512,7 +1512,7 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
                 change = f"{u['old_source_type'] or 'None'} → {u['new_source_type']}"
                 print(f"  [{u['type']}] {u['id'][:8]}... {change}")
                 print(f"          {u['summary']}")
-            print(f"\nTo apply: kernle -a {k.agent_id} migrate backfill-provenance")
+            print(f"\nTo apply: kernle -s {k.stack_id} migrate backfill-provenance")
             return
 
     # Apply updates
@@ -1544,4 +1544,4 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
             print(f"\n⚠ {len(errors)} errors:")
             for err in errors[:5]:
                 print(f"  - {err}")
-        print(f"\nVerify: kernle -a {k.agent_id} meta orphans")
+        print(f"\nVerify: kernle -s {k.stack_id} meta orphans")

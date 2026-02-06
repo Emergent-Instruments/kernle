@@ -19,13 +19,13 @@ from kernle.storage.base import SelfNarrative
 
 
 @pytest.fixture
-def agent_id():
+def stack_id():
     return f"test-agent-{uuid.uuid4().hex[:8]}"
 
 
 @pytest.fixture
-def k(agent_id):
-    return Kernle(agent_id=agent_id)
+def k(stack_id):
+    return Kernle(stack_id=stack_id)
 
 
 # === Dataclass Tests ===
@@ -35,7 +35,7 @@ class TestSelfNarrativeDataclass:
     def test_defaults(self):
         n = SelfNarrative(
             id="n1",
-            agent_id="agent1",
+            stack_id="agent1",
             content="I am a curious learner.",
         )
         assert n.narrative_type == "identity"
@@ -51,7 +51,7 @@ class TestSelfNarrativeDataclass:
         now = datetime.now(timezone.utc)
         n = SelfNarrative(
             id="n2",
-            agent_id="agent1",
+            stack_id="agent1",
             content="I have grown from a novice into a capable problem solver.",
             narrative_type="developmental",
             epoch_id="epoch-1",
@@ -221,7 +221,7 @@ class TestPriorityScoring:
     def test_compute_priority_for_narrative(self):
         n = SelfNarrative(
             id="n1",
-            agent_id="a1",
+            stack_id="a1",
             content="I am a thoughtful agent.",
         )
         score = compute_priority_score("self_narrative", n)
@@ -229,12 +229,12 @@ class TestPriorityScoring:
 
     def test_narrative_priority_higher_than_beliefs(self):
         """Self-narratives should score higher than standard beliefs."""
-        n = SelfNarrative(id="n1", agent_id="a1", content="I am curious.")
+        n = SelfNarrative(id="n1", stack_id="a1", content="I am curious.")
         narrative_score = compute_priority_score("self_narrative", n)
 
         from kernle.storage.base import Belief
 
-        b = Belief(id="b1", agent_id="a1", statement="Python is useful.", confidence=0.8)
+        b = Belief(id="b1", stack_id="a1", statement="Python is useful.", confidence=0.8)
         belief_score = compute_priority_score("belief", b)
         assert narrative_score > belief_score
 
@@ -301,4 +301,4 @@ class TestSchemaVersion:
     def test_schema_version_updated(self):
         from kernle.storage.sqlite import SCHEMA_VERSION
 
-        assert SCHEMA_VERSION == 22
+        assert SCHEMA_VERSION == 23

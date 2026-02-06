@@ -57,11 +57,11 @@ class SupabaseStorage:
 
     def __init__(
         self,
-        agent_id: str,
+        stack_id: str,
         supabase_url: Optional[str] = None,
         supabase_key: Optional[str] = None,
     ):
-        self.agent_id = agent_id
+        self.stack_id = stack_id
         self.supabase_url = (
             supabase_url or os.environ.get("KERNLE_SUPABASE_URL") or os.environ.get("SUPABASE_URL")
         )
@@ -162,7 +162,7 @@ class SupabaseStorage:
 
         data = {
             "id": episode.id,
-            "agent_id": self.agent_id,
+            "stack_id": self.stack_id,
             "objective": episode.objective,
             "outcome_type": episode.outcome_type or "partial",
             "outcome": episode.outcome,
@@ -199,7 +199,7 @@ class SupabaseStorage:
         query = (
             self.client.table("episodes")
             .select("*")
-            .eq("agent_id", self.agent_id)
+            .eq("stack_id", self.stack_id)
             .order("created_at", desc=True)
             .limit(limit)
         )
@@ -223,7 +223,7 @@ class SupabaseStorage:
             self.client.table("episodes")
             .select("*")
             .eq("id", episode_id)
-            .eq("agent_id", self.agent_id)
+            .eq("stack_id", self.stack_id)
             .execute()
         )
 
@@ -235,7 +235,7 @@ class SupabaseStorage:
         """Convert a Supabase row to an Episode."""
         return Episode(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             objective=row.get("objective", ""),
             outcome=row.get("outcome", ""),
             outcome_type=row.get("outcome_type"),
@@ -296,7 +296,7 @@ class SupabaseStorage:
                     }
                 )
                 .eq("id", episode_id)
-                .eq("agent_id", self.agent_id)
+                .eq("stack_id", self.stack_id)
                 .execute()
             )
 
@@ -326,7 +326,7 @@ class SupabaseStorage:
         query = (
             self.client.table("episodes")
             .select("*")
-            .eq("agent_id", self.agent_id)
+            .eq("stack_id", self.stack_id)
             .order("created_at", desc=True)
         )
 
@@ -360,7 +360,7 @@ class SupabaseStorage:
         result = (
             self.client.table("episodes")
             .select("*")
-            .eq("agent_id", self.agent_id)
+            .eq("stack_id", self.stack_id)
             .gte("created_at", cutoff)
             .order("created_at", desc=True)
             .limit(limit)
@@ -386,7 +386,7 @@ class SupabaseStorage:
 
         data = {
             "id": belief.id,
-            "agent_id": self.agent_id,
+            "stack_id": self.stack_id,
             "statement": belief.statement,
             "belief_type": belief.belief_type,
             "confidence": belief.confidence,
@@ -422,7 +422,7 @@ class SupabaseStorage:
             limit: Maximum number of beliefs to return
             include_inactive: If True, include superseded/archived beliefs
         """
-        query = self.client.table("beliefs").select("*").eq("agent_id", self.agent_id)
+        query = self.client.table("beliefs").select("*").eq("stack_id", self.stack_id)
         if not include_inactive:
             query = query.eq("is_active", True)
         result = query.order("confidence", desc=True).limit(limit).execute()
@@ -434,7 +434,7 @@ class SupabaseStorage:
         result = (
             self.client.table("beliefs")
             .select("*")
-            .eq("agent_id", self.agent_id)
+            .eq("stack_id", self.stack_id)
             .eq("statement", statement)
             .eq("is_active", True)
             .limit(1)
@@ -449,7 +449,7 @@ class SupabaseStorage:
         """Convert a Supabase row to a Belief."""
         return Belief(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             statement=row.get("statement", ""),
             belief_type=row.get("belief_type", "fact"),
             confidence=row.get("confidence", 0.8),
@@ -488,7 +488,7 @@ class SupabaseStorage:
 
         data = {
             "id": value.id,
-            "agent_id": self.agent_id,
+            "stack_id": self.stack_id,
             "name": value.name,
             "statement": value.statement,
             "priority": value.priority,
@@ -516,7 +516,7 @@ class SupabaseStorage:
         result = (
             self.client.table("values")
             .select("*")
-            .eq("agent_id", self.agent_id)
+            .eq("stack_id", self.stack_id)
             .eq("is_active", True)
             .order("priority", desc=True)
             .limit(limit)
@@ -529,7 +529,7 @@ class SupabaseStorage:
         """Convert a Supabase row to a Value."""
         return Value(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             name=row.get("name", ""),
             statement=row.get("statement", ""),
             priority=row.get("priority", 50),
@@ -564,7 +564,7 @@ class SupabaseStorage:
 
         data = {
             "id": goal.id,
-            "agent_id": self.agent_id,
+            "stack_id": self.stack_id,
             "title": goal.title,
             "description": goal.description or goal.title,
             "goal_type": goal.goal_type,
@@ -594,7 +594,7 @@ class SupabaseStorage:
         query = (
             self.client.table("goals")
             .select("*")
-            .eq("agent_id", self.agent_id)
+            .eq("stack_id", self.stack_id)
             .order("created_at", desc=True)
             .limit(limit)
         )
@@ -609,7 +609,7 @@ class SupabaseStorage:
         """Convert a Supabase row to a Goal."""
         return Goal(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             title=row.get("title", ""),
             description=row.get("description"),
             goal_type=row.get("goal_type", "task"),
@@ -663,7 +663,7 @@ class SupabaseStorage:
 
         data = {
             "id": note.id,
-            "agent_id": self.agent_id,
+            "stack_id": self.stack_id,
             "content": note.content,
             "note_type": note.note_type or "note",
             "speaker": note.speaker,
@@ -687,7 +687,7 @@ class SupabaseStorage:
         query = (
             self.client.table("notes")
             .select("*")
-            .eq("agent_id", self.agent_id)
+            .eq("stack_id", self.stack_id)
             .order("created_at", desc=True)
             .limit(limit)
         )
@@ -708,7 +708,7 @@ class SupabaseStorage:
         """Convert a Supabase row to a Note."""
         return Note(
             id=row["id"],
-            agent_id=row.get("agent_id", ""),
+            stack_id=row.get("stack_id", ""),
             content=row.get("content", ""),
             note_type=row.get("note_type", "note"),
             speaker=row.get("speaker"),
@@ -745,7 +745,7 @@ class SupabaseStorage:
 
         data = {
             "id": drive.id,
-            "agent_id": self.agent_id,
+            "stack_id": self.stack_id,
             "drive_type": drive.drive_type,
             "intensity": max(0.0, min(1.0, drive.intensity)),
             "focus_areas": drive.focus_areas or [],
@@ -759,9 +759,9 @@ class SupabaseStorage:
         }
 
         # Use upsert to avoid TOCTOU race condition
-        # ON CONFLICT on (agent_id, drive_type) unique constraint
+        # ON CONFLICT on (stack_id, drive_type) unique constraint
         result = (
-            self.client.table("drives").upsert(data, on_conflict="agent_id,drive_type").execute()
+            self.client.table("drives").upsert(data, on_conflict="stack_id,drive_type").execute()
         )
 
         # If upsert returned an existing row with different ID, update drive.id
@@ -772,7 +772,7 @@ class SupabaseStorage:
 
     def get_drives(self) -> List[Drive]:
         """Get all drives for the agent."""
-        result = self.client.table("drives").select("*").eq("agent_id", self.agent_id).execute()
+        result = self.client.table("drives").select("*").eq("stack_id", self.stack_id).execute()
 
         return [self._row_to_drive(row) for row in result.data]
 
@@ -781,7 +781,7 @@ class SupabaseStorage:
         result = (
             self.client.table("drives")
             .select("*")
-            .eq("agent_id", self.agent_id)
+            .eq("stack_id", self.stack_id)
             .eq("drive_type", drive_type)
             .execute()
         )
@@ -794,7 +794,7 @@ class SupabaseStorage:
         """Convert a Supabase row to a Drive."""
         return Drive(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             drive_type=row.get("drive_type", ""),
             intensity=row.get("intensity", 0.5),
             focus_areas=row.get("focus_areas"),
@@ -837,7 +837,7 @@ class SupabaseStorage:
             result = self.client.rpc(
                 "increment_interaction_count",
                 {
-                    "p_agent_id": self.agent_id,
+                    "p_stack_id": self.stack_id,
                     "p_entity_name": relationship.entity_name,
                     "p_trust_level": relationship.sentiment,
                     "p_notes": relationship.notes,
@@ -853,7 +853,7 @@ class SupabaseStorage:
             self.save_note(
                 Note(
                     id=relationship.id,
-                    agent_id=self.agent_id,
+                    stack_id=self.stack_id,
                     content=f"Relationship with {relationship.entity_name}: {relationship.notes}",
                     note_type="note",
                     tags=["relationship", relationship.entity_name],
@@ -868,7 +868,7 @@ class SupabaseStorage:
             result = (
                 self.client.table("relationships")
                 .select("*")
-                .eq("agent_id", self.agent_id)
+                .eq("stack_id", self.stack_id)
                 .order("last_interaction", desc=True)
                 .execute()
             )
@@ -884,7 +884,7 @@ class SupabaseStorage:
             result = (
                 self.client.table("relationships")
                 .select("*")
-                .eq("agent_id", self.agent_id)
+                .eq("stack_id", self.stack_id)
                 .eq("entity_name", entity_name)
                 .execute()
             )
@@ -899,9 +899,9 @@ class SupabaseStorage:
         """Convert a Supabase row to a Relationship."""
         return Relationship(
             id=row["id"],
-            agent_id=row["agent_id"],
+            stack_id=row["stack_id"],
             entity_name=row.get("entity_name", ""),
-            entity_type="agent",
+            entity_type="si",
             relationship_type="interaction",
             notes=row.get("notes"),
             sentiment=row.get("trust_level", 0.0),
@@ -945,7 +945,7 @@ class SupabaseStorage:
             episodes = (
                 self.client.table("episodes")
                 .select("*")
-                .eq("agent_id", self.agent_id)
+                .eq("stack_id", self.stack_id)
                 .order("created_at", desc=True)
                 .limit(limit * 5)
                 .execute()
@@ -966,7 +966,7 @@ class SupabaseStorage:
             notes = (
                 self.client.table("notes")
                 .select("*")
-                .eq("agent_id", self.agent_id)
+                .eq("stack_id", self.stack_id)
                 .order("created_at", desc=True)
                 .limit(limit * 5)
                 .execute()
@@ -986,7 +986,7 @@ class SupabaseStorage:
             beliefs = (
                 self.client.table("beliefs")
                 .select("*")
-                .eq("agent_id", self.agent_id)
+                .eq("stack_id", self.stack_id)
                 .eq("is_active", True)
                 .limit(limit * 5)
                 .execute()
@@ -1016,7 +1016,7 @@ class SupabaseStorage:
         result = (
             self.client.table("episodes")
             .select("id", count="exact")
-            .eq("agent_id", self.agent_id)
+            .eq("stack_id", self.stack_id)
             .execute()
         )
         stats["episodes"] = result.count or 0
@@ -1025,7 +1025,7 @@ class SupabaseStorage:
         result = (
             self.client.table("beliefs")
             .select("id", count="exact")
-            .eq("agent_id", self.agent_id)
+            .eq("stack_id", self.stack_id)
             .eq("is_active", True)
             .execute()
         )
@@ -1035,7 +1035,7 @@ class SupabaseStorage:
         result = (
             self.client.table("values")
             .select("id", count="exact")
-            .eq("agent_id", self.agent_id)
+            .eq("stack_id", self.stack_id)
             .eq("is_active", True)
             .execute()
         )
@@ -1045,7 +1045,7 @@ class SupabaseStorage:
         result = (
             self.client.table("goals")
             .select("id", count="exact")
-            .eq("agent_id", self.agent_id)
+            .eq("stack_id", self.stack_id)
             .eq("status", "active")
             .execute()
         )
@@ -1055,7 +1055,7 @@ class SupabaseStorage:
         result = (
             self.client.table("notes")
             .select("id", count="exact")
-            .eq("agent_id", self.agent_id)
+            .eq("stack_id", self.stack_id)
             .execute()
         )
         stats["notes"] = result.count or 0
@@ -1064,7 +1064,7 @@ class SupabaseStorage:
         result = (
             self.client.table("drives")
             .select("id", count="exact")
-            .eq("agent_id", self.agent_id)
+            .eq("stack_id", self.stack_id)
             .execute()
         )
         stats["drives"] = result.count or 0
@@ -1074,7 +1074,7 @@ class SupabaseStorage:
             result = (
                 self.client.table("relationships")
                 .select("id", count="exact")
-                .eq("agent_id", self.agent_id)
+                .eq("stack_id", self.stack_id)
                 .execute()
             )
             stats["relationships"] = result.count or 0
@@ -1250,13 +1250,13 @@ class SupabaseStorage:
         table, converter = table_map[memory_type]
 
         try:
-            # Handle notes which use owner_id instead of agent_id
+            # Handle notes which use owner_id instead of stack_id
             if memory_type == "note":
                 result = (
                     self.client.table(table)
                     .select("*")
                     .eq("id", memory_id)
-                    .eq("agent_id", self.agent_id)
+                    .eq("stack_id", self.stack_id)
                     .execute()
                 )
             else:
@@ -1264,7 +1264,7 @@ class SupabaseStorage:
                     self.client.table(table)
                     .select("*")
                     .eq("id", memory_id)
-                    .eq("agent_id", self.agent_id)
+                    .eq("stack_id", self.stack_id)
                     .execute()
                 )
 
@@ -1326,11 +1326,11 @@ class SupabaseStorage:
             # Handle notes which use owner_id
             if memory_type == "note":
                 self.client.table(table).update(update_data).eq("id", memory_id).eq(
-                    "agent_id", self.agent_id
+                    "stack_id", self.stack_id
                 ).execute()
             else:
                 self.client.table(table).update(update_data).eq("id", memory_id).eq(
-                    "agent_id", self.agent_id
+                    "stack_id", self.stack_id
                 ).execute()
             return True
         except Exception as e:
@@ -1365,9 +1365,9 @@ class SupabaseStorage:
             try:
                 # Handle notes which use owner_id
                 if memory_type == "note":
-                    query = self.client.table(table).select("*").eq("agent_id", self.agent_id)
+                    query = self.client.table(table).select("*").eq("stack_id", self.stack_id)
                 else:
-                    query = self.client.table(table).select("*").eq("agent_id", self.agent_id)
+                    query = self.client.table(table).select("*").eq("stack_id", self.stack_id)
 
                 if below:
                     query = query.lt("confidence", threshold)
@@ -1417,9 +1417,9 @@ class SupabaseStorage:
 
             try:
                 if memory_type == "note":
-                    query = self.client.table(table).select("*").eq("agent_id", self.agent_id)
+                    query = self.client.table(table).select("*").eq("stack_id", self.stack_id)
                 else:
-                    query = self.client.table(table).select("*").eq("agent_id", self.agent_id)
+                    query = self.client.table(table).select("*").eq("stack_id", self.stack_id)
 
                 query = (
                     query.eq("source_type", source_type).order("created_at", desc=True).limit(limit)
@@ -1451,7 +1451,7 @@ class SupabaseStorage:
         # Map to Supabase schema (playbooks table)
         data = {
             "id": playbook.id,
-            "agent_id": self.agent_id,
+            "stack_id": self.stack_id,
             "name": playbook.name,
             "description": playbook.description,
             "trigger_conditions": playbook.trigger_conditions or [],
@@ -1481,7 +1481,7 @@ class SupabaseStorage:
             self.client.table("playbooks")
             .select("*")
             .eq("id", playbook_id)
-            .eq("agent_id", self.agent_id)
+            .eq("stack_id", self.stack_id)
             .eq("deleted", False)
             .execute()
         )
@@ -1499,7 +1499,7 @@ class SupabaseStorage:
         result = (
             self.client.table("playbooks")
             .select("*")
-            .eq("agent_id", self.agent_id)
+            .eq("stack_id", self.stack_id)
             .eq("deleted", False)
             .order("times_used", desc=True)
             .order("created_at", desc=True)
@@ -1522,7 +1522,7 @@ class SupabaseStorage:
         result = (
             self.client.table("playbooks")
             .select("*")
-            .eq("agent_id", self.agent_id)
+            .eq("stack_id", self.stack_id)
             .eq("deleted", False)
             .order("times_used", desc=True)
             .limit(limit * 5)  # Fetch more to filter
@@ -1582,7 +1582,7 @@ class SupabaseStorage:
                     "local_updated_at": now,
                     "version": (playbook.version or 1) + 1,
                 }
-            ).eq("id", playbook_id).eq("agent_id", self.agent_id).execute()
+            ).eq("id", playbook_id).eq("stack_id", self.stack_id).execute()
 
             return True
         except Exception as e:
@@ -1593,7 +1593,7 @@ class SupabaseStorage:
         """Convert a Supabase row to a Playbook."""
         return Playbook(
             id=row["id"],
-            agent_id=row.get("agent_id", self.agent_id),
+            stack_id=row.get("stack_id", self.stack_id),
             name=row.get("name", ""),
             description=row.get("description", ""),
             trigger_conditions=row.get("trigger_conditions") or [],
@@ -1690,7 +1690,7 @@ class SupabaseStorage:
                     self.client.table(table)
                     .select("times_accessed")
                     .eq("id", memory_id)
-                    .eq("agent_id", self.agent_id)
+                    .eq("stack_id", self.stack_id)
                     .execute()
                 )
             else:
@@ -1698,7 +1698,7 @@ class SupabaseStorage:
                     self.client.table(table)
                     .select("times_accessed")
                     .eq("id", memory_id)
-                    .eq("agent_id", self.agent_id)
+                    .eq("stack_id", self.stack_id)
                     .execute()
                 )
 
@@ -1716,11 +1716,11 @@ class SupabaseStorage:
 
             if memory_type == "note":
                 self.client.table(table).update(update_data).eq("id", memory_id).eq(
-                    "agent_id", self.agent_id
+                    "stack_id", self.stack_id
                 ).execute()
             else:
                 self.client.table(table).update(update_data).eq("id", memory_id).eq(
-                    "agent_id", self.agent_id
+                    "stack_id", self.stack_id
                 ).execute()
 
             return True
@@ -1782,7 +1782,7 @@ class SupabaseStorage:
                     self.client.table(table)
                     .select("is_protected, is_forgotten")
                     .eq("id", memory_id)
-                    .eq("agent_id", self.agent_id)
+                    .eq("stack_id", self.stack_id)
                     .execute()
                 )
             else:
@@ -1790,7 +1790,7 @@ class SupabaseStorage:
                     self.client.table(table)
                     .select("is_protected, is_forgotten")
                     .eq("id", memory_id)
-                    .eq("agent_id", self.agent_id)
+                    .eq("stack_id", self.stack_id)
                     .execute()
                 )
 
@@ -1814,11 +1814,11 @@ class SupabaseStorage:
 
             if memory_type == "note":
                 self.client.table(table).update(update_data).eq("id", memory_id).eq(
-                    "agent_id", self.agent_id
+                    "stack_id", self.stack_id
                 ).execute()
             else:
                 self.client.table(table).update(update_data).eq("id", memory_id).eq(
-                    "agent_id", self.agent_id
+                    "stack_id", self.stack_id
                 ).execute()
 
             return True
@@ -1859,7 +1859,7 @@ class SupabaseStorage:
                     self.client.table(table)
                     .select("is_forgotten")
                     .eq("id", memory_id)
-                    .eq("agent_id", self.agent_id)
+                    .eq("stack_id", self.stack_id)
                     .execute()
                 )
             else:
@@ -1867,7 +1867,7 @@ class SupabaseStorage:
                     self.client.table(table)
                     .select("is_forgotten")
                     .eq("id", memory_id)
-                    .eq("agent_id", self.agent_id)
+                    .eq("stack_id", self.stack_id)
                     .execute()
                 )
 
@@ -1884,11 +1884,11 @@ class SupabaseStorage:
 
             if memory_type == "note":
                 self.client.table(table).update(update_data).eq("id", memory_id).eq(
-                    "agent_id", self.agent_id
+                    "stack_id", self.stack_id
                 ).execute()
             else:
                 self.client.table(table).update(update_data).eq("id", memory_id).eq(
-                    "agent_id", self.agent_id
+                    "stack_id", self.stack_id
                 ).execute()
 
             return True
@@ -1934,7 +1934,7 @@ class SupabaseStorage:
                     self.client.table(table)
                     .update(update_data)
                     .eq("id", memory_id)
-                    .eq("agent_id", self.agent_id)
+                    .eq("stack_id", self.stack_id)
                     .execute()
                 )
             else:
@@ -1942,7 +1942,7 @@ class SupabaseStorage:
                     self.client.table(table)
                     .update(update_data)
                     .eq("id", memory_id)
-                    .eq("agent_id", self.agent_id)
+                    .eq("stack_id", self.stack_id)
                     .execute()
                 )
 
@@ -2004,9 +2004,9 @@ class SupabaseStorage:
             try:
                 # Query for non-protected, non-forgotten memories
                 if memory_type == "note":
-                    query = self.client.table(table).select("*").eq("agent_id", self.agent_id)
+                    query = self.client.table(table).select("*").eq("stack_id", self.stack_id)
                 else:
-                    query = self.client.table(table).select("*").eq("agent_id", self.agent_id)
+                    query = self.client.table(table).select("*").eq("stack_id", self.stack_id)
 
                 # Filter out protected and forgotten
                 # Note: Supabase doesn't support complex boolean queries easily,
@@ -2101,7 +2101,7 @@ class SupabaseStorage:
                     query = (
                         self.client.table(table)
                         .select("*")
-                        .eq("agent_id", self.agent_id)
+                        .eq("stack_id", self.stack_id)
                         .eq("is_forgotten", True)
                         .order("forgotten_at", desc=True)
                         .limit(limit)
@@ -2110,7 +2110,7 @@ class SupabaseStorage:
                     query = (
                         self.client.table(table)
                         .select("*")
-                        .eq("agent_id", self.agent_id)
+                        .eq("stack_id", self.stack_id)
                         .eq("is_forgotten", True)
                         .order("forgotten_at", desc=True)
                         .limit(limit)

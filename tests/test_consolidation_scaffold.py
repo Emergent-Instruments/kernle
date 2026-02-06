@@ -61,7 +61,7 @@ class TestHighArousalEpisodes:
     def test_cmd_consolidate_is_deprecated_alias(self, capsys):
         """cmd_consolidate prints deprecation warning and delegates to cmd_promote."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.promote.return_value = {
             "episodes_scanned": 5,
             "patterns_found": 0,
@@ -285,7 +285,7 @@ class TestConsolidateIntegration:
     def test_consolidate_delegates_to_promote(self, capsys):
         """cmd_consolidate calls k.promote() and outputs promotion results."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.promote.return_value = {
             "episodes_scanned": 10,
             "patterns_found": 2,
@@ -309,7 +309,7 @@ class TestConsolidateIntegration:
     def test_consolidate_warns_deprecated(self, capsys):
         """cmd_consolidate prints deprecation warning to stderr."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.promote.return_value = {
             "episodes_scanned": 0,
             "patterns_found": 0,

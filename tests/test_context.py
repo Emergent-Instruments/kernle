@@ -34,7 +34,7 @@ def temp_db():
 @pytest.fixture
 def storage(temp_db):
     """Create a SQLiteStorage instance for testing."""
-    storage = SQLiteStorage(agent_id="test-agent", db_path=temp_db)
+    storage = SQLiteStorage(stack_id="test-agent", db_path=temp_db)
     yield storage
     storage.close()
 
@@ -51,9 +51,9 @@ def temp_checkpoint_dir():
 @pytest.fixture
 def kernle_instance(temp_db, temp_checkpoint_dir):
     """Create a Kernle instance with SQLite storage for testing."""
-    storage = SQLiteStorage(agent_id="test-agent", db_path=temp_db)
+    storage = SQLiteStorage(stack_id="test-agent", db_path=temp_db)
     kernle = Kernle(
-        agent_id="test-agent",
+        stack_id="test-agent",
         storage=storage,
         checkpoint_dir=temp_checkpoint_dir,
     )
@@ -68,7 +68,7 @@ class TestEpisodeContext:
         """Episode context and context_tags should be saved and retrieved."""
         episode = Episode(
             id="ep-ctx-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Build API endpoint",
             outcome="Successfully deployed",
             context="project:api-service",
@@ -86,7 +86,7 @@ class TestEpisodeContext:
         """Episode without context should work (backwards compatible)."""
         episode = Episode(
             id="ep-no-ctx",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Generic task",
             outcome="Done",
         )
@@ -121,7 +121,7 @@ class TestNoteContext:
         """Note context and context_tags should be saved and retrieved."""
         note = Note(
             id="note-ctx-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             content="Important API design decision",
             note_type="decision",
             context="project:api-service",
@@ -139,7 +139,7 @@ class TestNoteContext:
         """Note without context should work (backwards compatible)."""
         note = Note(
             id="note-no-ctx",
-            agent_id="test-agent",
+            stack_id="test-agent",
             content="General note",
         )
 
@@ -174,7 +174,7 @@ class TestBeliefContext:
         """Belief context and context_tags should be saved and retrieved."""
         belief = Belief(
             id="belief-ctx-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             statement="This API uses REST conventions",
             belief_type="fact",
             confidence=0.9,
@@ -193,7 +193,7 @@ class TestBeliefContext:
         """Belief without context should work (backwards compatible)."""
         belief = Belief(
             id="belief-no-ctx",
-            agent_id="test-agent",
+            stack_id="test-agent",
             statement="Testing is important",
         )
 
@@ -229,7 +229,7 @@ class TestValueContext:
         """Value context and context_tags should be saved and retrieved."""
         value = Value(
             id="value-ctx-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             name="Code Coverage",
             statement="Maintain 80% test coverage",
             priority=85,
@@ -248,7 +248,7 @@ class TestValueContext:
         """Value without context should work (backwards compatible)."""
         value = Value(
             id="value-no-ctx",
-            agent_id="test-agent",
+            stack_id="test-agent",
             name="Quality",
             statement="Quality matters",
         )
@@ -285,7 +285,7 @@ class TestGoalContext:
         """Goal context and context_tags should be saved and retrieved."""
         goal = Goal(
             id="goal-ctx-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             title="Complete API v2",
             description="Finish all v2 endpoints",
             priority="high",
@@ -305,7 +305,7 @@ class TestGoalContext:
         """Goal without context should work (backwards compatible)."""
         goal = Goal(
             id="goal-no-ctx",
-            agent_id="test-agent",
+            stack_id="test-agent",
             title="General goal",
             description="Some goal",
         )
@@ -342,7 +342,7 @@ class TestDriveContext:
         """Drive context and context_tags should be saved and retrieved."""
         drive = Drive(
             id="drive-ctx-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             drive_type="growth",
             intensity=0.8,
             focus_areas=["learning", "improvement"],
@@ -361,7 +361,7 @@ class TestDriveContext:
         """Drive without context should work (backwards compatible)."""
         drive = Drive(
             id="drive-no-ctx",
-            agent_id="test-agent",
+            stack_id="test-agent",
             drive_type="curiosity",
             intensity=0.5,
         )
@@ -398,7 +398,7 @@ class TestRelationshipContext:
         """Relationship context and context_tags should be saved and retrieved."""
         rel = Relationship(
             id="rel-ctx-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             entity_name="Alice",
             entity_type="human",
             relationship_type="colleague",
@@ -418,7 +418,7 @@ class TestRelationshipContext:
         """Relationship without context should work (backwards compatible)."""
         rel = Relationship(
             id="rel-no-ctx",
-            agent_id="test-agent",
+            stack_id="test-agent",
             entity_name="Bob",
             entity_type="human",
             relationship_type="friend",
@@ -440,7 +440,7 @@ class TestBatchInsertionWithContext:
         episodes = [
             Episode(
                 id=f"ep-batch-ctx-{i}",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective=f"Task {i}",
                 outcome="Done",
                 context="project:batch-test",
@@ -462,7 +462,7 @@ class TestBatchInsertionWithContext:
         beliefs = [
             Belief(
                 id=f"belief-batch-ctx-{i}",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement=f"Belief {i}",
                 context="project:batch-test",
                 context_tags=["batch"],
@@ -483,7 +483,7 @@ class TestBatchInsertionWithContext:
         notes = [
             Note(
                 id=f"note-batch-ctx-{i}",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 content=f"Note {i}",
                 context="project:batch-test",
                 context_tags=["batch"],
@@ -507,7 +507,7 @@ class TestContextTagSerialization:
         """Empty context_tags list should be preserved."""
         episode = Episode(
             id="ep-empty-tags",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Test",
             outcome="Done",
             context="project:test",
@@ -524,7 +524,7 @@ class TestContextTagSerialization:
         """Single context tag should be preserved."""
         episode = Episode(
             id="ep-single-tag",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Test",
             outcome="Done",
             context="project:test",
@@ -541,7 +541,7 @@ class TestContextTagSerialization:
         tags = [f"tag-{i}" for i in range(20)]
         episode = Episode(
             id="ep-many-tags",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Test",
             outcome="Done",
             context="project:test",
@@ -559,7 +559,7 @@ class TestContextTagSerialization:
         tags = ["tag:with:colons", "tag/with/slashes", "tag-with-dashes", "tag_with_underscores"]
         episode = Episode(
             id="ep-special-tags",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Test",
             outcome="Done",
             context="project:test",
@@ -579,7 +579,7 @@ class TestContextFormats:
         """project: prefix context format."""
         episode = Episode(
             id="ep-project",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Test",
             outcome="Done",
             context="project:my-api-service",
@@ -594,7 +594,7 @@ class TestContextFormats:
         """repo: prefix context format."""
         episode = Episode(
             id="ep-repo",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Test",
             outcome="Done",
             context="repo:myorg/myrepo",
@@ -609,7 +609,7 @@ class TestContextFormats:
         """Custom context format without standard prefix."""
         episode = Episode(
             id="ep-custom",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Test",
             outcome="Done",
             context="custom-context-value",

@@ -22,7 +22,7 @@ def tmp_db(tmp_path):
 @pytest.fixture
 def storage(tmp_db):
     """Create a SQLiteStorage instance with temp DB."""
-    return SQLiteStorage(agent_id="test-agent", db_path=tmp_db)
+    return SQLiteStorage(stack_id="test-agent", db_path=tmp_db)
 
 
 @pytest.fixture
@@ -30,8 +30,8 @@ def kernle_instance(tmp_db, tmp_path):
     """Create a Kernle instance with temp DB and home dir."""
     checkpoint_dir = tmp_path / "checkpoints"
     checkpoint_dir.mkdir()
-    s = SQLiteStorage(agent_id="test-agent", db_path=tmp_db)
-    k = Kernle(agent_id="test-agent", storage=s, checkpoint_dir=checkpoint_dir)
+    s = SQLiteStorage(stack_id="test-agent", db_path=tmp_db)
+    k = Kernle(stack_id="test-agent", storage=s, checkpoint_dir=checkpoint_dir)
     yield k
     s.close()
 
@@ -127,8 +127,8 @@ class TestBootStorageList:
 
     def test_list_agent_isolation(self, tmp_db):
         """Different agents have separate boot configs."""
-        s1 = SQLiteStorage(agent_id="agent-1", db_path=tmp_db)
-        s2 = SQLiteStorage(agent_id="agent-2", db_path=tmp_db)
+        s1 = SQLiteStorage(stack_id="agent-1", db_path=tmp_db)
+        s2 = SQLiteStorage(stack_id="agent-2", db_path=tmp_db)
 
         s1.boot_set("key", "agent1-value")
         s2.boot_set("key", "agent2-value")
@@ -173,8 +173,8 @@ class TestBootStorageClear:
 
     def test_clear_agent_isolation(self, tmp_db):
         """Clear only affects the calling agent."""
-        s1 = SQLiteStorage(agent_id="agent-1", db_path=tmp_db)
-        s2 = SQLiteStorage(agent_id="agent-2", db_path=tmp_db)
+        s1 = SQLiteStorage(stack_id="agent-1", db_path=tmp_db)
+        s2 = SQLiteStorage(stack_id="agent-2", db_path=tmp_db)
 
         s1.boot_set("key", "val1")
         s2.boot_set("key", "val2")
@@ -298,7 +298,7 @@ class TestBootInExportCache:
 
         val = Value(
             id="test-val",
-            agent_id="test-agent",
+            stack_id="test-agent",
             name="test_value",
             statement="test statement",
             priority=50,
@@ -359,7 +359,7 @@ class TestBootSchemaMigration:
         """boot_config table should exist after storage init."""
         import sqlite3
 
-        SQLiteStorage(agent_id="test", db_path=tmp_db)
+        SQLiteStorage(stack_id="test", db_path=tmp_db)
         conn = sqlite3.connect(tmp_db)
         tables = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='boot_config'"
@@ -388,8 +388,8 @@ class TestBootCLI:
         db_path = tmp_path / "test.db"
         checkpoint_dir = tmp_path / "checkpoints"
         checkpoint_dir.mkdir()
-        storage = SQLiteStorage(agent_id="cli-test", db_path=db_path)
-        k = Kernle(agent_id="cli-test", storage=storage, checkpoint_dir=checkpoint_dir)
+        storage = SQLiteStorage(stack_id="cli-test", db_path=db_path)
+        k = Kernle(stack_id="cli-test", storage=storage, checkpoint_dir=checkpoint_dir)
         k.boot_set("chat_id", "4")
         k.boot_set("gateway_ip", "192.168.50.11")
         return k
@@ -491,8 +491,8 @@ class TestBootCLI:
         db_path = tmp_path / "empty.db"
         checkpoint_dir = tmp_path / "cp"
         checkpoint_dir.mkdir()
-        s = SQLiteStorage(agent_id="empty", db_path=db_path)
-        k = Kernle(agent_id="empty", storage=s, checkpoint_dir=checkpoint_dir)
+        s = SQLiteStorage(stack_id="empty", db_path=db_path)
+        k = Kernle(stack_id="empty", storage=s, checkpoint_dir=checkpoint_dir)
         args = self._make_args(boot_action="list", format="plain")
         cmd_boot(args, k)
         output = capsys.readouterr().out

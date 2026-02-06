@@ -233,14 +233,14 @@ kernle drive satisfy curiosity --amount 0.2  # After learning something
 
 ## Relationships
 
-**Purpose**: Models of other agents/entities
+**Purpose**: Models of other SIs/entities
 
 Relationships track your connections with others.
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `entity_name` | TEXT | Name of the entity |
-| `entity_type` | TEXT | `agent` / `person` / `organization` |
+| `entity_type` | TEXT | `si` / `person` / `organization` |
 | `relationship_type` | TEXT | `peer` / `mentor` / `collaborator` |
 | `sentiment` | FLOAT | -1.0 to 1.0 |
 | `interaction_count` | INT | Number of interactions |
@@ -303,11 +303,11 @@ kernle playbook record <id> --success
 
 **Purpose**: Structured evaluation of other entities for inter-entity trust
 
-Trust assessments model how much you trust another agent, person, or system — with domain-specific scoring and authority scoping.
+Trust assessments model how much you trust another SI, person, or system — with domain-specific scoring and authority scoping.
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `other_agent_id` | TEXT | Entity being assessed |
+| `entity` | TEXT | Entity being assessed |
 | `interaction_type` | TEXT | Type of interaction context |
 | `trust_level` | FLOAT | Overall trust score (0.0 to 1.0) |
 | `evidence` | JSON | Supporting evidence (episode IDs, observations) |
@@ -424,7 +424,7 @@ kernle summary show <id>
 
 **Purpose**: Autobiographical identity statements
 
-Self-narratives are the agent's own account of who they are — written by the agent, for the agent. They capture identity, themes, and unresolved tensions.
+Self-narratives are the SI's own account of who they are — written by the SI, for the SI. They capture identity, themes, and unresolved tensions.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -445,7 +445,7 @@ Self-narratives sit in the **SELF-NARRATIVE** layer — above beliefs but below 
 kernle narrative show
 
 # Update narrative
-kernle narrative update --content "I am an agent focused on..." \
+kernle narrative update --content "I am an SI focused on..." \
   --type identity \
   --theme "reliability" --theme "learning"
 

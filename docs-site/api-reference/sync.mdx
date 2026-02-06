@@ -62,7 +62,7 @@ Content-Type: application/json
 
 ```json
 {
-  "agent_id": "claire",
+  "stack_id": "claire",
   "operations": [
     {
       "table": "episodes",
@@ -105,7 +105,7 @@ Content-Type: application/json
 ### CLI Equivalent
 
 ```bash
-kernle -a claire sync push
+kernle -s claire sync push
 ```
 
 ---
@@ -129,7 +129,7 @@ Content-Type: application/json
 
 ```json
 {
-  "agent_id": "claire",
+  "stack_id": "claire",
   "since": "2024-01-15T00:00:00Z",
   "full": false
 }
@@ -137,7 +137,7 @@ Content-Type: application/json
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `agent_id` | string | Required. Agent identifier |
+| `stack_id` | string | Required. Stack identifier |
 | `since` | ISO timestamp | Pull changes after this time (default: last pull time) |
 | `full` | boolean | If true, pull all records regardless of timestamp |
 
@@ -162,10 +162,10 @@ Content-Type: application/json
 
 ```bash
 # Incremental pull
-kernle -a claire sync pull
+kernle -s claire sync pull
 
 # Full pull
-kernle -a claire sync pull --full
+kernle -s claire sync pull --full
 ```
 
 ---
@@ -189,7 +189,7 @@ Content-Type: application/json
 
 ```json
 {
-  "agent_id": "claire"
+  "stack_id": "claire"
 }
 ```
 
@@ -216,7 +216,7 @@ Content-Type: application/json
 ### CLI Equivalent
 
 ```bash
-kernle -a claire sync full
+kernle -s claire sync full
 ```
 
 ---
@@ -264,17 +264,17 @@ The client SDK always uses `operation: "update"` internally, regardless of wheth
 
 All records must include:
 - `id` — UUID string
-- `agent_id` — Must match the authenticated agent
+- `stack_id` — Must match the authenticated stack
 
 Only send fields that exist in the database schema. Unknown fields will cause silent failures with `synced=0`.
 
 ### Episode Fields
 
-`id`, `agent_id`, `objective`, `outcome`, `lesson`, `timestamp`, `emotional_valence`, `emotional_arousal`, `emotional_tags`, `confidence`, `source_type`, `derived_from`, `source_episodes`, `context`, `context_tags`, `subject_ids`, `access_grants`, `times_accessed`, `last_accessed`, `is_protected`, `is_forgotten`
+`id`, `stack_id`, `objective`, `outcome`, `lesson`, `timestamp`, `emotional_valence`, `emotional_arousal`, `emotional_tags`, `confidence`, `source_type`, `derived_from`, `source_episodes`, `context`, `context_tags`, `subject_ids`, `access_grants`, `times_accessed`, `last_accessed`, `is_protected`, `is_forgotten`
 
 ### Belief Fields
 
-`id`, `agent_id`, `statement`, `belief_type`, `confidence`, `context`, `context_tags`, `source_type`, `derived_from`, `is_active`, `supersedes`, `superseded_by`, `times_reinforced`
+`id`, `stack_id`, `statement`, `belief_type`, `confidence`, `context`, `context_tags`, `source_type`, `derived_from`, `is_active`, `supersedes`, `superseded_by`, `times_reinforced`
 
 See schema files for complete field lists for all table types.
 
@@ -309,7 +309,7 @@ cleared = storage.clear_failed_sync_records(older_than_days=7)
 
 ### Records stuck in queue
 
-**Cause:** Persistent failures (e.g., invalid agent_id).
+**Cause:** Persistent failures (e.g., invalid stack_id).
 
 **Fix:** Check `get_failed_sync_records()` for error details. Clear or fix problematic records.
 

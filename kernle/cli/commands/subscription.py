@@ -611,7 +611,7 @@ def _cmd_usage(args: "argparse.Namespace", k: "Kernle") -> None:
         print(f"     {_format_bytes(storage_used)} (unlimited)")
     print()
 
-    # Stacks / Agents
+    # Stacks
     print("  🗂  Syncing Stacks")
     if agents_limit > 0:
         print(f"     {agents_used} / {agents_limit}")

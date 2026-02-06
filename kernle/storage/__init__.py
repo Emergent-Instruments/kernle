@@ -61,7 +61,7 @@ StorageType = Literal["sqlite", "postgres", "supabase", "auto"]
 
 
 def get_storage(
-    agent_id: str,
+    stack_id: str,
     storage_type: StorageType = "auto",
     *,
     # SQLite options
@@ -75,7 +75,7 @@ def get_storage(
     """Factory function to create the appropriate storage backend.
 
     Args:
-        agent_id: Unique identifier for the agent
+        stack_id: Unique identifier for the agent
         storage_type: Type of storage to use:
             - "sqlite": Local SQLite storage (default)
             - "postgres" or "supabase": Cloud Supabase/PostgreSQL storage
@@ -125,13 +125,13 @@ def get_storage(
     # Create appropriate backend
     if storage_type == "sqlite":
         return SQLiteStorage(
-            agent_id=agent_id,
+            stack_id=stack_id,
             db_path=db_path,
             cloud_storage=cloud_storage,
         )
     elif storage_type in ("postgres", "supabase"):
         return SupabaseStorage(
-            agent_id=agent_id,
+            stack_id=stack_id,
             supabase_url=supabase_url,
             supabase_key=supabase_key,
         )

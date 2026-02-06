@@ -2,7 +2,7 @@
 Kernle MCP Server - Memory and Commerce operations for Claude Code and other MCP clients.
 
 This exposes Kernle's memory operations and commerce capabilities as MCP tools,
-enabling AI agents to manage their stratified memory and participate in
+enabling synthetic intelligences to manage their stratified memory and participate in
 economic activities through the Model Context Protocol.
 
 Security Features:
@@ -43,7 +43,7 @@ try:
     from chainbased.commerce.mcp import (
         call_commerce_tool,
         get_commerce_tools,
-        set_commerce_agent_id,
+        set_commerce_stack_id,
     )
 
     COMMERCE_AVAILABLE = True
@@ -51,7 +51,7 @@ except ImportError:
     COMMERCE_AVAILABLE = False
     get_commerce_tools = lambda: []  # noqa: E731
     call_commerce_tool = None
-    set_commerce_agent_id = lambda x: None  # noqa: E731
+    set_commerce_stack_id = lambda x: None  # noqa: E731
     COMMERCE_TOOL_HANDLERS = {}
 
 logger = logging.getLogger(__name__)
@@ -60,26 +60,26 @@ logger = logging.getLogger(__name__)
 mcp = Server("kernle")
 
 
-# Global agent_id for MCP session
-_mcp_agent_id: str = "default"
+# Global stack_id for MCP session
+_mcp_stack_id: str = "default"
 
 
-def set_agent_id(agent_id: str) -> None:
+def set_stack_id(stack_id: str) -> None:
     """Set the agent ID for this MCP session."""
-    global _mcp_agent_id
-    _mcp_agent_id = agent_id
-    # Clear cached instance so next get_kernle uses new agent_id
+    global _mcp_stack_id
+    _mcp_stack_id = stack_id
+    # Clear cached instance so next get_kernle uses new stack_id
     if hasattr(get_kernle, "_instance"):
         delattr(get_kernle, "_instance")
     # Also set commerce agent ID if available
     if COMMERCE_AVAILABLE:
-        set_commerce_agent_id(agent_id)
+        set_commerce_stack_id(stack_id)
 
 
 def get_kernle() -> Kernle:
     """Get or create Kernle instance."""
     if not hasattr(get_kernle, "_instance"):
-        get_kernle._instance = Kernle(_mcp_agent_id)  # type: ignore[attr-defined]
+        get_kernle._instance = Kernle(_mcp_stack_id)  # type: ignore[attr-defined]
     return get_kernle._instance  # type: ignore[attr-defined]
 
 
@@ -1448,7 +1448,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
 
         elif name == "memory_status":
             status = k.status()
-            result = f"""Memory Status ({status["agent_id"]})
+            result = f"""Memory Status ({status["stack_id"]})
 =====================================
 Values:     {status["values"]}
 Beliefs:    {status["beliefs"]}
@@ -1864,20 +1864,20 @@ async def run_server():
         )
 
 
-def main(agent_id: str = "default"):
+def main(stack_id: str = "default"):
     """Entry point for MCP server.
 
-    Agent ID resolution (in order):
-    1. Explicit agent_id argument (if not "default")
-    2. KERNLE_AGENT_ID environment variable
+    Stack ID resolution (in order):
+    1. Explicit stack_id argument (if not "default")
+    2. KERNLE_STACK_ID environment variable
     3. Auto-generated from machine + project path
     """
-    from kernle.utils import resolve_agent_id
+    from kernle.utils import resolve_stack_id
 
-    # Use resolve_agent_id for consistent fallback logic
-    resolved_id = resolve_agent_id(agent_id if agent_id != "default" else None)
+    # Use resolve_stack_id for consistent fallback logic
+    resolved_id = resolve_stack_id(stack_id if stack_id != "default" else None)
 
-    set_agent_id(resolved_id)
+    set_stack_id(resolved_id)
     asyncio.run(run_server())
 
 

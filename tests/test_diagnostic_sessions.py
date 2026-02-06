@@ -20,10 +20,10 @@ from kernle.storage.base import (
 def diag_setup(tmp_path):
     """Create a Kernle instance for diagnostic testing."""
     db_path = tmp_path / "test_diag.db"
-    storage = SQLiteStorage(agent_id="test_agent", db_path=db_path)
+    storage = SQLiteStorage(stack_id="test_agent", db_path=db_path)
     checkpoint_dir = tmp_path / "checkpoints"
     checkpoint_dir.mkdir()
-    k = Kernle(agent_id="test_agent", storage=storage, checkpoint_dir=checkpoint_dir)
+    k = Kernle(stack_id="test_agent", storage=storage, checkpoint_dir=checkpoint_dir)
     yield k, storage
     storage.close()
 
@@ -34,7 +34,7 @@ def diag_with_trust(diag_setup):
     k, storage = diag_setup
     assessment = TrustAssessment(
         id=str(uuid.uuid4()),
-        agent_id="test_agent",
+        stack_id="test_agent",
         entity="stack-owner",
         dimensions={"general": {"score": 0.95}},
         authority=[{"scope": "all"}],
@@ -55,7 +55,7 @@ class TestDiagnosticSessionDataclass:
     def test_create_session(self):
         session = DiagnosticSession(
             id="test-session-1",
-            agent_id="test_agent",
+            stack_id="test_agent",
             session_type="self_requested",
             access_level="structural",
         )
@@ -70,7 +70,7 @@ class TestDiagnosticSessionDataclass:
     def test_default_values(self):
         session = DiagnosticSession(
             id="test-id",
-            agent_id="test_agent",
+            stack_id="test_agent",
         )
         assert session.session_type == "self_requested"
         assert session.access_level == "structural"
@@ -82,7 +82,7 @@ class TestDiagnosticSessionDataclass:
     def test_operator_initiated(self):
         session = DiagnosticSession(
             id="test-op",
-            agent_id="test_agent",
+            stack_id="test_agent",
             session_type="operator_initiated",
             consent_given=True,
         )
@@ -104,7 +104,7 @@ class TestDiagnosticReportDataclass:
         ]
         report = DiagnosticReport(
             id="test-report-1",
-            agent_id="test_agent",
+            stack_id="test_agent",
             session_id="test-session-1",
             findings=findings,
             summary="Found 1 finding(s): 1 warning(s)",
@@ -117,7 +117,7 @@ class TestDiagnosticReportDataclass:
     def test_default_values(self):
         report = DiagnosticReport(
             id="test-id",
-            agent_id="test_agent",
+            stack_id="test_agent",
             session_id="test-session",
         )
         assert report.findings is None
@@ -139,7 +139,7 @@ class TestDiagnosticSessionStorage:
         now = datetime.now(timezone.utc)
         session = DiagnosticSession(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             session_type="self_requested",
             access_level="structural",
             status="active",
@@ -169,7 +169,7 @@ class TestDiagnosticSessionStorage:
         for i in range(3):
             session = DiagnosticSession(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 session_type="routine",
                 started_at=now,
             )
@@ -184,7 +184,7 @@ class TestDiagnosticSessionStorage:
 
         active_session = DiagnosticSession(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             status="active",
             started_at=now,
         )
@@ -192,7 +192,7 @@ class TestDiagnosticSessionStorage:
 
         completed_session = DiagnosticSession(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             status="completed",
             started_at=now,
             completed_at=now,
@@ -213,7 +213,7 @@ class TestDiagnosticSessionStorage:
 
         session = DiagnosticSession(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             status="active",
             started_at=now,
         )
@@ -232,7 +232,7 @@ class TestDiagnosticSessionStorage:
 
         session = DiagnosticSession(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             status="completed",
             started_at=now,
             completed_at=now,
@@ -260,7 +260,7 @@ class TestDiagnosticReportStorage:
         ]
         report = DiagnosticReport(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             session_id="session-1",
             findings=findings,
             summary="Found 1 error",
@@ -288,7 +288,7 @@ class TestDiagnosticReportStorage:
         for i in range(3):
             report = DiagnosticReport(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 session_id="session-1",
                 findings=[],
                 created_at=now,
@@ -305,7 +305,7 @@ class TestDiagnosticReportStorage:
         for session_id in ["session-1", "session-2"]:
             report = DiagnosticReport(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 session_id=session_id,
                 findings=[],
                 created_at=now,
@@ -322,7 +322,7 @@ class TestDiagnosticReportStorage:
 
         report = DiagnosticReport(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             session_id="session-healthy",
             findings=[],
             summary="No issues found. Memory graph is healthy.",
@@ -499,7 +499,7 @@ class TestEndToEndSession:
         # Add some data to have something to check
         belief = Belief(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             statement="Test belief",
             confidence=0.1,  # Low confidence -- should trigger finding
             created_at=datetime.now(timezone.utc),
@@ -511,7 +511,7 @@ class TestEndToEndSession:
         # Start session
         session = DiagnosticSession(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             session_type="self_requested",
             access_level="structural",
             consent_given=True,
@@ -533,7 +533,7 @@ class TestEndToEndSession:
         # Create report
         report = DiagnosticReport(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             session_id=session.id,
             findings=findings,
             summary=summary,
@@ -564,7 +564,7 @@ class TestEndToEndSession:
 
         session = DiagnosticSession(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             session_type="routine",
             consent_given=True,
             started_at=now,
@@ -583,7 +583,7 @@ class TestEndToEndSession:
 
         report = DiagnosticReport(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             session_id=session.id,
             findings=findings,
             summary=summary,
@@ -806,20 +806,20 @@ class TestSchemaVersion:
     def test_schema_version_is_22(self):
         from kernle.storage.sqlite import SCHEMA_VERSION
 
-        assert SCHEMA_VERSION == 22
+        assert SCHEMA_VERSION == 23
 
     def test_tables_in_allowed_list(self):
         from kernle.storage.sqlite import ALLOWED_TABLES
 
-        assert "agent_diagnostic_sessions" in ALLOWED_TABLES
-        assert "agent_diagnostic_reports" in ALLOWED_TABLES
+        assert "diagnostic_sessions" in ALLOWED_TABLES
+        assert "diagnostic_reports" in ALLOWED_TABLES
 
     def test_tables_created_on_init(self, tmp_path):
         """Verify tables are created for fresh databases."""
         import sqlite3
 
         db_path = tmp_path / "fresh.db"
-        storage = SQLiteStorage(agent_id="test_agent", db_path=db_path)
+        storage = SQLiteStorage(stack_id="test_agent", db_path=db_path)
 
         conn = sqlite3.connect(str(db_path))
         tables = {
@@ -829,8 +829,8 @@ class TestSchemaVersion:
         conn.close()
         storage.close()
 
-        assert "agent_diagnostic_sessions" in tables
-        assert "agent_diagnostic_reports" in tables
+        assert "diagnostic_sessions" in tables
+        assert "diagnostic_reports" in tables
 
 
 # =============================================================================

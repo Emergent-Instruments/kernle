@@ -25,7 +25,7 @@ class TestCmdPromote:
     def test_no_patterns(self, capsys):
         """Test promote with no patterns found."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.promote.return_value = {
             "episodes_scanned": 5,
             "patterns_found": 0,
@@ -43,7 +43,7 @@ class TestCmdPromote:
     def test_with_suggestions(self, capsys):
         """Test promote with suggestions found."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.promote.return_value = {
             "episodes_scanned": 10,
             "patterns_found": 2,
@@ -73,7 +73,7 @@ class TestCmdPromote:
     def test_auto_mode(self, capsys):
         """Test promote in auto mode creates beliefs."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.promote.return_value = {
             "episodes_scanned": 10,
             "patterns_found": 1,
@@ -121,7 +121,7 @@ class TestCmdPromote:
     def test_not_enough_episodes(self, capsys):
         """Test promote when not enough episodes."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.promote.return_value = {
             "episodes_scanned": 1,
             "patterns_found": 0,
@@ -138,7 +138,7 @@ class TestCmdPromote:
     def test_manual_promote_hint(self, capsys):
         """Test that manual promote hint is shown when not in auto mode."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.promote.return_value = {
             "episodes_scanned": 10,
             "patterns_found": 1,
@@ -165,7 +165,7 @@ class TestCmdConsolidateDeprecated:
     def test_deprecation_warning(self, capsys):
         """Test consolidate prints deprecation warning to stderr."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.promote.return_value = {
             "episodes_scanned": 5,
             "patterns_found": 0,
@@ -191,7 +191,7 @@ class TestCmdConsolidateDeprecated:
     def test_delegates_to_promote(self, capsys):
         """Test consolidate delegates to promote and produces same output."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.promote.return_value = {
             "episodes_scanned": 10,
             "patterns_found": 1,
@@ -230,7 +230,7 @@ class TestCmdIdentityShow:
     def test_show_text_output(self, capsys):
         """Test identity show with text output."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.synthesize_identity.return_value = {
             "narrative": "A diligent agent focused on quality.",
             "core_values": [{"name": "quality", "priority": 1, "statement": "Quality over speed"}],
@@ -250,7 +250,7 @@ class TestCmdIdentityShow:
         cmd_identity(args, k)
 
         captured = capsys.readouterr()
-        assert f"Identity Synthesis for {k.agent_id}" in captured.out
+        assert f"Identity Synthesis for {k.stack_id}" in captured.out
         assert "Narrative" in captured.out
         assert "diligent agent" in captured.out
         assert "Core Values" in captured.out
@@ -270,7 +270,7 @@ class TestCmdIdentityShow:
     def test_show_json_output(self, capsys):
         """Test identity show with JSON output."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         identity_data = {
             "narrative": "Test narrative",
             "core_values": [],
@@ -294,7 +294,7 @@ class TestCmdIdentityShow:
     def test_show_none_action_defaults_to_show(self, capsys):
         """Test that None identity_action defaults to show."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.synthesize_identity.return_value = {
             "narrative": "Default show",
             "core_values": [],
@@ -315,7 +315,7 @@ class TestCmdIdentityShow:
     def test_show_empty_sections(self, capsys):
         """Test show with empty optional sections."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.synthesize_identity.return_value = {
             "narrative": "Minimal identity",
             "core_values": [],
@@ -346,7 +346,7 @@ class TestCmdIdentityConfidence:
     def test_confidence_text_output(self, capsys):
         """Test confidence with text output."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.get_identity_confidence.return_value = 0.75
 
         args = Namespace(identity_action="confidence", json=False)
@@ -363,7 +363,7 @@ class TestCmdIdentityConfidence:
     def test_confidence_json_output(self, capsys):
         """Test confidence with JSON output."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.get_identity_confidence.return_value = 0.85
 
         args = Namespace(identity_action="confidence", json=True)
@@ -372,13 +372,13 @@ class TestCmdIdentityConfidence:
 
         captured = capsys.readouterr()
         output = json.loads(captured.out)
-        assert output["agent_id"] == "test-agent"
+        assert output["stack_id"] == "test-agent"
         assert output["confidence"] == 0.85
 
     def test_confidence_zero(self, capsys):
         """Test confidence at zero."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.get_identity_confidence.return_value = 0.0
 
         args = Namespace(identity_action="confidence", json=False)
@@ -391,7 +391,7 @@ class TestCmdIdentityConfidence:
     def test_confidence_full(self, capsys):
         """Test confidence at 100%."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.get_identity_confidence.return_value = 1.0
 
         args = Namespace(identity_action="confidence", json=False)
@@ -408,7 +408,7 @@ class TestCmdIdentityDrift:
     def test_drift_text_output_stable(self, capsys):
         """Test drift with stable interpretation."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.detect_identity_drift.return_value = {
             "period_days": 30,
             "drift_score": 0.1,  # Low = stable
@@ -431,7 +431,7 @@ class TestCmdIdentityDrift:
     def test_drift_text_output_evolving(self, capsys):
         """Test drift with evolving interpretation."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.detect_identity_drift.return_value = {
             "period_days": 30,
             "drift_score": 0.35,  # evolving
@@ -450,7 +450,7 @@ class TestCmdIdentityDrift:
     def test_drift_text_output_significant_change(self, capsys):
         """Test drift with significant change interpretation."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.detect_identity_drift.return_value = {
             "period_days": 30,
             "drift_score": 0.6,  # significant change
@@ -469,7 +469,7 @@ class TestCmdIdentityDrift:
     def test_drift_text_output_transformational(self, capsys):
         """Test drift with transformational interpretation."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.detect_identity_drift.return_value = {
             "period_days": 30,
             "drift_score": 0.9,  # transformational
@@ -488,7 +488,7 @@ class TestCmdIdentityDrift:
     def test_drift_json_output(self, capsys):
         """Test drift with JSON output."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         drift_data = {
             "period_days": 14,
             "drift_score": 0.25,
@@ -520,7 +520,7 @@ class TestCmdIdentityDrift:
     def test_drift_with_changed_values(self, capsys):
         """Test drift showing changed values."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.detect_identity_drift.return_value = {
             "period_days": 30,
             "drift_score": 0.4,
@@ -548,7 +548,7 @@ class TestCmdIdentityDrift:
     def test_drift_with_evolved_beliefs(self, capsys):
         """Test drift showing evolved beliefs."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.detect_identity_drift.return_value = {
             "period_days": 30,
             "drift_score": 0.3,
@@ -572,7 +572,7 @@ class TestCmdIdentityDrift:
     def test_drift_with_new_experiences(self, capsys):
         """Test drift showing new experiences."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.detect_identity_drift.return_value = {
             "period_days": 30,
             "drift_score": 0.45,
@@ -607,7 +607,7 @@ class TestCmdIdentityDrift:
     def test_drift_empty_sections_not_shown(self, capsys):
         """Test that empty drift sections are not shown."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.detect_identity_drift.return_value = {
             "period_days": 30,
             "drift_score": 0.05,
@@ -628,7 +628,7 @@ class TestCmdIdentityDrift:
     def test_drift_custom_days(self, capsys):
         """Test drift with custom days parameter."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.detect_identity_drift.return_value = {
             "period_days": 7,
             "drift_score": 0.15,

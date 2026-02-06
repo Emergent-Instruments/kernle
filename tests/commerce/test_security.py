@@ -828,7 +828,7 @@ class TestWalletSecurity:
                 # The WalletAccount model does validate in __post_init__
                 WalletAccount(
                     id="test",
-                    agent_id="test",
+                    stack_id="test",
                     wallet_address="0x" + "a" * 40,  # Valid wallet address
                     owner_eoa=addr,  # Invalid owner address
                 )

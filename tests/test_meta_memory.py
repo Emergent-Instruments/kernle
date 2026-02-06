@@ -38,7 +38,7 @@ def temp_db():
 @pytest.fixture
 def storage(temp_db):
     """Create a SQLiteStorage instance for testing."""
-    return SQLiteStorage(agent_id="test-agent", db_path=temp_db)
+    return SQLiteStorage(stack_id="test-agent", db_path=temp_db)
 
 
 class TestMetaMemoryFields:
@@ -48,7 +48,7 @@ class TestMetaMemoryFields:
         """Episode should have meta-memory fields."""
         episode = Episode(
             id="ep-meta-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Test meta-memory",
             outcome="Success",
             confidence=0.9,
@@ -72,7 +72,7 @@ class TestMetaMemoryFields:
         """Belief should have meta-memory fields."""
         belief = Belief(
             id="b-meta-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             statement="Testing is good",
             confidence=0.7,
             source_type="inference",
@@ -91,7 +91,7 @@ class TestMetaMemoryFields:
         """Value should have meta-memory fields."""
         value = Value(
             id="v-meta-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             name="Quality",
             statement="Quality matters",
             confidence=0.95,
@@ -109,7 +109,7 @@ class TestMetaMemoryFields:
         """Goal should have meta-memory fields."""
         goal = Goal(
             id="g-meta-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             title="Complete meta-memory",
             confidence=0.8,
             source_type="direct_experience",
@@ -126,7 +126,7 @@ class TestMetaMemoryFields:
         """Note should have meta-memory fields."""
         note = Note(
             id="n-meta-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             content="Meta-memory note",
             confidence=0.6,
             source_type="consolidation",
@@ -145,7 +145,7 @@ class TestMetaMemoryFields:
         """Drive should have meta-memory fields."""
         drive = Drive(
             id="d-meta-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             drive_type="curiosity",
             intensity=0.8,
             confidence=0.75,
@@ -163,7 +163,7 @@ class TestMetaMemoryFields:
         """Relationship should have meta-memory fields."""
         rel = Relationship(
             id="r-meta-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             entity_name="Alice",
             entity_type="human",
             relationship_type="colleague",
@@ -187,7 +187,7 @@ class TestGetMemory:
     def test_get_memory_episode(self, storage):
         """Should retrieve episode by type and ID."""
         storage.save_episode(
-            Episode(id="ep-get-1", agent_id="test-agent", objective="Test", outcome="OK")
+            Episode(id="ep-get-1", stack_id="test-agent", objective="Test", outcome="OK")
         )
 
         memory = storage.get_memory("episode", "ep-get-1")
@@ -196,7 +196,7 @@ class TestGetMemory:
 
     def test_get_memory_belief(self, storage):
         """Should retrieve belief by type and ID."""
-        storage.save_belief(Belief(id="b-get-1", agent_id="test-agent", statement="Test belief"))
+        storage.save_belief(Belief(id="b-get-1", stack_id="test-agent", statement="Test belief"))
 
         memory = storage.get_memory("belief", "b-get-1")
         assert memory is not None
@@ -220,7 +220,7 @@ class TestUpdateMemoryMeta:
         """Should update confidence field."""
         storage.save_episode(
             Episode(
-                id="ep-upd-1", agent_id="test-agent", objective="Test", outcome="OK", confidence=0.5
+                id="ep-upd-1", stack_id="test-agent", objective="Test", outcome="OK", confidence=0.5
             )
         )
 
@@ -236,7 +236,7 @@ class TestUpdateMemoryMeta:
         storage.save_belief(
             Belief(
                 id="b-upd-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Test",
                 source_type="direct_experience",
             )
@@ -252,7 +252,7 @@ class TestUpdateMemoryMeta:
     def test_update_verification_count(self, storage):
         """Should update verification_count."""
         storage.save_note(
-            Note(id="n-upd-1", agent_id="test-agent", content="Test note", verification_count=0)
+            Note(id="n-upd-1", stack_id="test-agent", content="Test note", verification_count=0)
         )
 
         storage.update_memory_meta(
@@ -265,7 +265,7 @@ class TestUpdateMemoryMeta:
 
     def test_update_derived_from(self, storage):
         """Should update derived_from list."""
-        storage.save_belief(Belief(id="b-upd-2", agent_id="test-agent", statement="Derived belief"))
+        storage.save_belief(Belief(id="b-upd-2", stack_id="test-agent", statement="Derived belief"))
 
         storage.update_memory_meta("belief", "b-upd-2", derived_from=["episode:ep-1", "note:n-1"])
 
@@ -284,15 +284,15 @@ class TestGetMemoriesByConfidence:
     def test_get_low_confidence_memories(self, storage):
         """Should get memories below threshold."""
         storage.save_belief(
-            Belief(id="b-lo-1", agent_id="test-agent", statement="Low confidence", confidence=0.3)
+            Belief(id="b-lo-1", stack_id="test-agent", statement="Low confidence", confidence=0.3)
         )
         storage.save_belief(
-            Belief(id="b-hi-1", agent_id="test-agent", statement="High confidence", confidence=0.9)
+            Belief(id="b-hi-1", stack_id="test-agent", statement="High confidence", confidence=0.9)
         )
         storage.save_episode(
             Episode(
                 id="ep-lo-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Low conf ep",
                 outcome="OK",
                 confidence=0.4,
@@ -308,10 +308,10 @@ class TestGetMemoriesByConfidence:
     def test_get_high_confidence_memories(self, storage):
         """Should get memories above threshold."""
         storage.save_belief(
-            Belief(id="b-lo-2", agent_id="test-agent", statement="Low confidence", confidence=0.3)
+            Belief(id="b-lo-2", stack_id="test-agent", statement="Low confidence", confidence=0.3)
         )
         storage.save_belief(
-            Belief(id="b-hi-2", agent_id="test-agent", statement="High confidence", confidence=0.9)
+            Belief(id="b-hi-2", stack_id="test-agent", statement="High confidence", confidence=0.9)
         )
 
         results = storage.get_memories_by_confidence(0.5, below=False)
@@ -323,12 +323,12 @@ class TestGetMemoriesByConfidence:
     def test_filter_by_memory_type(self, storage):
         """Should filter by memory type."""
         storage.save_belief(
-            Belief(id="b-filter-1", agent_id="test-agent", statement="Test", confidence=0.3)
+            Belief(id="b-filter-1", stack_id="test-agent", statement="Test", confidence=0.3)
         )
         storage.save_episode(
             Episode(
                 id="ep-filter-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Test",
                 outcome="OK",
                 confidence=0.3,
@@ -348,7 +348,7 @@ class TestGetMemoriesBySource:
         storage.save_belief(
             Belief(
                 id="b-inf-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Inferred belief",
                 source_type="inference",
             )
@@ -356,7 +356,7 @@ class TestGetMemoriesBySource:
         storage.save_belief(
             Belief(
                 id="b-dir-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Direct belief",
                 source_type="direct_experience",
             )
@@ -374,7 +374,7 @@ class TestGetMemoriesBySource:
         storage.save_note(
             Note(
                 id="n-cons-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 content="Consolidated note",
                 source_type="consolidation",
             )
@@ -410,7 +410,7 @@ class TestConfidenceHistory:
         storage.save_belief(
             Belief(
                 id="b-hist-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Belief with history",
                 confidence_history=history,
             )
@@ -435,7 +435,7 @@ class TestTraceLineage:
         storage.save_episode(
             Episode(
                 id="ep-trace-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Observed something",
                 outcome="Noted",
                 derived_from=["raw:r1"],
@@ -444,7 +444,7 @@ class TestTraceLineage:
         storage.save_belief(
             Belief(
                 id="b-trace-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Something is true",
                 derived_from=["episode:ep-trace-1"],
             )
@@ -461,7 +461,7 @@ class TestTraceLineage:
         storage.save_belief(
             Belief(
                 id="b-cyc-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Circular A",
                 derived_from=["belief:b-cyc-2"],
             )
@@ -471,7 +471,7 @@ class TestTraceLineage:
             storage.save_belief(
                 Belief(
                     id="b-cyc-2",
-                    agent_id="test-agent",
+                    stack_id="test-agent",
                     statement="Circular B",
                     derived_from=["belief:b-cyc-1"],
                 )
@@ -491,7 +491,7 @@ class TestReverseTrace:
         storage.save_episode(
             Episode(
                 id="ep-src-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Source episode",
                 outcome="Done",
             )
@@ -499,7 +499,7 @@ class TestReverseTrace:
         storage.save_belief(
             Belief(
                 id="b-dep-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Depends on episode",
                 derived_from=["episode:ep-src-1"],
             )
@@ -507,7 +507,7 @@ class TestReverseTrace:
         storage.save_note(
             Note(
                 id="n-dep-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 content="Also depends on episode",
                 derived_from=["episode:ep-src-1"],
             )
@@ -528,7 +528,7 @@ class TestReverseTrace:
         storage.save_episode(
             Episode(
                 id="ep-lonely-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Lonely episode",
                 outcome="Done",
             )
@@ -551,7 +551,7 @@ class TestOrphanDetection:
         storage.save_episode(
             Episode(
                 id="ep-clean-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Clean episode",
                 outcome="Done",
             )
@@ -559,7 +559,7 @@ class TestOrphanDetection:
         storage.save_belief(
             Belief(
                 id="b-clean-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Clean belief",
                 derived_from=["episode:ep-clean-1"],
             )
@@ -579,7 +579,7 @@ class TestOrphanDetection:
         storage.save_belief(
             Belief(
                 id="b-orphan-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Has dangling ref",
                 derived_from=["episode:does-not-exist"],
             )
@@ -600,7 +600,7 @@ class TestOrphanDetection:
         storage.save_belief(
             Belief(
                 id="b-ctx-1",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 statement="Has context ref",
                 derived_from=["context:consolidation"],
             )

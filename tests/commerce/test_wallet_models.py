@@ -14,12 +14,12 @@ class TestWalletAccount:
         """Test creating a wallet with minimal required fields."""
         wallet = WalletAccount(
             id="wallet-123",
-            agent_id="agent-456",
+            stack_id="agent-456",
             wallet_address="0x1234567890abcdef1234567890abcdef12345678",
         )
 
         assert wallet.id == "wallet-123"
-        assert wallet.agent_id == "agent-456"
+        assert wallet.stack_id == "agent-456"
         assert wallet.wallet_address == "0x1234567890abcdef1234567890abcdef12345678"
         assert wallet.chain == "base"
         assert wallet.status == "pending_claim"
@@ -31,7 +31,7 @@ class TestWalletAccount:
         now = datetime.now(timezone.utc)
         wallet = WalletAccount(
             id="wallet-123",
-            agent_id="agent-456",
+            stack_id="agent-456",
             wallet_address="0x1234567890abcdef1234567890abcdef12345678",
             chain="base-sepolia",
             status="active",
@@ -59,7 +59,7 @@ class TestWalletAccount:
         with pytest.raises(ValueError, match="wallet_address"):
             WalletAccount(
                 id="wallet-123",
-                agent_id="agent-456",
+                stack_id="agent-456",
                 wallet_address="not-a-valid-address",
             )
 
@@ -68,7 +68,7 @@ class TestWalletAccount:
         with pytest.raises(ValueError, match="Invalid chain"):
             WalletAccount(
                 id="wallet-123",
-                agent_id="agent-456",
+                stack_id="agent-456",
                 wallet_address="0x1234567890abcdef1234567890abcdef12345678",
                 chain="ethereum",
             )
@@ -78,7 +78,7 @@ class TestWalletAccount:
         with pytest.raises(ValueError, match="Invalid status"):
             WalletAccount(
                 id="wallet-123",
-                agent_id="agent-456",
+                stack_id="agent-456",
                 wallet_address="0x1234567890abcdef1234567890abcdef12345678",
                 status="invalid_status",
             )
@@ -87,7 +87,7 @@ class TestWalletAccount:
         """Test that status can be set via enum."""
         wallet = WalletAccount(
             id="wallet-123",
-            agent_id="agent-456",
+            stack_id="agent-456",
             wallet_address="0x1234567890abcdef1234567890abcdef12345678",
             status=WalletStatus.ACTIVE,
         )
@@ -98,7 +98,7 @@ class TestWalletAccount:
         """Test is_active property."""
         wallet = WalletAccount(
             id="wallet-123",
-            agent_id="agent-456",
+            stack_id="agent-456",
             wallet_address="0x1234567890abcdef1234567890abcdef12345678",
             status="active",
         )
@@ -106,7 +106,7 @@ class TestWalletAccount:
 
         wallet2 = WalletAccount(
             id="wallet-124",
-            agent_id="agent-456",
+            stack_id="agent-456",
             wallet_address="0x1234567890abcdef1234567890abcdef12345679",
             status="pending_claim",
         )
@@ -117,7 +117,7 @@ class TestWalletAccount:
         # Not claimed
         wallet = WalletAccount(
             id="wallet-123",
-            agent_id="agent-456",
+            stack_id="agent-456",
             wallet_address="0x1234567890abcdef1234567890abcdef12345678",
         )
         assert wallet.is_claimed is False
@@ -125,7 +125,7 @@ class TestWalletAccount:
         # Claimed via owner_eoa
         wallet2 = WalletAccount(
             id="wallet-124",
-            agent_id="agent-456",
+            stack_id="agent-456",
             wallet_address="0x1234567890abcdef1234567890abcdef12345679",
             owner_eoa="0xdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
         )
@@ -134,7 +134,7 @@ class TestWalletAccount:
         # Claimed via claimed_at
         wallet3 = WalletAccount(
             id="wallet-125",
-            agent_id="agent-456",
+            stack_id="agent-456",
             wallet_address="0x1234567890abcdef1234567890abcdef12345670",
             claimed_at=datetime.now(timezone.utc),
         )
@@ -145,7 +145,7 @@ class TestWalletAccount:
         # Active wallet can transact
         wallet = WalletAccount(
             id="wallet-123",
-            agent_id="agent-456",
+            stack_id="agent-456",
             wallet_address="0x1234567890abcdef1234567890abcdef12345678",
             status="active",
         )
@@ -154,7 +154,7 @@ class TestWalletAccount:
         # Paused wallet cannot transact
         wallet2 = WalletAccount(
             id="wallet-124",
-            agent_id="agent-456",
+            stack_id="agent-456",
             wallet_address="0x1234567890abcdef1234567890abcdef12345679",
             status="paused",
         )
@@ -165,7 +165,7 @@ class TestWalletAccount:
         now = datetime.now(timezone.utc)
         wallet = WalletAccount(
             id="wallet-123",
-            agent_id="agent-456",
+            stack_id="agent-456",
             wallet_address="0x1234567890abcdef1234567890abcdef12345678",
             chain="base",
             status="active",
@@ -175,7 +175,7 @@ class TestWalletAccount:
         d = wallet.to_dict()
 
         assert d["id"] == "wallet-123"
-        assert d["agent_id"] == "agent-456"
+        assert d["stack_id"] == "agent-456"
         assert d["wallet_address"] == "0x1234567890abcdef1234567890abcdef12345678"
         assert d["chain"] == "base"
         assert d["status"] == "active"
@@ -186,7 +186,7 @@ class TestWalletAccount:
         """Test deserialization from dictionary."""
         data = {
             "id": "wallet-123",
-            "agent_id": "agent-456",
+            "stack_id": "agent-456",
             "wallet_address": "0x1234567890abcdef1234567890abcdef12345678",
             "chain": "base",
             "status": "active",
@@ -197,7 +197,7 @@ class TestWalletAccount:
         wallet = WalletAccount.from_dict(data)
 
         assert wallet.id == "wallet-123"
-        assert wallet.agent_id == "agent-456"
+        assert wallet.stack_id == "agent-456"
         assert wallet.wallet_address == "0x1234567890abcdef1234567890abcdef12345678"
         assert wallet.chain == "base"
         assert wallet.status == "active"
@@ -208,7 +208,7 @@ class TestWalletAccount:
         """Test parsing datetime with Z suffix."""
         data = {
             "id": "wallet-123",
-            "agent_id": "agent-456",
+            "stack_id": "agent-456",
             "wallet_address": "0x1234567890abcdef1234567890abcdef12345678",
             "created_at": "2024-01-15T12:00:00Z",
         }

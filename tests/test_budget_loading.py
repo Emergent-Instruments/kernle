@@ -118,10 +118,10 @@ class TestComputePriorityScore:
     def test_value_priority(self):
         """Value priority should scale with priority field."""
         high_priority_value = Value(
-            id="v1", agent_id="test", name="test", statement="test", priority=100
+            id="v1", stack_id="test", name="test", statement="test", priority=100
         )
         low_priority_value = Value(
-            id="v2", agent_id="test", name="test", statement="test", priority=0
+            id="v2", stack_id="test", name="test", statement="test", priority=0
         )
 
         high_score = compute_priority_score("value", high_priority_value)
@@ -134,8 +134,8 @@ class TestComputePriorityScore:
 
     def test_belief_priority(self):
         """Belief priority should scale with confidence."""
-        high_confidence_belief = Belief(id="b1", agent_id="test", statement="test", confidence=0.95)
-        low_confidence_belief = Belief(id="b2", agent_id="test", statement="test", confidence=0.3)
+        high_confidence_belief = Belief(id="b1", stack_id="test", statement="test", confidence=0.95)
+        low_confidence_belief = Belief(id="b2", stack_id="test", statement="test", confidence=0.3)
 
         high_score = compute_priority_score("belief", high_confidence_belief)
         low_score = compute_priority_score("belief", low_confidence_belief)
@@ -144,8 +144,8 @@ class TestComputePriorityScore:
 
     def test_drive_priority(self):
         """Drive priority should scale with intensity."""
-        high_intensity_drive = Drive(id="d1", agent_id="test", drive_type="growth", intensity=0.9)
-        low_intensity_drive = Drive(id="d2", agent_id="test", drive_type="curiosity", intensity=0.2)
+        high_intensity_drive = Drive(id="d1", stack_id="test", drive_type="growth", intensity=0.9)
+        low_intensity_drive = Drive(id="d2", stack_id="test", drive_type="curiosity", intensity=0.2)
 
         high_score = compute_priority_score("drive", high_intensity_drive)
         low_score = compute_priority_score("drive", low_intensity_drive)
@@ -155,14 +155,14 @@ class TestComputePriorityScore:
     def test_type_ordering(self):
         """Different types should have different base priorities."""
         # Create records with neutral factors
-        value = Value(id="v", agent_id="test", name="test", statement="test", priority=50)
-        belief = Belief(id="b", agent_id="test", statement="test", confidence=0.5)
-        goal = Goal(id="g", agent_id="test", title="test")
-        episode = Episode(id="e", agent_id="test", objective="test", outcome="test")
-        note = Note(id="n", agent_id="test", content="test")
+        value = Value(id="v", stack_id="test", name="test", statement="test", priority=50)
+        belief = Belief(id="b", stack_id="test", statement="test", confidence=0.5)
+        goal = Goal(id="g", stack_id="test", title="test")
+        episode = Episode(id="e", stack_id="test", objective="test", outcome="test")
+        note = Note(id="n", stack_id="test", content="test")
         relationship = Relationship(
             id="r",
-            agent_id="test",
+            stack_id="test",
             entity_name="test",
             entity_type="person",
             relationship_type="knows",
@@ -205,15 +205,15 @@ class TestBudgetLoading:
         checkpoint_dir = tmp_path / "checkpoints"
         checkpoint_dir.mkdir()
 
-        storage = SQLiteStorage(agent_id="test_agent", db_path=db_path)
-        kernle = Kernle(agent_id="test_agent", storage=storage, checkpoint_dir=checkpoint_dir)
+        storage = SQLiteStorage(stack_id="test_agent", db_path=db_path)
+        kernle = Kernle(stack_id="test_agent", storage=storage, checkpoint_dir=checkpoint_dir)
 
         # Add test data with varying priorities/confidence
         for i in range(10):
             storage.save_value(
                 Value(
                     id=str(uuid.uuid4()),
-                    agent_id="test_agent",
+                    stack_id="test_agent",
                     name=f"value_{i}",
                     statement=f"This is value statement {i} with some content to test token estimation",
                     priority=i * 10,  # 0, 10, 20, ..., 90
@@ -225,7 +225,7 @@ class TestBudgetLoading:
             storage.save_belief(
                 Belief(
                     id=str(uuid.uuid4()),
-                    agent_id="test_agent",
+                    stack_id="test_agent",
                     statement=f"This is belief {i} with confidence level varying",
                     belief_type="fact",
                     confidence=0.1 + (i * 0.05),  # 0.1, 0.15, ..., 0.85
@@ -237,7 +237,7 @@ class TestBudgetLoading:
             storage.save_episode(
                 Episode(
                     id=str(uuid.uuid4()),
-                    agent_id="test_agent",
+                    stack_id="test_agent",
                     objective=f"Episode {i} objective that is moderately long",
                     outcome=f"Episode {i} outcome with details about what happened",
                     outcome_type="success" if i % 2 == 0 else "failure",
@@ -338,8 +338,8 @@ class TestBudgetValidation:
         db_path = tmp_path / "test.db"
         checkpoint_dir = tmp_path / "checkpoints"
         checkpoint_dir.mkdir()
-        storage = SQLiteStorage(agent_id="test", db_path=db_path)
-        k = Kernle(agent_id="test", storage=storage, checkpoint_dir=checkpoint_dir)
+        storage = SQLiteStorage(stack_id="test", db_path=db_path)
+        k = Kernle(stack_id="test", storage=storage, checkpoint_dir=checkpoint_dir)
 
         # Should not raise, should clamp to MIN_TOKEN_BUDGET
         memory = k.load(budget=50)  # Below minimum
@@ -351,8 +351,8 @@ class TestBudgetValidation:
         db_path = tmp_path / "test.db"
         checkpoint_dir = tmp_path / "checkpoints"
         checkpoint_dir.mkdir()
-        storage = SQLiteStorage(agent_id="test", db_path=db_path)
-        k = Kernle(agent_id="test", storage=storage, checkpoint_dir=checkpoint_dir)
+        storage = SQLiteStorage(stack_id="test", db_path=db_path)
+        k = Kernle(stack_id="test", storage=storage, checkpoint_dir=checkpoint_dir)
 
         # Should not raise, should clamp to MAX_TOKEN_BUDGET
         memory = k.load(budget=999999)  # Above maximum
@@ -364,8 +364,8 @@ class TestBudgetValidation:
         db_path = tmp_path / "test.db"
         checkpoint_dir = tmp_path / "checkpoints"
         checkpoint_dir.mkdir()
-        storage = SQLiteStorage(agent_id="test", db_path=db_path)
-        k = Kernle(agent_id="test", storage=storage, checkpoint_dir=checkpoint_dir)
+        storage = SQLiteStorage(stack_id="test", db_path=db_path)
+        k = Kernle(stack_id="test", storage=storage, checkpoint_dir=checkpoint_dir)
 
         # Should not raise, should clamp invalid values
         memory = k.load(budget=8000, max_item_chars=5)  # Below minimum
@@ -429,14 +429,14 @@ class TestLoadAllWithOptionalLimits:
     def storage(self, tmp_path):
         """Create storage with test data."""
         db_path = tmp_path / "test_memories.db"
-        storage = SQLiteStorage(agent_id="test_agent", db_path=db_path)
+        storage = SQLiteStorage(stack_id="test_agent", db_path=db_path)
 
         # Add test data
         for i in range(5):
             storage.save_value(
                 Value(
                     id=str(uuid.uuid4()),
-                    agent_id="test_agent",
+                    stack_id="test_agent",
                     name=f"value_{i}",
                     statement=f"Statement {i}",
                     priority=i * 20,
@@ -479,7 +479,7 @@ class TestLoadAllWithOptionalLimits:
         belief_id = str(uuid.uuid4())
         regular_belief = Belief(
             id=belief_id,
-            agent_id="test_agent",
+            stack_id="test_agent",
             statement="This belief will be forgotten",
             confidence=0.5,
             created_at=datetime.now(timezone.utc),

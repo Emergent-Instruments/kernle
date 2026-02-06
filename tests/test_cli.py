@@ -39,7 +39,7 @@ def mock_kernle():
         "checkpoint": {"current_task": "Testing", "pending": ["CLI tests"]},
         "recent_work": [{"objective": "Write tests", "outcome_type": "success"}],
         "drives": [{"drive_type": "growth", "intensity": 0.7}],
-        "relationships": [{"other_agent_id": "peer", "trust_level": 0.8}],
+        "relationships": [{"other_stack_id": "peer", "trust_level": 0.8}],
     }
 
     kernle.format_memory.return_value = "# Working Memory\nFormatted memory context..."
@@ -76,7 +76,7 @@ def mock_kernle():
         },
     ]
     kernle.status.return_value = {
-        "agent_id": "test_agent",
+        "stack_id": "test_agent",
         "values": 5,
         "beliefs": 10,
         "goals": 3,
@@ -110,7 +110,7 @@ def mock_sys_argv():
 class TestMainFunction:
     """Test the main CLI entry point."""
 
-    @patch("kernle.cli.__main__.resolve_agent_id")
+    @patch("kernle.cli.__main__.resolve_stack_id")
     @patch("kernle.cli.__main__.Kernle")
     @patch("sys.argv")
     def test_main_load_command(self, mock_argv, mock_kernle_class, mock_resolve, mock_kernle):
@@ -123,18 +123,18 @@ class TestMainFunction:
         with patch("sys.stdout", new=StringIO()) as fake_out:
             main()
 
-        # When no -a is provided, resolve_agent_id is called to generate one
+        # When no -a is provided, resolve_stack_id is called to generate one
         mock_resolve.assert_called_once()
-        mock_kernle_class.assert_called_once_with(agent_id="auto-test1234")
+        mock_kernle_class.assert_called_once_with(stack_id="auto-test1234")
         mock_kernle.load.assert_called_once()
         mock_kernle.format_memory.assert_called_once()
         assert "# Working Memory" in fake_out.getvalue()
 
     @patch("kernle.cli.__main__.Kernle")
     @patch("sys.argv")
-    def test_main_with_agent_id(self, mock_argv, mock_kernle_class, mock_kernle):
+    def test_main_with_stack_id(self, mock_argv, mock_kernle_class, mock_kernle):
         """Test main function with agent ID parameter."""
-        mock_argv.__getitem__.side_effect = lambda x: ["kernle", "--agent", "test_agent", "status"][
+        mock_argv.__getitem__.side_effect = lambda x: ["kernle", "--stack", "test_agent", "status"][
             x
         ]
         mock_argv.__len__.return_value = 4
@@ -143,7 +143,7 @@ class TestMainFunction:
         with patch("sys.stdout", new=StringIO()):
             main()
 
-        mock_kernle_class.assert_called_once_with(agent_id="test_agent")
+        mock_kernle_class.assert_called_once_with(stack_id="test_agent")
 
     @patch("kernle.cli.__main__.Kernle")
     @patch("sys.argv")
@@ -503,7 +503,7 @@ class TestStatusCommand:
     def test_cmd_status_no_checkpoint(self, mock_kernle):
         """Test status command when no checkpoint exists."""
         mock_kernle.status.return_value = {
-            "agent_id": "test_agent",
+            "stack_id": "test_agent",
             "values": 0,
             "beliefs": 0,
             "goals": 0,
@@ -605,7 +605,7 @@ class TestPromoteCommand:
             ],
             "beliefs_created": 0,
         }
-        mock_kernle.agent_id = "test_agent"
+        mock_kernle.stack_id = "test_agent"
 
         args = argparse.Namespace(
             auto=False,
@@ -633,7 +633,7 @@ class TestPromoteCommand:
             "suggestions": [],
             "beliefs_created": 0,
         }
-        mock_kernle.agent_id = "test_agent"
+        mock_kernle.stack_id = "test_agent"
 
         args = argparse.Namespace(
             auto=False,
@@ -688,7 +688,7 @@ class TestConsolidateDeprecatedAlias:
             "suggestions": [],
             "beliefs_created": 0,
         }
-        mock_kernle.agent_id = "test_agent"
+        mock_kernle.stack_id = "test_agent"
 
         args = argparse.Namespace(
             auto=False,
@@ -722,7 +722,7 @@ class TestConsolidateDeprecatedAlias:
             ],
             "beliefs_created": 0,
         }
-        mock_kernle.agent_id = "test_agent"
+        mock_kernle.stack_id = "test_agent"
 
         args = argparse.Namespace(
             auto=False,
@@ -1015,23 +1015,23 @@ class TestErrorHandling:
 class TestAgentCommand:
     """Test agent management commands."""
 
-    def test_cmd_agent_list(self, mock_kernle):
+    def test_cmd_stack_list(self, mock_kernle):
         """Test agent list command."""
         import argparse
 
-        from kernle.cli.commands.agent import cmd_agent
+        from kernle.cli.commands.stack import cmd_stack
 
-        # Add agent_id attribute to mock
-        mock_kernle.agent_id = "test-agent"
+        # Add stack_id attribute to mock
+        mock_kernle.stack_id = "test-agent"
 
-        args = argparse.Namespace(agent_action="list")
+        args = argparse.Namespace(stack_action="list")
 
         with patch("sys.stdout", new=StringIO()) as fake_out:
-            cmd_agent(args, mock_kernle)
+            cmd_stack(args, mock_kernle)
 
         output = fake_out.getvalue()
         # Should run without error
-        assert "Agents" in output or "agents" in output or "No agents" in output
+        assert "Stacks" in output or "stacks" in output or "No agents" in output
 
 
 class TestImportCommand:

@@ -32,7 +32,7 @@ def temp_db():
 @pytest.fixture
 def storage(temp_db):
     """Create a SQLiteStorage instance for testing."""
-    return SQLiteStorage(agent_id="test-agent", db_path=temp_db)
+    return SQLiteStorage(stack_id="test-agent", db_path=temp_db)
 
 
 class TestEmotionalFieldsOnEpisode:
@@ -41,7 +41,7 @@ class TestEmotionalFieldsOnEpisode:
     def test_episode_has_emotional_valence(self):
         episode = Episode(
             id="ep-1",
-            agent_id="test",
+            stack_id="test",
             objective="Test",
             outcome="Done",
             emotional_valence=0.8,
@@ -51,7 +51,7 @@ class TestEmotionalFieldsOnEpisode:
     def test_episode_has_emotional_arousal(self):
         episode = Episode(
             id="ep-1",
-            agent_id="test",
+            stack_id="test",
             objective="Test",
             outcome="Done",
             emotional_arousal=0.5,
@@ -61,7 +61,7 @@ class TestEmotionalFieldsOnEpisode:
     def test_episode_has_emotional_tags(self):
         episode = Episode(
             id="ep-1",
-            agent_id="test",
+            stack_id="test",
             objective="Test",
             outcome="Done",
             emotional_tags=["joy", "excitement"],
@@ -71,7 +71,7 @@ class TestEmotionalFieldsOnEpisode:
     def test_episode_emotional_defaults(self):
         episode = Episode(
             id="ep-1",
-            agent_id="test",
+            stack_id="test",
             objective="Test",
             outcome="Done",
         )
@@ -86,7 +86,7 @@ class TestSQLiteEmotionalStorage:
     def test_save_episode_with_emotion(self, storage):
         episode = Episode(
             id="ep-emotional",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Emotional test",
             outcome="Feeling great!",
             emotional_valence=0.9,
@@ -108,7 +108,7 @@ class TestSQLiteEmotionalStorage:
         # Create episode without emotion
         episode = Episode(
             id="ep-update",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Update test",
             outcome="Done",
         )
@@ -143,7 +143,7 @@ class TestSQLiteEmotionalStorage:
             storage.save_episode(
                 Episode(
                     id=f"ep-{label}",
-                    agent_id="test-agent",
+                    stack_id="test-agent",
                     objective=f"{label} experience",
                     outcome=f"Outcome {i}",
                     emotional_valence=v,
@@ -166,7 +166,7 @@ class TestSQLiteEmotionalStorage:
         storage.save_episode(
             Episode(
                 id="ep-calm",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Calm experience",
                 outcome="Peaceful",
                 emotional_valence=0.3,
@@ -176,7 +176,7 @@ class TestSQLiteEmotionalStorage:
         storage.save_episode(
             Episode(
                 id="ep-intense",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Intense experience",
                 outcome="Exciting",
                 emotional_valence=0.3,
@@ -198,7 +198,7 @@ class TestSQLiteEmotionalStorage:
         storage.save_episode(
             Episode(
                 id="ep-joy",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Joyful moment",
                 outcome="Happy",
                 emotional_tags=["joy", "excitement"],
@@ -207,7 +207,7 @@ class TestSQLiteEmotionalStorage:
         storage.save_episode(
             Episode(
                 id="ep-sad",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Sad moment",
                 outcome="Disappointed",
                 emotional_tags=["sadness", "disappointment"],
@@ -224,7 +224,7 @@ class TestSQLiteEmotionalStorage:
         storage.save_episode(
             Episode(
                 id="ep-with-emotion",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Emotional",
                 outcome="Done",
                 emotional_valence=0.5,
@@ -233,7 +233,7 @@ class TestSQLiteEmotionalStorage:
         storage.save_episode(
             Episode(
                 id="ep-no-emotion",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective="Plain",
                 outcome="Done",
             )
@@ -250,9 +250,9 @@ class TestEmotionDetection:
     @pytest.fixture
     def kernle_instance(self, temp_db, temp_checkpoint_dir):
         """Create Kernle with SQLite storage."""
-        storage = SQLiteStorage(agent_id="test_agent", db_path=temp_db)
+        storage = SQLiteStorage(stack_id="test_agent", db_path=temp_db)
         k = Kernle(
-            agent_id="test_agent",
+            stack_id="test_agent",
             storage=storage,
             checkpoint_dir=temp_checkpoint_dir,
         )
@@ -298,13 +298,13 @@ class TestMoodCongruentRetrieval:
     @pytest.fixture
     def kernle_with_memories(self, temp_db, temp_checkpoint_dir):
         """Create Kernle with pre-populated emotional memories using SQLite."""
-        storage = SQLiteStorage(agent_id="test_agent", db_path=temp_db)
+        storage = SQLiteStorage(stack_id="test_agent", db_path=temp_db)
 
         # Add some emotional episodes
         episodes = [
             Episode(
                 id="ep-happy-1",
-                agent_id="test_agent",
+                stack_id="test_agent",
                 objective="Celebrate success",
                 outcome="Great achievement!",
                 outcome_type="success",
@@ -316,7 +316,7 @@ class TestMoodCongruentRetrieval:
             ),
             Episode(
                 id="ep-sad-1",
-                agent_id="test_agent",
+                stack_id="test_agent",
                 objective="Handle setback",
                 outcome="Didn't work out",
                 outcome_type="failure",
@@ -328,7 +328,7 @@ class TestMoodCongruentRetrieval:
             ),
             Episode(
                 id="ep-neutral-1",
-                agent_id="test_agent",
+                stack_id="test_agent",
                 objective="Regular task",
                 outcome="Done",
                 outcome_type="success",
@@ -343,7 +343,7 @@ class TestMoodCongruentRetrieval:
             storage.save_episode(ep)
 
         k = Kernle(
-            agent_id="test_agent",
+            stack_id="test_agent",
             storage=storage,
             checkpoint_dir=temp_checkpoint_dir,
         )
@@ -396,7 +396,7 @@ class TestEmotionalSummary:
     @pytest.fixture
     def kernle_with_trajectory(self, temp_db, temp_checkpoint_dir):
         """Create Kernle with emotional history using SQLite."""
-        storage = SQLiteStorage(agent_id="test_agent", db_path=temp_db)
+        storage = SQLiteStorage(stack_id="test_agent", db_path=temp_db)
 
         # Create episodes over several days with different emotions
         base_time = datetime.now(timezone.utc)
@@ -405,7 +405,7 @@ class TestEmotionalSummary:
             valence = 0.2 * (i - 2)  # -0.4 to 0.4
             episode = Episode(
                 id=f"ep-day-{i}",
-                agent_id="test_agent",
+                stack_id="test_agent",
                 objective=f"Day {i} task",
                 outcome=f"Result {i}",
                 outcome_type="success",
@@ -418,7 +418,7 @@ class TestEmotionalSummary:
             storage.save_episode(episode)
 
         k = Kernle(
-            agent_id="test_agent",
+            stack_id="test_agent",
             storage=storage,
             checkpoint_dir=temp_checkpoint_dir,
         )
@@ -455,9 +455,9 @@ class TestEpisodeWithEmotion:
     @pytest.fixture
     def kernle_instance(self, temp_db, temp_checkpoint_dir):
         """Create a Kernle instance with SQLite storage."""
-        storage = SQLiteStorage(agent_id="test_agent", db_path=temp_db)
+        storage = SQLiteStorage(stack_id="test_agent", db_path=temp_db)
         k = Kernle(
-            agent_id="test_agent",
+            stack_id="test_agent",
             storage=storage,
             checkpoint_dir=temp_checkpoint_dir,
         )
@@ -498,7 +498,7 @@ class TestValenceArousalBounds:
     def test_valence_clamped_high(self, storage):
         episode = Episode(
             id="ep-high-v",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Test",
             outcome="Done",
             emotional_valence=2.0,  # Out of bounds
@@ -514,7 +514,7 @@ class TestValenceArousalBounds:
         # Create an episode to test clamping on
         episode = Episode(
             id="ep-low-v",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Test",
             outcome="Done",
         )
@@ -528,7 +528,7 @@ class TestValenceArousalBounds:
     def test_arousal_clamped_high(self, storage):
         episode = Episode(
             id="ep-high-a",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Test",
             outcome="Done",
         )
@@ -541,7 +541,7 @@ class TestValenceArousalBounds:
     def test_arousal_clamped_low(self, storage):
         episode = Episode(
             id="ep-low-a",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="Test",
             outcome="Done",
         )

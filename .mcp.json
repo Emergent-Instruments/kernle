@@ -2,7 +2,7 @@
   "mcpServers": {
     "kernle": {
       "command": "kernle",
-      "args": ["mcp", "--agent", "claude-code"]
+      "args": ["mcp", "--stack", "claude-code"]
     }
   }
 }

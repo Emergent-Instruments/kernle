@@ -25,12 +25,12 @@ from kernle.storage import SQLiteStorage
 def k(temp_checkpoint_dir, temp_db_path):
     """Simple Kernle instance for anxiety tests."""
     storage = SQLiteStorage(
-        agent_id="test_anxiety_agent",
+        stack_id="test_anxiety_agent",
         db_path=temp_db_path,
     )
 
     kernle = Kernle(
-        agent_id="test_anxiety_agent", storage=storage, checkpoint_dir=temp_checkpoint_dir
+        stack_id="test_anxiety_agent", storage=storage, checkpoint_dir=temp_checkpoint_dir
     )
 
     return kernle
@@ -210,7 +210,7 @@ class TestCompositeAnxietyScore:
         assert "overall_emoji" in report
         assert "dimensions" in report
         assert "timestamp" in report
-        assert "agent_id" in report
+        assert "stack_id" in report
 
         # Check all dimensions are present
         expected_dims = [
@@ -451,7 +451,7 @@ class TestAnxietyCLI:
 
         from kernle.cli.__main__ import main
 
-        with patch.object(sys, "argv", ["kernle", "--agent", k.agent_id, "anxiety"]):
+        with patch.object(sys, "argv", ["kernle", "--stack", k.stack_id, "anxiety"]):
             try:
                 main()
             except SystemExit:
@@ -467,7 +467,7 @@ class TestAnxietyCLI:
 
         from kernle.cli.__main__ import main
 
-        with patch.object(sys, "argv", ["kernle", "--agent", k.agent_id, "anxiety", "--detailed"]):
+        with patch.object(sys, "argv", ["kernle", "--stack", k.stack_id, "anxiety", "--detailed"]):
             try:
                 main()
             except SystemExit:
@@ -482,7 +482,7 @@ class TestAnxietyCLI:
 
         from kernle.cli.__main__ import main
 
-        with patch.object(sys, "argv", ["kernle", "--agent", k.agent_id, "anxiety", "--json"]):
+        with patch.object(sys, "argv", ["kernle", "--stack", k.stack_id, "anxiety", "--json"]):
             try:
                 main()
             except SystemExit:
@@ -503,7 +503,7 @@ class TestAnxietyCLI:
         with patch.object(
             sys,
             "argv",
-            ["kernle", "--agent", k.agent_id, "anxiety", "--context", "150000", "--json"],
+            ["kernle", "--stack", k.stack_id, "anxiety", "--context", "150000", "--json"],
         ):
             try:
                 main()
@@ -521,7 +521,7 @@ class TestAnxietyCLI:
 
         from kernle.cli.__main__ import main
 
-        with patch.object(sys, "argv", ["kernle", "--agent", k.agent_id, "anxiety", "--emergency"]):
+        with patch.object(sys, "argv", ["kernle", "--stack", k.stack_id, "anxiety", "--emergency"]):
             try:
                 main()
             except SystemExit:
@@ -603,7 +603,7 @@ class TestEpochStaleness:
         k._storage.save_epoch(
             __import__("kernle.storage.base", fromlist=["Epoch"]).Epoch(
                 id="ep-fresh",
-                agent_id=k.agent_id,
+                stack_id=k.stack_id,
                 epoch_number=1,
                 name="Fresh epoch",
                 started_at=datetime.now(timezone.utc),
@@ -626,7 +626,7 @@ class TestEpochStaleness:
         k._storage.save_epoch(
             __import__("kernle.storage.base", fromlist=["Epoch"]).Epoch(
                 id="ep-old",
-                agent_id=k.agent_id,
+                stack_id=k.stack_id,
                 epoch_number=1,
                 name="Ancient epoch",
                 started_at=old_start,
@@ -647,7 +647,7 @@ class TestEpochStaleness:
         k._storage.save_epoch(
             __import__("kernle.storage.base", fromlist=["Epoch"]).Epoch(
                 id="ep-mid",
-                agent_id=k.agent_id,
+                stack_id=k.stack_id,
                 epoch_number=1,
                 name="Moderate epoch",
                 started_at=nine_months_ago,
@@ -668,7 +668,7 @@ class TestEpochStaleness:
         k._storage.save_epoch(
             __import__("kernle.storage.base", fromlist=["Epoch"]).Epoch(
                 id="ep-closed",
-                agent_id=k.agent_id,
+                stack_id=k.stack_id,
                 epoch_number=1,
                 name="Closed epoch",
                 started_at=datetime.now(timezone.utc) - timedelta(days=90),

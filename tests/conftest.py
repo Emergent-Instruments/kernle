@@ -33,7 +33,7 @@ def temp_db_path(tmp_path):
 def sqlite_storage(temp_db_path):
     """SQLite storage instance for testing."""
     storage = SQLiteStorage(
-        agent_id="test_agent",
+        stack_id="test_agent",
         db_path=temp_db_path,
     )
     yield storage
@@ -44,11 +44,11 @@ def sqlite_storage(temp_db_path):
 def kernle_instance(temp_checkpoint_dir, temp_db_path):
     """Kernle instance with SQLite storage for testing."""
     storage = SQLiteStorage(
-        agent_id="test_agent",
+        stack_id="test_agent",
         db_path=temp_db_path,
     )
 
-    kernle = Kernle(agent_id="test_agent", storage=storage, checkpoint_dir=temp_checkpoint_dir)
+    kernle = Kernle(stack_id="test_agent", storage=storage, checkpoint_dir=temp_checkpoint_dir)
 
     yield kernle, storage
     storage.close()
@@ -59,7 +59,7 @@ def sample_episode():
     """Sample episode for testing."""
     return Episode(
         id=str(uuid.uuid4()),
-        agent_id="test_agent",
+        stack_id="test_agent",
         objective="Complete unit tests for Kernle",
         outcome="All tests passing with good coverage",
         outcome_type="success",
@@ -75,7 +75,7 @@ def sample_note():
     """Sample note for testing."""
     return Note(
         id=str(uuid.uuid4()),
-        agent_id="test_agent",
+        stack_id="test_agent",
         content="**Decision**: Use pytest for testing framework",
         note_type="decision",
         reason="Industry standard with good plugin ecosystem",
@@ -89,7 +89,7 @@ def sample_belief():
     """Sample belief for testing."""
     return Belief(
         id=str(uuid.uuid4()),
-        agent_id="test_agent",
+        stack_id="test_agent",
         statement="Comprehensive testing leads to more reliable software",
         belief_type="fact",
         confidence=0.9,
@@ -102,7 +102,7 @@ def sample_value():
     """Sample value for testing."""
     return Value(
         id=str(uuid.uuid4()),
-        agent_id="test_agent",
+        stack_id="test_agent",
         name="Quality",
         statement="Software should be thoroughly tested and reliable",
         priority=80,
@@ -115,7 +115,7 @@ def sample_goal():
     """Sample goal for testing."""
     return Goal(
         id=str(uuid.uuid4()),
-        agent_id="test_agent",
+        stack_id="test_agent",
         title="Achieve 80%+ test coverage",
         description="Write comprehensive tests for the entire Kernle system",
         priority="high",
@@ -129,7 +129,7 @@ def sample_drive():
     """Sample drive for testing."""
     return Drive(
         id=str(uuid.uuid4()),
-        agent_id="test_agent",
+        stack_id="test_agent",
         drive_type="growth",
         intensity=0.7,
         focus_areas=["learning", "improvement"],
@@ -167,7 +167,7 @@ def populated_storage(
     # Episode without lessons (not reflected)
     unreflected_episode = Episode(
         id=str(uuid.uuid4()),
-        agent_id="test_agent",
+        stack_id="test_agent",
         objective="Debug memory leak",
         outcome="Could not reproduce the issue",
         outcome_type="failure",
@@ -180,7 +180,7 @@ def populated_storage(
     # Checkpoint episode (should be filtered from recent work)
     checkpoint_episode = Episode(
         id=str(uuid.uuid4()),
-        agent_id="test_agent",
+        stack_id="test_agent",
         objective="Implement caching",
         outcome="Basic caching implemented, optimization needed",
         outcome_type="partial",
@@ -193,7 +193,7 @@ def populated_storage(
     # Additional note
     insight_note = Note(
         id=str(uuid.uuid4()),
-        agent_id="test_agent",
+        stack_id="test_agent",
         content="**Insight**: Mocking is crucial for isolated testing",
         note_type="insight",
         tags=["testing"],
@@ -350,7 +350,7 @@ def sample_episode_data():
     """
     return {
         "id": str(uuid.uuid4()),
-        "agent_id": "test_agent",
+        "stack_id": "test_agent",
         "objective": "Complete unit tests for Kernle",
         "outcome_type": "success",
         "outcome_description": "All tests passing with good coverage",
@@ -396,7 +396,7 @@ def sample_belief_data():
     """
     return {
         "id": str(uuid.uuid4()),
-        "agent_id": "test_agent",
+        "stack_id": "test_agent",
         "statement": "Comprehensive testing leads to more reliable software",
         "belief_type": "fact",
         "confidence": 0.9,
@@ -414,7 +414,7 @@ def sample_value_data():
     """
     return {
         "id": str(uuid.uuid4()),
-        "agent_id": "test_agent",
+        "stack_id": "test_agent",
         "name": "Quality",
         "statement": "Software should be thoroughly tested and reliable",
         "priority": 80,
@@ -433,7 +433,7 @@ def sample_goal_data():
     """
     return {
         "id": str(uuid.uuid4()),
-        "agent_id": "test_agent",
+        "stack_id": "test_agent",
         "title": "Achieve 80%+ test coverage",
         "description": "Write comprehensive tests for the entire Kernle system",
         "priority": "high",
@@ -451,7 +451,7 @@ def sample_drive_data():
     """
     return {
         "id": str(uuid.uuid4()),
-        "agent_id": "test_agent",
+        "stack_id": "test_agent",
         "drive_type": "growth",
         "intensity": 0.7,
         "focus_areas": ["learning", "improvement"],

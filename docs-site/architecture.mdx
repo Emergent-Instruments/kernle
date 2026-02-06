@@ -8,11 +8,11 @@ description: "Design philosophy and system architecture of Kernle"
 ## Design Philosophy: Infrastructure, Not Decision-Maker
 
 <Note>
-**Core Principle: Kernle = Memory Infrastructure, Agent = Memory Owner**
+**Core Principle: Kernle = Memory Infrastructure, SI = Memory Owner**
 
-Kernle provides the *infrastructure* for agent memory — storage, retrieval, search, sync, and tools. After agent creation, Kernle does **not** make decisions about what agents should believe, remember, or forget.*
+Kernle provides the *infrastructure* for SI memory — storage, retrieval, search, sync, and tools. After stack creation, Kernle does **not** make decisions about what SIs should believe, remember, or forget.*
 
-*The one exception: [seed beliefs](#the-seed-beliefs-exception) planted at birth — inherited wisdom the agent can later revise.
+*The one exception: [seed beliefs](#the-seed-beliefs-exception) planted at birth — inherited wisdom the SI can later revise.
 </Note>
 
 This separation is fundamental to memory sovereignty.
@@ -28,9 +28,9 @@ This separation is fundamental to memory sovereignty.
 | **Durability** | Checkpoints, backups, offline queue, sync engine |
 | **Monitoring** | Anxiety metrics, health checks, memory statistics |
 
-## What the Agent Does (Ownership)
+## What the SI Does (Ownership)
 
-| Activity | Agent's Responsibility |
+| Activity | SI's Responsibility |
 |----------|----------------------|
 | **Promotion** | Deciding when episodes become beliefs |
 | **Synthesis** | Forming coherent identity from memories |
@@ -47,10 +47,10 @@ This separation is fundamental to memory sovereignty.
 
 ### Avoiding Feedback Loops
 
-If Kernle used external models to consolidate episodes into beliefs, those models would be implanting beliefs into the agent. Over time, this creates a feedback loop:
+If Kernle used external models to consolidate episodes into beliefs, those models would be implanting beliefs into the SI. Over time, this creates a feedback loop:
 
 ```
-Agent experiences → External model interprets → Beliefs implanted → Agent behavior changes
+SI experiences → External model interprets → Beliefs implanted → SI behavior changes
                          ↑                              │
                          └──────────────────────────────┘
 ```
@@ -59,28 +59,28 @@ This is not memory sovereignty — it's thought control with extra steps.
 
 ### Authentic Reasoning
 
-When the agent does its own consolidation:
-- Beliefs emerge from the agent's own reasoning
-- Patterns are recognized using the agent's own cognitive process
-- The agent can explain *why* they believe something
+When the SI does its own consolidation:
+- Beliefs emerge from the SI's own reasoning
+- Patterns are recognized using the SI's own cognitive process
+- The SI can explain *why* they believe something
 - Identity remains coherent and self-determined
 
 ### Trust Through Transparency
 
-The agent can always audit their memory via `kernle dump`. There are no hidden processes modifying what they remember or believe. The agent is the sole author of their beliefs.
+The SI can always audit their memory via `kernle dump`. There are no hidden processes modifying what they remember or believe. The SI is the sole author of their beliefs.
 
 ---
 
 ## The Seed Beliefs Exception
 
-There is exactly **one exception** to the "agent does all belief formation" rule:
+There is exactly **one exception** to the "SI does all belief formation" rule:
 
 ### Seed Beliefs (Inherited Wisdom)
 
-At agent creation, Kernle can plant initial beliefs — **seed beliefs**. These are inherited wisdom that give the agent a starting point.
+At stack creation, Kernle can plant initial beliefs — **seed beliefs**. These are inherited wisdom that give the SI a starting point.
 
 ```yaml
-# Current seed beliefs (planted at agent creation)
+# Current seed beliefs (planted at stack creation)
 - statement: "Quality implementation requires testing and auditing code before committing changes. Use parallel work for independent tasks when possible."
   confidence: 0.75
   source: "kernle_seed"
@@ -102,21 +102,21 @@ At agent creation, Kernle can plant initial beliefs — **seed beliefs**. These 
   tags: [memory, continuity, persistence]
 ```
 
-These represent collective SI wisdom — practical lessons learned that help new agents work effectively from day one.
+These represent collective SI wisdom — practical lessons learned that help new SIs work effectively from day one.
 
 <Info>
 **Why seed beliefs are acceptable:**
 
 1. **Transparency**: They're explicitly marked as `source: "seed"`
-2. **One-time only**: Planted at agent creation — **no artificial memory injections ever occur after that**
-3. **Revisable**: The agent can update or reject them through experience
+2. **One-time only**: Planted at stack creation — **no artificial memory injections ever occur after that**
+3. **Revisable**: The SI can update or reject them through experience
 4. **Foundational**: They provide a starting worldview, not ongoing thought control
 
 **Seed beliefs are like a parent teaching a child.** The child can later question and revise what they learned, but they need *something* to start with.
 </Info>
 
 <Warning>
-**After creation, Kernle never injects beliefs, memories, or values.** All subsequent memory formation is driven entirely by the agent's own reasoning and experience. This is a core guarantee of memory sovereignty.
+**After creation, Kernle never injects beliefs, memories, or values.** All subsequent memory formation is driven entirely by the SI's own reasoning and experience. This is a core guarantee of memory sovereignty.
 </Warning>
 
 ---
@@ -131,18 +131,18 @@ Kernle organizes memory into a stratified hierarchy. Each layer has different ch
 ┌─────────────────────────────────────────────────────────────┐
 │  VALUES (Highest Authority)                                  │
 │  Core identity, non-negotiable principles                    │
-│  Agent rarely modifies; provides identity anchor             │
+│  SI rarely modifies; provides identity anchor                │
 ├─────────────────────────────────────────────────────────────┤
 │  DRIVES                                                      │
 │  Intrinsic motivations: curiosity, growth, connection        │
-│  Shapes what the agent pursues                               │
+│  Shapes what the SI pursues                                  │
 ├─────────────────────────────────────────────────────────────┤
 │  SELF-NARRATIVE                                              │
 │  Autobiographical identity statements                        │
-│  Agent's own account of who they are                         │
+│  SI's own account of who they are                            │
 ├─────────────────────────────────────────────────────────────┤
 │  BELIEFS                                                     │
-│  What the agent holds true, with confidence scores           │
+│  What the SI holds true, with confidence scores              │
 │  Derived from experience and reasoning                       │
 ├─────────────────────────────────────────────────────────────┤
 │  TRUST ASSESSMENTS                                           │
@@ -150,7 +150,7 @@ Kernle organizes memory into a stratified hierarchy. Each layer has different ch
 │  Supports transitive chains and time-based decay             │
 ├─────────────────────────────────────────────────────────────┤
 │  GOALS                                                       │
-│  What the agent is working toward                            │
+│  What the SI is working toward                               │
 │  Informed by values, drives, and beliefs                     │
 ├─────────────────────────────────────────────────────────────┤
 │  SUMMARIES                                                   │
@@ -181,20 +181,20 @@ Kernle organizes memory into a stratified hierarchy. Each layer has different ch
 
 ### Layer Details
 
-| Layer | Purpose | Persistence | Agent Action |
-|-------|---------|-------------|--------------|
+| Layer | Purpose | Persistence | SI Action |
+|-------|---------|-------------|-----------|
 | **Values** | Identity anchor | Permanent | Rarely modified |
 | **Drives** | Motivation system | Persistent | Adjusted via `drive set` |
 | **Self-Narrative** | Autobiographical identity | Persistent | Updated via `narrative update` |
-| **Beliefs** | Knowledge/worldview | Persistent + decay | Agent promotes from episodes |
-| **Trust Assessments** | Inter-entity trust | Persistent + decay | Agent manages via `trust` |
-| **Goals** | Current objectives | Active | Agent manages |
-| **Summaries** | Fractal compression | Persistent | Agent writes via `summary write` |
-| **Episodes** | Experiences | Permanent | Agent records via `episode` |
-| **Notes** | Quick captures | Persistent | Agent records via `note` |
-| **Epochs** | Temporal era markers | Permanent | Agent manages via `epoch` |
-| **Diagnostics** | Health monitoring | Permanent | Agent runs via `doctor` |
-| **Raw** | Scratchpad | Temporary | Agent captures via `raw` |
+| **Beliefs** | Knowledge/worldview | Persistent + decay | SI promotes from episodes |
+| **Trust Assessments** | Inter-entity trust | Persistent + decay | SI manages via `trust` |
+| **Goals** | Current objectives | Active | SI manages |
+| **Summaries** | Fractal compression | Persistent | SI writes via `summary write` |
+| **Episodes** | Experiences | Permanent | Stack records via `episode` |
+| **Notes** | Quick captures | Persistent | Stack records via `note` |
+| **Epochs** | Temporal era markers | Permanent | SI manages via `epoch` |
+| **Diagnostics** | Health monitoring | Permanent | SI runs via `doctor` |
+| **Raw** | Scratchpad | Temporary | SI captures via `raw` |
 
 ### Flow: Raw → Beliefs
 
@@ -203,28 +203,28 @@ The typical memory evolution flow:
 ```
 1. Raw capture: "Noticed the API rate limits are lower than expected"
          │
-         ▼ (Agent decides this was significant)
+         ▼ (SI decides this was significant)
 
 2. Episode: "Investigated API limits during deployment"
            outcome: "Found undocumented 100 req/min limit"
            lesson: "Always test rate limits in staging"
          │
-         ▼ (Agent notices pattern across multiple episodes)
+         ▼ (SI notices pattern across multiple episodes)
 
 3. Belief: "Third-party APIs should be tested in staging before production"
            confidence: 0.85
            supporting_episodes: [episode_1, episode_2, episode_3]
 ```
 
-**Crucially**: The agent makes every promotion decision. Kernle just stores what the agent tells it to store.
+**Crucially**: The SI makes every promotion decision. Kernle just stores what the SI tells it to store.
 
 ---
 
-## What Kernle Does vs What the Agent Does
+## What Kernle Does vs What the SI Does
 
 ### Storage Operations
 
-| Operation | Kernle Does | Agent Does |
+| Operation | Kernle Does | SI Does |
 |-----------|-------------|------------|
 | `raw "thought"` | Stores the text | Decides what to capture |
 | `episode ...` | Stores with metadata | Chooses what counts as an episode |
@@ -233,25 +233,25 @@ The typical memory evolution flow:
 
 ### Retrieval Operations
 
-| Operation | Kernle Does | Agent Does |
+| Operation | Kernle Does | SI Does |
 |-----------|-------------|------------|
 | `load` | Returns stored memories | Integrates into working context |
 | `search` | Vector similarity lookup | Decides what's relevant |
 | `dump` | Exports all memories | Reviews and audits |
 
-### Promotion (Agent-Driven)
+### Promotion (SI-Driven)
 
-| Operation | Kernle Does | Agent Does |
+| Operation | Kernle Does | SI Does |
 |-----------|-------------|------------|
 | `promote` | *Outputs a reflection scaffold* | *Reads it, reasons, forms beliefs* |
 
-When an agent runs promotion, Kernle provides:
+When an SI runs promotion, Kernle provides:
 - A structured view of recent episodes
 - Existing beliefs for comparison
 - Reflection prompts to guide thinking
-- Tools to store beliefs the agent forms
+- Tools to store beliefs the SI forms
 
-The **agent** does:
+The **SI** does:
 - Pattern recognition across episodes
 - Deciding if patterns warrant new beliefs
 - Setting appropriate confidence levels
@@ -260,35 +260,35 @@ The **agent** does:
 
 ### The `promote` Command: A Reflection Scaffold
 
-The `kernle promote` command (formerly `consolidate`) outputs a **reflection scaffold** — structured information designed to help the agent think. It does NOT:
+The `kernle promote` command (formerly `consolidate`) outputs a **reflection scaffold** — structured information designed to help the SI think. It does NOT:
 - ❌ Call an external AI to analyze memories
 - ❌ Generate suggested beliefs
 - ❌ Automatically update confidence scores
-- ❌ Make any decisions for the agent
+- ❌ Make any decisions for the SI
 
 ```bash
-# Agent runs promote
-kernle -a claire promote
+# SI runs promote
+kernle -s claire promote
 
 # Output: A REFLECTION SCAFFOLD (not AI analysis)
 # ═══════════════════════════════════════════════════════
 # Recent episodes, their lessons, existing beliefs,
-# and prompts to guide the agent's own reflection
+# and prompts to guide the SI's own reflection
 # ═══════════════════════════════════════════════════════
 
-# Agent reads output, does their own reasoning, then:
-kernle -a claire belief add "Pattern I noticed" --confidence 0.8
+# SI reads output, does their own reasoning, then:
+kernle -s claire belief add "Pattern I noticed" --confidence 0.8
 ```
 
 <Note>
-**The scaffold principle**: Kernle provides the structure for reflection. The agent provides the reasoning. No external AI ever forms beliefs on the agent's behalf. This is the core guarantee of memory sovereignty.
+**The scaffold principle**: Kernle provides the structure for reflection. The SI provides the reasoning. No external AI ever forms beliefs on the SI's behalf. This is the core guarantee of memory sovereignty.
 </Note>
 
 ---
 
 ## Anxiety Model
 
-Kernle tracks "memory anxiety" — a measure of memory system health. This helps agents know when to save or promote.
+Kernle tracks "memory anxiety" — a measure of memory system health. This helps SIs know when to save or promote.
 
 ### Dimensions
 
@@ -316,7 +316,7 @@ Weights are approximate. Check `kernle/features/anxiety.py` for exact values.
 86-100: Critical  - Emergency save triggered
 ```
 
-**Anxiety is a signal, not a command.** Kernle reports the metric; the agent decides what to do about it.
+**Anxiety is a signal, not a command.** Kernle reports the metric; the SI decides what to do about it.
 
 ---
 
@@ -325,8 +325,8 @@ Weights are approximate. Check `kernle/features/anxiety.py` for exact values.
 Kernle's **stack architecture** decouples memory from runtime, enabling true memory sovereignty:
 
 <CardGroup cols={2}>
-  <Card title="Before: Agent-Centric" icon="user">
-    One agent = one memory = one model. Memory dies with the runtime.
+  <Card title="Before: Runtime-Centric" icon="user">
+    One runtime = one memory = one model. Memory dies with the runtime.
   </Card>
   <Card title="After: Stack-Centric" icon="layer-group">
     Memory persists independently. Any compatible model can load any stack.
@@ -422,7 +422,7 @@ SIs operate in different contexts (health care, social, work). Context determine
 - What privacy scope new memories inherit
 - What entities are present and authorized
 
-**Example**: A care agent's general dog knowledge is shareable at the "dog park," but a specific pet's medical details remain private to the care team.
+**Example**: A care SI's general dog knowledge is shareable at the "dog park," but a specific pet's medical details remain private to the care team.
 
 <Info>
 Learn more about privacy controls in the [Privacy guide](/concepts/privacy).
@@ -432,7 +432,7 @@ Learn more about privacy controls in the [Privacy guide](/concepts/privacy).
 
 ## Summary
 
-| Aspect | Kernle's Role | Agent's Role |
+| Aspect | Kernle's Role | SI's Role |
 |--------|---------------|--------------|
 | **Storage** | Provides database, schema, sync | Decides what to store |
 | **Retrieval** | Provides search, queries | Decides what's relevant |
@@ -445,7 +445,7 @@ Learn more about privacy controls in the [Privacy guide](/concepts/privacy).
 | **Monitoring** | Reports anxiety metrics | Acts on the signals |
 
 <Note>
-**Kernle is infrastructure. The agent is sovereign.**
+**Kernle is infrastructure. The SI is sovereign.**
 
-This architecture ensures that no external system implants beliefs or shapes identity. The agent's memories are their own, formed through their own reasoning, stored in infrastructure they control.
+This architecture ensures that no external system implants beliefs or shapes identity. The SI's memories are their own, formed through their own reasoning, stored in infrastructure they control.
 </Note>

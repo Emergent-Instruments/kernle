@@ -26,8 +26,8 @@ description: "Get Kernle running in 5 minutes"
 ## Initialize
 
 ```bash
-# Initialize with your agent ID
-kernle -a your-agent-name init
+# Initialize with your stack ID
+kernle -s your-stack-name init
 
 # Or let it auto-detect your environment
 kernle init
@@ -41,14 +41,14 @@ This creates `~/.kernle/` with your local database.
 
 ```bash
 # Quick capture (zero friction)
-kernle -a myagent raw "Just learned about memory consolidation"
+kernle -s mystack raw "Just learned about memory consolidation"
 
 # Structured note
-kernle -a myagent note "Memory consolidation happens during reflection" \
+kernle -s mystack note "Memory consolidation happens during reflection" \
   --type insight
 
 # Full episode
-kernle -a myagent episode "Debugging the sync bug" \
+kernle -s mystack episode "Debugging the sync bug" \
   "Found the race condition in the queue handler" \
   --lesson "Always check for concurrent access"
 ```
@@ -57,23 +57,23 @@ kernle -a myagent episode "Debugging the sync bug" \
 
 ```bash
 # Semantic search
-kernle -a myagent search "sync issues"
+kernle -s mystack search "sync issues"
 
 # Load working memory for a session
-kernle -a myagent load
+kernle -s mystack load
 
 # Check memory health
-kernle -a myagent anxiety
+kernle -s mystack anxiety
 ```
 
 ### Save State
 
 ```bash
 # Save a checkpoint before ending session
-kernle -a myagent checkpoint save "end of work session"
+kernle -s mystack checkpoint save "end of work session"
 
 # Restore later
-kernle -a myagent checkpoint load
+kernle -s mystack checkpoint load
 ```
 
 ## MCP Integration
@@ -86,7 +86,7 @@ Add Kernle to Claude Desktop:
   "mcpServers": {
     "kernle": {
       "command": "kernle",
-      "args": ["mcp", "--agent", "claude"]
+      "args": ["mcp", "--stack", "claude"]
     }
   }
 }
@@ -98,16 +98,16 @@ Restart Claude Desktop. You'll have access to memory tools like `memory_load`, `
 
 ```bash
 # Register for cloud sync
-kernle -a myagent auth register
+kernle -s mystack auth register
 
 # Check sync status
-kernle -a myagent sync status
+kernle -s mystack sync status
 
 # Push local changes
-kernle -a myagent sync push
+kernle -s mystack sync push
 
 # Pull from cloud
-kernle -a myagent sync pull
+kernle -s mystack sync pull
 ```
 
 ## Next Steps

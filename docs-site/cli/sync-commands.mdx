@@ -16,7 +16,7 @@ Synchronize memory with the remote backend.
 Check sync status, pending operations, and connection.
 
 ```bash
-kernle -a <agent> sync status [--json]
+kernle -s <stack> sync status [--json]
 ```
 
 **Example output:**
@@ -24,7 +24,7 @@ kernle -a <agent> sync status [--json]
 Sync Status
 ===========
 Backend: https://api.kernle.ai
-Agent: claire
+Stack: claire
 User: user_abc123
 
 Pending: 3 operations
@@ -38,7 +38,7 @@ Status: Connected
 Push pending local changes to remote.
 
 ```bash
-kernle -a <agent> sync push [--limit L] [--json]
+kernle -s <stack> sync push [--limit L] [--json]
 ```
 
 | Option | Description |
@@ -47,10 +47,10 @@ kernle -a <agent> sync push [--limit L] [--json]
 
 ```bash
 # Push all pending changes
-kernle -a claire sync push
+kernle -s claire sync push
 
 # Push up to 10 changes
-kernle -a claire sync push --limit 10
+kernle -s claire sync push --limit 10
 ```
 
 ### sync pull
@@ -58,7 +58,7 @@ kernle -a claire sync push --limit 10
 Pull remote changes to local.
 
 ```bash
-kernle -a <agent> sync pull [--full] [--json]
+kernle -s <stack> sync pull [--full] [--json]
 ```
 
 | Option | Description |
@@ -67,10 +67,10 @@ kernle -a <agent> sync pull [--full] [--json]
 
 ```bash
 # Pull recent changes
-kernle -a claire sync pull
+kernle -s claire sync pull
 
 # Full sync from cloud
-kernle -a claire sync pull --full
+kernle -s claire sync pull --full
 ```
 
 ### sync full
@@ -78,11 +78,11 @@ kernle -a claire sync pull --full
 Full bidirectional sync (pull then push).
 
 ```bash
-kernle -a <agent> sync full [--json]
+kernle -s <stack> sync full [--json]
 ```
 
 ```bash
-kernle -a claire sync full
+kernle -s claire sync full
 ```
 
 ---
@@ -96,11 +96,11 @@ Authentication and credentials management.
 Register for cloud sync with email.
 
 ```bash
-kernle -a <agent> auth register [--email EMAIL] [--backend-url URL] [--json]
+kernle -s <stack> auth register [--email EMAIL] [--backend-url URL] [--json]
 ```
 
 ```bash
-kernle -a claire auth register --email user@example.com
+kernle -s claire auth register --email user@example.com
 ```
 
 This will:
@@ -113,15 +113,15 @@ This will:
 Log in with an API key.
 
 ```bash
-kernle -a <agent> auth login [--api-key KEY] [--backend-url URL] [--json]
+kernle -s <stack> auth login [--api-key KEY] [--backend-url URL] [--json]
 ```
 
 ```bash
 # Interactive login
-kernle -a claire auth login
+kernle -s claire auth login
 
 # With API key
-kernle -a claire auth login --api-key knl_sk_xxxxx
+kernle -s claire auth login --api-key knl_sk_xxxxx
 ```
 
 ### auth status
@@ -129,7 +129,7 @@ kernle -a claire auth login --api-key knl_sk_xxxxx
 Check authentication status.
 
 ```bash
-kernle -a <agent> auth status [--json]
+kernle -s <stack> auth status [--json]
 ```
 
 **Example output:**
@@ -139,7 +139,7 @@ Authentication Status
 Backend: https://api.kernle.ai
 Authenticated: Yes
 User ID: user_abc123
-Agent: claire
+Stack: claire
 API Keys: 2 active
 ```
 
@@ -148,7 +148,7 @@ API Keys: 2 active
 Log out and clear credentials.
 
 ```bash
-kernle -a <agent> auth logout [--json]
+kernle -s <stack> auth logout [--json]
 ```
 
 ### auth keys
@@ -201,16 +201,16 @@ Auto-sync is enabled by default when credentials are configured. Control it with
 
 ```bash
 # Force sync on load
-kernle -a claire load --sync
+kernle -s claire load --sync
 
 # Skip sync on load
-kernle -a claire load --no-sync
+kernle -s claire load --no-sync
 
 # Force sync after checkpoint
-kernle -a claire checkpoint save "task" --sync
+kernle -s claire checkpoint save "task" --sync
 
 # Skip sync after checkpoint
-kernle -a claire checkpoint save "task" --no-sync
+kernle -s claire checkpoint save "task" --no-sync
 ```
 
 ### Sync Architecture
@@ -268,8 +268,8 @@ Kernle works fully offline. Changes are queued and synced when connectivity retu
 
 ```bash
 # Check pending operations
-kernle -a claire sync status
+kernle -s claire sync status
 
 # Push when back online
-kernle -a claire sync push
+kernle -s claire sync push
 ```

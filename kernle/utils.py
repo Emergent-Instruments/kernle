@@ -25,7 +25,7 @@ def _get_git_root() -> Optional[str]:
     return None
 
 
-def generate_default_agent_id() -> str:
+def generate_default_stack_id() -> str:
     """Generate a default agent ID based on machine + project path.
 
     Combines:
@@ -36,7 +36,7 @@ def generate_default_agent_id() -> str:
     - Same machine + same directory = same agent (consistent)
     - Different machine or path = different agent (isolated)
 
-    The user can always override with explicit -a <name> or KERNLE_AGENT_ID env var.
+    The user can always override with explicit -a <name> or KERNLE_STACK_ID env var.
     """
     # Get machine identifier
     machine = platform.node() or "unknown"
@@ -55,12 +55,12 @@ def generate_default_agent_id() -> str:
     return f"auto-{hash_digest[:8]}"
 
 
-def resolve_agent_id(explicit_id: Optional[str] = None) -> str:
+def resolve_stack_id(explicit_id: Optional[str] = None) -> str:
     """Resolve the agent ID with fallback chain.
 
     Resolution order:
     1. Explicit ID passed as argument (highest priority)
-    2. KERNLE_AGENT_ID environment variable
+    2. KERNLE_STACK_ID environment variable
     3. Auto-generated from machine + project path
 
     Args:
@@ -74,9 +74,9 @@ def resolve_agent_id(explicit_id: Optional[str] = None) -> str:
         return explicit_id
 
     # 2. Check environment variable
-    env_id = os.environ.get("KERNLE_AGENT_ID")
+    env_id = os.environ.get("KERNLE_STACK_ID")
     if env_id:
         return env_id
 
     # 3. Generate from machine + project
-    return generate_default_agent_id()
+    return generate_default_stack_id()

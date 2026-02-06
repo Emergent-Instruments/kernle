@@ -15,7 +15,7 @@ from kernle.storage.sqlite import SQLiteStorage
 def storage(tmp_path):
     """Create a fresh SQLiteStorage for testing."""
     db_path = tmp_path / "test.db"
-    return SQLiteStorage(agent_id="test-agent", db_path=db_path)
+    return SQLiteStorage(stack_id="test-agent", db_path=db_path)
 
 
 class TestCycleDetectionUnit:
@@ -36,7 +36,7 @@ class TestCycleDetectionUnit:
         # Create episode B that derives from A
         ep_b = Episode(
             id="ep-b",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="B",
             outcome="outcome-b",
             derived_from=["episode:ep-a"],
@@ -52,7 +52,7 @@ class TestCycleDetectionUnit:
         # Create C -> derives from nothing yet
         ep_c = Episode(
             id="ep-c",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="C",
             outcome="outcome-c",
             derived_from=["episode:ep-a"],
@@ -62,7 +62,7 @@ class TestCycleDetectionUnit:
         # Create B -> derives from C
         ep_b = Episode(
             id="ep-b",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="B",
             outcome="outcome-b",
             derived_from=["episode:ep-c"],
@@ -78,7 +78,7 @@ class TestCycleDetectionUnit:
         # Create C (no parents)
         ep_c = Episode(
             id="ep-c",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="C",
             outcome="outcome-c",
         )
@@ -87,7 +87,7 @@ class TestCycleDetectionUnit:
         # Create B -> derives from C
         ep_b = Episode(
             id="ep-b",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="B",
             outcome="outcome-b",
             derived_from=["episode:ep-c"],
@@ -104,7 +104,7 @@ class TestCycleDetectionUnit:
         for i in range(10):
             ep = Episode(
                 id=f"ep-{i}",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective=f"Episode {i}",
                 outcome=f"outcome-{i}",
                 derived_from=[f"episode:{prev_id}"] if prev_id else None,
@@ -126,7 +126,7 @@ class TestCycleDetectionUnit:
         for i in range(MAX_DERIVATION_DEPTH + 2):
             ep = Episode(
                 id=f"ep-{i}",
-                agent_id="test-agent",
+                stack_id="test-agent",
                 objective=f"Episode {i}",
                 outcome=f"outcome-{i}",
             )
@@ -167,7 +167,7 @@ class TestCycleDetectionUnit:
         # Create a belief derived from episode ep-a
         belief = Belief(
             id="bel-1",
-            agent_id="test-agent",
+            stack_id="test-agent",
             statement="test belief",
             derived_from=["episode:ep-a"],
         )
@@ -185,7 +185,7 @@ class TestCycleDetectionIntegration:
         """save_episode should reject self-referencing derived_from."""
         ep = Episode(
             id="ep-self",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="self-ref",
             outcome="outcome",
             derived_from=["episode:ep-self"],
@@ -198,7 +198,7 @@ class TestCycleDetectionIntegration:
         # Create belief A derived from belief B (B doesn't exist yet, so no cycle)
         bel_b = Belief(
             id="bel-b",
-            agent_id="test-agent",
+            stack_id="test-agent",
             statement="belief B",
             derived_from=["belief:bel-a"],
         )
@@ -207,7 +207,7 @@ class TestCycleDetectionIntegration:
         # Now try to save belief A derived from belief B -> cycle
         bel_a = Belief(
             id="bel-a",
-            agent_id="test-agent",
+            stack_id="test-agent",
             statement="belief A",
             derived_from=["belief:bel-b"],
         )
@@ -218,7 +218,7 @@ class TestCycleDetectionIntegration:
         """save_note should reject circular derived_from."""
         note = Note(
             id="note-self",
-            agent_id="test-agent",
+            stack_id="test-agent",
             content="self-referencing note",
             derived_from=["note:note-self"],
         )
@@ -230,7 +230,7 @@ class TestCycleDetectionIntegration:
         # Create two episodes
         ep_a = Episode(
             id="ep-a",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="A",
             outcome="outcome-a",
         )
@@ -238,7 +238,7 @@ class TestCycleDetectionIntegration:
 
         ep_b = Episode(
             id="ep-b",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="B",
             outcome="outcome-b",
             derived_from=["episode:ep-a"],
@@ -253,7 +253,7 @@ class TestCycleDetectionIntegration:
         """update_memory_meta should allow valid derived_from updates."""
         ep_a = Episode(
             id="ep-a",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="A",
             outcome="outcome-a",
         )
@@ -261,7 +261,7 @@ class TestCycleDetectionIntegration:
 
         ep_b = Episode(
             id="ep-b",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="B",
             outcome="outcome-b",
         )
@@ -275,7 +275,7 @@ class TestCycleDetectionIntegration:
         """save_episode should allow valid (non-cyclic) derived_from."""
         ep_parent = Episode(
             id="ep-parent",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="parent",
             outcome="outcome",
         )
@@ -283,7 +283,7 @@ class TestCycleDetectionIntegration:
 
         ep_child = Episode(
             id="ep-child",
-            agent_id="test-agent",
+            stack_id="test-agent",
             objective="child",
             outcome="outcome",
             derived_from=["episode:ep-parent"],

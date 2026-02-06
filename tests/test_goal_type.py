@@ -22,22 +22,22 @@ class TestGoalTypeDataclass:
 
     def test_default_goal_type_is_task(self):
         """Goal.goal_type defaults to 'task'."""
-        goal = Goal(id="g1", agent_id="a1", title="Do something")
+        goal = Goal(id="g1", stack_id="a1", title="Do something")
         assert goal.goal_type == "task"
 
     def test_goal_type_aspiration(self):
         """Can create a goal with goal_type='aspiration'."""
-        goal = Goal(id="g1", agent_id="a1", title="Be kind", goal_type="aspiration")
+        goal = Goal(id="g1", stack_id="a1", title="Be kind", goal_type="aspiration")
         assert goal.goal_type == "aspiration"
 
     def test_goal_type_commitment(self):
         """Can create a goal with goal_type='commitment'."""
-        goal = Goal(id="g1", agent_id="a1", title="Ship v1", goal_type="commitment")
+        goal = Goal(id="g1", stack_id="a1", title="Ship v1", goal_type="commitment")
         assert goal.goal_type == "commitment"
 
     def test_goal_type_exploration(self):
         """Can create a goal with goal_type='exploration'."""
-        goal = Goal(id="g1", agent_id="a1", title="Try Rust", goal_type="exploration")
+        goal = Goal(id="g1", stack_id="a1", title="Try Rust", goal_type="exploration")
         assert goal.goal_type == "exploration"
 
 
@@ -51,7 +51,7 @@ class TestGoalTypeSQLiteStorage:
         """Saving a goal without goal_type stores 'task' and retrieves it."""
         goal = Goal(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             title="Write tests",
             created_at=datetime.now(timezone.utc),
         )
@@ -66,7 +66,7 @@ class TestGoalTypeSQLiteStorage:
         """Saving an aspiration goal round-trips correctly."""
         goal = Goal(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             title="Become a better communicator",
             goal_type="aspiration",
             created_at=datetime.now(timezone.utc),
@@ -81,7 +81,7 @@ class TestGoalTypeSQLiteStorage:
         """Saving a commitment goal round-trips correctly."""
         goal = Goal(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             title="Deliver project by Friday",
             goal_type="commitment",
             created_at=datetime.now(timezone.utc),
@@ -96,7 +96,7 @@ class TestGoalTypeSQLiteStorage:
         """Saving an exploration goal round-trips correctly."""
         goal = Goal(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             title="Try out new testing framework",
             goal_type="exploration",
             created_at=datetime.now(timezone.utc),
@@ -114,7 +114,7 @@ class TestGoalTypeSQLiteStorage:
         for gt in types:
             goal = Goal(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 title=f"Goal of type {gt}",
                 goal_type=gt,
                 created_at=datetime.now(timezone.utc),
@@ -233,7 +233,7 @@ class TestGoalTypeForgetting:
 
         task_goal = Goal(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             title="Task goal",
             goal_type="task",
             created_at=old_time,
@@ -241,7 +241,7 @@ class TestGoalTypeForgetting:
         )
         aspiration_goal = Goal(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             title="Aspiration goal",
             goal_type="aspiration",
             created_at=old_time,
@@ -266,7 +266,7 @@ class TestGoalTypeForgetting:
 
         ep = Episode(
             id=episode_id,
-            agent_id="test_agent",
+            stack_id="test_agent",
             objective="test",
             outcome="test",
             created_at=datetime.now(timezone.utc),
@@ -297,7 +297,7 @@ class TestGoalTypeMigration:
         """Inserting a goal without goal_type gets DEFAULT 'task'."""
         with sqlite_storage._connect() as conn:
             conn.execute(
-                """INSERT INTO goals (id, agent_id, title, created_at, local_updated_at)
+                """INSERT INTO goals (id, stack_id, title, created_at, local_updated_at)
                    VALUES (?, ?, ?, ?, ?)""",
                 (
                     "test-id",

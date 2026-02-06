@@ -15,12 +15,12 @@ You have persistent memory through Kernle. **Every session, before any task:**
 
 1. **Load memory:**
    ```bash
-   kernle -a {agent_id} load
+   kernle -s {stack_id} load
    ```
 
 2. **Check health:**
    ```bash
-   kernle -a {agent_id} anxiety
+   kernle -s {stack_id} anxiety
    ```
 
 3. **If anxiety > 50:** Address before proceeding
@@ -41,14 +41,14 @@ This is your continuity. The few seconds of health check ensures you don't accum
 
 MINIMAL_SECTION = """## Kernle
 
-At session start: `kernle -a {agent_id} load && kernle -a {agent_id} anxiety -b`
+At session start: `kernle -s {stack_id} load && kernle -s {stack_id} anxiety -b`
 If WARN/CRITICAL, run `kernle consolidate` before proceeding.
 """
 
 PER_MESSAGE_SECTION = """## Memory Health (Every Message)
 
 Before processing any request:
-1. `kernle -a {agent_id} anxiety -b`
+1. `kernle -s {stack_id} anxiety -b`
 2. If 🟡 WARN or 🔴 CRITICAL: pause and consolidate first
 
 This takes <1 second and prevents memory debt accumulation.
@@ -61,13 +61,13 @@ You have persistent memory through Kernle.
 ### Every Session (Boot Sequence)
 
 Before any task:
-1. **Load memory:** `kernle -a {agent_id} load`
-2. **Check health:** `kernle -a {agent_id} anxiety`
+1. **Load memory:** `kernle -s {stack_id} load`
+2. **Check health:** `kernle -s {stack_id} anxiety`
 3. If anxiety > 50: address before proceeding
 
 ### Every Message (Health Check)
 
-Quick pulse: `kernle -a {agent_id} anxiety -b`
+Quick pulse: `kernle -s {stack_id} anxiety -b`
 - 🟢 OK: proceed normally
 - 🟡 WARN: mention it, consider consolidating
 - 🔴 CRITICAL: pause and address first
@@ -105,8 +105,8 @@ def has_kernle_section(content: str) -> bool:
     patterns = [
         r"##\s*Memory\s*\(Kernle\)",
         r"##\s*Kernle",
-        r"kernle\s+(-a\s+\w+\s+)?load",
-        r"kernle\s+(-a\s+\w+\s+)?anxiety",
+        r"kernle\s+(-[sa]\s+\w+\s+)?load",
+        r"kernle\s+(-[sa]\s+\w+\s+)?anxiety",
     ]
 
     for pattern in patterns:
@@ -117,20 +117,20 @@ def has_kernle_section(content: str) -> bool:
 
 
 def generate_section(
-    agent_id: str, style: str = "standard", include_per_message: bool = True
+    stack_id: str, style: str = "standard", include_per_message: bool = True
 ) -> str:
     """Generate the appropriate Kernle section based on style."""
     if style == "minimal":
-        section = MINIMAL_SECTION.format(agent_id=agent_id)
+        section = MINIMAL_SECTION.format(stack_id=stack_id)
         if include_per_message:
-            section += "\n" + PER_MESSAGE_SECTION.format(agent_id=agent_id)
+            section += "\n" + PER_MESSAGE_SECTION.format(stack_id=stack_id)
         return section
     elif style == "combined":
-        return COMBINED_SECTION.format(agent_id=agent_id)
+        return COMBINED_SECTION.format(stack_id=stack_id)
     else:  # standard
-        section = STANDARD_SECTION.format(agent_id=agent_id)
+        section = STANDARD_SECTION.format(stack_id=stack_id)
         if include_per_message:
-            section += "\n" + PER_MESSAGE_SECTION.format(agent_id=agent_id)
+            section += "\n" + PER_MESSAGE_SECTION.format(stack_id=stack_id)
         return section
 
 
@@ -140,7 +140,7 @@ def cmd_init(args, k: "Kernle"):
     Creates or appends Kernle memory instructions to your instruction file
     (CLAUDE.md, AGENTS.md, etc.) so any SI can adopt health checks with zero friction.
     """
-    agent_id = k.agent_id
+    stack_id = k.stack_id
     style = getattr(args, "style", "standard") or "standard"
     include_per_message = not getattr(args, "no_per_message", False)
     output_file = getattr(args, "output", None)
@@ -148,7 +148,7 @@ def cmd_init(args, k: "Kernle"):
     print_only = getattr(args, "print", False)
 
     # Generate the section
-    section = generate_section(agent_id, style, include_per_message)
+    section = generate_section(stack_id, style, include_per_message)
 
     # Print-only mode
     if print_only:
@@ -207,4 +207,4 @@ def cmd_init(args, k: "Kernle"):
 
     # Show quick verification command
     print("\nVerify with: kernle doctor")
-    print(f"Test health check: kernle -a {agent_id} anxiety -b")
+    print(f"Test health check: kernle -s {stack_id} anxiety -b")

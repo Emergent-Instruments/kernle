@@ -13,10 +13,10 @@ from kernle.storage.base import SEED_TRUST, TRUST_THRESHOLDS, TrustAssessment
 def trust_setup(tmp_path):
     """Create a Kernle instance for trust testing."""
     db_path = tmp_path / "test_trust.db"
-    storage = SQLiteStorage(agent_id="test_agent", db_path=db_path)
+    storage = SQLiteStorage(stack_id="test_agent", db_path=db_path)
     checkpoint_dir = tmp_path / "checkpoints"
     checkpoint_dir.mkdir()
-    k = Kernle(agent_id="test_agent", storage=storage, checkpoint_dir=checkpoint_dir)
+    k = Kernle(stack_id="test_agent", storage=storage, checkpoint_dir=checkpoint_dir)
     yield k, storage
     storage.close()
 
@@ -27,7 +27,7 @@ class TestTrustAssessmentDataclass:
     def test_create_trust_assessment(self):
         assessment = TrustAssessment(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             entity="stack-owner",
             dimensions={"general": {"score": 0.95}},
             authority=[{"scope": "all"}],
@@ -41,7 +41,7 @@ class TestTrustAssessmentDataclass:
     def test_default_values(self):
         assessment = TrustAssessment(
             id="test-id",
-            agent_id="test_agent",
+            stack_id="test_agent",
             entity="unknown",
             dimensions={"general": {"score": 0.5}},
         )
@@ -97,7 +97,7 @@ class TestSQLiteStorage:
         k, storage = trust_setup
         assessment = TrustAssessment(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             entity="si:claire",
             dimensions={"coding": {"score": 0.9}, "general": {"score": 0.7}},
             authority=[{"scope": "belief_revision", "requires_evidence": True}],
@@ -117,7 +117,7 @@ class TestSQLiteStorage:
         # Create initial
         assessment = TrustAssessment(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             entity="si:bob",
             dimensions={"general": {"score": 0.5}},
         )
@@ -136,7 +136,7 @@ class TestSQLiteStorage:
         for entity in ["alice", "bob", "charlie"]:
             a = TrustAssessment(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 entity=entity,
                 dimensions={"general": {"score": 0.5}},
             )
@@ -149,7 +149,7 @@ class TestSQLiteStorage:
         k, storage = trust_setup
         a = TrustAssessment(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             entity="to-delete",
             dimensions={"general": {"score": 0.3}},
         )

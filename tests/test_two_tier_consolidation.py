@@ -125,7 +125,7 @@ def _setup_kernle_mock(
 ):
     """Create a Kernle mock with standard storage returns."""
     k = MagicMock()
-    k.agent_id = "test-agent"
+    k.stack_id = "test-agent"
     k._storage.get_epoch.return_value = epoch or _make_epoch()
     k._storage.get_episodes.return_value = episodes or []
     k._storage.get_beliefs.return_value = beliefs or []
@@ -157,7 +157,7 @@ class TestRegularConsolidation:
     def test_regular_consolidation_delegates_to_promote(self, capsys):
         """cmd_consolidate delegates to cmd_promote with deprecation warning."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.promote.return_value = {
             "episodes_scanned": 5,
             "patterns_found": 1,
@@ -189,7 +189,7 @@ class TestRegularConsolidation:
     def test_regular_consolidation_calls_promote(self, capsys):
         """cmd_consolidate calls k.promote() under the hood."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.promote.return_value = {
             "episodes_scanned": 0,
             "patterns_found": 0,
@@ -451,7 +451,7 @@ class TestEpochCloseIntegration:
     def test_epoch_close_triggers_consolidation(self, capsys):
         """Closing an epoch via CLI outputs the consolidation scaffold."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
 
         epoch = _make_epoch(id="epoch-x", name="Test Era")
         k.get_current_epoch.return_value = epoch
@@ -473,7 +473,7 @@ class TestEpochCloseIntegration:
     def test_epoch_close_json_includes_consolidation(self, capsys):
         """JSON output includes consolidation data."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
 
         epoch = _make_epoch(id="epoch-y")
         k.get_current_epoch.return_value = epoch
@@ -495,7 +495,7 @@ class TestEpochCloseIntegration:
     def test_epoch_close_no_epoch_skips_consolidation(self, capsys):
         """When no epoch to close, consolidation is not triggered."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.get_current_epoch.return_value = None
         k.epoch_close.return_value = False
 
@@ -509,7 +509,7 @@ class TestEpochCloseIntegration:
     def test_epoch_close_with_explicit_id(self, capsys):
         """Closing an epoch with explicit ID works."""
         k = MagicMock()
-        k.agent_id = "test-agent"
+        k.stack_id = "test-agent"
         k.epoch_close.return_value = True
         k.consolidate_epoch_closing.return_value = {
             "epoch_id": "epoch-z",

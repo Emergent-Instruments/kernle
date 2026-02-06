@@ -36,8 +36,8 @@ def kernle_instance(tmp_path):
     checkpoint_dir = tmp_path / "checkpoints"
     checkpoint_dir.mkdir()
 
-    storage = SQLiteStorage(agent_id="test_agent", db_path=db_path)
-    k = Kernle(agent_id="test_agent", storage=storage, checkpoint_dir=checkpoint_dir)
+    storage = SQLiteStorage(stack_id="test_agent", db_path=db_path)
+    k = Kernle(stack_id="test_agent", storage=storage, checkpoint_dir=checkpoint_dir)
     yield k
     storage.close()
 
@@ -79,7 +79,7 @@ class TestOrphanedReferences:
         ep_id = str(uuid.uuid4())
         ep = Episode(
             id=ep_id,
-            agent_id="test_agent",
+            stack_id="test_agent",
             objective="test",
             outcome="ok",
             created_at=datetime.now(timezone.utc),
@@ -88,7 +88,7 @@ class TestOrphanedReferences:
 
         belief = Belief(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             statement="derived fact",
             confidence=0.8,
             derived_from=[f"episode:{ep_id}"],
@@ -103,7 +103,7 @@ class TestOrphanedReferences:
         k = kernle_instance
         belief = Belief(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             statement="orphan ref test",
             confidence=0.8,
             derived_from=["episode:nonexistent-id"],
@@ -121,7 +121,7 @@ class TestOrphanedReferences:
         k = kernle_instance
         note = Note(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             content="test note",
             source_episodes=["episode:does-not-exist"],
             created_at=datetime.now(timezone.utc),
@@ -147,7 +147,7 @@ class TestLowConfidenceBeliefs:
         k = kernle_instance
         belief = Belief(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             statement="confident belief",
             confidence=0.8,
             created_at=datetime.now(timezone.utc),
@@ -161,7 +161,7 @@ class TestLowConfidenceBeliefs:
         k = kernle_instance
         belief = Belief(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             statement="uncertain belief",
             confidence=0.1,
             created_at=datetime.now(timezone.utc),
@@ -178,7 +178,7 @@ class TestLowConfidenceBeliefs:
         k = kernle_instance
         belief = Belief(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             statement="moderate belief",
             confidence=0.4,
             created_at=datetime.now(timezone.utc),
@@ -198,7 +198,7 @@ class TestLowConfidenceBeliefs:
         verified_date = datetime.now(timezone.utc) - timedelta(days=30)
         belief = Belief(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             statement="low and verified",
             confidence=0.2,
             last_verified=verified_date,
@@ -214,7 +214,7 @@ class TestLowConfidenceBeliefs:
         k = kernle_instance
         belief = Belief(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             statement="never verified belief",
             confidence=0.1,
             created_at=datetime.now(timezone.utc),
@@ -240,7 +240,7 @@ class TestStaleRelationships:
         k = kernle_instance
         rel = Relationship(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             entity_name="Alice",
             entity_type="human",
             relationship_type="collaborator",
@@ -259,7 +259,7 @@ class TestStaleRelationships:
         old_date = datetime.now(timezone.utc) - timedelta(days=120)
         rel = Relationship(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             entity_name="Bob",
             entity_type="human",
             relationship_type="mentor",
@@ -279,7 +279,7 @@ class TestStaleRelationships:
         recent_date = datetime.now(timezone.utc) - timedelta(days=10)
         rel = Relationship(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             entity_name="Carol",
             entity_type="human",
             relationship_type="colleague",
@@ -307,14 +307,14 @@ class TestBeliefContradictions:
         k = kernle_instance
         b1 = Belief(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             statement="Testing should always be comprehensive and thorough",
             confidence=0.9,
             created_at=datetime.now(timezone.utc),
         )
         b2 = Belief(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             statement="Testing should never be comprehensive or thorough",
             confidence=0.7,
             created_at=datetime.now(timezone.utc),
@@ -331,14 +331,14 @@ class TestBeliefContradictions:
         k = kernle_instance
         b1 = Belief(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             statement="Python is a great programming language",
             confidence=0.9,
             created_at=datetime.now(timezone.utc),
         )
         b2 = Belief(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             statement="Coffee helps with productivity",
             confidence=0.8,
             created_at=datetime.now(timezone.utc),
@@ -364,7 +364,7 @@ class TestStaleGoals:
         k = kernle_instance
         goal = Goal(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             title="Recent goal",
             status="active",
             created_at=datetime.now(timezone.utc) - timedelta(days=10),
@@ -378,7 +378,7 @@ class TestStaleGoals:
         k = kernle_instance
         goal = Goal(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             title="Old goal",
             status="active",
             created_at=datetime.now(timezone.utc) - timedelta(days=90),
@@ -395,7 +395,7 @@ class TestStaleGoals:
         k = kernle_instance
         goal = Goal(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             title="Completed goal",
             status="completed",
             created_at=datetime.now(timezone.utc) - timedelta(days=90),
@@ -424,7 +424,7 @@ class TestRunStructuralChecks:
         k._storage.save_belief(
             Belief(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 statement="uncertain thing",
                 confidence=0.1,
                 created_at=datetime.now(timezone.utc),
@@ -435,7 +435,7 @@ class TestRunStructuralChecks:
         k._storage.save_relationship(
             Relationship(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 entity_name="Ghost",
                 entity_type="human",
                 relationship_type="acquaintance",
@@ -469,7 +469,7 @@ class TestCmdDoctorStructural:
         k._storage.save_belief(
             Belief(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 statement="low conf",
                 confidence=0.1,
                 created_at=datetime.now(timezone.utc),
@@ -488,7 +488,7 @@ class TestCmdDoctorStructural:
         k._storage.save_relationship(
             Relationship(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 entity_name="Phantom",
                 entity_type="bot",
                 relationship_type="peer",
@@ -508,7 +508,7 @@ class TestCmdDoctorStructural:
         k._storage.save_belief(
             Belief(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 statement="flagged",
                 confidence=0.05,
                 created_at=datetime.now(timezone.utc),
@@ -540,7 +540,7 @@ class TestCmdDoctorStructural:
         k._storage.save_belief(
             Belief(
                 id=str(uuid.uuid4()),
-                agent_id="test_agent",
+                stack_id="test_agent",
                 statement=secret_statement,
                 confidence=0.1,
                 created_at=datetime.now(timezone.utc),

@@ -446,7 +446,7 @@ class TestJsonImporterParsing:
         """Parse basic Kernle JSON export format."""
         content = json.dumps(
             {
-                "agent_id": "test-agent",
+                "stack_id": "test-agent",
                 "exported_at": "2024-01-15T10:00:00Z",
                 "values": [{"name": "Quality", "statement": "Test well", "priority": 80}],
                 "beliefs": [{"statement": "Testing matters", "confidence": 0.9}],
@@ -457,8 +457,8 @@ class TestJsonImporterParsing:
                 "relationships": [],
             }
         )
-        items, agent_id = parse_kernle_json(content)
-        assert agent_id == "test-agent"
+        items, stack_id = parse_kernle_json(content)
+        assert stack_id == "test-agent"
         assert len(items) == 2
         assert items[0].type == "value"
         assert items[1].type == "belief"
@@ -467,7 +467,7 @@ class TestJsonImporterParsing:
         """Parse JSON with all memory types."""
         content = json.dumps(
             {
-                "agent_id": "test",
+                "stack_id": "test",
                 "values": [{"name": "V1"}],
                 "beliefs": [{"statement": "B1"}],
                 "goals": [{"title": "G1"}],
@@ -478,7 +478,7 @@ class TestJsonImporterParsing:
                 "raw_entries": [{"content": "R1"}],
             }
         )
-        items, agent_id = parse_kernle_json(content)
+        items, stack_id = parse_kernle_json(content)
 
         types = [item.type for item in items]
         assert "value" in types
@@ -504,19 +504,19 @@ class TestJsonImporterParsing:
         """Empty arrays in JSON are handled."""
         content = json.dumps(
             {
-                "agent_id": "test",
+                "stack_id": "test",
                 "values": [],
                 "beliefs": [],
             }
         )
-        items, agent_id = parse_kernle_json(content)
+        items, stack_id = parse_kernle_json(content)
         assert len(items) == 0
 
-    def test_parse_kernle_json_missing_agent_id(self):
-        """Missing agent_id returns None."""
+    def test_parse_kernle_json_missing_stack_id(self):
+        """Missing stack_id returns None."""
         content = json.dumps({"values": [{"name": "Test"}]})
-        items, agent_id = parse_kernle_json(content)
-        assert agent_id is None
+        items, stack_id = parse_kernle_json(content)
+        assert stack_id is None
         assert len(items) == 1
 
 
@@ -535,7 +535,7 @@ class TestJsonImporterClass:
         json_file.write_text(
             json.dumps(
                 {
-                    "agent_id": "test-agent",
+                    "stack_id": "test-agent",
                     "beliefs": [{"statement": "Test belief", "confidence": 0.9}],
                 }
             )
@@ -543,7 +543,7 @@ class TestJsonImporterClass:
         importer = JsonImporter(str(json_file))
         items = importer.parse()
         assert len(items) == 1
-        assert importer.source_agent_id == "test-agent"
+        assert importer.source_stack_id == "test-agent"
 
     def test_importer_import_to_dry_run(self, tmp_path, kernle_instance):
         """Dry run counts items without importing."""
@@ -606,13 +606,13 @@ class TestJsonImporterClass:
         result2 = importer2.import_to(k, dry_run=False, skip_duplicates=True)
         assert result2["skipped"]["belief"] == 1
 
-    def test_importer_returns_source_agent_id(self, tmp_path, kernle_instance):
-        """import_to returns source agent_id."""
+    def test_importer_returns_source_stack_id(self, tmp_path, kernle_instance):
+        """import_to returns source stack_id."""
         json_file = tmp_path / "test.json"
         json_file.write_text(
             json.dumps(
                 {
-                    "agent_id": "source-agent",
+                    "stack_id": "source-agent",
                     "beliefs": [{"statement": "Test", "confidence": 0.9}],
                 }
             )
@@ -620,7 +620,7 @@ class TestJsonImporterClass:
         k, storage = kernle_instance
         importer = JsonImporter(str(json_file))
         result = importer.import_to(k, dry_run=True)
-        assert result["source_agent_id"] == "source-agent"
+        assert result["source_stack_id"] == "source-agent"
 
 
 class TestJsonImporterAllTypes:

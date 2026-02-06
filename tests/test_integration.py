@@ -17,7 +17,7 @@ class TestCLIIntegration:
     def temp_storage(self, tmp_path):
         """Create a temporary SQLite storage."""
         db_path = tmp_path / "test.db"
-        return SQLiteStorage(agent_id="test_integration", db_path=db_path)
+        return SQLiteStorage(stack_id="test_integration", db_path=db_path)
 
     @pytest.fixture
     def temp_kernle(self, tmp_path):
@@ -25,8 +25,8 @@ class TestCLIIntegration:
         db_path = tmp_path / "test.db"
         checkpoint_dir = tmp_path / "checkpoints"
         checkpoint_dir.mkdir()
-        storage = SQLiteStorage(agent_id="test_integration", db_path=db_path)
-        return Kernle(agent_id="test_integration", storage=storage, checkpoint_dir=checkpoint_dir)
+        storage = SQLiteStorage(stack_id="test_integration", db_path=db_path)
+        return Kernle(stack_id="test_integration", storage=storage, checkpoint_dir=checkpoint_dir)
 
     def test_episode_command_persists(self, temp_kernle):
         """CLI episode command should persist to actual storage."""
@@ -195,10 +195,10 @@ class TestStorageIntegration:
     def test_sqlite_roundtrip(self, tmp_path):
         """Data should survive SQLite save/load cycle."""
         db_path = tmp_path / "test.db"
-        agent_id = "test_roundtrip"
+        stack_id = "test_roundtrip"
 
         # Create and populate storage
-        storage1 = SQLiteStorage(agent_id=agent_id, db_path=db_path)
+        storage1 = SQLiteStorage(stack_id=stack_id, db_path=db_path)
 
         from datetime import datetime, timezone
 
@@ -206,7 +206,7 @@ class TestStorageIntegration:
 
         episode = Episode(
             id="ep-test",
-            agent_id=agent_id,
+            stack_id=stack_id,
             objective="Test roundtrip",
             outcome="Successful",
             created_at=datetime.now(timezone.utc),
@@ -215,7 +215,7 @@ class TestStorageIntegration:
 
         belief = Belief(
             id="bel-test",
-            agent_id=agent_id,
+            stack_id=stack_id,
             statement="SQLite is reliable",
             confidence=0.95,
             created_at=datetime.now(timezone.utc),
@@ -225,7 +225,7 @@ class TestStorageIntegration:
         storage1.close()
 
         # Load in new storage instance
-        storage2 = SQLiteStorage(agent_id=agent_id, db_path=db_path)
+        storage2 = SQLiteStorage(stack_id=stack_id, db_path=db_path)
 
         loaded_episode = storage2.get_episode("ep-test")
         beliefs = storage2.get_beliefs(limit=100)
@@ -243,9 +243,9 @@ class TestStorageIntegration:
     def test_unicode_content_preserved(self, tmp_path):
         """Unicode and emoji content should be preserved."""
         db_path = tmp_path / "test.db"
-        agent_id = "test_unicode"
+        stack_id = "test_unicode"
 
-        storage = SQLiteStorage(agent_id=agent_id, db_path=db_path)
+        storage = SQLiteStorage(stack_id=stack_id, db_path=db_path)
 
         from datetime import datetime, timezone
 
@@ -254,7 +254,7 @@ class TestStorageIntegration:
         # Test various unicode content
         episode = Episode(
             id="ep-unicode",
-            agent_id=agent_id,
+            stack_id=stack_id,
             objective="Test 🎯 unicode with émojis and spëcial chârs",
             outcome="Success ✅ 日本語 العربية",
             lessons=["Unicode 🌍 works", "Émojis 😊 preserved"],
@@ -275,9 +275,9 @@ class TestStorageIntegration:
     def test_large_content_handling(self, tmp_path):
         """Large content should be handled without truncation."""
         db_path = tmp_path / "test.db"
-        agent_id = "test_large"
+        stack_id = "test_large"
 
-        storage = SQLiteStorage(agent_id=agent_id, db_path=db_path)
+        storage = SQLiteStorage(stack_id=stack_id, db_path=db_path)
 
         from datetime import datetime, timezone
 
@@ -288,7 +288,7 @@ class TestStorageIntegration:
 
         episode = Episode(
             id="ep-large",
-            agent_id=agent_id,
+            stack_id=stack_id,
             objective=large_content,
             outcome="Completed",
             created_at=datetime.now(timezone.utc),
@@ -311,10 +311,10 @@ class TestAnxietyIntegration:
         db_path = tmp_path / "test.db"
         checkpoint_dir = tmp_path / "checkpoints"
         checkpoint_dir.mkdir()
-        agent_id = "test_anxiety"
+        stack_id = "test_anxiety"
 
-        storage = SQLiteStorage(agent_id=agent_id, db_path=db_path)
-        k = Kernle(agent_id=agent_id, storage=storage, checkpoint_dir=checkpoint_dir)
+        storage = SQLiteStorage(stack_id=stack_id, db_path=db_path)
+        k = Kernle(stack_id=stack_id, storage=storage, checkpoint_dir=checkpoint_dir)
 
         # Fresh state should have low anxiety
         report1 = k.get_anxiety_report()

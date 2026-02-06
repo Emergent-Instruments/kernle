@@ -36,14 +36,14 @@ Add Kernle to the `mcpServers` section:
   "mcpServers": {
     "kernle": {
       "command": "kernle",
-      "args": ["mcp", "--agent", "claude"]
+      "args": ["mcp", "--stack", "claude"]
     }
   }
 }
 ```
 
 <Warning>
-Replace `claude` with your preferred agent ID. This ID identifies your memory store.
+Replace `claude` with your preferred stack ID. This ID identifies your memory store.
 </Warning>
 
 ### Full Configuration Example
@@ -53,7 +53,7 @@ Replace `claude` with your preferred agent ID. This ID identifies your memory st
   "mcpServers": {
     "kernle": {
       "command": "kernle",
-      "args": ["mcp", "--agent", "claude-desktop"]
+      "args": ["mcp", "--stack", "claude-desktop"]
     }
   }
 }
@@ -68,7 +68,7 @@ If Kernle was installed via pip in a specific environment:
   "mcpServers": {
     "kernle": {
       "command": "/path/to/python",
-      "args": ["-m", "kernle", "mcp", "--agent", "claude"]
+      "args": ["-m", "kernle", "mcp", "--stack", "claude"]
     }
   }
 }
@@ -81,7 +81,7 @@ Or with pipx:
   "mcpServers": {
     "kernle": {
       "command": "/Users/you/.local/bin/kernle",
-      "args": ["mcp", "--agent", "claude"]
+      "args": ["mcp", "--stack", "claude"]
     }
   }
 }

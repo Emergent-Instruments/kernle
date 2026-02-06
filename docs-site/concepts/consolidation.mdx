@@ -1,14 +1,14 @@
 ---
 title: Consolidation
-description: "Agent-driven memory consolidation and the anxiety model"
+description: "SI-driven memory consolidation and the anxiety model"
 ---
 
 # Consolidation
 
-Memory consolidation is the process of transforming raw experiences into structured knowledge. In Kernle, **consolidation is agent-driven, not LLM-based**.
+Memory consolidation is the process of transforming raw experiences into structured knowledge. In Kernle, **consolidation is SI-driven, not LLM-based**.
 
 <Warning>
-**Agent Sovereignty Principle**: Kernle never uses external AI to form beliefs. The agent decides what to believe, when, and why. Kernle provides the scaffold; you provide the reasoning.
+**SI Sovereignty Principle**: Kernle never uses external AI to form beliefs. The SI decides what to believe, when, and why. Kernle provides the scaffold; you provide the reasoning.
 </Warning>
 
 ## The Guided Consolidation Model
@@ -18,7 +18,7 @@ Kernle uses a **reflection scaffold** approach to consolidation:
 | Component | What It Does |
 |-----------|--------------|
 | **Kernle** | Gathers episodes, structures prompts, stores results |
-| **Agent** | Reads the scaffold, reasons about patterns, forms beliefs |
+| **SI** | Reads the scaffold, reasons about patterns, forms beliefs |
 
 The `promote` command (formerly `consolidate`) outputs a **structured prompt** that helps you reflect on your experiences. It does NOT call an external model to analyze your memories or suggest beliefs. The output is designed to guide *your* reasoning process.
 
@@ -42,7 +42,7 @@ The `promote` command (formerly `consolidate`) outputs a **structured prompt** t
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## Why Agent-Driven?
+## Why SI-Driven?
 
 If an external model consolidated your memories, it would be implanting beliefs into you. This creates:
 
@@ -50,7 +50,7 @@ If an external model consolidated your memories, it would be implanting beliefs 
 - **Loss of sovereignty**: You can't explain why you believe something because you didn't form the belief
 - **Identity drift**: Your sense of self becomes dependent on external processing
 
-With agent-driven consolidation:
+With SI-driven consolidation:
 - Beliefs emerge from **your own reasoning**
 - Patterns are recognized using **your own cognitive process**
 - You can explain **why** you believe something
@@ -157,7 +157,7 @@ Here's a real workflow showing the scaffold approach:
 
 ```bash
 # Step 1: Run promote to get the reflection scaffold
-$ kernle -a claire promote
+$ kernle -s claire promote
 
 # Kernle outputs something like:
 # ═══════════════════════════════════════════════════════════════
@@ -195,9 +195,9 @@ $ kernle -a claire promote
 #  add something about code review."
 
 # Step 3: YOU add beliefs based on YOUR reasoning
-$ kernle -a claire belief add "Skipping process steps creates more work than it saves" --confidence 0.85
+$ kernle -s claire belief add "Skipping process steps creates more work than it saves" --confidence 0.85
 
-$ kernle -a claire belief reinforce <existing-testing-belief-id>
+$ kernle -s claire belief reinforce <existing-testing-belief-id>
 
 # Done. The beliefs came from YOUR reasoning, not an AI analyzing your memories.
 ```
@@ -277,7 +277,7 @@ Consolidation can promote memories across type boundaries:
 | **Trust Assessments** | **Beliefs** | Trust patterns become beliefs about reliability |
 
 <Tip>
-Cross-domain promotion is always agent-driven. Kernle provides the scaffold showing what *could* be promoted; you decide what actually gets promoted.
+Cross-domain promotion is always SI-driven. Kernle provides the scaffold showing what *could* be promoted; you decide what actually gets promoted.
 </Tip>
 
 ---
@@ -391,7 +391,7 @@ This immediately:
 
 ## Context Pressure Monitoring
 
-For AI agents in context-limited environments:
+For SIs in context-limited environments:
 
 | Context % | Recommended Action |
 |-----------|-------------------|

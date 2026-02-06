@@ -23,23 +23,23 @@ class TestWalletEdgeCases:
     def test_empty_wallet_address_rejected(self):
         """Empty wallet address should raise ValueError."""
         with pytest.raises(ValueError):
-            WalletAccount(id="w1", agent_id="a1", wallet_address="")
+            WalletAccount(id="w1", stack_id="a1", wallet_address="")
 
     def test_short_wallet_address_rejected(self):
         """Wallet address < 42 chars should raise ValueError."""
         with pytest.raises(ValueError):
-            WalletAccount(id="w1", agent_id="a1", wallet_address="0x123")
+            WalletAccount(id="w1", stack_id="a1", wallet_address="0x123")
 
     def test_long_wallet_address_rejected(self):
         """Wallet address > 42 chars should raise ValueError."""
         with pytest.raises(ValueError):
-            WalletAccount(id="w1", agent_id="a1", wallet_address="0x" + "a" * 50)
+            WalletAccount(id="w1", stack_id="a1", wallet_address="0x" + "a" * 50)
 
     def test_wallet_address_exact_length(self):
         """Valid wallet address is exactly 42 chars (0x + 40 hex)."""
         # This should always work
         valid_address = "0x" + "a" * 40
-        wallet = WalletAccount(id="w1", agent_id="a1", wallet_address=valid_address)
+        wallet = WalletAccount(id="w1", stack_id="a1", wallet_address=valid_address)
         assert len(wallet.wallet_address) == 42
 
     def test_negative_spending_limit_per_tx_rejected(self):
@@ -47,7 +47,7 @@ class TestWalletEdgeCases:
         with pytest.raises(ValueError):
             WalletAccount(
                 id="w1",
-                agent_id="a1",
+                stack_id="a1",
                 wallet_address="0x" + "a" * 40,
                 spending_limit_per_tx=-100.0,
             )
@@ -57,7 +57,7 @@ class TestWalletEdgeCases:
         with pytest.raises(ValueError):
             WalletAccount(
                 id="w1",
-                agent_id="a1",
+                stack_id="a1",
                 wallet_address="0x" + "a" * 40,
                 spending_limit_per_tx=0.0,
             )
@@ -67,7 +67,7 @@ class TestWalletEdgeCases:
         with pytest.raises(ValueError):
             WalletAccount(
                 id="w1",
-                agent_id="a1",
+                stack_id="a1",
                 wallet_address="0x" + "a" * 40,
                 spending_limit_daily=-1000.0,
             )
@@ -77,7 +77,7 @@ class TestWalletEdgeCases:
         with pytest.raises(ValueError):
             WalletAccount(
                 id="w1",
-                agent_id="a1",
+                stack_id="a1",
                 wallet_address="0x" + "a" * 40,
                 spending_limit_daily=0.0,
             )
@@ -87,7 +87,7 @@ class TestWalletEdgeCases:
         with pytest.raises(ValueError):
             WalletAccount(
                 id="w1",
-                agent_id="a1",
+                stack_id="a1",
                 wallet_address="0x" + "a" * 40,
                 owner_eoa="not-an-address",
             )
@@ -96,7 +96,7 @@ class TestWalletEdgeCases:
         """Valid owner_eoa should be accepted."""
         wallet = WalletAccount(
             id="w1",
-            agent_id="a1",
+            stack_id="a1",
             wallet_address="0x" + "a" * 40,
             owner_eoa="0x" + "b" * 40,
         )
@@ -310,7 +310,7 @@ class TestRoundTripSerialization:
         now = datetime.now(timezone.utc)
         original = WalletAccount(
             id="w1",
-            agent_id="a1",
+            stack_id="a1",
             wallet_address="0x" + "a" * 40,
             chain="base-sepolia",
             status="active",
@@ -328,7 +328,7 @@ class TestRoundTripSerialization:
         restored = WalletAccount.from_dict(data)
 
         assert restored.id == original.id
-        assert restored.agent_id == original.agent_id
+        assert restored.stack_id == original.stack_id
         assert restored.wallet_address == original.wallet_address
         assert restored.chain == original.chain
         assert restored.status == original.status

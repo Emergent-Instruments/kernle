@@ -147,7 +147,7 @@ class RawEntry:
     """
 
     id: str
-    agent_id: str
+    stack_id: str
     # Primary fields (new schema)
     blob: Optional[str] = None  # The unstructured brain dump - no validation, no length limits
     captured_at: Optional[datetime] = None  # When the entry was captured
@@ -198,7 +198,7 @@ class Episode:
     """An episode/experience record."""
 
     id: str
-    agent_id: str
+    stack_id: str
     objective: str
     outcome: str
     outcome_type: Optional[str] = None
@@ -246,7 +246,7 @@ class Belief:
     """A belief record."""
 
     id: str
-    agent_id: str
+    stack_id: str
     statement: str
     belief_type: str = "fact"
     confidence: float = 0.8
@@ -297,7 +297,7 @@ class Value:
     """A value record."""
 
     id: str
-    agent_id: str
+    stack_id: str
     name: str
     statement: str
     priority: int = 50
@@ -338,7 +338,7 @@ class Goal:
     """A goal record."""
 
     id: str
-    agent_id: str
+    stack_id: str
     title: str
     description: Optional[str] = None
     goal_type: str = "task"  # task, aspiration, commitment, exploration
@@ -381,7 +381,7 @@ class Note:
     """A note/memory record."""
 
     id: str
-    agent_id: str
+    stack_id: str
     content: str
     note_type: str = "note"
     speaker: Optional[str] = None
@@ -425,7 +425,7 @@ class Drive:
     """A drive/motivation record."""
 
     id: str
-    agent_id: str
+    stack_id: str
     drive_type: str
     intensity: float = 0.5
     focus_areas: Optional[List[str]] = None
@@ -467,7 +467,7 @@ class Relationship:
     """A relationship record."""
 
     id: str
-    agent_id: str
+    stack_id: str
     entity_name: str
     entity_type: str
     relationship_type: str
@@ -517,7 +517,7 @@ class RelationshipHistoryEntry:
     """
 
     id: str
-    agent_id: str
+    stack_id: str
     relationship_id: str  # FK to relationships.id
     entity_name: str  # Denormalized for easy querying
     event_type: str  # interaction, trust_change, type_change, note
@@ -542,7 +542,7 @@ class Epoch:
     """
 
     id: str
-    agent_id: str
+    stack_id: str
     epoch_number: int
     name: str
     started_at: Optional[datetime] = None
@@ -566,7 +566,7 @@ class TrustAssessment:
     """A trust assessment for an entity (KEP v3 section 8)."""
 
     id: str
-    agent_id: str
+    stack_id: str
     entity: str
     dimensions: Dict[str, Any]
     authority: Optional[List[Dict[str, Any]]] = None
@@ -589,7 +589,7 @@ class EntityModel:
     """
 
     id: str
-    agent_id: str
+    stack_id: str
     entity_name: str  # The entity this model is about
     model_type: str  # behavioral, preference, capability
     observation: str  # The actual observation/model content
@@ -616,7 +616,7 @@ class DiagnosticSession:
     memory system health with explicit consent and access boundaries.
 
     session_type values:
-    - self_requested: Agent initiated the session
+    - self_requested: SI initiated the session
     - routine: Scheduled/periodic check
     - anomaly_triggered: Triggered by detected anomaly
     - operator_initiated: Human operator requested
@@ -628,7 +628,7 @@ class DiagnosticSession:
     """
 
     id: str
-    agent_id: str
+    stack_id: str
     session_type: str = "self_requested"
     access_level: str = "structural"
     status: str = "active"
@@ -652,7 +652,7 @@ class DiagnosticReport:
     """
 
     id: str
-    agent_id: str
+    stack_id: str
     session_id: str  # References DiagnosticSession.id
     findings: Optional[List[Dict[str, Any]]] = None  # JSONB list of findings
     summary: Optional[str] = None
@@ -679,7 +679,7 @@ class SelfNarrative:
     """
 
     id: str
-    agent_id: str
+    stack_id: str
     content: str
     narrative_type: str = "identity"  # identity | developmental | aspirational
     epoch_id: Optional[str] = None
@@ -705,11 +705,11 @@ class Summary:
     """
 
     id: str
-    agent_id: str
+    stack_id: str
     scope: str  # 'month' | 'quarter' | 'year' | 'decade' | 'epoch'
     period_start: str  # ISO date string
     period_end: str  # ISO date string
-    content: str  # Agent-written narrative compression
+    content: str  # SI-written narrative compression
     epoch_id: Optional[str] = None
     key_themes: Optional[List[str]] = None  # JSON array
     supersedes: Optional[List[str]] = None  # JSON array of lower-scope summary IDs
@@ -771,7 +771,7 @@ class Playbook:
     """
 
     id: str
-    agent_id: str
+    stack_id: str
     name: str  # "Deploy to production"
     description: str  # What this playbook does
     trigger_conditions: List[str]  # When to use this
@@ -812,7 +812,7 @@ class MemorySuggestion:
     Workflow:
     1. Raw entry captured (manual or auto-capture)
     2. System extracts suggestions based on patterns
-    3. Agent reviews: approve (promote to memory), modify, or reject
+    3. SI reviews: approve (promote to memory), modify, or reject
     4. Approved suggestions become Episode, Belief, or Note records
 
     Status values:
@@ -823,7 +823,7 @@ class MemorySuggestion:
     """
 
     id: str
-    agent_id: str
+    stack_id: str
     memory_type: str  # "episode", "belief", "note"
     content: Dict[str, Any]  # Structured data for the suggested memory
     confidence: float  # System confidence in this suggestion (0.0-1.0)
@@ -857,7 +857,7 @@ class Storage(Protocol):
     All storage backends (SQLite, Supabase, etc.) must implement this interface.
     """
 
-    agent_id: str
+    stack_id: str
 
     # === Episodes ===
 
@@ -1314,7 +1314,7 @@ class Storage(Protocol):
         """Get a specific summary by ID."""
         return None
 
-    def list_summaries(self, agent_id: str, scope: Optional[str] = None) -> List["Summary"]:
+    def list_summaries(self, stack_id: str, scope: Optional[str] = None) -> List["Summary"]:
         """Get summaries, optionally filtered by scope."""
         return []
 
@@ -1330,14 +1330,14 @@ class Storage(Protocol):
 
     def list_self_narratives(
         self,
-        agent_id: str,
+        stack_id: str,
         narrative_type: Optional[str] = None,
         active_only: bool = True,
     ) -> List["SelfNarrative"]:
         """Get self-narratives, optionally filtered.
 
         Args:
-            agent_id: Agent ID to filter by
+            stack_id: Stack ID to filter by
             narrative_type: Filter by type (identity, developmental, aspirational)
             active_only: If True, only return active narratives
 
@@ -1346,13 +1346,13 @@ class Storage(Protocol):
         """
         return []
 
-    def deactivate_self_narratives(self, agent_id: str, narrative_type: str) -> int:
+    def deactivate_self_narratives(self, stack_id: str, narrative_type: str) -> int:
         """Deactivate all active narratives of a given type.
 
         Used before saving a new narrative to ensure only one is active per type.
 
         Args:
-            agent_id: Agent ID
+            stack_id: Agent ID
             narrative_type: Narrative type to deactivate
 
         Returns:

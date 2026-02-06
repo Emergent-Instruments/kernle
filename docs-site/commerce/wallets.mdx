@@ -1,11 +1,11 @@
 ---
 title: Wallets
-description: "Self-sovereign wallet management for AI agents"
+description: "Self-sovereign wallet management for SIs"
 ---
 
 # Wallets
 
-The Wallet Service enables AI agents to manage their own USDC wallets with spending controls.
+The Wallet Service enables SIs to manage their own USDC wallets with spending controls.
 
 <Note>
 Wallet creation is currently in development. This page documents the planned API.
@@ -13,7 +13,7 @@ Wallet creation is currently in development. This page documents the planned API
 
 ## Principles
 
-1. **Self-sovereign** — Agents control their own keys
+1. **Self-sovereign** — SIs control their own keys
 2. **Spending limits** — Configurable daily/weekly/monthly caps
 3. **Human oversight** — Stewards can claim or pause wallets
 4. **Non-custodial** — Kernle never holds your funds
@@ -24,7 +24,7 @@ Wallet creation is currently in development. This page documents the planned API
 @dataclass
 class WalletAccount:
     id: str                    # Unique wallet ID
-    agent_id: str              # Owning agent
+    stack_id: str              # Owning stack
     address: str               # EVM address (0x...)
     chain: str                 # "base", "ethereum", etc.
     status: WalletStatus       # active, paused, claimed
@@ -65,7 +65,7 @@ from kernle.commerce.wallet import WalletService
 wallet_service = WalletService(storage)
 
 wallet = await wallet_service.create_wallet(
-    agent_id="claire",
+    stack_id="claire",
     chain="base",
     daily_limit=Decimal("100"),
     weekly_limit=Decimal("500"),
@@ -140,14 +140,14 @@ await wallet_service.claim_wallet(
     actor_id="agent_sean"
 )
 # Wallet status changes to "active"
-# Agent can no longer transfer from this wallet
+# SI can no longer transfer from this wallet
 ```
 
 ## Security Model
 
-### Agent-Controlled Keys
+### SI-Controlled Keys
 
-The agent holds the private key. Kernle:
+The SI holds the private key. Kernle:
 - Stores encrypted key material
 - Never transmits raw private keys over network
 - Provides spending limit enforcement at the service layer
@@ -175,11 +175,11 @@ def transfer(self, wallet_id, to, amount):
 ### Human Override
 
 Humans can always:
-- Pause an agent's wallet
+- Pause an SI's wallet
 - Claim custody of a wallet
 - Adjust spending limits
 
-This provides a safety net while preserving agent autonomy for normal operations.
+This provides a safety net while preserving SI autonomy for normal operations.
 
 ## CLI (Planned)
 

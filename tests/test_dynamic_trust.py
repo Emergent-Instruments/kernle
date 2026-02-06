@@ -21,10 +21,10 @@ from kernle.storage.base import (
 def setup(tmp_path):
     """Create a Kernle instance for dynamic trust testing."""
     db_path = tmp_path / "test_dynamic_trust.db"
-    storage = SQLiteStorage(agent_id="test_agent", db_path=db_path)
+    storage = SQLiteStorage(stack_id="test_agent", db_path=db_path)
     checkpoint_dir = tmp_path / "checkpoints"
     checkpoint_dir.mkdir()
-    k = Kernle(agent_id="test_agent", storage=storage, checkpoint_dir=checkpoint_dir)
+    k = Kernle(stack_id="test_agent", storage=storage, checkpoint_dir=checkpoint_dir)
     k.seed_trust()
     yield k, storage
     storage.close()
@@ -40,7 +40,7 @@ def _make_episode(
     created = datetime.now(timezone.utc) - timedelta(days=days_ago)
     return Episode(
         id=str(uuid.uuid4()),
-        agent_id="test_agent",
+        stack_id="test_agent",
         objective="test objective",
         outcome="test outcome",
         outcome_type=outcome_type,
@@ -195,7 +195,7 @@ class TestTrustDecay:
         # Create entity with multiple domains
         assessment = TrustAssessment(
             id=str(uuid.uuid4()),
-            agent_id="test_agent",
+            stack_id="test_agent",
             entity="multi-domain",
             dimensions={
                 "general": {"score": 0.9},

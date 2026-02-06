@@ -11,7 +11,7 @@ kernle setup claude-code
 # Or manually:
 cd ~/your-project
 cp $(kernle setup claude-code --print-path)/settings.json .claude/settings.json
-# Edit .claude/settings.json to set YOUR_AGENT_NAME
+# Edit .claude/settings.json to set YOUR_STACK_NAME
 ```
 
 ## Manual Installation
@@ -27,7 +27,7 @@ mkdir -p .claude
 # Copy template
 cp hooks/claude-code/settings.json .claude/settings.json
 
-# Edit and replace YOUR_AGENT_NAME with your agent ID
+# Edit and replace YOUR_STACK_NAME with your stack ID
 vim .claude/settings.json
 ```
 
@@ -40,7 +40,7 @@ Example:
         "hooks": [
           {
             "type": "command",
-            "command": "kernle -a claire load"
+            "command": "kernle -s claire load"
           }
         ]
       }
@@ -58,11 +58,11 @@ For all Claude Code sessions:
 mkdir -p ~/.claude
 cp hooks/claude-code/settings.json ~/.claude/settings.json
 
-# Edit and replace YOUR_AGENT_NAME
+# Edit and replace YOUR_STACK_NAME
 vim ~/.claude/settings.json
 ```
 
-### Option 3: Dynamic Agent Detection
+### Option 3: Dynamic Stack Detection
 
 Use environment variables:
 
@@ -74,7 +74,7 @@ Use environment variables:
         "hooks": [
           {
             "type": "command",
-            "command": "kernle -a ${USER} load"
+            "command": "kernle -s ${USER} load"
           }
         ]
       }
@@ -86,9 +86,9 @@ Use environment variables:
 ## How It Works
 
 1. **Session starts** → `SessionStart` hook fires
-2. **Command executes** → Runs `kernle -a {agentId} load`
+2. **Command executes** → Runs `kernle -s {stackId} load`
 3. **Stdout captured** → Output automatically added to context
-4. **Memory available** → AI sees values, beliefs, goals, episodes
+4. **Memory available** → SI sees values, beliefs, goals, episodes
 
 ## Alternative: CLAUDE.md Injection
 
@@ -97,7 +97,7 @@ Instead of hooks, use command injection in `CLAUDE.md`:
 ```markdown
 # Kernle Memory
 
-!`kernle -a claire load`
+!`kernle -s claire load`
 ```
 
 The `!`command`` syntax executes at file load time.
@@ -116,7 +116,7 @@ Ask:
 > What are my current values and goals from Kernle?
 ```
 
-The AI should respond with your memory without running commands.
+The SI should respond with your memory without running commands.
 
 ## Troubleshooting
 
@@ -147,13 +147,13 @@ pip install kernle
 pipx install kernle
 ```
 
-### Wrong agent ID
+### Wrong stack ID
 
-Update `settings.json` with correct agent name:
+Update `settings.json` with correct stack name:
 
 ```json
 {
-  "command": "kernle -a YOUR_NAME load"
+  "command": "kernle -s YOUR_NAME load"
 }
 ```
 
@@ -161,17 +161,17 @@ Update `settings.json` with correct agent name:
 
 1. Test manually:
    ```bash
-   kernle -a yourname load
+   kernle -s yourname load
    ```
 
-2. Check if agent initialized:
+2. Check if stack initialized:
    ```bash
-   kernle -a yourname status
+   kernle -s yourname status
    ```
 
 3. Initialize if needed:
    ```bash
-   kernle -a yourname init
+   kernle -s yourname init
    ```
 
 ## Performance

@@ -34,11 +34,11 @@ CREATE INDEX IF NOT EXISTS idx_drives_derived_from_gin
 CREATE INDEX IF NOT EXISTS idx_drives_source_episodes_gin
     ON drives USING GIN (source_episodes jsonb_path_ops);
 
--- Values (agent_values)
-CREATE INDEX IF NOT EXISTS idx_agent_values_derived_from_gin
-    ON agent_values USING GIN (derived_from jsonb_path_ops);
-CREATE INDEX IF NOT EXISTS idx_agent_values_source_episodes_gin
-    ON agent_values USING GIN (source_episodes jsonb_path_ops);
+-- Values (values)
+CREATE INDEX IF NOT EXISTS idx_values_derived_from_gin
+    ON values USING GIN (derived_from jsonb_path_ops);
+CREATE INDEX IF NOT EXISTS idx_values_source_episodes_gin
+    ON values USING GIN (source_episodes jsonb_path_ops);
 
 -- Relationships
 CREATE INDEX IF NOT EXISTS idx_relationships_derived_from_gin
