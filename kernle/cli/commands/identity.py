@@ -2,6 +2,7 @@
 
 import json
 from collections import Counter
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -64,6 +65,91 @@ def cmd_promote(args, k: "Kernle"):
             f'  kernle -a {k.agent_id} belief add "<statement>" '
             f"--confidence 0.7 --source promotion"
         )
+
+
+def _print_drive_pattern_analysis(episodes, k: "Kernle"):
+    """Surface behavioral evidence for undeclared drives.
+
+    Counts episode tags/themes from the last 30 days, compares them
+    to declared drives, and highlights patterns without matching drives.
+    Scaffolds surface patterns -- the entity decides what to do.
+    """
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=30)
+
+    # Filter to recent episodes (last 30 days)
+    recent = [ep for ep in episodes if ep.created_at and ep.created_at >= cutoff]
+
+    if not recent:
+        return
+
+    # Collect tags and emotional_tags from recent episodes
+    tag_counts: Counter = Counter()
+    for ep in recent:
+        if ep.tags:
+            for tag in ep.tags:
+                tag_counts[tag.lower()] += 1
+        if ep.emotional_tags:
+            for tag in ep.emotional_tags:
+                tag_counts[tag.lower()] += 1
+
+    if not tag_counts:
+        return
+
+    # Get declared drives
+    declared_drives = k._storage.get_drives()
+    declared_types = {d.drive_type.lower() for d in declared_drives}
+    declared_focus = set()
+    for d in declared_drives:
+        if d.focus_areas:
+            for area in d.focus_areas:
+                declared_focus.add(area.lower())
+
+    # Find unmatched patterns (tags that don't align with any declared drive)
+    unmatched = []
+    for tag, count in tag_counts.most_common():
+        if count < 2:
+            continue
+        if tag in declared_types or tag in declared_focus:
+            continue
+        unmatched.append((tag, count))
+
+    print("### DRIVE PATTERN ANALYSIS:")
+    print(f"Based on {len(recent)} episodes from the last 30 days.")
+    print()
+
+    if declared_drives:
+        print("Declared drives:")
+        for d in declared_drives:
+            focus = f" (focus: {', '.join(d.focus_areas)})" if d.focus_areas else ""
+            print(f"  - {d.drive_type} (intensity {d.intensity:.0%}){focus}")
+        print()
+
+    # Show top themes
+    top_themes = tag_counts.most_common(10)
+    if top_themes:
+        print("Top themes/tags in recent episodes:")
+        for tag, count in top_themes:
+            matched = tag in declared_types or tag in declared_focus
+            marker = "" if matched else " *"
+            print(f"  - {tag}: {count} occurrences{marker}")
+        if any(tag not in declared_types and tag not in declared_focus for tag, _ in top_themes):
+            print("  (* = no matching declared drive)")
+        print()
+
+    if unmatched:
+        print("Potential undeclared drives (recurring themes without matching drive):")
+        for tag, count in unmatched[:5]:
+            print(f'  - "{tag}" ({count} episodes)')
+        print()
+        print(
+            "Consider: Do these patterns reflect emerging drives? "
+            "You decide whether to declare them."
+        )
+        print()
+    elif tag_counts:
+        print("All recurring themes align with declared drives.")
+        print()
 
 
 def cmd_consolidate(args, k: "Kernle"):
@@ -166,6 +252,29 @@ def cmd_consolidate(args, k: "Kernle"):
         for lesson, count in repeated_lessons[:5]:
             print(f'- "{lesson}" (appears {count} times)')
         print()
+
+    # High-Arousal Episodes section
+    high_arousal = [ep for ep in episodes if ep.emotional_arousal > 0.6]
+    if high_arousal:
+        high_arousal.sort(key=lambda ep: ep.emotional_arousal, reverse=True)
+        print("### HIGH-AROUSAL EPISODES (may be worth extra reflection):")
+        for ep in high_arousal:
+            date_str = ep.created_at.strftime("%Y-%m-%d") if ep.created_at else "unknown"
+            valence_label = (
+                "positive"
+                if ep.emotional_valence > 0.2
+                else "negative" if ep.emotional_valence < -0.2 else "neutral"
+            )
+            print(
+                f'- [{date_str}] "{ep.objective}" '
+                f"(arousal: {ep.emotional_arousal:.2f}, valence: {valence_label})"
+            )
+            if ep.emotional_tags:
+                print(f"  Feelings: {', '.join(ep.emotional_tags)}")
+        print()
+
+    # Drive Pattern Analysis section
+    _print_drive_pattern_analysis(episodes, k)
 
     # Reflection Questions
     print("### Reflection Questions:")
