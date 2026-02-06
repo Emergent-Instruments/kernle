@@ -2274,6 +2274,7 @@ class Kernle(
         self,
         title: str,
         description: Optional[str] = None,
+        goal_type: str = "task",
         priority: str = "medium",
         context: Optional[str] = None,
         context_tags: Optional[List[str]] = None,
@@ -2281,24 +2282,39 @@ class Kernle(
         """Add a goal.
 
         Args:
+            goal_type: Type of goal (task, aspiration, commitment, exploration)
             context: Project/scope context (e.g., 'project:api-service', 'repo:myorg/myrepo')
             context_tags: Additional context tags for filtering
         """
+        valid_goal_types = ("task", "aspiration", "commitment", "exploration")
+        if goal_type not in valid_goal_types:
+            raise ValueError(f"Invalid goal_type. Must be one of: {', '.join(valid_goal_types)}")
+
         goal_id = str(uuid.uuid4())
+
+        # Set protection based on goal_type
+        is_protected = goal_type in ("aspiration", "commitment")
 
         goal = Goal(
             id=goal_id,
             agent_id=self.agent_id,
             title=title,
             description=description or title,
+            goal_type=goal_type,
             priority=priority,
             status="active",
             created_at=datetime.now(timezone.utc),
+            is_protected=is_protected,
             context=context,
             context_tags=context_tags,
         )
 
         self._storage.save_goal(goal)
+
+        # Protect aspiration/commitment goals from forgetting
+        if is_protected:
+            self._storage.protect_memory("goal", goal_id, protected=True)
+
         return goal_id
 
     def update_goal(

@@ -25,6 +25,25 @@ class ForgettingMixin:
     # Default half-life for salience decay (in days)
     DEFAULT_HALF_LIFE = 30.0
 
+    # Half-life overrides by goal_type
+    GOAL_TYPE_HALF_LIVES = {
+        "aspiration": 180.0,  # Very slow decay
+        "commitment": 365.0,  # Essentially no decay while active
+        "task": 30.0,  # Normal decay
+        "exploration": 30.0,  # Normal decay
+    }
+
+    def _get_half_life_for_record(self: "Kernle", memory_type: str, record) -> float:
+        """Get the appropriate half-life for a record based on its type.
+
+        Goals with goal_type 'aspiration' decay very slowly, and 'commitment'
+        goals essentially don't decay while active.
+        """
+        if memory_type == "goal":
+            goal_type = getattr(record, "goal_type", "task")
+            return self.GOAL_TYPE_HALF_LIVES.get(goal_type, self.DEFAULT_HALF_LIFE)
+        return self.DEFAULT_HALF_LIFE
+
     def calculate_salience(self: "Kernle", memory_type: str, memory_id: str) -> float:
         """Calculate current salience score for a memory.
 
@@ -33,6 +52,11 @@ class ForgettingMixin:
         where:
             reinforcement_weight = log(times_accessed + 1)
             age_factor = days_since_last_access / half_life
+
+        For goals, half_life varies by goal_type:
+        - aspiration: 180 days (very slow decay)
+        - commitment: 365 days (near-zero decay while active)
+        - task/exploration: 30 days (normal decay)
 
         Args:
             memory_type: Type of memory (episode, belief, value, goal, note, drive, relationship)
@@ -60,8 +84,8 @@ class ForgettingMixin:
         else:
             days_since = 365  # Very old if unknown
 
-        # Guard against zero half-life (would cause division by zero)
-        half_life = max(0.001, self.DEFAULT_HALF_LIFE)
+        # Get half-life based on record type (goal_type aware)
+        half_life = max(0.001, self._get_half_life_for_record(memory_type, record))
         age_factor = days_since / half_life
         reinforcement_weight = math.log(times_accessed + 1)
 

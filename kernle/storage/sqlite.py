@@ -47,7 +47,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 16  # Phase 8a: Privacy enforcement
+SCHEMA_VERSION = 17  # Add goal_type field to goals
 
 # Maximum size for merged arrays during sync to prevent resource exhaustion
 MAX_SYNC_ARRAY_SIZE = 500
@@ -303,6 +303,7 @@ CREATE TABLE IF NOT EXISTS goals (
     agent_id TEXT NOT NULL,
     title TEXT NOT NULL,
     description TEXT,
+    goal_type TEXT DEFAULT 'task',
     priority TEXT DEFAULT 'medium',
     status TEXT DEFAULT 'active',
     created_at TEXT NOT NULL,
@@ -1394,6 +1395,8 @@ class SQLiteStorage:
                 )
             if "confidence_history" not in goal_cols:
                 migrations.append("ALTER TABLE goals ADD COLUMN confidence_history TEXT")
+            if "goal_type" not in goal_cols:
+                migrations.append("ALTER TABLE goals ADD COLUMN goal_type TEXT DEFAULT 'task'")
 
         # Migrations for notes table
         note_cols = get_columns("notes")
@@ -2940,19 +2943,20 @@ class SQLiteStorage:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO goals
-                (id, agent_id, title, description, priority, status, created_at,
+                (id, agent_id, title, description, goal_type, priority, status, created_at,
                  confidence, source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
                  context, context_tags,
                  subject_ids, access_grants, consent_grants,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     goal.id,
                     self.agent_id,
                     goal.title,
                     goal.description,
+                    goal.goal_type,
                     goal.priority,
                     goal.status,
                     goal.created_at.isoformat() if goal.created_at else now,
@@ -3002,10 +3006,15 @@ class SQLiteStorage:
                     lines.append(f"## {status.title()}")
                     for g in sorted(status_goals, key=lambda x: x.priority or "", reverse=True):
                         priority = f" [{g.priority}]" if g.priority else ""
+                        goal_type_label = (
+                            f" ({g.goal_type})" if g.goal_type and g.goal_type != "task" else ""
+                        )
                         status_icon = (
                             "○" if status == "active" else "✓" if status == "completed" else "⏸"
                         )
-                        lines.append(f"- {status_icon} {g.title}{priority} ({g.id[:8]})")
+                        lines.append(
+                            f"- {status_icon} {g.title}{priority}{goal_type_label} ({g.id[:8]})"
+                        )
                         if g.description:
                             lines.append(f"  {g.description[:100]}")
                     lines.append("")
@@ -3048,6 +3057,7 @@ class SQLiteStorage:
             agent_id=row["agent_id"],
             title=row["title"],
             description=row["description"],
+            goal_type=self._safe_get(row, "goal_type", "task"),
             priority=row["priority"],
             status=row["status"],
             created_at=self._parse_datetime(row["created_at"]),
