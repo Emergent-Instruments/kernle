@@ -45,6 +45,7 @@ from .base import (
     SyncStatus,
     TrustAssessment,
     Value,
+    VersionConflictError,
     parse_datetime,
     utc_now,
 )
@@ -142,6 +143,7 @@ def get_storage(
 __all__ = [
     # Protocol and types
     "Storage",
+    "VersionConflictError",
     "SyncConflict",
     "SyncResult",
     "SyncStatus",
