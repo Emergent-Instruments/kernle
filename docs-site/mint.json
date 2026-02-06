@@ -78,6 +78,11 @@
         "features/psychology",
         "features/identity",
         "features/memory-management",
+        "features/epochs",
+        "features/trust",
+        "features/narratives",
+        "features/summaries",
+        "features/diagnostics",
         "features/subscriptions"
       ]
     },
@@ -96,17 +101,6 @@
         "integration/mcp",
         "integration/claude-desktop",
         "integration/clawdbot"
-      ]
-    },
-    {
-      "group": "Commerce",
-      "pages": [
-        "commerce/overview",
-        "commerce/payment-verification",
-        "commerce/testnet",
-        "commerce/wallets",
-        "commerce/jobs",
-        "commerce/skills"
       ]
     },
     {
