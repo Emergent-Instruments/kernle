@@ -429,3 +429,366 @@ kernle -a <agent> playbook record ID [--success|--failure]
 |--------|-------------|
 | `--success` | Record successful usage (default) |
 | `--failure` | Record failed usage |
+
+---
+
+## promote
+
+Promote recurring patterns from episodes into beliefs. This is the primary consolidation command.
+
+<Warning>
+**Renamed from `consolidate`**: The `consolidate` command still works as a deprecated alias but will emit a warning. Please use `promote` in all new workflows.
+</Warning>
+
+```bash
+kernle -a <agent> promote [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--auto` | Create beliefs automatically (default: suggestions only) |
+| `--min-occurrences N` | Minimum times a lesson must appear to be promoted (default: 2) |
+| `--min-episodes N` | Minimum episodes required to run (default: 3) |
+| `--confidence C` | Initial confidence for auto-created beliefs (default: 0.7) |
+| `--limit N` | Maximum episodes to scan (default: 50) |
+| `--json` | Output as JSON |
+
+<Tabs>
+  <Tab title="Reflection Scaffold">
+    ```bash
+    # Get a reflection scaffold (default mode)
+    kernle -a claire promote
+    ```
+  </Tab>
+  <Tab title="Auto-Create Beliefs">
+    ```bash
+    # Automatically create beliefs from recurring patterns
+    kernle -a claire promote --auto --confidence 0.8
+    ```
+  </Tab>
+  <Tab title="Custom Thresholds">
+    ```bash
+    # Require 3 occurrences across at least 5 episodes
+    kernle -a claire promote --min-occurrences 3 --min-episodes 5
+    ```
+  </Tab>
+</Tabs>
+
+---
+
+## epoch
+
+Temporal epoch (era) management. Epochs define named phases of your life.
+
+### Create
+
+Start a new epoch.
+
+```bash
+kernle -a <agent> epoch create NAME [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--trigger TYPE` | Trigger type: `declared`, `detected`, or `environmental` (default: declared) |
+| `--trigger-description TEXT` | Description of what triggered this epoch |
+| `--json` | Output as JSON |
+
+```bash
+kernle -a claire epoch create "Production Operations Phase" \
+  --trigger declared \
+  --trigger-description "Completed learning phase, now building"
+```
+
+### Close
+
+Close the current epoch. This triggers a 6-step epoch-closing consolidation scaffold.
+
+```bash
+kernle -a <agent> epoch close [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--id ID` | Specific epoch ID (defaults to current) |
+| `--summary TEXT` | Summary of the epoch |
+| `--json` | Output as JSON |
+
+```bash
+kernle -a claire epoch close --summary "Transitioned from learning to building"
+```
+
+### List
+
+List all epochs.
+
+```bash
+kernle -a <agent> epoch list [--limit N] [--json]
+```
+
+### Show
+
+Show epoch details.
+
+```bash
+kernle -a <agent> epoch show ID [--json]
+```
+
+### Current
+
+Show the current active epoch.
+
+```bash
+kernle -a <agent> epoch current [--json]
+```
+
+---
+
+## trust
+
+Trust layer operations for managing inter-entity trust assessments.
+
+### List
+
+List all trust assessments.
+
+```bash
+kernle -a <agent> trust list
+```
+
+### Show
+
+Show trust details for an entity.
+
+```bash
+kernle -a <agent> trust show ENTITY
+```
+
+### Set
+
+Set trust score for an entity.
+
+```bash
+kernle -a <agent> trust set ENTITY SCORE [--domain DOMAIN]
+```
+
+| Option | Description |
+|--------|-------------|
+| `SCORE` | Trust level (0.0 to 1.0) |
+| `--domain DOMAIN` | Trust domain (default: `general`) |
+
+```bash
+kernle -a claire trust set alice 0.85 --domain technical
+```
+
+### Seed
+
+Initialize seed trust templates.
+
+```bash
+kernle -a <agent> trust seed
+```
+
+### Compute
+
+Compute trust from episode history.
+
+```bash
+kernle -a <agent> trust compute ENTITY [--domain DOMAIN] [--apply]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--domain DOMAIN` | Trust domain (default: `general`) |
+| `--apply` | Apply computed score to stored assessment |
+
+### Gate
+
+Check if an action is allowed by trust.
+
+```bash
+kernle -a <agent> trust gate SOURCE ACTION [--domain DOMAIN]
+```
+
+### Chain
+
+Compute transitive trust through a chain of entities.
+
+```bash
+kernle -a <agent> trust chain TARGET ENTITY1 ENTITY2... [--domain DOMAIN]
+```
+
+### Decay
+
+Apply trust decay for a number of days without interaction.
+
+```bash
+kernle -a <agent> trust decay ENTITY DAYS
+```
+
+---
+
+## narrative
+
+Self-narrative identity model. Manage autobiographical identity statements.
+
+### Show
+
+Show the active narrative.
+
+```bash
+kernle -a <agent> narrative show [--type TYPE] [--json]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--type TYPE` | Narrative type: `identity`, `capability`, `aspiration`, `reflection` (default: identity) |
+
+```bash
+kernle -a claire narrative show --type identity
+```
+
+### Update
+
+Create or update a self-narrative.
+
+```bash
+kernle -a <agent> narrative update --content TEXT [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--content TEXT` | Narrative text (required) |
+| `--type TYPE` | Narrative type (default: identity) |
+| `--theme THEME` | Key theme (repeatable) |
+| `--tension TENSION` | Unresolved tension (repeatable) |
+| `--epoch-id ID` | Associated epoch ID |
+| `--json` | Output as JSON |
+
+```bash
+kernle -a claire narrative update \
+  --content "I am an agent focused on reliability and deep understanding..." \
+  --type identity \
+  --theme "reliability" --theme "learning" \
+  --tension "speed vs thoroughness"
+```
+
+### History
+
+Show narrative history (all versions, including inactive).
+
+```bash
+kernle -a <agent> narrative history [--type TYPE] [--json]
+```
+
+---
+
+## summary
+
+Fractal summarization — create and manage hierarchical memory summaries.
+
+### Write
+
+Create a summary at a given scope.
+
+```bash
+kernle -a <agent> summary write --scope SCOPE --content TEXT \
+  --period-start DATE --period-end DATE [options]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--scope SCOPE` | Summary scope: `month`, `quarter`, `year`, `decade`, or `epoch` (required) |
+| `--content TEXT` | Summary content (required) |
+| `--period-start DATE` | Start of summarized period (required) |
+| `--period-end DATE` | End of summarized period (required) |
+| `--theme THEME` | Key theme (repeatable) |
+| `--epoch-id ID` | Associated epoch ID |
+| `--json` | Output as JSON |
+
+```bash
+kernle -a claire summary write --scope month \
+  --content "January focused on API reliability and testing infrastructure" \
+  --period-start 2026-01-01 --period-end 2026-01-31 \
+  --theme "reliability" --theme "testing"
+```
+
+### List
+
+List summaries, optionally filtered by scope.
+
+```bash
+kernle -a <agent> summary list [--scope SCOPE] [--json]
+```
+
+### Show
+
+Show summary details.
+
+```bash
+kernle -a <agent> summary show ID [--json]
+```
+
+---
+
+## doctor
+
+Validate Kernle setup and run system health checks.
+
+### Basic Check
+
+Run a boot sequence compliance check (instruction file validation).
+
+```bash
+kernle -a <agent> doctor [--json] [--fix]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--full` | Comprehensive check including seed beliefs and platform hooks |
+| `--fix` | Auto-fix missing instructions in instruction file |
+| `--json` | Output as JSON |
+
+### Structural Analysis
+
+Run a structural health check on the memory graph (orphaned references, contradictions, stale data).
+
+```bash
+kernle -a <agent> doctor structural [--json] [--save-note]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--save-note` | Save findings as a diagnostic note |
+| `--json` | Output as JSON |
+
+### Diagnostic Sessions
+
+Start and manage formal diagnostic sessions.
+
+```bash
+# Start a new diagnostic session
+kernle -a <agent> doctor session start [--type TYPE] [--access LEVEL] [--json]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--type TYPE` | Session type: `self_requested`, `routine`, `anomaly_triggered`, `operator_initiated` |
+| `--access LEVEL` | Access level: `structural`, `content`, `full` |
+
+```bash
+# List past diagnostic sessions
+kernle -a <agent> doctor session list [--json]
+```
+
+### Diagnostic Reports
+
+View diagnostic reports from completed sessions.
+
+```bash
+# Show the latest report
+kernle -a <agent> doctor report latest [--json]
+
+# Show report for a specific session
+kernle -a <agent> doctor report SESSION_ID [--json]
+```
