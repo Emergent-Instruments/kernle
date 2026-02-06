@@ -57,9 +57,11 @@ local = [
 cloud = [
     "supabase>=2.0.0",
 ]
+anthropic = ["anthropic>=0.40.0"]
+ollama = ["requests>=2.28.0"]
 # All features
 all = [
-    "kernle[local,cloud,mcp]",
+    "kernle[local,cloud,mcp,anthropic,ollama]",
 ]
 
 [project.scripts]
@@ -73,6 +75,8 @@ kernle-mcp = "kernle.mcp.server:main"
 [project.entry-points."kernle.stacks"]
 
 [project.entry-points."kernle.models"]
+anthropic = "kernle.models.anthropic:AnthropicModel"
+ollama = "kernle.models.ollama:OllamaModel"
 
 [project.entry-points."kernle.stack_components"]
 embedding = "kernle.stack.components.embedding:EmbeddingComponent"
