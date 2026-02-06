@@ -423,22 +423,27 @@ def _import_item(item: ImportItem, k: "Kernle") -> Optional[str]:
 
     if t == "episode":
         lessons = [item.lesson] if item.lesson else None
+        # Fold outcome_type into tags instead of passing as kwarg
+        tags = None
+        outcome_type = item.metadata.get("outcome_type")
+        if outcome_type:
+            tags = [f"outcome:{outcome_type}"]
         return k.episode(
             objective=item.objective,
             outcome=item.outcome or item.objective,
             lessons=lessons,
-            outcome_type=item.metadata.get("outcome_type"),
+            tags=tags,
         )
     elif t == "note":
         return k.note(content=item.content, type=item.note_type)
     elif t == "belief":
         return k.belief(statement=item.statement, confidence=item.confidence)
     elif t == "value":
-        return k.value(name=item.name, description=item.description, priority=item.priority)
+        return k.value(name=item.name, statement=item.description, priority=item.priority)
     elif t == "goal":
         return k.goal(
+            title=item.description,
             description=item.description,
-            status=item.status,
             priority=item.metadata.get("priority", "medium"),
         )
     elif t == "raw":

@@ -273,12 +273,17 @@ def _import_csv_item(item: CsvImportItem, k: "Kernle", skip_duplicates: bool = T
                     if result.record.objective == objective:
                         return False
 
+        # Build tags, folding in outcome_type if present
+        tags = data.get("tags") or []
+        outcome_type = data.get("outcome_type")
+        if outcome_type:
+            tags = list(tags) + [f"outcome:{outcome_type}"]
+
         k.episode(
             objective=objective,
             outcome=data.get("outcome", objective),
-            outcome_type=data.get("outcome_type"),
             lessons=data.get("lessons"),
-            tags=data.get("tags"),
+            tags=tags or None,
         )
         return True
 
@@ -333,7 +338,7 @@ def _import_csv_item(item: CsvImportItem, k: "Kernle", skip_duplicates: bool = T
 
         k.value(
             name=name,
-            description=data.get("description", name),
+            statement=data.get("description", name),
             priority=data.get("priority", 50),
         )
         return True
@@ -359,12 +364,16 @@ def _import_csv_item(item: CsvImportItem, k: "Kernle", skip_duplicates: bool = T
         else:
             status = "active"
 
-        k.goal(
+        goal_id = k.goal(
+            title=title or description,
             description=description,
-            title=title,
             priority=data.get("priority", "medium"),
-            status=status,
         )
+
+        # goal() always creates with status="active"; update if needed
+        if status != "active":
+            k.update_goal(goal_id, status=status)
+
         return True
 
     elif t == "raw":

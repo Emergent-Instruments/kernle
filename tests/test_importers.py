@@ -331,16 +331,8 @@ note,Auto-parsed note
 
 
 class TestCsvImporterAllTypes:
-    """Test importing all memory types via CSV.
+    """Test importing all memory types via CSV."""
 
-    Note: Some tests are marked xfail due to API mismatches between
-    the importer code and the current Kernle API (e.g., outcome_type
-    parameter not supported by k.episode()).
-    """
-
-    @pytest.mark.xfail(
-        reason="csv_importer passes outcome_type to k.episode() which doesn't accept it"
-    )
     def test_import_episode(self, tmp_path, kernle_instance):
         """Import episode type."""
         csv_file = tmp_path / "episodes.csv"
@@ -363,7 +355,6 @@ note,Important observation,insight,User
         result = importer.import_to(k, dry_run=False, skip_duplicates=False)
         assert result["imported"]["note"] == 1
 
-    @pytest.mark.xfail(reason="csv_importer value import may have API issues")
     def test_import_value(self, tmp_path, kernle_instance):
         """Import value type."""
         csv_file = tmp_path / "values.csv"
@@ -375,7 +366,6 @@ value,Quality,Code should be tested,80
         result = importer.import_to(k, dry_run=False, skip_duplicates=False)
         assert result["imported"]["value"] == 1
 
-    @pytest.mark.xfail(reason="csv_importer goal import may have API issues")
     def test_import_goal(self, tmp_path, kernle_instance):
         """Import goal type."""
         csv_file = tmp_path / "goals.csv"
@@ -398,7 +388,6 @@ raw,Some raw thought,manual-import
         result = importer.import_to(k, dry_run=False, skip_duplicates=False)
         assert result["imported"]["raw"] == 1
 
-    @pytest.mark.xfail(reason="csv_importer episode import has API issues")
     def test_import_missing_required_fields(self, tmp_path, kernle_instance):
         """Items missing required fields are skipped."""
         csv_file = tmp_path / "missing.csv"
@@ -412,13 +401,8 @@ episode,Valid episode objective
 
 
 class TestCsvImporterGoalStatusMapping:
-    """Test goal status value mapping.
+    """Test goal status value mapping."""
 
-    Note: These tests are marked xfail due to API issues with the
-    csv_importer goal import functionality.
-    """
-
-    @pytest.mark.xfail(reason="csv_importer goal import has API issues")
     @pytest.mark.parametrize(
         "status_input,expected_status",
         [
@@ -640,15 +624,8 @@ class TestJsonImporterClass:
 
 
 class TestJsonImporterAllTypes:
-    """Test importing all memory types via JSON.
+    """Test importing all memory types via JSON."""
 
-    Note: Some tests are marked xfail due to API mismatches between
-    the json_importer code and the current Kernle API.
-    """
-
-    @pytest.mark.xfail(
-        reason="json_importer passes outcome_type/emotional params not supported by k.episode()"
-    )
     def test_import_episode(self, tmp_path, kernle_instance):
         """Import episode type."""
         json_file = tmp_path / "episodes.json"
@@ -691,7 +668,6 @@ class TestJsonImporterAllTypes:
         result = importer.import_to(k, dry_run=False, skip_duplicates=False)
         assert result["imported"]["note"] == 1
 
-    @pytest.mark.xfail(reason="json_importer value import may have API issues")
     def test_import_value(self, tmp_path, kernle_instance):
         """Import value type with statement fallback to description."""
         json_file = tmp_path / "values.json"
@@ -713,7 +689,6 @@ class TestJsonImporterAllTypes:
         result = importer.import_to(k, dry_run=False, skip_duplicates=False)
         assert result["imported"]["value"] == 1
 
-    @pytest.mark.xfail(reason="json_importer goal import may have API issues")
     def test_import_goal(self, tmp_path, kernle_instance):
         """Import goal type."""
         json_file = tmp_path / "goals.json"
@@ -736,7 +711,6 @@ class TestJsonImporterAllTypes:
         result = importer.import_to(k, dry_run=False, skip_duplicates=False)
         assert result["imported"]["goal"] == 1
 
-    @pytest.mark.xfail(reason="json_importer drive import may have API issues")
     def test_import_drive(self, tmp_path, kernle_instance):
         """Import drive type."""
         json_file = tmp_path / "drives.json"
@@ -758,7 +732,6 @@ class TestJsonImporterAllTypes:
         result = importer.import_to(k, dry_run=False, skip_duplicates=False)
         assert result["imported"]["drive"] == 1
 
-    @pytest.mark.xfail(reason="json_importer relationship import may have API issues")
     def test_import_relationship(self, tmp_path, kernle_instance):
         """Import relationship type."""
         json_file = tmp_path / "relationships.json"
@@ -1387,15 +1360,8 @@ class TestMarkdownImporterClass:
 
 
 class TestMarkdownImporterAllTypes:
-    """Test importing all memory types via Markdown.
+    """Test importing all memory types via Markdown."""
 
-    Note: Some tests are marked xfail due to API mismatches between
-    the markdown importer code and the current Kernle API.
-    """
-
-    @pytest.mark.xfail(
-        reason="markdown importer episode import may have API issues (outcome_type param)"
-    )
     def test_import_episode(self, tmp_path, kernle_instance):
         """Import episode type."""
         md_file = tmp_path / "episodes.md"
@@ -1422,7 +1388,6 @@ class TestMarkdownImporterAllTypes:
         result = importer.import_to(k, dry_run=False)
         assert result["note"] == 1
 
-    @pytest.mark.xfail(reason="markdown importer value import may have API issues")
     def test_import_value(self, tmp_path, kernle_instance):
         """Import value type."""
         md_file = tmp_path / "values.md"
@@ -1436,7 +1401,6 @@ class TestMarkdownImporterAllTypes:
         result = importer.import_to(k, dry_run=False)
         assert result["value"] == 1
 
-    @pytest.mark.xfail(reason="markdown importer goal import may have API issues")
     def test_import_goal(self, tmp_path, kernle_instance):
         """Import goal type."""
         md_file = tmp_path / "goals.md"

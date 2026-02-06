@@ -185,15 +185,17 @@ def _import_json_item(item: JsonImportItem, k: "Kernle", skip_duplicates: bool =
                     ) and result.record.outcome == data.get("outcome"):
                         return False
 
+        # Build tags, folding in outcome_type if present
+        tags = data.get("tags") or []
+        outcome_type = data.get("outcome_type")
+        if outcome_type:
+            tags = list(tags) + [f"outcome:{outcome_type}"]
+
         k.episode(
             objective=data.get("objective", ""),
             outcome=data.get("outcome", ""),
-            outcome_type=data.get("outcome_type"),
             lessons=data.get("lessons"),
-            tags=data.get("tags"),
-            emotional_valence=data.get("emotional_valence", 0.0),
-            emotional_arousal=data.get("emotional_arousal", 0.0),
-            emotional_tags=data.get("emotional_tags"),
+            tags=tags or None,
         )
         return True
 
@@ -238,7 +240,7 @@ def _import_json_item(item: JsonImportItem, k: "Kernle", skip_duplicates: bool =
 
         k.value(
             name=name,
-            description=data.get("statement", data.get("description", name)),
+            statement=data.get("statement", data.get("description", name)),
             priority=data.get("priority", 50),
         )
         return True
@@ -252,10 +254,9 @@ def _import_json_item(item: JsonImportItem, k: "Kernle", skip_duplicates: bool =
                     return False
 
         k.goal(
+            title=data.get("title") or description,
             description=description,
-            title=data.get("title"),
             priority=data.get("priority", "medium"),
-            status=data.get("status", "active"),
         )
         return True
 
@@ -269,7 +270,7 @@ def _import_json_item(item: JsonImportItem, k: "Kernle", skip_duplicates: bool =
         k.drive(
             drive_type=drive_type,
             intensity=data.get("intensity", 0.5),
-            focus=data.get("focus_areas"),
+            focus_areas=data.get("focus_areas"),
         )
         return True
 
@@ -280,11 +281,17 @@ def _import_json_item(item: JsonImportItem, k: "Kernle", skip_duplicates: bool =
             if existing:
                 return False
 
+        # Map JSON fields to API parameters:
+        # entity_name -> other_agent_id, sentiment -> trust_level (rescale -1..1 to 0..1),
+        # relationship_type -> interaction_type
+        sentiment = data.get("sentiment", 0.0)
+        trust_level = (sentiment + 1.0) / 2.0  # Convert sentiment (-1..1) to trust (0..1)
+
         k.relationship(
-            entity_name=entity_name,
+            other_agent_id=entity_name,
             entity_type=data.get("entity_type", "unknown"),
-            relationship_type=data.get("relationship_type", "knows"),
-            sentiment=data.get("sentiment", 0.0),
+            interaction_type=data.get("relationship_type", "knows"),
+            trust_level=trust_level,
             notes=data.get("notes"),
         )
         return True
