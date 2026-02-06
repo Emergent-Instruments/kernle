@@ -280,6 +280,41 @@ class TestMCPPluginTools:
             _plugin_tools.clear()
             _plugin_handlers.clear()
 
+    def test_validate_tool_input_passes_plugin_tools(self):
+        """Plugin tools must pass through validate_tool_input without raising."""
+        from kernle.mcp.server import (
+            _plugin_handlers,
+            _plugin_tools,
+            register_plugin_tools,
+            validate_tool_input,
+        )
+
+        _plugin_tools.clear()
+        _plugin_handlers.clear()
+
+        try:
+            td = ToolDefinition(
+                name="greet",
+                description="Says hello",
+                input_schema={"type": "object", "properties": {"name": {"type": "string"}}},
+                handler=lambda args: f"Hello {args.get('name', 'world')}",
+            )
+            register_plugin_tools("myplugin", [td])
+
+            # This should NOT raise ValueError("Unknown tool")
+            result = validate_tool_input("myplugin.greet", {"name": "test"})
+            assert result == {"name": "test"}
+        finally:
+            _plugin_tools.clear()
+            _plugin_handlers.clear()
+
+    def test_validate_tool_input_rejects_unknown_tools(self):
+        """Unknown tools should still raise ValueError."""
+        from kernle.mcp.server import validate_tool_input
+
+        with pytest.raises(ValueError, match="Unknown tool"):
+            validate_tool_input("totally_unknown_tool", {})
+
     def test_tool_without_handler_not_in_handlers(self):
         from kernle.mcp.server import (
             _plugin_handlers,

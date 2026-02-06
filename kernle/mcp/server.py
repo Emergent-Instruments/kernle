@@ -442,6 +442,10 @@ def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
             )
             sanitized["limit"] = int(validate_number(arguments.get("limit"), "limit", 1, 500, 50))
 
+        elif name in _plugin_handlers:
+            # Plugin tools bypass built-in validation; plugins own their schemas
+            sanitized = dict(arguments)
+
         else:
             raise ValueError(f"Unknown tool: {name}")
 
@@ -1847,7 +1851,7 @@ Checkpoint: {"Yes" if status["checkpoint"] else "No"}"""
         elif name in _plugin_handlers:
             # Dispatch to plugin tool handler
             handler = _plugin_handlers[name]
-            handler_result = handler(arguments)
+            handler_result = handler(sanitized_args)
             if isinstance(handler_result, str):
                 result = handler_result
             else:
