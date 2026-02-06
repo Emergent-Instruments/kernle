@@ -4303,6 +4303,156 @@ class Kernle(
             return rel_id
 
     # =========================================================================
+    # RELATIONSHIP HISTORY
+    # =========================================================================
+
+    def get_relationship_history(
+        self,
+        entity_name: str,
+        event_type: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Get the history of changes for a relationship.
+
+        Args:
+            entity_name: Name of the entity
+            event_type: Filter by event type (interaction, trust_change, type_change, note)
+            limit: Maximum entries to return
+
+        Returns:
+            List of history entries as dicts
+        """
+        entries = self._storage.get_relationship_history(
+            entity_name, event_type=event_type, limit=limit
+        )
+        return [
+            {
+                "id": e.id,
+                "relationship_id": e.relationship_id,
+                "entity_name": e.entity_name,
+                "event_type": e.event_type,
+                "old_value": e.old_value,
+                "new_value": e.new_value,
+                "episode_id": e.episode_id,
+                "notes": e.notes,
+                "created_at": e.created_at.isoformat() if e.created_at else None,
+            }
+            for e in entries
+        ]
+
+    # =========================================================================
+    # ENTITY MODELS (Mental Models of Other Entities)
+    # =========================================================================
+
+    def add_entity_model(
+        self,
+        entity_name: str,
+        model_type: str,
+        observation: str,
+        confidence: float = 0.7,
+        source_episodes: Optional[List[str]] = None,
+    ) -> str:
+        """Add a mental model observation about an entity.
+
+        Args:
+            entity_name: The entity this model is about
+            model_type: Type of model (behavioral, preference, capability)
+            observation: The observation/model content
+            confidence: Confidence in the observation (0.0-1.0)
+            source_episodes: Episode IDs supporting this observation
+
+        Returns:
+            The entity model ID
+        """
+        from kernle.storage.base import EntityModel
+
+        entity_name = self._validate_string_input(entity_name, "entity_name", 200)
+        observation = self._validate_string_input(observation, "observation", 2000)
+
+        if model_type not in ("behavioral", "preference", "capability"):
+            raise ValueError(
+                f"Invalid model_type '{model_type}'. "
+                "Must be one of: behavioral, preference, capability"
+            )
+
+        confidence = max(0.0, min(1.0, confidence))
+
+        model_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc)
+
+        model = EntityModel(
+            id=model_id,
+            agent_id=self.agent_id,
+            entity_name=entity_name,
+            model_type=model_type,
+            observation=observation,
+            confidence=confidence,
+            source_episodes=source_episodes,
+            created_at=now,
+            updated_at=now,
+            subject_ids=[entity_name],  # Auto-populate
+        )
+
+        self._storage.save_entity_model(model)
+        return model_id
+
+    def get_entity_models(
+        self,
+        entity_name: Optional[str] = None,
+        model_type: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        """Get entity models, optionally filtered.
+
+        Args:
+            entity_name: Filter by entity name
+            model_type: Filter by model type
+            limit: Maximum models to return
+
+        Returns:
+            List of entity models as dicts
+        """
+        models = self._storage.get_entity_models(
+            entity_name=entity_name, model_type=model_type, limit=limit
+        )
+        return [
+            {
+                "id": m.id,
+                "entity_name": m.entity_name,
+                "model_type": m.model_type,
+                "observation": m.observation,
+                "confidence": m.confidence,
+                "source_episodes": m.source_episodes,
+                "created_at": m.created_at.isoformat() if m.created_at else None,
+                "updated_at": m.updated_at.isoformat() if m.updated_at else None,
+            }
+            for m in models
+        ]
+
+    def get_entity_model(self, model_id: str) -> Optional[Dict[str, Any]]:
+        """Get a specific entity model by ID.
+
+        Args:
+            model_id: ID of the entity model
+
+        Returns:
+            Entity model as dict or None if not found
+        """
+        m = self._storage.get_entity_model(model_id)
+        if not m:
+            return None
+        return {
+            "id": m.id,
+            "entity_name": m.entity_name,
+            "model_type": m.model_type,
+            "observation": m.observation,
+            "confidence": m.confidence,
+            "source_episodes": m.source_episodes,
+            "created_at": m.created_at.isoformat() if m.created_at else None,
+            "updated_at": m.updated_at.isoformat() if m.updated_at else None,
+        }
+
+    # =========================================================================
     # PLAYBOOKS (Procedural Memory)
     # =========================================================================
 

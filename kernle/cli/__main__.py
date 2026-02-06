@@ -912,6 +912,117 @@ def cmd_relation(args, k: Kernle):
         k.relationship(name, interaction_type=interaction)
         print(f"✓ Logged interaction with {name}: {interaction}")
 
+    elif args.relation_action == "history":
+        name = validate_input(args.name, "name", 200)
+        event_type = getattr(args, "type", None)
+        history = k.get_relationship_history(name, event_type=event_type, limit=args.limit)
+
+        if not history:
+            print(f"No history found for '{name}'")
+            return
+
+        if args.json:
+            print(json.dumps(history, indent=2, default=str))
+        else:
+            print(f"History for {name} ({len(history)} entries):")
+            print("-" * 50)
+
+            event_icons = {
+                "interaction": ">>",
+                "trust_change": "~~",
+                "type_change": "->",
+                "note": "##",
+            }
+
+            for entry in history:
+                icon = event_icons.get(entry["event_type"], "*")
+                ts = entry["created_at"][:10] if entry["created_at"] else "?"
+                print(f"\n  {icon} [{ts}] {entry['event_type']}")
+                if entry.get("old_value"):
+                    print(f"     From: {entry['old_value']}")
+                if entry.get("new_value"):
+                    print(f"     To:   {entry['new_value']}")
+                if entry.get("notes"):
+                    print(f"     Note: {entry['notes']}")
+
+
+def cmd_entity_model(args, k: Kernle):
+    """Manage entity models (mental models of other entities)."""
+    if args.entity_model_action == "add":
+        entity = validate_input(args.entity, "entity", 200)
+        observation = validate_input(args.observation, "observation", 2000)
+        model_type = args.type
+        confidence = args.confidence
+        source_episodes = args.episode if args.episode else None
+
+        model_id = k.add_entity_model(
+            entity_name=entity,
+            model_type=model_type,
+            observation=observation,
+            confidence=confidence,
+            source_episodes=source_episodes,
+        )
+        print(f"Entity model added: {model_id[:8]}...")
+        print(f"  Entity: {entity}")
+        print(f"  Type: {model_type}")
+        print(f"  Observation: {observation[:60]}{'...' if len(observation) > 60 else ''}")
+
+    elif args.entity_model_action == "list":
+        entity = getattr(args, "entity", None)
+        model_type = getattr(args, "type", None)
+        models = k.get_entity_models(entity_name=entity, model_type=model_type, limit=args.limit)
+
+        if not models:
+            print("No entity models found.")
+            return
+
+        if args.json:
+            print(json.dumps(models, indent=2, default=str))
+        else:
+            print(f"Entity Models ({len(models)} total)")
+            print("=" * 60)
+
+            type_icons = {"behavioral": "[B]", "preference": "[P]", "capability": "[C]"}
+
+            for m in models:
+                icon = type_icons.get(m["model_type"], "[?]")
+                conf = f"{m['confidence']:.0%}"
+                obs_preview = (
+                    m["observation"][:50] + "..."
+                    if len(m["observation"]) > 50
+                    else m["observation"]
+                )
+                print(f"\n  {icon} {m['entity_name']} ({conf})")
+                print(f"      {obs_preview}")
+                if m.get("created_at"):
+                    print(f"      Added: {m['created_at'][:10]}")
+
+    elif args.entity_model_action == "show":
+        model = k.get_entity_model(args.id)
+
+        if not model:
+            print(f"Entity model {args.id} not found.")
+            return
+
+        if args.json:
+            print(json.dumps(model, indent=2, default=str))
+        else:
+            type_icons = {"behavioral": "[B]", "preference": "[P]", "capability": "[C]"}
+            icon = type_icons.get(model["model_type"], "[?]")
+
+            print(f"{icon} Entity Model: {model['entity_name']}")
+            print("=" * 60)
+            print(f"ID: {model['id']}")
+            print(f"Type: {model['model_type']}")
+            print(f"Confidence: {model['confidence']:.0%}")
+            print(f"\nObservation:\n  {model['observation']}")
+            if model.get("source_episodes"):
+                print(f"\nSource Episodes: {', '.join(model['source_episodes'])}")
+            if model.get("created_at"):
+                print(f"Created: {model['created_at'][:10]}")
+            if model.get("updated_at"):
+                print(f"Updated: {model['updated_at'][:10]}")
+
 
 def cmd_drive(args, k: Kernle):
     """Set or view drives."""
@@ -2880,6 +2991,48 @@ def main():
     relation_log.add_argument("name", help="Entity name")
     relation_log.add_argument("--interaction", "-i", help="Interaction description")
 
+    relation_history = relation_sub.add_parser("history", help="Show relationship history")
+    relation_history.add_argument("name", help="Entity name")
+    relation_history.add_argument(
+        "--type",
+        "-t",
+        choices=["interaction", "trust_change", "type_change", "note"],
+        help="Filter by event type",
+    )
+    relation_history.add_argument("--limit", type=int, default=20, help="Max entries to show")
+    relation_history.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # entity-model (mental models of entities)
+    p_entity_model = subparsers.add_parser("entity-model", help="Manage entity models")
+    entity_model_sub = p_entity_model.add_subparsers(dest="entity_model_action", required=True)
+
+    em_add = entity_model_sub.add_parser("add", help="Add an entity model observation")
+    em_add.add_argument("entity", help="Entity name")
+    em_add.add_argument(
+        "--type",
+        "-t",
+        choices=["behavioral", "preference", "capability"],
+        required=True,
+        help="Model type",
+    )
+    em_add.add_argument("--observation", "-o", required=True, help="The observation")
+    em_add.add_argument("--confidence", "-c", type=float, default=0.7, help="Confidence 0.0-1.0")
+    em_add.add_argument(
+        "--episode", "-e", action="append", help="Source episode ID (can be repeated)"
+    )
+
+    em_list = entity_model_sub.add_parser("list", help="List entity models")
+    em_list.add_argument("--entity", "-e", help="Filter by entity name")
+    em_list.add_argument(
+        "--type", "-t", choices=["behavioral", "preference", "capability"], help="Filter by type"
+    )
+    em_list.add_argument("--limit", type=int, default=50, help="Max models to show")
+    em_list.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    em_show = entity_model_sub.add_parser("show", help="Show entity model details")
+    em_show.add_argument("id", help="Entity model ID")
+    em_show.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
     # drive
     p_drive = subparsers.add_parser("drive", help="Manage drives")
     drive_sub = p_drive.add_subparsers(dest="drive_action", required=True)
@@ -4151,6 +4304,8 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_trust(args, k)
         elif args.command == "relation":
             cmd_relation(args, k)
+        elif args.command == "entity-model":
+            cmd_entity_model(args, k)
         elif args.command == "drive":
             cmd_drive(args, k)
         elif args.command == "promote":

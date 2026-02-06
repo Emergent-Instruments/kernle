@@ -233,6 +233,8 @@ class Episode:
     # Context/scope fields for project-specific memories
     context: Optional[str] = None  # e.g., "project:api-service", "repo:myorg/myrepo"
     context_tags: Optional[List[str]] = None  # Additional context tags for filtering
+    # Epoch tracking
+    epoch_id: Optional[str] = None
     # Privacy fields (Phase 8a)
     subject_ids: Optional[List[str]] = None  # Who/what is this about
     access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
@@ -277,6 +279,8 @@ class Belief:
     # Context/scope fields for project-specific memories
     context: Optional[str] = None  # e.g., "project:api-service", "repo:myorg/myrepo"
     context_tags: Optional[List[str]] = None  # Additional context tags for filtering
+    # Epoch tracking
+    epoch_id: Optional[str] = None
     # Privacy fields (Phase 8a)
     subject_ids: Optional[List[str]] = None  # Who/what is this about
     access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
@@ -321,6 +325,8 @@ class Value:
     # Context/scope fields for project-specific memories
     context: Optional[str] = None
     context_tags: Optional[List[str]] = None
+    # Epoch tracking
+    epoch_id: Optional[str] = None
     # Privacy fields (Phase 8a)
     subject_ids: Optional[List[str]] = None  # Who/what is this about
     access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
@@ -362,6 +368,8 @@ class Goal:
     # Context/scope fields for project-specific memories
     context: Optional[str] = None
     context_tags: Optional[List[str]] = None
+    # Epoch tracking
+    epoch_id: Optional[str] = None
     # Privacy fields (Phase 8a)
     subject_ids: Optional[List[str]] = None  # Who/what is this about
     access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
@@ -404,6 +412,8 @@ class Note:
     # Context/scope fields for project-specific memories
     context: Optional[str] = None  # e.g., "project:api-service", "repo:myorg/myrepo"
     context_tags: Optional[List[str]] = None  # Additional context tags for filtering
+    # Epoch tracking
+    epoch_id: Optional[str] = None
     # Privacy fields (Phase 8a)
     subject_ids: Optional[List[str]] = None  # Who/what is this about
     access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
@@ -444,6 +454,8 @@ class Drive:
     # Context/scope fields for project-specific memories
     context: Optional[str] = None
     context_tags: Optional[List[str]] = None
+    # Epoch tracking
+    epoch_id: Optional[str] = None
     # Privacy fields (Phase 8a)
     subject_ids: Optional[List[str]] = None  # Who/what is this about
     access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
@@ -487,10 +499,65 @@ class Relationship:
     # Context/scope fields for project-specific memories
     context: Optional[str] = None
     context_tags: Optional[List[str]] = None
+    # Epoch tracking
+    epoch_id: Optional[str] = None
     # Privacy fields (Phase 8a)
     subject_ids: Optional[List[str]] = None  # Who/what is this about
     access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
     consent_grants: Optional[List[str]] = None  # Who authorized sharing
+
+
+@dataclass
+class RelationshipHistoryEntry:
+    """A history entry for relationship changes.
+
+    Tracks changes to relationships over time, including trust changes,
+    type changes, interactions, and notes. This enables understanding
+    how a relationship has evolved.
+    """
+
+    id: str
+    agent_id: str
+    relationship_id: str  # FK to relationships.id
+    entity_name: str  # Denormalized for easy querying
+    event_type: str  # interaction, trust_change, type_change, note
+    old_value: Optional[str] = None  # JSON: previous state
+    new_value: Optional[str] = None  # JSON: new state
+    episode_id: Optional[str] = None  # Related episode if applicable
+    notes: Optional[str] = None
+    created_at: Optional[datetime] = None
+    # Sync metadata
+    local_updated_at: Optional[datetime] = None
+    cloud_synced_at: Optional[datetime] = None
+    version: int = 1
+    deleted: bool = False
+
+
+@dataclass
+class Epoch:
+    """A temporal epoch - a named era in the agent's timeline.
+
+    Epochs mark significant phases or transitions in the agent's experience.
+    They enable epoch-scoped loading and temporal navigation.
+    """
+
+    id: str
+    agent_id: str
+    epoch_number: int
+    name: str
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None  # None = still active
+    trigger_type: str = "manual"  # manual, milestone, shift
+    summary: Optional[str] = None
+    key_belief_ids: Optional[List[str]] = None
+    key_relationship_ids: Optional[List[str]] = None
+    key_goal_ids: Optional[List[str]] = None
+    dominant_drive_ids: Optional[List[str]] = None
+    # Sync metadata
+    local_updated_at: Optional[datetime] = None
+    cloud_synced_at: Optional[datetime] = None
+    version: int = 1
+    deleted: bool = False
 
 
 @dataclass
@@ -505,6 +572,35 @@ class TrustAssessment:
     evidence_episode_ids: Optional[List[str]] = None
     last_updated: Optional[datetime] = None
     created_at: Optional[datetime] = None
+    local_updated_at: Optional[datetime] = None
+    cloud_synced_at: Optional[datetime] = None
+    version: int = 1
+    deleted: bool = False
+
+
+@dataclass
+class EntityModel:
+    """A mental model of an entity (person, agent, organization).
+
+    Entity models capture behavioral observations, preferences, and
+    capabilities that the agent has learned about other entities through
+    interaction. They support building richer relationship understanding.
+    """
+
+    id: str
+    agent_id: str
+    entity_name: str  # The entity this model is about
+    model_type: str  # behavioral, preference, capability
+    observation: str  # The actual observation/model content
+    confidence: float = 0.7
+    source_episodes: Optional[List[str]] = None  # Episodes supporting this observation
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+    # Privacy fields - subject_ids auto-populated from entity_name
+    subject_ids: Optional[List[str]] = None
+    access_grants: Optional[List[str]] = None
+    consent_grants: Optional[List[str]] = None
+    # Sync metadata
     local_updated_at: Optional[datetime] = None
     cloud_synced_at: Optional[datetime] = None
     version: int = 1
@@ -808,6 +904,79 @@ class Storage(Protocol):
         """Get a specific relationship by entity name."""
         ...
 
+    # === Relationship History ===
+
+    def save_relationship_history(self, entry: "RelationshipHistoryEntry") -> str:
+        """Save a relationship history entry. Returns the entry ID.
+
+        Args:
+            entry: The history entry to save
+
+        Returns:
+            The entry ID
+        """
+        return entry.id
+
+    def get_relationship_history(
+        self,
+        entity_name: str,
+        event_type: Optional[str] = None,
+        limit: int = 50,
+    ) -> List["RelationshipHistoryEntry"]:
+        """Get history entries for a relationship.
+
+        Args:
+            entity_name: Entity to get history for
+            event_type: Filter by event type (interaction, trust_change, etc.)
+            limit: Maximum entries to return
+
+        Returns:
+            List of history entries, most recent first
+        """
+        return []
+
+    # === Entity Models ===
+
+    def save_entity_model(self, model: "EntityModel") -> str:
+        """Save an entity model. Returns the model ID.
+
+        Args:
+            model: The entity model to save
+
+        Returns:
+            The model ID
+        """
+        return model.id
+
+    def get_entity_models(
+        self,
+        entity_name: Optional[str] = None,
+        model_type: Optional[str] = None,
+        limit: int = 100,
+    ) -> List["EntityModel"]:
+        """Get entity models, optionally filtered.
+
+        Args:
+            entity_name: Filter by entity name
+            model_type: Filter by model type (behavioral, preference, capability)
+            limit: Maximum models to return
+
+        Returns:
+            List of entity models
+        """
+        return []
+
+    def get_entity_model(self, model_id: str) -> Optional["EntityModel"]:
+        """Get a specific entity model by ID.
+
+        Args:
+            model_id: ID of the entity model
+
+        Returns:
+            The entity model or None if not found
+        """
+        return None
+
     # === Trust Assessments (KEP v3) ===
 
     def save_trust_assessment(self, assessment: "TrustAssessment") -> str:
@@ -968,6 +1137,28 @@ class Storage(Protocol):
         Returns:
             True if deleted, False if not found
         """
+        return False
+
+    # === Epochs ===
+
+    def save_epoch(self, epoch: "Epoch") -> str:
+        """Save an epoch. Returns the epoch ID."""
+        return epoch.id  # Default no-op
+
+    def get_epoch(self, epoch_id: str) -> Optional["Epoch"]:
+        """Get a specific epoch by ID."""
+        return None
+
+    def get_epochs(self, limit: int = 100) -> List["Epoch"]:
+        """Get all epochs, ordered by epoch_number DESC."""
+        return []
+
+    def get_current_epoch(self) -> Optional["Epoch"]:
+        """Get the currently active (open) epoch, if any."""
+        return None
+
+    def close_epoch(self, epoch_id: str, summary: Optional[str] = None) -> bool:
+        """Close an epoch by setting ended_at. Returns True if closed."""
         return False
 
     # === Search ===
