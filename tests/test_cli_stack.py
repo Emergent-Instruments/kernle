@@ -174,10 +174,16 @@ class TestListAgentsWithDatabase:
 class TestDeleteAgent:
     """Test _delete_stack function."""
 
+    def _make_kernle_mock(self, stack_id="current-agent"):
+        """Create a Kernle mock with working _validate_stack_id."""
+        k = MagicMock()
+        k.stack_id = stack_id
+        k._validate_stack_id = lambda name: name  # pass-through for valid names
+        return k
+
     def test_cannot_delete_current_agent(self, capsys):
         """Test error when trying to delete current agent."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock("current-agent")
 
         args = Namespace(name="current-agent", force=False)
 
@@ -187,10 +193,35 @@ class TestDeleteAgent:
         assert "Cannot delete current agent" in captured.out
         assert "Switch to a different stack" in captured.out
 
-    def test_agent_not_found(self, capsys, tmp_path):
-        """Test error when agent doesn't exist."""
+    def test_path_traversal_rejected(self, capsys):
+        """Test that path traversal attempts are rejected."""
         k = MagicMock()
         k.stack_id = "current-agent"
+        k._validate_stack_id.side_effect = ValueError("Stack ID must not contain path separators")
+
+        args = Namespace(name="../../../etc/passwd", force=True)
+
+        _delete_stack(args, k)
+
+        captured = capsys.readouterr()
+        assert "Invalid stack name" in captured.out
+
+    def test_dotdot_traversal_rejected(self, capsys):
+        """Test that .. traversal attempts are rejected."""
+        k = MagicMock()
+        k.stack_id = "current-agent"
+        k._validate_stack_id.side_effect = ValueError("Stack ID must not contain path separators")
+
+        args = Namespace(name="../../secret", force=True)
+
+        _delete_stack(args, k)
+
+        captured = capsys.readouterr()
+        assert "Invalid stack name" in captured.out
+
+    def test_agent_not_found(self, capsys, tmp_path):
+        """Test error when agent doesn't exist."""
+        k = self._make_kernle_mock()
 
         args = Namespace(name="nonexistent-agent", force=True)
 
@@ -206,8 +237,7 @@ class TestDeleteAgent:
 
     def test_delete_with_force(self, capsys, tmp_path):
         """Test deleting agent with --force flag."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="other-agent", force=True)
 
@@ -252,8 +282,7 @@ class TestDeleteAgent:
 
     def test_delete_cancelled_on_wrong_confirmation(self, capsys, tmp_path, monkeypatch):
         """Test deletion is cancelled when wrong name is entered."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="other-agent", force=False)
 
@@ -285,8 +314,7 @@ class TestDeleteAgent:
 
     def test_delete_confirmed_with_correct_name(self, capsys, tmp_path, monkeypatch):
         """Test deletion proceeds with correct confirmation."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="other-agent", force=False)
 
@@ -321,8 +349,7 @@ class TestDeleteAgent:
 
     def test_delete_shows_counts_in_confirmation(self, capsys, tmp_path, monkeypatch):
         """Test that confirmation message shows record counts."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="other-agent", force=False)
 
@@ -364,8 +391,7 @@ class TestDeleteAgent:
 
     def test_delete_db_only_agent(self, capsys, tmp_path):
         """Test deleting agent that only exists in database (no directory)."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="db-only-agent", force=True)
 
@@ -395,8 +421,7 @@ class TestDeleteAgent:
 
     def test_delete_dir_only_agent(self, capsys, tmp_path):
         """Test deleting agent that only exists as directory (no DB records)."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="dir-only-agent", force=True)
 
@@ -430,8 +455,7 @@ class TestDeleteAgent:
 
     def test_delete_handles_additional_tables(self, capsys, tmp_path):
         """Test deletion cleans up all related tables."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="full-agent", force=True)
 
@@ -478,8 +502,7 @@ class TestDeleteAgent:
 
     def test_delete_handles_db_error_checking_existence(self, capsys, tmp_path):
         """Test deletion handles DB error when checking if agent exists."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="other-agent", force=True)
 
@@ -504,8 +527,7 @@ class TestDeleteAgent:
 
     def test_delete_handles_db_error_getting_counts(self, capsys, tmp_path, monkeypatch):
         """Test deletion handles DB error when getting counts for confirmation."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="other-agent", force=False)
 
@@ -534,8 +556,7 @@ class TestDeleteAgent:
 
     def test_delete_handles_db_error_during_cleanup(self, capsys, tmp_path):
         """Test deletion handles DB error during cleanup."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="other-agent", force=True)
 
@@ -580,8 +601,7 @@ class TestDeleteAgent:
 
     def test_delete_handles_directory_deletion_error(self, capsys, tmp_path):
         """Test deletion handles error when deleting directory."""
-        k = MagicMock()
-        k.stack_id = "current-agent"
+        k = self._make_kernle_mock()
 
         args = Namespace(name="other-agent", force=True)
 
@@ -611,3 +631,62 @@ class TestDeleteAgent:
 
         captured = capsys.readouterr()
         assert "Error deleting directory" in captured.out
+
+    def test_delete_cleans_up_vector_embeddings(self, capsys, tmp_path):
+        """Test that stack delete removes vec_embeddings and embedding_meta entries."""
+        k = self._make_kernle_mock()
+
+        args = Namespace(name="target-agent", force=True)
+
+        kernle_dir = tmp_path / ".kernle"
+        kernle_dir.mkdir()
+
+        db_path = kernle_dir / "memories.db"
+        conn = sqlite3.connect(str(db_path))
+        # Minimal schema for existence check
+        conn.execute("CREATE TABLE episodes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE notes (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE beliefs (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE goals (stack_id TEXT, id TEXT)")
+        conn.execute("CREATE TABLE agent_values (stack_id TEXT, id TEXT)")
+        conn.execute("INSERT INTO episodes VALUES ('target-agent', 'ep1')")
+
+        # Create embedding tables with stack-prefixed IDs (format: {stack_id}:{table}:{record_id})
+        conn.execute("CREATE TABLE vec_embeddings (id TEXT PRIMARY KEY, data BLOB)")
+        conn.execute("CREATE TABLE embedding_meta (id TEXT PRIMARY KEY, content_hash TEXT)")
+        conn.execute("INSERT INTO vec_embeddings VALUES ('target-agent:episodes:ep1', X'00')")
+        conn.execute("INSERT INTO vec_embeddings VALUES ('target-agent:notes:n1', X'00')")
+        conn.execute("INSERT INTO vec_embeddings VALUES ('other-agent:episodes:ep2', X'00')")
+        conn.execute("INSERT INTO embedding_meta VALUES ('target-agent:episodes:ep1', 'abc')")
+        conn.execute("INSERT INTO embedding_meta VALUES ('other-agent:episodes:ep2', 'def')")
+        conn.commit()
+        conn.close()
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            _delete_stack(args, k)
+
+        captured = capsys.readouterr()
+        assert "Stack 'target-agent' deleted" in captured.out
+
+        # Verify target-agent embeddings were deleted but other-agent's remain
+        conn = sqlite3.connect(str(db_path))
+        vec_count = conn.execute(
+            "SELECT COUNT(*) FROM vec_embeddings WHERE id LIKE 'target-agent:%'"
+        ).fetchone()[0]
+        assert vec_count == 0, "target-agent vec_embeddings should be deleted"
+
+        meta_count = conn.execute(
+            "SELECT COUNT(*) FROM embedding_meta WHERE id LIKE 'target-agent:%'"
+        ).fetchone()[0]
+        assert meta_count == 0, "target-agent embedding_meta should be deleted"
+
+        other_vec = conn.execute(
+            "SELECT COUNT(*) FROM vec_embeddings WHERE id LIKE 'other-agent:%'"
+        ).fetchone()[0]
+        assert other_vec == 1, "other-agent vec_embeddings should remain"
+
+        other_meta = conn.execute(
+            "SELECT COUNT(*) FROM embedding_meta WHERE id LIKE 'other-agent:%'"
+        ).fetchone()[0]
+        assert other_meta == 1, "other-agent embedding_meta should remain"
+        conn.close()

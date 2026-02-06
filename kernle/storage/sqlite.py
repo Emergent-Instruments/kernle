@@ -913,7 +913,7 @@ class SQLiteStorage:
             raise ValueError("Stack ID must not contain path traversal sequences")
 
         self.stack_id = stack_id
-        self.db_path = self._validate_db_path(db_path or get_kernle_home() / "memories.db")
+        self.db_path = self._resolve_db_path(db_path)
         self.cloud_storage = cloud_storage  # For sync
 
         # Connectivity cache
@@ -976,6 +976,26 @@ class SQLiteStorage:
                 self._sync_goals_to_file()
         except Exception as e:
             logger.warning(f"Failed to initialize flat files: {e}")
+
+    def _resolve_db_path(self, db_path: Optional[Path]) -> Path:
+        """Resolve the database path, falling back to temp dir if home is not writable."""
+        import tempfile
+
+        if db_path is not None:
+            return self._validate_db_path(db_path)
+
+        default_path = get_kernle_home() / "memories.db"
+        try:
+            default_path.parent.mkdir(parents=True, exist_ok=True)
+            return self._validate_db_path(default_path)
+        except (OSError, PermissionError) as e:
+            # Home dir not writable (sandboxed/container/CI environment)
+            fallback_dir = Path(tempfile.gettempdir()) / ".kernle"
+            fallback_path = fallback_dir / "memories.db"
+            logger.warning(
+                f"Cannot write to {default_path.parent} ({e}), " f"falling back to {fallback_dir}"
+            )
+            return self._validate_db_path(fallback_path)
 
     def _validate_db_path(self, db_path: Path) -> Path:
         """Validate database path to prevent path traversal attacks."""

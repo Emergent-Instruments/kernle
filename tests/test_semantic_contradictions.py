@@ -616,3 +616,78 @@ class TestTokenizedSearchFallback:
         assert len(results) == 2
         # First result should match more tokens (higher score)
         assert "input" in results[0].record.statement
+
+
+class TestFindContradictionsThreshold:
+    """Tests that find_contradictions respects the similarity_threshold parameter."""
+
+    def test_threshold_filters_low_score_results(self, kernle_instance):
+        """find_contradictions should skip results below similarity_threshold."""
+        from unittest.mock import patch
+
+        from kernle.storage.base import Belief, SearchResult
+
+        k = kernle_instance
+
+        # Create beliefs with negation patterns that would be detected as contradictions
+        high_score_belief = Belief(
+            id="b-high",
+            stack_id="test_agent",
+            statement="Testing should never be done on code",
+            confidence=0.8,
+        )
+        low_score_belief = Belief(
+            id="b-low",
+            stack_id="test_agent",
+            statement="Testing should never be required for code",
+            confidence=0.7,
+        )
+
+        # Mock search to return results with controlled scores
+        mock_results = [
+            SearchResult(record=high_score_belief, record_type="belief", score=0.8),
+            SearchResult(record=low_score_belief, record_type="belief", score=0.3),
+        ]
+
+        with patch.object(k._storage, "search", return_value=mock_results):
+            # With low threshold, both should be candidates
+            results_low = k.find_contradictions(
+                "Testing should always be done on code",
+                similarity_threshold=0.1,
+            )
+            assert len(results_low) == 2
+
+        with patch.object(k._storage, "search", return_value=mock_results):
+            # With high threshold, only the high-score result should remain
+            results_high = k.find_contradictions(
+                "Testing should always be done on code",
+                similarity_threshold=0.5,
+            )
+            assert len(results_high) == 1
+            assert results_high[0]["belief_id"] == "b-high"
+
+    def test_threshold_1_0_filters_all(self, kernle_instance):
+        """A threshold of 1.0 should filter out all results."""
+        from unittest.mock import patch
+
+        from kernle.storage.base import Belief, SearchResult
+
+        k = kernle_instance
+
+        belief = Belief(
+            id="b1",
+            stack_id="test_agent",
+            statement="Testing should never be done on code",
+            confidence=0.8,
+        )
+
+        mock_results = [
+            SearchResult(record=belief, record_type="belief", score=0.95),
+        ]
+
+        with patch.object(k._storage, "search", return_value=mock_results):
+            results = k.find_contradictions(
+                "Testing should always be done on code",
+                similarity_threshold=1.0,
+            )
+            assert len(results) == 0
