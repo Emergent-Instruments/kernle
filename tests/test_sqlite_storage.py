@@ -904,3 +904,23 @@ class TestProvenanceProtection:
         assert "0.8@2024-01-01" in retrieved.confidence_history
         assert "0.9@2024-01-02" in retrieved.confidence_history
         assert "0.7@2024-01-03" in retrieved.confidence_history
+
+
+class TestStackIdValidation:
+    """Test that SQLiteStorage rejects path traversal in stack_id."""
+
+    @pytest.mark.parametrize(
+        "bad_id,match",
+        [
+            ("..", "relative path component"),
+            (".", "relative path component"),
+            ("../x", "path separators"),
+            ("nested/evil", "path separators"),
+            ("a\\b", "path separators"),
+            ("foo/../bar", "path separators"),
+        ],
+    )
+    def test_reject_path_traversal(self, temp_db, bad_id, match):
+        """SQLiteStorage must reject stack IDs with path traversal."""
+        with pytest.raises(ValueError, match=match):
+            SQLiteStorage(stack_id=bad_id, db_path=temp_db)

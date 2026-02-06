@@ -484,12 +484,25 @@ class Kernle(
         self._auto_sync = value
 
     def _validate_stack_id(self, stack_id: str) -> str:
-        """Validate and sanitize agent ID."""
+        """Validate and sanitize agent ID.
+
+        Rejects path traversal attempts before sanitizing.
+        """
         if not stack_id or not stack_id.strip():
             raise ValueError("Stack ID cannot be empty")
 
+        stripped = stack_id.strip()
+
+        # Reject path traversal characters and patterns
+        if "/" in stripped or "\\" in stripped:
+            raise ValueError("Stack ID must not contain path separators")
+        if stripped == "." or stripped == "..":
+            raise ValueError("Stack ID must not be a relative path component")
+        if ".." in stripped.split("."):
+            raise ValueError("Stack ID must not contain path traversal sequences")
+
         # Remove potentially dangerous characters
-        sanitized = "".join(c for c in stack_id.strip() if c.isalnum() or c in "-_.")
+        sanitized = "".join(c for c in stripped if c.isalnum() or c in "-_.")
 
         if not sanitized:
             raise ValueError("Stack ID must contain alphanumeric characters")

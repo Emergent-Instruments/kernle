@@ -919,6 +919,16 @@ class SQLiteStorage:
         cloud_storage: Optional["StorageProtocol"] = None,
         embedder: Optional[EmbeddingProvider] = None,
     ):
+        # Defense-in-depth: reject path traversal in stack_id before using in paths
+        if not stack_id or not stack_id.strip():
+            raise ValueError("Stack ID cannot be empty")
+        if "/" in stack_id or "\\" in stack_id:
+            raise ValueError("Stack ID must not contain path separators")
+        if stack_id.strip() in (".", ".."):
+            raise ValueError("Stack ID must not be a relative path component")
+        if ".." in stack_id.split("."):
+            raise ValueError("Stack ID must not contain path traversal sequences")
+
         self.stack_id = stack_id
         self.db_path = self._validate_db_path(db_path or Path.home() / ".kernle" / "memories.db")
         self.cloud_storage = cloud_storage  # For sync
