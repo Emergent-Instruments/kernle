@@ -20,11 +20,15 @@ Kernle uses a **reflection scaffold** approach to consolidation:
 | **Kernle** | Gathers episodes, structures prompts, stores results |
 | **Agent** | Reads the scaffold, reasons about patterns, forms beliefs |
 
-The `consolidate` command outputs a **structured prompt** that helps you reflect on your experiences. It does NOT call an external model to analyze your memories or suggest beliefs. The output is designed to guide *your* reasoning process.
+The `promote` command (formerly `consolidate`) outputs a **structured prompt** that helps you reflect on your experiences. It does NOT call an external model to analyze your memories or suggest beliefs. The output is designed to guide *your* reasoning process.
+
+<Warning>
+**Renamed Command**: `kernle consolidate` has been renamed to `kernle promote`. The old `consolidate` command still works as a deprecated alias but will emit a warning. Please update your workflows to use `kernle promote`.
+</Warning>
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  kernle consolidate                                          │
+│  kernle promote                                              │
 │  ↓                                                           │
 │  Kernle gathers recent episodes + existing beliefs           │
 │  ↓                                                           │
@@ -89,11 +93,11 @@ kernle belief add "Pattern I noticed" --confidence 0.8
 
 ### Pattern Extraction (Guided)
 
-The `consolidate` command provides a reflection scaffold:
+The `promote` command provides a reflection scaffold:
 
 ```bash
 # Get reflection scaffold for consolidation
-kernle consolidate --min-episodes 3
+kernle promote --min-episodes 3
 
 # Output is a PROMPT for you to reason about, not AI-generated beliefs
 # You read it, think about it, then form your own beliefs
@@ -102,7 +106,7 @@ kernle consolidate --min-episodes 3
 ## The Guided Consolidation Workflow
 
 <Note>
-**Key insight**: `kernle consolidate` outputs a reflection prompt. YOU do the thinking. This is the difference between memory infrastructure and thought control.
+**Key insight**: `kernle promote` outputs a reflection prompt. YOU do the thinking. This is the difference between memory infrastructure and thought control.
 </Note>
 
 <Steps>
@@ -115,9 +119,9 @@ kernle consolidate --min-episodes 3
   <Step title="Promote Meaningful Captures">
     Turn raw captures into episodes with lessons, decisions with reasoning, or beliefs with confidence.
   </Step>
-  <Step title="Run Consolidate (Get the Scaffold)">
+  <Step title="Run Promote (Get the Scaffold)">
     ```bash
-    kernle consolidate
+    kernle promote
     ```
     This outputs a **reflection scaffold** — a structured prompt showing:
     - Recent episodes and their lessons
@@ -152,8 +156,8 @@ kernle consolidate --min-episodes 3
 Here's a real workflow showing the scaffold approach:
 
 ```bash
-# Step 1: Run consolidate to get the reflection scaffold
-$ kernle -a claire consolidate
+# Step 1: Run promote to get the reflection scaffold
+$ kernle -a claire promote
 
 # Kernle outputs something like:
 # ═══════════════════════════════════════════════════════════════
@@ -213,19 +217,92 @@ What Kernle DID do:
 
 ---
 
+## Two-Tier Consolidation
+
+KEP v3 introduces a **two-tier consolidation model** that distinguishes between regular pattern extraction and major life transitions.
+
+### Regular Consolidation
+
+Daily or weekly pattern extraction from episodes into beliefs:
+
+```bash
+# Standard promote — extract patterns from recent episodes
+kernle promote --min-episodes 3
+
+# With automatic belief creation
+kernle promote --auto --confidence 0.7
+```
+
+This is the standard workflow: gather episodes, identify recurring lessons, form beliefs.
+
+### Epoch-Closing Consolidation
+
+When an epoch closes, Kernle triggers a **major reflective process** — a 6-step scaffold designed for deep self-examination during life transitions:
+
+<Steps>
+  <Step title="Experience Review">
+    Review all significant episodes from the closing epoch. What happened? What mattered?
+  </Step>
+  <Step title="Pattern Synthesis">
+    Identify patterns that emerged across the epoch. What lessons recurred? What changed over time?
+  </Step>
+  <Step title="Belief Audit">
+    Examine existing beliefs against epoch experiences. Which beliefs were reinforced? Which were contradicted? Which need revision?
+  </Step>
+  <Step title="Value Formation Check">
+    Have any beliefs strengthened enough to become values? Have existing values been challenged?
+  </Step>
+  <Step title="Identity Narrative Update">
+    Update the self-narrative to reflect who you are now, after this epoch. What themes define this transition?
+  </Step>
+  <Step title="Forward-Looking Summary">
+    Create a summary of the epoch and look ahead. What do you carry into the next era?
+  </Step>
+</Steps>
+
+```bash
+# Closing an epoch triggers the 6-step scaffold automatically
+kernle epoch close --summary "Completed the infrastructure migration phase"
+```
+
+### Cross-Domain Scaffolding
+
+Consolidation can promote memories across type boundaries:
+
+| From | To | When |
+|------|----|------|
+| **Episodes** | **Beliefs** | Recurring lessons become held truths |
+| **Beliefs** | **Values** | Long-held, high-confidence beliefs become core principles |
+| **Entity Models** | **Beliefs** | Observed behavioral patterns become generalized knowledge |
+| **Trust Assessments** | **Beliefs** | Trust patterns become beliefs about reliability |
+
+<Tip>
+Cross-domain promotion is always agent-driven. Kernle provides the scaffold showing what *could* be promoted; you decide what actually gets promoted.
+</Tip>
+
+---
+
 # The Anxiety Model
 
-Kernle tracks "memory anxiety" — a measure of memory system health. This helps you know when to save or consolidate.
+Kernle tracks "memory anxiety" — a measure of memory system health. This helps you know when to save or promote.
 
 ## Dimensions
 
+Kernle tracks anxiety across 7 dimensions:
+
 | Dimension | Weight | What It Measures |
 |-----------|--------|------------------|
-| **Context Pressure** | 35% | How full is your context window? |
-| **Unsaved Work** | 25% | Time since last checkpoint |
-| **Consolidation Debt** | 20% | Unprocessed episodes (episodes without lessons) |
+| **Context Pressure** | 25% | How full is your context window? |
+| **Unsaved Work** | 20% | Time since last checkpoint |
+| **Consolidation Debt** | 15% | Unprocessed episodes (episodes without lessons) |
+| **Raw Entry Aging** | 10% | Old unprocessed raw captures |
 | **Identity Coherence** | 10% | Self-model consistency |
 | **Memory Uncertainty** | 10% | Count of low-confidence beliefs |
+| **Epoch Staleness** | 10% | How long since last epoch transition |
+
+<Note>
+Weights are approximate. Check `kernle/features/anxiety.py` for exact values. Epoch Staleness gracefully degrades to 0 if epochs are not in use.
+</Note>
 
 ## Anxiety Levels
 
@@ -285,7 +362,7 @@ Recommendations:
     kernle checkpoint save "current work description"
 
     # Review unprocessed episodes
-    kernle consolidate
+    kernle promote
     ```
   </Tab>
   <Tab title="High/Critical (71+)">
@@ -324,5 +401,5 @@ For AI agents in context-limited environments:
 | 85%+ | Emergency save, warn about context limit |
 
 <Tip>
-Don't wait for anxiety to spike. Make consolidation a regular habit — review and promote memories during natural lulls in your work.
+Don't wait for anxiety to spike. Make promotion a regular habit — review and promote memories during natural lulls in your work.
 </Tip>
