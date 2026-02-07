@@ -908,7 +908,19 @@ class SQLiteStack(
         memory_id: str,
         reason: str,
     ) -> bool:
-        return self._backend.forget_memory(memory_type, memory_id, reason)
+        success = self._backend.forget_memory(memory_type, memory_id, reason)
+        if success:
+            # Cascade: flag direct children via audit entries
+            children = self._backend.get_memories_derived_from(memory_type, memory_id)
+            for child_type, child_id in children:
+                self._backend.log_audit(
+                    child_type,
+                    child_id,
+                    "cascade_flag",
+                    "system",
+                    {"cascade_source": f"{memory_type}:{memory_id}", "reason": "source_forgotten"},
+                )
+        return success
 
     def recover_memory(self, memory_type: str, memory_id: str) -> bool:
         return self._backend.recover_memory(memory_type, memory_id)
@@ -927,14 +939,61 @@ class SQLiteStack(
         memory_id: str,
         amount: float,
     ) -> bool:
-        return self._backend.weaken_memory(memory_type, memory_id, amount)
+        # Check current strength before weakening to determine if cascade needed
+        memory = self._backend.get_memory(memory_type, memory_id)
+        old_strength = getattr(memory, "strength", 1.0) if memory else 1.0
+
+        success = self._backend.weaken_memory(memory_type, memory_id, amount)
+        if success:
+            new_strength = old_strength - abs(amount)
+            if new_strength < 0.0:
+                new_strength = 0.0
+            # Cascade only if strength drops below 0.2 (dormant threshold)
+            if new_strength < 0.2 and old_strength >= 0.2:
+                children = self._backend.get_memories_derived_from(memory_type, memory_id)
+                for child_type, child_id in children:
+                    self._backend.log_audit(
+                        child_type,
+                        child_id,
+                        "cascade_flag",
+                        "system",
+                        {
+                            "cascade_source": f"{memory_type}:{memory_id}",
+                            "reason": "source_dormant",
+                        },
+                    )
+        return success
 
     def verify_memory(
         self,
         memory_type: str,
         memory_id: str,
     ) -> bool:
-        return self._backend.verify_memory(memory_type, memory_id)
+        success = self._backend.verify_memory(memory_type, memory_id)
+        if success:
+            # Boost source memories referenced in derived_from
+            memory = self._backend.get_memory(memory_type, memory_id)
+            if memory:
+                derived_from = getattr(memory, "derived_from", None) or []
+                for ref in derived_from:
+                    if not ref or ":" not in ref:
+                        continue
+                    ref_type, ref_id = ref.split(":", 1)
+                    # Skip annotation refs
+                    if ref_type in ANNOTATION_REF_TYPES:
+                        continue
+                    self._backend.boost_memory_strength(ref_type, ref_id, 0.02)
+        return success
+
+    # ---- Cascade Queries ----
+
+    def get_memories_derived_from(self, memory_type: str, memory_id: str) -> List[tuple]:
+        """Find all memories that cite 'type:id' in their derived_from."""
+        return self._backend.get_memories_derived_from(memory_type, memory_id)
+
+    def get_ungrounded_memories(self) -> List[tuple]:
+        """Find memories where ALL source refs have strength 0.0 or don't exist."""
+        return self._backend.get_ungrounded_memories(self.stack_id)
 
     def log_audit(
         self,

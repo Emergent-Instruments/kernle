@@ -7967,6 +7967,184 @@ class SQLiteStorage:
             conn.commit()
             return cursor.rowcount > 0
 
+    def boost_memory_strength(
+        self,
+        memory_type: str,
+        memory_id: str,
+        amount: float,
+    ) -> bool:
+        """Boost a memory's strength by a given amount (capped at 1.0).
+
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            amount: Amount to increase strength by (positive value)
+
+        Returns:
+            True if updated, False if memory not found
+        """
+        table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "agent_values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+        }
+
+        table = table_map.get(memory_type)
+        if not table:
+            return False
+        validate_table_name(table)
+
+        amount = abs(amount)
+        now = self._now()
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                f"""UPDATE {table}
+                   SET strength = MIN(1.0, COALESCE(strength, 1.0) + ?),
+                       local_updated_at = ?
+                   WHERE id = ? AND stack_id = ? AND deleted = 0""",
+                (amount, now, memory_id, self.stack_id),
+            )
+            self._queue_sync(conn, table, memory_id, "update")
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def get_memories_derived_from(self, memory_type: str, memory_id: str) -> List[tuple]:
+        """Find all memories that cite 'type:id' in their derived_from.
+
+        Args:
+            memory_type: Type of the source memory (e.g. 'episode')
+            memory_id: ID of the source memory
+
+        Returns:
+            List of (child_memory_type, child_memory_id) tuples
+        """
+        table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "agent_values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+        }
+
+        # Build the search pattern: look for "type:id" in the JSON array text
+        search_pattern = f'%"{memory_type}:{memory_id}"%'
+        results: List[tuple] = []
+
+        with self._connect() as conn:
+            for mem_type, table in table_map.items():
+                rows = conn.execute(
+                    f"""SELECT id FROM {table}
+                       WHERE stack_id = ? AND deleted = 0
+                         AND derived_from LIKE ?""",
+                    (self.stack_id, search_pattern),
+                ).fetchall()
+                for row in rows:
+                    results.append((mem_type, row["id"]))
+
+        return results
+
+    def get_ungrounded_memories(self, stack_id: str) -> List[tuple]:
+        """Find memories where ALL source refs have strength 0.0 or don't exist.
+
+        Only considers refs in type:id format (skips context: and kernle: prefixes).
+        Returns memories that have derived_from entries but every referenced
+        source is either forgotten (strength 0.0) or missing.
+
+        Args:
+            stack_id: Stack ID to search in
+
+        Returns:
+            List of (memory_type, memory_id, [source_refs]) tuples
+        """
+        table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "agent_values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+        }
+
+        # Annotation ref types to skip
+        skip_prefixes = {"context", "kernle"}
+
+        # Lookup tables for checking strength
+        strength_table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "agent_values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+        }
+
+        results: List[tuple] = []
+
+        with self._connect() as conn:
+            for mem_type, table in table_map.items():
+                rows = conn.execute(
+                    f"""SELECT id, derived_from FROM {table}
+                       WHERE stack_id = ? AND deleted = 0
+                         AND derived_from IS NOT NULL AND derived_from != '[]' AND derived_from != 'null'""",
+                    (stack_id,),
+                ).fetchall()
+
+                for row in rows:
+                    derived_from_raw = row["derived_from"]
+                    if not derived_from_raw:
+                        continue
+                    try:
+                        derived_from = json.loads(derived_from_raw)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                    if not isinstance(derived_from, list) or not derived_from:
+                        continue
+
+                    # Filter to real source refs only
+                    source_refs = []
+                    for ref in derived_from:
+                        if not ref or ":" not in ref:
+                            continue
+                        ref_type = ref.split(":", 1)[0]
+                        if ref_type in skip_prefixes:
+                            continue
+                        source_refs.append(ref)
+
+                    if not source_refs:
+                        continue
+
+                    # Check if ALL source refs are dead (strength 0.0 or missing)
+                    all_dead = True
+                    for ref in source_refs:
+                        ref_type, ref_id = ref.split(":", 1)
+                        ref_table = strength_table_map.get(ref_type)
+                        if not ref_table:
+                            continue  # Unknown type counts as dead
+                        ref_row = conn.execute(
+                            f"""SELECT strength FROM {ref_table}
+                               WHERE id = ? AND stack_id = ? AND deleted = 0""",
+                            (ref_id, stack_id),
+                        ).fetchone()
+                        if ref_row is not None:
+                            strength = float(self._safe_get(ref_row, "strength", 1.0))
+                            if strength > 0.0:
+                                all_dead = False
+                                break
+
+                    if all_dead:
+                        results.append((mem_type, row["id"], source_refs))
+
+        return results
+
     def get_forgetting_candidates(
         self,
         memory_types: Optional[List[str]] = None,
