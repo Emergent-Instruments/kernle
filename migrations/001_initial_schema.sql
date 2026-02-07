@@ -39,13 +39,12 @@ CREATE TABLE IF NOT EXISTS agent_episodes (
     verification_count INTEGER DEFAULT 0,
     confidence_history JSONB,
 
-    -- Forgetting
+    -- Strength and access
+    strength FLOAT DEFAULT 1.0,  -- 0.0 (forgotten) to 1.0 (strong)
     times_accessed INTEGER DEFAULT 0,
     last_accessed TIMESTAMPTZ,
     is_protected BOOLEAN DEFAULT FALSE,
-    is_forgotten BOOLEAN DEFAULT FALSE,
-    forgotten_at TIMESTAMPTZ,
-    decay_rate FLOAT DEFAULT 1.0,
+    processed BOOLEAN DEFAULT FALSE,  -- Whether processed for promotion
 
     -- Embedding for semantic search
     embedding vector(384)
@@ -74,13 +73,11 @@ CREATE TABLE IF NOT EXISTS agent_beliefs (
     version INTEGER DEFAULT 1,
     deleted BOOLEAN DEFAULT FALSE,
 
-    -- Forgetting
+    -- Strength and access
+    strength FLOAT DEFAULT 1.0,  -- 0.0 (forgotten) to 1.0 (strong)
     times_accessed INTEGER DEFAULT 0,
     last_accessed TIMESTAMPTZ,
     is_protected BOOLEAN DEFAULT FALSE,
-    is_forgotten BOOLEAN DEFAULT FALSE,
-    forgotten_at TIMESTAMPTZ,
-    decay_rate FLOAT DEFAULT 1.0,
 
     -- Embedding
     embedding vector(384)
@@ -101,13 +98,11 @@ CREATE TABLE IF NOT EXISTS values (
     version INTEGER DEFAULT 1,
     deleted BOOLEAN DEFAULT FALSE,
 
-    -- Forgetting
+    -- Strength and access
+    strength FLOAT DEFAULT 1.0,  -- 0.0 (forgotten) to 1.0 (strong)
     times_accessed INTEGER DEFAULT 0,
     last_accessed TIMESTAMPTZ,
     is_protected BOOLEAN DEFAULT TRUE,  -- Values protected by default
-    is_forgotten BOOLEAN DEFAULT FALSE,
-    forgotten_at TIMESTAMPTZ,
-    decay_rate FLOAT DEFAULT 0.5,  -- Slow decay for values
 
     UNIQUE(stack_id, name)
 );
@@ -130,13 +125,11 @@ CREATE TABLE IF NOT EXISTS agent_goals (
     version INTEGER DEFAULT 1,
     deleted BOOLEAN DEFAULT FALSE,
 
-    -- Forgetting
+    -- Strength and access
+    strength FLOAT DEFAULT 1.0,  -- 0.0 (forgotten) to 1.0 (strong)
     times_accessed INTEGER DEFAULT 0,
     last_accessed TIMESTAMPTZ,
-    is_protected BOOLEAN DEFAULT FALSE,
-    is_forgotten BOOLEAN DEFAULT FALSE,
-    forgotten_at TIMESTAMPTZ,
-    decay_rate FLOAT DEFAULT 1.0
+    is_protected BOOLEAN DEFAULT FALSE
 );
 
 -- Notes/Memories (decisions, insights, observations)
@@ -155,13 +148,12 @@ CREATE TABLE IF NOT EXISTS memories (
     version INTEGER DEFAULT 1,
     deleted BOOLEAN DEFAULT FALSE,
 
-    -- Forgetting
+    -- Strength and access
+    strength FLOAT DEFAULT 1.0,  -- 0.0 (forgotten) to 1.0 (strong)
     times_accessed INTEGER DEFAULT 0,
     last_accessed TIMESTAMPTZ,
     is_protected BOOLEAN DEFAULT FALSE,
-    is_forgotten BOOLEAN DEFAULT FALSE,
-    forgotten_at TIMESTAMPTZ,
-    decay_rate FLOAT DEFAULT 1.0,
+    processed BOOLEAN DEFAULT FALSE,  -- Whether processed for promotion
 
     -- Embedding
     embedding vector(384)
@@ -181,6 +173,12 @@ CREATE TABLE IF NOT EXISTS agent_drives (
     cloud_synced_at TIMESTAMPTZ,
     version INTEGER DEFAULT 1,
     deleted BOOLEAN DEFAULT FALSE,
+
+    -- Strength and access
+    strength FLOAT DEFAULT 1.0,  -- 0.0 (forgotten) to 1.0 (strong)
+    times_accessed INTEGER DEFAULT 0,
+    last_accessed TIMESTAMPTZ,
+    is_protected BOOLEAN DEFAULT TRUE,  -- Drives protected by default
 
     UNIQUE(stack_id, drive_type)
 );
@@ -202,6 +200,12 @@ CREATE TABLE IF NOT EXISTS agent_relationships (
     cloud_synced_at TIMESTAMPTZ,
     version INTEGER DEFAULT 1,
     deleted BOOLEAN DEFAULT FALSE,
+
+    -- Strength and access
+    strength FLOAT DEFAULT 1.0,  -- 0.0 (forgotten) to 1.0 (strong)
+    times_accessed INTEGER DEFAULT 0,
+    last_accessed TIMESTAMPTZ,
+    is_protected BOOLEAN DEFAULT FALSE,
 
     UNIQUE(stack_id, other_stack_id)
 );
@@ -321,6 +325,15 @@ CREATE INDEX IF NOT EXISTS idx_playbooks_stack ON playbooks(stack_id);
 CREATE INDEX IF NOT EXISTS idx_checkpoints_stack ON checkpoints(stack_id);
 CREATE INDEX IF NOT EXISTS idx_api_keys_stack ON api_keys(stack_id);
 CREATE INDEX IF NOT EXISTS idx_sync_logs_stack ON sync_logs(stack_id);
+
+-- Strength indexes for forgetting/recovery queries
+CREATE INDEX IF NOT EXISTS idx_episodes_strength ON agent_episodes(stack_id, strength);
+CREATE INDEX IF NOT EXISTS idx_beliefs_strength ON agent_beliefs(stack_id, strength);
+CREATE INDEX IF NOT EXISTS idx_values_strength ON values(stack_id, strength);
+CREATE INDEX IF NOT EXISTS idx_goals_strength ON agent_goals(stack_id, strength);
+CREATE INDEX IF NOT EXISTS idx_memories_strength ON memories(owner_id, strength);
+CREATE INDEX IF NOT EXISTS idx_drives_strength ON agent_drives(stack_id, strength);
+CREATE INDEX IF NOT EXISTS idx_relationships_strength ON agent_relationships(stack_id, strength);
 
 -- Sync-related indexes
 CREATE INDEX IF NOT EXISTS idx_episodes_sync ON agent_episodes(stack_id, local_updated_at) WHERE cloud_synced_at IS NULL OR local_updated_at > cloud_synced_at;

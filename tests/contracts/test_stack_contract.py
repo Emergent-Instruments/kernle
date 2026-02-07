@@ -620,7 +620,7 @@ class TestMetaMemoryOps:
         all_eps = stack.get_episodes(include_forgotten=True)
         forgotten = [e for e in all_eps if e.id == ep.id]
         assert len(forgotten) == 1
-        assert forgotten[0].is_forgotten is True
+        assert forgotten[0].strength == 0.0
 
         # Recover
         recovered = stack.recover_memory("episode", ep.id)
@@ -629,7 +629,7 @@ class TestMetaMemoryOps:
         episodes_after = stack.get_episodes()
         found_after = [e for e in episodes_after if e.id == ep.id]
         assert len(found_after) == 1
-        assert found_after[0].is_forgotten is False
+        assert found_after[0].strength > 0.0
 
     def test_protect_memory(self, stack):
         b = _make_belief()

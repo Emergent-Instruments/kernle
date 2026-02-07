@@ -241,13 +241,13 @@ class Episode:
     last_verified: Optional[datetime] = None
     verification_count: int = 0
     confidence_history: Optional[List[Dict[str, Any]]] = None
-    # Forgetting fields
+    # Strength and access fields
+    strength: float = 1.0  # 0.0 (forgotten) to 1.0 (strong) — replaces binary is_forgotten
     times_accessed: int = 0  # Number of times this memory was retrieved
     last_accessed: Optional[datetime] = None  # When last accessed/retrieved
     is_protected: bool = False  # Never decay (core identity memories)
-    is_forgotten: bool = False  # Tombstoned, not deleted
-    forgotten_at: Optional[datetime] = None  # When it was forgotten
-    forgotten_reason: Optional[str] = None  # Why it was forgotten
+    # Processing state
+    processed: bool = False  # Whether this episode has been processed for promotion
     # Context/scope fields for project-specific memories
     context: Optional[str] = None  # e.g., "project:api-service", "repo:myorg/myrepo"
     context_tags: Optional[List[str]] = None  # Additional context tags for filtering
@@ -287,13 +287,11 @@ class Belief:
     superseded_by: Optional[str] = None  # ID of belief that replaced this
     times_reinforced: int = 0  # How many times confirmed
     is_active: bool = True  # False if superseded/archived
-    # Forgetting fields
+    # Strength and access fields
+    strength: float = 1.0  # 0.0 (forgotten) to 1.0 (strong)
     times_accessed: int = 0
     last_accessed: Optional[datetime] = None
     is_protected: bool = False
-    is_forgotten: bool = False
-    forgotten_at: Optional[datetime] = None
-    forgotten_reason: Optional[str] = None
     # Context/scope fields for project-specific memories
     context: Optional[str] = None  # e.g., "project:api-service", "repo:myorg/myrepo"
     context_tags: Optional[List[str]] = None  # Additional context tags for filtering
@@ -333,13 +331,11 @@ class Value:
     last_verified: Optional[datetime] = None
     verification_count: int = 0
     confidence_history: Optional[List[Dict[str, Any]]] = None
-    # Forgetting fields
+    # Strength and access fields
+    strength: float = 1.0  # 0.0 (forgotten) to 1.0 (strong)
     times_accessed: int = 0
     last_accessed: Optional[datetime] = None
     is_protected: bool = True  # Values are protected by default
-    is_forgotten: bool = False
-    forgotten_at: Optional[datetime] = None
-    forgotten_reason: Optional[str] = None
     # Context/scope fields for project-specific memories
     context: Optional[str] = None
     context_tags: Optional[List[str]] = None
@@ -376,13 +372,11 @@ class Goal:
     last_verified: Optional[datetime] = None
     verification_count: int = 0
     confidence_history: Optional[List[Dict[str, Any]]] = None
-    # Forgetting fields
+    # Strength and access fields
+    strength: float = 1.0  # 0.0 (forgotten) to 1.0 (strong)
     times_accessed: int = 0
     last_accessed: Optional[datetime] = None
     is_protected: bool = False
-    is_forgotten: bool = False
-    forgotten_at: Optional[datetime] = None
-    forgotten_reason: Optional[str] = None
     # Context/scope fields for project-specific memories
     context: Optional[str] = None
     context_tags: Optional[List[str]] = None
@@ -420,13 +414,13 @@ class Note:
     last_verified: Optional[datetime] = None
     verification_count: int = 0
     confidence_history: Optional[List[Dict[str, Any]]] = None
-    # Forgetting fields
+    # Strength and access fields
+    strength: float = 1.0  # 0.0 (forgotten) to 1.0 (strong)
     times_accessed: int = 0
     last_accessed: Optional[datetime] = None
     is_protected: bool = False
-    is_forgotten: bool = False
-    forgotten_at: Optional[datetime] = None
-    forgotten_reason: Optional[str] = None
+    # Processing state
+    processed: bool = False  # Whether this note has been processed for promotion
     # Context/scope fields for project-specific memories
     context: Optional[str] = None  # e.g., "project:api-service", "repo:myorg/myrepo"
     context_tags: Optional[List[str]] = None  # Additional context tags for filtering
@@ -462,13 +456,11 @@ class Drive:
     last_verified: Optional[datetime] = None
     verification_count: int = 0
     confidence_history: Optional[List[Dict[str, Any]]] = None
-    # Forgetting fields
+    # Strength and access fields
+    strength: float = 1.0  # 0.0 (forgotten) to 1.0 (strong)
     times_accessed: int = 0
     last_accessed: Optional[datetime] = None
     is_protected: bool = True  # Drives are protected by default
-    is_forgotten: bool = False
-    forgotten_at: Optional[datetime] = None
-    forgotten_reason: Optional[str] = None
     # Context/scope fields for project-specific memories
     context: Optional[str] = None
     context_tags: Optional[List[str]] = None
@@ -507,13 +499,11 @@ class Relationship:
     last_verified: Optional[datetime] = None
     verification_count: int = 0
     confidence_history: Optional[List[Dict[str, Any]]] = None
-    # Forgetting fields
+    # Strength and access fields
+    strength: float = 1.0  # 0.0 (forgotten) to 1.0 (strong)
     times_accessed: int = 0
     last_accessed: Optional[datetime] = None
     is_protected: bool = False
-    is_forgotten: bool = False
-    forgotten_at: Optional[datetime] = None
-    forgotten_reason: Optional[str] = None
     # Context/scope fields for project-specific memories
     context: Optional[str] = None
     context_tags: Optional[List[str]] = None

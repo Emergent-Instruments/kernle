@@ -283,8 +283,7 @@ class TestCmdForgetList:
                 "type": "episode",
                 "id": "abc123",
                 "summary": "Forgotten episode",
-                "forgotten_at": "2026-01-28T00:00:00Z",
-                "forgotten_reason": "Low salience",
+                "strength": 0.0,
                 "created_at": "2026-01-01",
             }
         ]

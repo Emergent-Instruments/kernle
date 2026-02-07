@@ -104,7 +104,7 @@ class ForgettingMixin:
 
         Returns memories that are:
         - Not protected (is_protected = False)
-        - Not already forgotten (is_forgotten = False)
+        - Not already forgotten (strength > 0.0)
         - Have salience below the threshold
 
         Args:
@@ -117,33 +117,33 @@ class ForgettingMixin:
         """
         results = self._storage.get_forgetting_candidates(
             memory_types=memory_types,
-            limit=limit * 2,  # Get more to filter by threshold
+            limit=limit,
+            threshold=threshold,
         )
 
         candidates = []
         for r in results:
-            if r.score < threshold:
-                record = r.record
-                candidates.append(
-                    {
-                        "type": r.record_type,
-                        "id": record.id,
-                        "salience": round(r.score, 4),
-                        "summary": self._get_memory_summary(r.record_type, record),
-                        "confidence": getattr(record, "confidence", 0.8),
-                        "times_accessed": getattr(record, "times_accessed", 0),
-                        "last_accessed": (
-                            getattr(record, "last_accessed").isoformat()
-                            if getattr(record, "last_accessed", None)
-                            else None
-                        ),
-                        "created_at": (
-                            getattr(record, "created_at").strftime("%Y-%m-%d")
-                            if getattr(record, "created_at", None)
-                            else "unknown"
-                        ),
-                    }
-                )
+            record = r.record
+            candidates.append(
+                {
+                    "type": r.record_type,
+                    "id": record.id,
+                    "salience": round(r.score, 4),
+                    "summary": self._get_memory_summary(r.record_type, record),
+                    "confidence": getattr(record, "confidence", 0.8),
+                    "times_accessed": getattr(record, "times_accessed", 0),
+                    "last_accessed": (
+                        getattr(record, "last_accessed").isoformat()
+                        if getattr(record, "last_accessed", None)
+                        else None
+                    ),
+                    "created_at": (
+                        getattr(record, "created_at").strftime("%Y-%m-%d")
+                        if getattr(record, "created_at", None)
+                        else "unknown"
+                    ),
+                }
+            )
 
         return candidates[:limit]
 
@@ -279,12 +279,7 @@ class ForgettingMixin:
                     "type": r.record_type,
                     "id": record.id,
                     "summary": self._get_memory_summary(r.record_type, record),
-                    "forgotten_at": (
-                        getattr(record, "forgotten_at").isoformat()
-                        if getattr(record, "forgotten_at", None)
-                        else None
-                    ),
-                    "forgotten_reason": getattr(record, "forgotten_reason", None),
+                    "strength": getattr(record, "strength", 0.0),
                     "created_at": (
                         getattr(record, "created_at").strftime("%Y-%m-%d")
                         if getattr(record, "created_at", None)

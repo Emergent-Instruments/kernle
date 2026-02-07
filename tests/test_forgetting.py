@@ -118,6 +118,7 @@ class TestForgettingCandidates:
             created_at=old_date,
             confidence=0.3,  # Low confidence
             times_accessed=0,
+            strength=0.3,  # Below threshold — candidate for forgetting
         )
         storage.save_episode(episode)
 
@@ -170,18 +171,16 @@ class TestForgetting:
         # Verify it exists
         episode = storage.get_episode(ep_id)
         assert episode is not None
-        assert not episode.is_forgotten
+        assert episode.strength == 1.0
 
         # Forget it
         success = kernle.forget("episode", ep_id, reason="Test forgetting")
         assert success
 
-        # Should still exist but be marked forgotten
+        # Should still exist but be marked forgotten (strength == 0.0)
         episode = storage.get_episode(ep_id)
         assert episode is not None
-        assert episode.is_forgotten
-        assert episode.forgotten_reason == "Test forgetting"
-        assert episode.forgotten_at is not None
+        assert episode.strength == 0.0
 
     def test_forget_protected_fails(self, kernle_instance):
         """Cannot forget protected memories."""
@@ -200,7 +199,7 @@ class TestForgetting:
 
         # Should not be forgotten
         episode = storage.get_episode(ep_id)
-        assert not episode.is_forgotten
+        assert episode.strength > 0.0
 
     def test_forget_already_forgotten(self, kernle_instance):
         """Forgetting already forgotten memory returns False."""
@@ -234,17 +233,15 @@ class TestRecovery:
 
         # Verify forgotten
         episode = storage.get_episode(ep_id)
-        assert episode.is_forgotten
+        assert episode.strength == 0.0
 
         # Recover
         success = kernle.recover("episode", ep_id)
         assert success
 
-        # Should no longer be forgotten
+        # Should no longer be forgotten (strength restored)
         episode = storage.get_episode(ep_id)
-        assert not episode.is_forgotten
-        assert episode.forgotten_at is None
-        assert episode.forgotten_reason is None
+        assert episode.strength > 0.0
 
     def test_recover_not_forgotten_fails(self, kernle_instance):
         """Cannot recover memory that isn't forgotten."""
@@ -351,7 +348,7 @@ class TestForgettingCycle:
 
         # Episode should still not be forgotten
         episode = storage.get_episode("dry-run-test")
-        assert not episode.is_forgotten
+        assert episode.strength > 0.0
 
     def test_live_run_forgets(self, kernle_instance):
         """Live run should actually forget low-salience memories."""
@@ -369,6 +366,7 @@ class TestForgettingCycle:
             created_at=old_date,
             confidence=0.1,  # Very low confidence
             times_accessed=0,
+            strength=0.1,  # Below threshold — will be forgotten
         )
         storage.save_episode(episode)
 
@@ -380,7 +378,7 @@ class TestForgettingCycle:
 
         # Episode should be forgotten
         episode = storage.get_episode("live-run-test")
-        assert episode.is_forgotten
+        assert episode.strength == 0.0
 
 
 class TestAccessTracking:

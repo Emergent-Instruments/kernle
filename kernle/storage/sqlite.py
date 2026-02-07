@@ -58,7 +58,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 23  # Rename agent_id → stack_id, drop agent_ table prefixes
+SCHEMA_VERSION = (
+    24  # Memory integrity: strength field replaces is_forgotten, add audit/processing tables
+)
 
 # Maximum size for merged arrays during sync to prevent resource exhaustion
 MAX_SYNC_ARRAY_SIZE = 500
@@ -141,6 +143,8 @@ ALLOWED_TABLES = frozenset(
         "diagnostic_reports",  # KEP v3 diagnostic reports
         "summaries",  # KEP v3 fractal summarization
         "self_narratives",  # KEP v3 self-narrative layer
+        "memory_audit",  # v0.9.0 memory audit trail
+        "processing_config",  # v0.9.0 processing configuration
     }
 )
 
@@ -194,9 +198,8 @@ CREATE TABLE IF NOT EXISTS episodes (
     times_accessed INTEGER DEFAULT 0,
     last_accessed TEXT,
     is_protected INTEGER DEFAULT 0,
-    is_forgotten INTEGER DEFAULT 0,
-    forgotten_at TEXT,
-    forgotten_reason TEXT,
+    strength REAL DEFAULT 1.0,
+    processed INTEGER DEFAULT 0,   -- Whether episode has been processed for promotion
     -- Context/scope fields
     context TEXT,
     context_tags TEXT,
@@ -223,7 +226,7 @@ CREATE INDEX IF NOT EXISTS idx_episodes_valence ON episodes(emotional_valence);
 CREATE INDEX IF NOT EXISTS idx_episodes_arousal ON episodes(emotional_arousal);
 CREATE INDEX IF NOT EXISTS idx_episodes_confidence ON episodes(confidence);
 CREATE INDEX IF NOT EXISTS idx_episodes_source_type ON episodes(source_type);
-CREATE INDEX IF NOT EXISTS idx_episodes_is_forgotten ON episodes(is_forgotten);
+CREATE INDEX IF NOT EXISTS idx_episodes_strength ON episodes(strength);
 CREATE INDEX IF NOT EXISTS idx_episodes_is_protected ON episodes(is_protected);
 CREATE INDEX IF NOT EXISTS idx_episodes_epoch ON episodes(epoch_id);
 
@@ -251,9 +254,7 @@ CREATE TABLE IF NOT EXISTS beliefs (
     times_accessed INTEGER DEFAULT 0,
     last_accessed TEXT,
     is_protected INTEGER DEFAULT 0,
-    is_forgotten INTEGER DEFAULT 0,
-    forgotten_at TEXT,
-    forgotten_reason TEXT,
+    strength REAL DEFAULT 1.0,
     -- Context/scope fields
     context TEXT,
     context_tags TEXT,
@@ -281,7 +282,7 @@ CREATE INDEX IF NOT EXISTS idx_beliefs_source_type ON beliefs(source_type);
 CREATE INDEX IF NOT EXISTS idx_beliefs_is_active ON beliefs(is_active);
 CREATE INDEX IF NOT EXISTS idx_beliefs_supersedes ON beliefs(supersedes);
 CREATE INDEX IF NOT EXISTS idx_beliefs_superseded_by ON beliefs(superseded_by);
-CREATE INDEX IF NOT EXISTS idx_beliefs_is_forgotten ON beliefs(is_forgotten);
+CREATE INDEX IF NOT EXISTS idx_beliefs_strength ON beliefs(strength);
 CREATE INDEX IF NOT EXISTS idx_beliefs_is_protected ON beliefs(is_protected);
 CREATE INDEX IF NOT EXISTS idx_beliefs_belief_scope ON beliefs(belief_scope);
 CREATE INDEX IF NOT EXISTS idx_beliefs_source_domain ON beliefs(source_domain);
@@ -308,9 +309,7 @@ CREATE TABLE IF NOT EXISTS agent_values (
     times_accessed INTEGER DEFAULT 0,
     last_accessed TEXT,
     is_protected INTEGER DEFAULT 1,  -- Values protected by default
-    is_forgotten INTEGER DEFAULT 0,
-    forgotten_at TEXT,
-    forgotten_reason TEXT,
+    strength REAL DEFAULT 1.0,
     -- Context/scope fields
     context TEXT,
     context_tags TEXT,
@@ -329,7 +328,7 @@ CREATE TABLE IF NOT EXISTS agent_values (
 );
 CREATE INDEX IF NOT EXISTS idx_values_stack ON agent_values(stack_id);
 CREATE INDEX IF NOT EXISTS idx_values_confidence ON agent_values(confidence);
-CREATE INDEX IF NOT EXISTS idx_values_is_forgotten ON agent_values(is_forgotten);
+CREATE INDEX IF NOT EXISTS idx_values_strength ON agent_values(strength);
 CREATE INDEX IF NOT EXISTS idx_values_is_protected ON agent_values(is_protected);
 CREATE INDEX IF NOT EXISTS idx_values_epoch ON agent_values(epoch_id);
 
@@ -355,9 +354,7 @@ CREATE TABLE IF NOT EXISTS goals (
     times_accessed INTEGER DEFAULT 0,
     last_accessed TEXT,
     is_protected INTEGER DEFAULT 0,
-    is_forgotten INTEGER DEFAULT 0,
-    forgotten_at TEXT,
-    forgotten_reason TEXT,
+    strength REAL DEFAULT 1.0,
     -- Context/scope fields
     context TEXT,
     context_tags TEXT,
@@ -377,7 +374,7 @@ CREATE TABLE IF NOT EXISTS goals (
 CREATE INDEX IF NOT EXISTS idx_goals_agent ON goals(stack_id);
 CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status);
 CREATE INDEX IF NOT EXISTS idx_goals_confidence ON goals(confidence);
-CREATE INDEX IF NOT EXISTS idx_goals_is_forgotten ON goals(is_forgotten);
+CREATE INDEX IF NOT EXISTS idx_goals_strength ON goals(strength);
 CREATE INDEX IF NOT EXISTS idx_goals_is_protected ON goals(is_protected);
 CREATE INDEX IF NOT EXISTS idx_goals_epoch ON goals(epoch_id);
 
@@ -403,9 +400,8 @@ CREATE TABLE IF NOT EXISTS notes (
     times_accessed INTEGER DEFAULT 0,
     last_accessed TEXT,
     is_protected INTEGER DEFAULT 0,
-    is_forgotten INTEGER DEFAULT 0,
-    forgotten_at TEXT,
-    forgotten_reason TEXT,
+    strength REAL DEFAULT 1.0,
+    processed INTEGER DEFAULT 0,   -- Whether note has been processed for promotion
     -- Context/scope fields
     context TEXT,
     context_tags TEXT,
@@ -425,7 +421,7 @@ CREATE TABLE IF NOT EXISTS notes (
 CREATE INDEX IF NOT EXISTS idx_notes_agent ON notes(stack_id);
 CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at);
 CREATE INDEX IF NOT EXISTS idx_notes_confidence ON notes(confidence);
-CREATE INDEX IF NOT EXISTS idx_notes_is_forgotten ON notes(is_forgotten);
+CREATE INDEX IF NOT EXISTS idx_notes_strength ON notes(strength);
 CREATE INDEX IF NOT EXISTS idx_notes_is_protected ON notes(is_protected);
 CREATE INDEX IF NOT EXISTS idx_notes_epoch ON notes(epoch_id);
 
@@ -450,9 +446,7 @@ CREATE TABLE IF NOT EXISTS drives (
     times_accessed INTEGER DEFAULT 0,
     last_accessed TEXT,
     is_protected INTEGER DEFAULT 1,  -- Drives protected by default
-    is_forgotten INTEGER DEFAULT 0,
-    forgotten_at TEXT,
-    forgotten_reason TEXT,
+    strength REAL DEFAULT 1.0,
     -- Context/scope fields
     context TEXT,
     context_tags TEXT,
@@ -472,7 +466,7 @@ CREATE TABLE IF NOT EXISTS drives (
 );
 CREATE INDEX IF NOT EXISTS idx_drives_agent ON drives(stack_id);
 CREATE INDEX IF NOT EXISTS idx_drives_confidence ON drives(confidence);
-CREATE INDEX IF NOT EXISTS idx_drives_is_forgotten ON drives(is_forgotten);
+CREATE INDEX IF NOT EXISTS idx_drives_strength ON drives(strength);
 CREATE INDEX IF NOT EXISTS idx_drives_is_protected ON drives(is_protected);
 CREATE INDEX IF NOT EXISTS idx_drives_epoch ON drives(epoch_id);
 
@@ -500,9 +494,7 @@ CREATE TABLE IF NOT EXISTS relationships (
     times_accessed INTEGER DEFAULT 0,
     last_accessed TEXT,
     is_protected INTEGER DEFAULT 0,
-    is_forgotten INTEGER DEFAULT 0,
-    forgotten_at TEXT,
-    forgotten_reason TEXT,
+    strength REAL DEFAULT 1.0,
     -- Context/scope fields
     context TEXT,
     context_tags TEXT,
@@ -522,7 +514,7 @@ CREATE TABLE IF NOT EXISTS relationships (
 );
 CREATE INDEX IF NOT EXISTS idx_relationships_agent ON relationships(stack_id);
 CREATE INDEX IF NOT EXISTS idx_relationships_confidence ON relationships(confidence);
-CREATE INDEX IF NOT EXISTS idx_relationships_is_forgotten ON relationships(is_forgotten);
+CREATE INDEX IF NOT EXISTS idx_relationships_strength ON relationships(strength);
 CREATE INDEX IF NOT EXISTS idx_relationships_is_protected ON relationships(is_protected);
 CREATE INDEX IF NOT EXISTS idx_relationships_epoch ON relationships(epoch_id);
 
@@ -870,6 +862,33 @@ CREATE TABLE IF NOT EXISTS embedding_meta (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_embedding_meta_record ON embedding_meta(table_name, record_id);
+
+-- Memory audit trail (v0.9.0)
+CREATE TABLE IF NOT EXISTS memory_audit (
+    id TEXT PRIMARY KEY,
+    memory_type TEXT NOT NULL,
+    memory_id TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    details TEXT,
+    actor TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_memory ON memory_audit(memory_type, memory_id);
+CREATE INDEX IF NOT EXISTS idx_audit_operation ON memory_audit(operation);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON memory_audit(created_at);
+
+-- Processing configuration (v0.9.0)
+CREATE TABLE IF NOT EXISTS processing_config (
+    layer_transition TEXT PRIMARY KEY,
+    enabled INTEGER DEFAULT 1,
+    model_id TEXT,
+    quantity_threshold INTEGER,
+    valence_threshold REAL,
+    time_threshold_hours INTEGER,
+    batch_size INTEGER DEFAULT 10,
+    max_sessions_per_day INTEGER,
+    updated_at TEXT
+);
 """
 
 # Virtual table for vector search (created when sqlite-vec is available)
@@ -2300,6 +2319,98 @@ class SQLiteStorage:
                         logger.warning(f"v23 catch-up failed for {tbl}: {e}")
         conn.commit()
 
+        # v24: Memory integrity — replace is_forgotten/forgotten_at/forgotten_reason with strength
+        # Add strength column and processed column, migrate existing data
+        strength_tables = [
+            "episodes",
+            "beliefs",
+            "agent_values",
+            "goals",
+            "notes",
+            "drives",
+            "relationships",
+        ]
+        for tbl in strength_tables:
+            if tbl not in table_names:
+                continue
+            cols = get_columns(tbl)
+
+            # Add strength column if not present
+            if "strength" not in cols:
+                try:
+                    conn.execute(f"ALTER TABLE {tbl} ADD COLUMN strength REAL DEFAULT 1.0")
+                    logger.info(f"Added strength column to {tbl}")
+                except Exception as e:
+                    if "duplicate column" not in str(e).lower():
+                        logger.warning(f"Failed to add strength to {tbl}: {e}")
+
+            # Migrate existing data: forgotten memories get strength = 0.0
+            if "is_forgotten" in cols:
+                try:
+                    migrated = conn.execute(
+                        f"UPDATE {tbl} SET strength = 0.0 WHERE is_forgotten = 1 AND (strength IS NULL OR strength = 1.0)"
+                    ).rowcount
+                    if migrated > 0:
+                        logger.info(
+                            f"Migrated {migrated} forgotten records in {tbl} to strength=0.0"
+                        )
+                except Exception as e:
+                    logger.warning(f"Failed to migrate is_forgotten data in {tbl}: {e}")
+
+        # Add processed column to episodes and notes
+        for tbl in ["episodes", "notes"]:
+            if tbl not in table_names:
+                continue
+            cols = get_columns(tbl)
+            if "processed" not in cols:
+                try:
+                    conn.execute(f"ALTER TABLE {tbl} ADD COLUMN processed INTEGER DEFAULT 0")
+                    logger.info(f"Added processed column to {tbl}")
+                except Exception as e:
+                    if "duplicate column" not in str(e).lower():
+                        logger.warning(f"Failed to add processed to {tbl}: {e}")
+
+        # Create memory_audit table if it doesn't exist
+        if "memory_audit" not in table_names:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS memory_audit (
+                    id TEXT PRIMARY KEY,
+                    memory_type TEXT NOT NULL,
+                    memory_id TEXT NOT NULL,
+                    operation TEXT NOT NULL,
+                    details TEXT,
+                    actor TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+            """)
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_audit_memory ON memory_audit(memory_type, memory_id)"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_audit_operation ON memory_audit(operation)"
+            )
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_created ON memory_audit(created_at)")
+            logger.info("Created memory_audit table")
+
+        # Create processing_config table if it doesn't exist
+        if "processing_config" not in table_names:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS processing_config (
+                    layer_transition TEXT PRIMARY KEY,
+                    enabled INTEGER DEFAULT 1,
+                    model_id TEXT,
+                    quantity_threshold INTEGER,
+                    valence_threshold REAL,
+                    time_threshold_hours INTEGER,
+                    batch_size INTEGER DEFAULT 10,
+                    max_sessions_per_day INTEGER,
+                    updated_at TEXT
+                )
+            """)
+            logger.info("Created processing_config table")
+
+        conn.commit()
+
     def _check_sqlite_vec(self) -> bool:
         """Check if sqlite-vec extension is available."""
         try:
@@ -2539,12 +2650,12 @@ class SQLiteStorage:
                  emotional_valence, emotional_arousal, emotional_tags,
                  confidence, source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
-                 times_accessed, last_accessed, is_protected, is_forgotten,
-                 forgotten_at, forgotten_reason, context, context_tags,
+                 times_accessed, last_accessed, is_protected, strength,
+                 processed, context, context_tags,
                  source_entity, subject_ids, access_grants, consent_grants,
                  epoch_id, repeat, avoid,
                  created_at, local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     episode.id,
@@ -2567,9 +2678,8 @@ class SQLiteStorage:
                     episode.times_accessed,
                     episode.last_accessed.isoformat() if episode.last_accessed else None,
                     1 if episode.is_protected else 0,
-                    1 if episode.is_forgotten else 0,
-                    episode.forgotten_at.isoformat() if episode.forgotten_at else None,
-                    episode.forgotten_reason,
+                    episode.strength,
+                    1 if episode.processed else 0,
                     episode.context,
                     self._to_json(episode.context_tags),
                     getattr(episode, "source_entity", None),
@@ -2685,9 +2795,7 @@ class SQLiteStorage:
                     times_accessed = ?,
                     last_accessed = ?,
                     is_protected = ?,
-                    is_forgotten = ?,
-                    forgotten_at = ?,
-                    forgotten_reason = ?,
+                    strength = ?,
                     context = ?,
                     context_tags = ?,
                     local_updated_at = ?,
@@ -2713,9 +2821,7 @@ class SQLiteStorage:
                     episode.times_accessed,
                     episode.last_accessed.isoformat() if episode.last_accessed else None,
                     1 if episode.is_protected else 0,
-                    1 if episode.is_forgotten else 0,
-                    episode.forgotten_at.isoformat() if episode.forgotten_at else None,
-                    episode.forgotten_reason,
+                    episode.strength,
                     episode.context,
                     self._to_json(episode.context_tags),
                     now,
@@ -2767,11 +2873,11 @@ class SQLiteStorage:
                      emotional_valence, emotional_arousal, emotional_tags,
                      confidence, source_type, source_episodes, derived_from,
                      last_verified, verification_count, confidence_history,
-                     times_accessed, last_accessed, is_protected, is_forgotten,
-                     forgotten_at, forgotten_reason, context, context_tags,
+                     times_accessed, last_accessed, is_protected, strength,
+                     processed, context, context_tags,
                      epoch_id, repeat, avoid,
                      created_at, local_updated_at, cloud_synced_at, version, deleted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         episode.id,
@@ -2794,9 +2900,8 @@ class SQLiteStorage:
                         episode.times_accessed,
                         episode.last_accessed.isoformat() if episode.last_accessed else None,
                         1 if episode.is_protected else 0,
-                        1 if episode.is_forgotten else 0,
-                        episode.forgotten_at.isoformat() if episode.forgotten_at else None,
-                        episode.forgotten_reason,
+                        episode.strength,
+                        1 if episode.processed else 0,
                         episode.context,
                         self._to_json(episode.context_tags),
                         episode.epoch_id,
@@ -2901,9 +3006,8 @@ class SQLiteStorage:
             times_accessed=self._safe_get(row, "times_accessed", 0),
             last_accessed=self._parse_datetime(self._safe_get(row, "last_accessed", None)),
             is_protected=bool(self._safe_get(row, "is_protected", 0)),
-            is_forgotten=bool(self._safe_get(row, "is_forgotten", 0)),
-            forgotten_at=self._parse_datetime(self._safe_get(row, "forgotten_at", None)),
-            forgotten_reason=self._safe_get(row, "forgotten_reason", None),
+            strength=float(self._safe_get(row, "strength", 1.0)),
+            processed=bool(self._safe_get(row, "processed", 0)),
             # Context/scope fields
             context=self._safe_get(row, "context", None),
             context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
@@ -2924,7 +3028,7 @@ class SQLiteStorage:
         """Get episodes associated with a source entity for trust computation."""
         query = """
             SELECT * FROM episodes
-            WHERE stack_id = ? AND source_entity = ? AND deleted = 0 AND is_forgotten = 0
+            WHERE stack_id = ? AND source_entity = ? AND deleted = 0 AND strength > 0.0
             ORDER BY created_at DESC LIMIT ?
         """
         with self._connect() as conn:
@@ -3244,12 +3348,12 @@ class SQLiteStorage:
                      source_type, source_episodes, derived_from,
                      last_verified, verification_count, confidence_history,
                      supersedes, superseded_by, times_reinforced, is_active,
-                     times_accessed, last_accessed, is_protected, is_forgotten,
-                     forgotten_at, forgotten_reason, context, context_tags,
+                     times_accessed, last_accessed, is_protected, strength,
+                     context, context_tags,
                      belief_scope, source_domain, cross_domain_applications, abstraction_level,
                      epoch_id,
                      local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         belief.id,
@@ -3271,9 +3375,7 @@ class SQLiteStorage:
                         belief.times_accessed,
                         belief.last_accessed.isoformat() if belief.last_accessed else None,
                         1 if belief.is_protected else 0,
-                        1 if belief.is_forgotten else 0,
-                        belief.forgotten_at.isoformat() if belief.forgotten_at else None,
-                        belief.forgotten_reason,
+                        belief.strength,
                         belief.context,
                         self._to_json(belief.context_tags),
                         getattr(belief, "belief_scope", "world"),
@@ -3403,9 +3505,7 @@ class SQLiteStorage:
             times_accessed=self._safe_get(row, "times_accessed", 0),
             last_accessed=self._parse_datetime(self._safe_get(row, "last_accessed", None)),
             is_protected=bool(self._safe_get(row, "is_protected", 0)),
-            is_forgotten=bool(self._safe_get(row, "is_forgotten", 0)),
-            forgotten_at=self._parse_datetime(self._safe_get(row, "forgotten_at", None)),
-            forgotten_reason=self._safe_get(row, "forgotten_reason", None),
+            strength=float(self._safe_get(row, "strength", 1.0)),
             # Context/scope fields
             context=self._safe_get(row, "context", None),
             context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
@@ -3544,9 +3644,7 @@ class SQLiteStorage:
             times_accessed=self._safe_get(row, "times_accessed", 0),
             last_accessed=self._parse_datetime(self._safe_get(row, "last_accessed", None)),
             is_protected=bool(self._safe_get(row, "is_protected", 1)),  # Default protected
-            is_forgotten=bool(self._safe_get(row, "is_forgotten", 0)),
-            forgotten_at=self._parse_datetime(self._safe_get(row, "forgotten_at", None)),
-            forgotten_reason=self._safe_get(row, "forgotten_reason", None),
+            strength=float(self._safe_get(row, "strength", 1.0)),
             # Context/scope fields
             context=self._safe_get(row, "context", None),
             context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
@@ -3709,9 +3807,7 @@ class SQLiteStorage:
             times_accessed=self._safe_get(row, "times_accessed", 0),
             last_accessed=self._parse_datetime(self._safe_get(row, "last_accessed", None)),
             is_protected=bool(self._safe_get(row, "is_protected", 0)),
-            is_forgotten=bool(self._safe_get(row, "is_forgotten", 0)),
-            forgotten_at=self._parse_datetime(self._safe_get(row, "forgotten_at", None)),
-            forgotten_reason=self._safe_get(row, "forgotten_reason", None),
+            strength=float(self._safe_get(row, "strength", 1.0)),
             # Context/scope fields
             context=self._safe_get(row, "context", None),
             context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
@@ -3804,11 +3900,11 @@ class SQLiteStorage:
                     (id, stack_id, content, note_type, speaker, reason, tags, created_at,
                      confidence, source_type, source_episodes, derived_from,
                      last_verified, verification_count, confidence_history,
-                     times_accessed, last_accessed, is_protected, is_forgotten,
-                     forgotten_at, forgotten_reason, context, context_tags,
+                     times_accessed, last_accessed, is_protected, strength,
+                     processed, context, context_tags,
                      epoch_id,
                      local_updated_at, cloud_synced_at, version, deleted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         note.id,
@@ -3829,9 +3925,8 @@ class SQLiteStorage:
                         note.times_accessed,
                         note.last_accessed.isoformat() if note.last_accessed else None,
                         1 if note.is_protected else 0,
-                        1 if note.is_forgotten else 0,
-                        note.forgotten_at.isoformat() if note.forgotten_at else None,
-                        note.forgotten_reason,
+                        note.strength,
+                        1 if note.processed else 0,
                         note.context,
                         self._to_json(note.context_tags),
                         note.epoch_id,
@@ -3905,9 +4000,8 @@ class SQLiteStorage:
             times_accessed=self._safe_get(row, "times_accessed", 0),
             last_accessed=self._parse_datetime(self._safe_get(row, "last_accessed", None)),
             is_protected=bool(self._safe_get(row, "is_protected", 0)),
-            is_forgotten=bool(self._safe_get(row, "is_forgotten", 0)),
-            forgotten_at=self._parse_datetime(self._safe_get(row, "forgotten_at", None)),
-            forgotten_reason=self._safe_get(row, "forgotten_reason", None),
+            strength=float(self._safe_get(row, "strength", 1.0)),
+            processed=bool(self._safe_get(row, "processed", 0)),
             # Context/scope fields
             context=self._safe_get(row, "context", None),
             context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
@@ -4067,9 +4161,7 @@ class SQLiteStorage:
             times_accessed=self._safe_get(row, "times_accessed", 0),
             last_accessed=self._parse_datetime(self._safe_get(row, "last_accessed", None)),
             is_protected=bool(self._safe_get(row, "is_protected", 1)),  # Default protected
-            is_forgotten=bool(self._safe_get(row, "is_forgotten", 0)),
-            forgotten_at=self._parse_datetime(self._safe_get(row, "forgotten_at", None)),
-            forgotten_reason=self._safe_get(row, "forgotten_reason", None),
+            strength=float(self._safe_get(row, "strength", 1.0)),
             # Context/scope fields
             context=self._safe_get(row, "context", None),
             context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
@@ -4297,9 +4389,7 @@ class SQLiteStorage:
             times_accessed=self._safe_get(row, "times_accessed", 0),
             last_accessed=self._parse_datetime(self._safe_get(row, "last_accessed", None)),
             is_protected=bool(self._safe_get(row, "is_protected", 0)),
-            is_forgotten=bool(self._safe_get(row, "is_forgotten", 0)),
-            forgotten_at=self._parse_datetime(self._safe_get(row, "forgotten_at", None)),
-            forgotten_reason=self._safe_get(row, "forgotten_reason", None),
+            strength=float(self._safe_get(row, "strength", 1.0)),
             # Context/scope fields
             context=self._safe_get(row, "context", None),
             context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
@@ -6395,7 +6485,7 @@ class SQLiteStorage:
         validate_table_name(table)  # Security: validate before SQL use
 
         row = conn.execute(
-            f"SELECT * FROM {table} WHERE id = ? AND stack_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0",
+            f"SELECT * FROM {table} WHERE id = ? AND stack_id = ? AND deleted = 0 AND COALESCE(strength, 1.0) > 0.0",
             (record_id, self.stack_id),
         ).fetchone()
 
@@ -6459,7 +6549,7 @@ class SQLiteStorage:
                     filt_params = [search_term, search_term, search_term]
                 rows = conn.execute(
                     f"""SELECT * FROM episodes
-                       WHERE stack_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
+                       WHERE stack_id = ? AND deleted = 0 AND COALESCE(strength, 1.0) > 0.0
                        AND {filt}{access_filter}
                        LIMIT ?""",
                     [self.stack_id] + filt_params + access_params + [limit],
@@ -6479,7 +6569,7 @@ class SQLiteStorage:
                     filt_params = [search_term]
                 rows = conn.execute(
                     f"""SELECT * FROM notes
-                       WHERE stack_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
+                       WHERE stack_id = ? AND deleted = 0 AND COALESCE(strength, 1.0) > 0.0
                        AND {filt}{access_filter}
                        LIMIT ?""",
                     [self.stack_id] + filt_params + access_params + [limit],
@@ -6498,7 +6588,7 @@ class SQLiteStorage:
                     filt_params = [search_term]
                 rows = conn.execute(
                     f"""SELECT * FROM beliefs
-                       WHERE stack_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
+                       WHERE stack_id = ? AND deleted = 0 AND COALESCE(strength, 1.0) > 0.0
                        AND {filt}{access_filter}
                        LIMIT ?""",
                     [self.stack_id] + filt_params + access_params + [limit],
@@ -6519,7 +6609,7 @@ class SQLiteStorage:
                     filt_params = [search_term, search_term]
                 rows = conn.execute(
                     f"""SELECT * FROM agent_values
-                       WHERE stack_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
+                       WHERE stack_id = ? AND deleted = 0 AND COALESCE(strength, 1.0) > 0.0
                        AND {filt}{access_filter}
                        LIMIT ?""",
                     [self.stack_id] + filt_params + access_params + [limit],
@@ -6539,7 +6629,7 @@ class SQLiteStorage:
                     filt_params = [search_term, search_term]
                 rows = conn.execute(
                     f"""SELECT * FROM goals
-                       WHERE stack_id = ? AND deleted = 0 AND COALESCE(is_forgotten, 0) = 0
+                       WHERE stack_id = ? AND deleted = 0 AND COALESCE(strength, 1.0) > 0.0
                        AND {filt}{access_filter}
                        LIMIT ?""",
                     [self.stack_id] + filt_params + access_params + [limit],
@@ -6648,14 +6738,14 @@ class SQLiteStorage:
         with self._connect() as conn:
             # Values - ordered by priority, exclude forgotten
             rows = conn.execute(
-                f"SELECT * FROM agent_values WHERE stack_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} ORDER BY priority DESC LIMIT ?",
+                f"SELECT * FROM agent_values WHERE stack_id = ? AND deleted = 0 AND strength > 0.0{epoch_clause} ORDER BY priority DESC LIMIT ?",
                 (self.stack_id, *epoch_params, _values_limit),
             ).fetchall()
             result["values"] = [self._row_to_value(row) for row in rows]
 
             # Beliefs - ordered by confidence, exclude forgotten
             rows = conn.execute(
-                f"SELECT * FROM beliefs WHERE stack_id = ? AND deleted = 0 AND is_forgotten = 0 AND (is_active = 1 OR is_active IS NULL){epoch_clause} ORDER BY confidence DESC LIMIT ?",
+                f"SELECT * FROM beliefs WHERE stack_id = ? AND deleted = 0 AND strength > 0.0 AND (is_active = 1 OR is_active IS NULL){epoch_clause} ORDER BY confidence DESC LIMIT ?",
                 (self.stack_id, *epoch_params, _beliefs_limit),
             ).fetchall()
             result["beliefs"] = [self._row_to_belief(row) for row in rows]
@@ -6663,12 +6753,12 @@ class SQLiteStorage:
             # Goals - filtered by status, exclude forgotten
             if goals_status and goals_status != "all":
                 rows = conn.execute(
-                    f"SELECT * FROM goals WHERE stack_id = ? AND deleted = 0 AND is_forgotten = 0 AND status = ?{epoch_clause} ORDER BY created_at DESC LIMIT ?",
+                    f"SELECT * FROM goals WHERE stack_id = ? AND deleted = 0 AND strength > 0.0 AND status = ?{epoch_clause} ORDER BY created_at DESC LIMIT ?",
                     (self.stack_id, goals_status, *epoch_params, _goals_limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    f"SELECT * FROM goals WHERE stack_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} ORDER BY created_at DESC LIMIT ?",
+                    f"SELECT * FROM goals WHERE stack_id = ? AND deleted = 0 AND strength > 0.0{epoch_clause} ORDER BY created_at DESC LIMIT ?",
                     (self.stack_id, *epoch_params, _goals_limit),
                 ).fetchall()
             result["goals"] = [self._row_to_goal(row) for row in rows]
@@ -6676,26 +6766,26 @@ class SQLiteStorage:
             # Drives - all for agent (or limited), exclude forgotten
             if drives_limit is not None:
                 rows = conn.execute(
-                    f"SELECT * FROM drives WHERE stack_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} LIMIT ?",
+                    f"SELECT * FROM drives WHERE stack_id = ? AND deleted = 0 AND strength > 0.0{epoch_clause} LIMIT ?",
                     (self.stack_id, *epoch_params, drives_limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    f"SELECT * FROM drives WHERE stack_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause}",
+                    f"SELECT * FROM drives WHERE stack_id = ? AND deleted = 0 AND strength > 0.0{epoch_clause}",
                     (self.stack_id, *epoch_params),
                 ).fetchall()
             result["drives"] = [self._row_to_drive(row) for row in rows]
 
             # Episodes - most recent, exclude forgotten
             rows = conn.execute(
-                f"SELECT * FROM episodes WHERE stack_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} ORDER BY created_at DESC LIMIT ?",
+                f"SELECT * FROM episodes WHERE stack_id = ? AND deleted = 0 AND strength > 0.0{epoch_clause} ORDER BY created_at DESC LIMIT ?",
                 (self.stack_id, *epoch_params, _episodes_limit),
             ).fetchall()
             result["episodes"] = [self._row_to_episode(row) for row in rows]
 
             # Notes - most recent, exclude forgotten
             rows = conn.execute(
-                f"SELECT * FROM notes WHERE stack_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} ORDER BY created_at DESC LIMIT ?",
+                f"SELECT * FROM notes WHERE stack_id = ? AND deleted = 0 AND strength > 0.0{epoch_clause} ORDER BY created_at DESC LIMIT ?",
                 (self.stack_id, *epoch_params, _notes_limit),
             ).fetchall()
             result["notes"] = [self._row_to_note(row) for row in rows]
@@ -6703,12 +6793,12 @@ class SQLiteStorage:
             # Relationships - all for agent (or limited), exclude forgotten
             if relationships_limit is not None:
                 rows = conn.execute(
-                    f"SELECT * FROM relationships WHERE stack_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause} LIMIT ?",
+                    f"SELECT * FROM relationships WHERE stack_id = ? AND deleted = 0 AND strength > 0.0{epoch_clause} LIMIT ?",
                     (self.stack_id, *epoch_params, relationships_limit),
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    f"SELECT * FROM relationships WHERE stack_id = ? AND deleted = 0 AND is_forgotten = 0{epoch_clause}",
+                    f"SELECT * FROM relationships WHERE stack_id = ? AND deleted = 0 AND strength > 0.0{epoch_clause}",
                     (self.stack_id, *epoch_params),
                 ).fetchall()
             result["relationships"] = [self._row_to_relationship(row) for row in rows]
@@ -7173,7 +7263,7 @@ class SQLiteStorage:
         with self._connect() as conn:
             # Check if memory exists and is not protected
             row = conn.execute(
-                f"SELECT is_protected, is_forgotten FROM {table} WHERE id = ? AND stack_id = ?",
+                f"SELECT is_protected, strength FROM {table} WHERE id = ? AND stack_id = ?",
                 (memory_id, self.stack_id),
             ).fetchone()
 
@@ -7184,17 +7274,15 @@ class SQLiteStorage:
                 logger.debug(f"Cannot forget protected memory {memory_type}:{memory_id}")
                 return False
 
-            if self._safe_get(row, "is_forgotten", 0):
+            if float(self._safe_get(row, "strength", 1.0)) == 0.0:
                 return False  # Already forgotten
 
             cursor = conn.execute(
                 f"""UPDATE {table}
-                   SET is_forgotten = 1,
-                       forgotten_at = ?,
-                       forgotten_reason = ?,
+                   SET strength = 0.0,
                        local_updated_at = ?
                    WHERE id = ? AND stack_id = ?""",
-                (now, reason, now, memory_id, self.stack_id),
+                (now, memory_id, self.stack_id),
             )
             self._queue_sync(conn, table, memory_id, "update")
             conn.commit()
@@ -7227,20 +7315,18 @@ class SQLiteStorage:
         now = self._now()
 
         with self._connect() as conn:
-            # Check if memory is forgotten
+            # Check if memory is forgotten (strength = 0.0)
             row = conn.execute(
-                f"SELECT is_forgotten FROM {table} WHERE id = ? AND stack_id = ?",
+                f"SELECT strength FROM {table} WHERE id = ? AND stack_id = ?",
                 (memory_id, self.stack_id),
             ).fetchone()
 
-            if not row or not self._safe_get(row, "is_forgotten", 0):
+            if not row or float(self._safe_get(row, "strength", 1.0)) > 0.0:
                 return False
 
             cursor = conn.execute(
                 f"""UPDATE {table}
-                   SET is_forgotten = 0,
-                       forgotten_at = NULL,
-                       forgotten_reason = NULL,
+                   SET strength = 0.2,
                        local_updated_at = ?
                    WHERE id = ? AND stack_id = ?""",
                 (now, memory_id, self.stack_id),
@@ -7292,29 +7378,24 @@ class SQLiteStorage:
         self,
         memory_types: Optional[List[str]] = None,
         limit: int = 100,
+        threshold: float = 0.5,
     ) -> List[SearchResult]:
         """Get memories that are candidates for forgetting.
 
         Returns memories that are:
         - Not protected
-        - Not already forgotten
-        - Sorted by computed salience (lowest first)
-
-        Salience formula:
-        salience = (confidence × reinforcement_weight) / (age_factor + 1)
-        where:
-            reinforcement_weight = log(times_accessed + 1)
-            age_factor = days_since_last_access / half_life (30 days)
+        - Not already forgotten (strength > 0.0)
+        - Below the strength threshold
+        - Sorted by strength (lowest first = best candidates)
 
         Args:
             memory_types: Filter by memory type
             limit: Maximum results
+            threshold: Strength threshold (memories below this are candidates)
 
         Returns:
-            List of candidate memories with computed salience scores
+            List of candidate memories with strength as score
         """
-        import math
-
         results = []
         types = memory_types or ["episode", "belief", "goal", "note", "relationship"]
         # Exclude values and drives by default since they're protected by default
@@ -7328,9 +7409,6 @@ class SQLiteStorage:
             "drive": ("drives", self._row_to_drive),
             "relationship": ("relationships", self._row_to_relationship),
         }
-
-        now = datetime.now(timezone.utc)
-        half_life = 30.0  # days
 
         with self._connect() as conn:
             for memory_type in types:
@@ -7349,49 +7427,26 @@ class SQLiteStorage:
                     WHERE stack_id = ?
                     AND deleted = 0
                     AND COALESCE(is_protected, 0) = 0
-                    AND COALESCE(is_forgotten, 0) = 0
+                    AND COALESCE(strength, 1.0) > 0.0
+                    AND COALESCE(strength, 1.0) < ?
                     {foundational_filter}
-                    ORDER BY created_at ASC
+                    ORDER BY strength ASC
                     LIMIT ?
                 """
 
                 try:
-                    rows = conn.execute(query, (self.stack_id, limit * 2)).fetchall()
+                    rows = conn.execute(query, (self.stack_id, threshold, limit * 2)).fetchall()
                     for row in rows:
                         record = converter(row)
-
-                        # Calculate salience
-                        confidence = self._safe_get(row, "confidence", 0.8)
-                        times_accessed = self._safe_get(row, "times_accessed", 0) or 0
-
-                        # Get last access time
-                        last_accessed_str = self._safe_get(row, "last_accessed", None)
-                        if last_accessed_str:
-                            last_accessed = self._parse_datetime(last_accessed_str)
-                        else:
-                            # Use created_at if never accessed
-                            created_at_str = row["created_at"]
-                            last_accessed = self._parse_datetime(created_at_str)
-
-                        # Calculate age factor
-                        if last_accessed:
-                            days_since = (now - last_accessed).total_seconds() / 86400
-                        else:
-                            days_since = 365  # Very old if unknown
-
-                        age_factor = days_since / half_life
-                        reinforcement_weight = math.log(times_accessed + 1)
-
-                        # Salience calculation
-                        salience = (confidence * (reinforcement_weight + 0.1)) / (age_factor + 1)
+                        strength = float(self._safe_get(row, "strength", 1.0))
 
                         results.append(
-                            SearchResult(record=record, record_type=memory_type, score=salience)
+                            SearchResult(record=record, record_type=memory_type, score=strength)
                         )
                 except Exception as e:
                     logger.debug(f"Could not get forgetting candidates from {table}: {e}")
 
-        # Sort by salience (lowest first = best candidates for forgetting)
+        # Sort by strength (lowest first = best candidates for forgetting)
         results.sort(key=lambda x: x.score)
         return results[:limit]
 
@@ -7440,8 +7495,8 @@ class SQLiteStorage:
                     SELECT * FROM {table}
                     WHERE stack_id = ?
                     AND deleted = 0
-                    AND COALESCE(is_forgotten, 0) = 1
-                    ORDER BY forgotten_at DESC
+                    AND COALESCE(strength, 1.0) = 0.0
+                    ORDER BY created_at DESC
                     LIMIT ?
                 """
 
