@@ -363,25 +363,27 @@ class Kernle(
 ):
     """Main interface for Kernle memory operations.
 
-    Supports both local SQLite storage and cloud Supabase storage.
-    Storage backend is auto-detected based on environment variables,
-    or can be explicitly provided.
+    This is the **legacy compatibility API**. Write methods (episode, belief,
+    value, goal, note, drive, relationship, raw) write directly to the storage
+    backend and do NOT enforce provenance hierarchy or maintenance mode.
+
+    For enforced memory operations, use :attr:`entity` which routes writes
+    through the stack with full provenance validation.
+
+    Use ``strict=True`` to route all writes through the stack, which enforces
+    maintenance mode blocking, provenance hierarchy (when enabled), and stack
+    component hooks.
 
     Examples:
-        # Auto-detect storage (SQLite if no Supabase creds, else Supabase)
+        # Legacy mode (default) — no enforcement
         k = Kernle(stack_id="my_agent")
 
-        # Explicit SQLite
-        from kernle.storage import SQLiteStorage
-        storage = SQLiteStorage(stack_id="my_agent")
-        k = Kernle(stack_id="my_agent", storage=storage)
+        # Strict mode — writes routed through stack enforcement
+        k = Kernle(stack_id="my_agent", strict=True)
 
-        # Explicit Supabase (backwards compatible)
-        k = Kernle(
-            stack_id="my_agent",
-            supabase_url="https://xxx.supabase.co",
-            supabase_key="my_key"
-        )
+        # Recommended: use Entity directly for full enforcement
+        from kernle import Entity
+        e = Entity(core_id="my_agent")
     """
 
     def __init__(
@@ -392,6 +394,7 @@ class Kernle(
         supabase_url: Optional[str] = None,
         supabase_key: Optional[str] = None,
         checkpoint_dir: Optional[Path] = None,
+        strict: bool = False,
     ):
         """Initialize Kernle.
 
@@ -401,6 +404,9 @@ class Kernle(
             supabase_url: Supabase project URL (deprecated, use storage param)
             supabase_key: Supabase API key (deprecated, use storage param)
             checkpoint_dir: Directory for local checkpoints
+            strict: If True, route writes through stack enforcement layer
+                (maintenance mode, provenance validation, component hooks).
+                Requires SQLite-backed storage.
         """
         self.stack_id = self._validate_stack_id(
             stack_id or os.environ.get("KERNLE_STACK_ID", "default")
@@ -443,9 +449,33 @@ class Kernle(
                 self._storage.is_online() or self._storage.get_pending_sync_count() > 0
             )
 
+        self._strict = strict
+
         logger.debug(
-            f"Kernle initialized with storage: {type(self._storage).__name__}, auto_sync: {self._auto_sync}"
+            f"Kernle initialized with storage: {type(self._storage).__name__}, "
+            f"auto_sync: {self._auto_sync}, strict: {self._strict}"
         )
+
+    @property
+    def _write_backend(self):
+        """Return the write target for memory operations.
+
+        In strict mode, returns the stack (which enforces maintenance mode,
+        provenance validation, and component hooks). In legacy mode, returns
+        the storage backend directly (no enforcement).
+
+        Raises:
+            ValueError: If strict=True but no SQLite-backed stack is available.
+        """
+        if self._strict:
+            stack = self.stack
+            if stack is None:
+                raise ValueError(
+                    "strict=True requires SQLite-backed storage. "
+                    "Use Entity for enforced writes with other storage backends."
+                )
+            return stack
+        return self._storage
 
     @property
     def storage(self) -> "StorageProtocol":
@@ -1288,7 +1318,7 @@ class Kernle(
                 tags=["checkpoint", "working_state"],
                 created_at=datetime.now(timezone.utc),
             )
-            self._storage.save_episode(episode)
+            self._write_backend.save_episode(episode)
         except Exception as e:
             logger.warning(f"Failed to save checkpoint to database: {e}")
             # Local save is sufficient, continue
@@ -1441,7 +1471,7 @@ class Kernle(
             context_tags=context_tags,
         )
 
-        self._storage.save_episode(episode)
+        self._write_backend.save_episode(episode)
 
         # Log the episode save
         log_save(
@@ -1592,7 +1622,7 @@ class Kernle(
             context_tags=context_tags,
         )
 
-        self._storage.save_note(note)
+        self._write_backend.save_note(note)
         return note_id
 
     # =========================================================================
@@ -1648,6 +1678,16 @@ class Kernle(
         # Basic validation - no length limit, but sanitize control chars
         blob = self._validate_string_input(blob, "blob", max_length=None)
 
+        if self._strict:
+            from kernle.types import RawEntry
+
+            raw_entry = RawEntry(
+                id=str(uuid.uuid4()),
+                stack_id=self.stack_id,
+                blob=blob,
+                source=source,
+            )
+            return self._write_backend.save_raw(raw_entry)
         return self._storage.save_raw(blob=blob, source=source, tags=tags)
 
     def list_raw(self, processed: Optional[bool] = None, limit: int = 100) -> List[Dict[str, Any]]:
@@ -1872,10 +1912,11 @@ class Kernle(
             episode_objects.append(episode)
 
         # Use batch method if available, otherwise fall back to individual saves
-        if hasattr(self._storage, "save_episodes_batch"):
-            return self._storage.save_episodes_batch(episode_objects)
+        backend = self._write_backend
+        if hasattr(backend, "save_episodes_batch"):
+            return backend.save_episodes_batch(episode_objects)
         else:
-            return [self._storage.save_episode(ep) for ep in episode_objects]
+            return [backend.save_episode(ep) for ep in episode_objects]
 
     def beliefs_batch(self, beliefs: List[Dict[str, Any]]) -> List[str]:
         """Save multiple beliefs in a single transaction for bulk imports.
@@ -1915,10 +1956,11 @@ class Kernle(
             belief_objects.append(belief)
 
         # Use batch method if available, otherwise fall back to individual saves
-        if hasattr(self._storage, "save_beliefs_batch"):
-            return self._storage.save_beliefs_batch(belief_objects)
+        backend = self._write_backend
+        if hasattr(backend, "save_beliefs_batch"):
+            return backend.save_beliefs_batch(belief_objects)
         else:
-            return [self._storage.save_belief(b) for b in belief_objects]
+            return [backend.save_belief(b) for b in belief_objects]
 
     def notes_batch(self, notes: List[Dict[str, Any]]) -> List[str]:
         """Save multiple notes in a single transaction for bulk imports.
@@ -1962,10 +2004,11 @@ class Kernle(
             note_objects.append(note)
 
         # Use batch method if available, otherwise fall back to individual saves
-        if hasattr(self._storage, "save_notes_batch"):
-            return self._storage.save_notes_batch(note_objects)
+        backend = self._write_backend
+        if hasattr(backend, "save_notes_batch"):
+            return backend.save_notes_batch(note_objects)
         else:
-            return [self._storage.save_note(n) for n in note_objects]
+            return [backend.save_note(n) for n in note_objects]
 
     # =========================================================================
     # DUMP / EXPORT
@@ -2894,7 +2937,7 @@ class Kernle(
             context_tags=context_tags,
         )
 
-        self._storage.save_belief(belief)
+        self._write_backend.save_belief(belief)
         return belief_id
 
     def value(
@@ -2926,7 +2969,7 @@ class Kernle(
             context_tags=context_tags,
         )
 
-        self._storage.save_value(value)
+        self._write_backend.save_value(value)
         return value_id
 
     def goal(
@@ -2968,7 +3011,7 @@ class Kernle(
             context_tags=context_tags,
         )
 
-        self._storage.save_goal(goal)
+        self._write_backend.save_goal(goal)
 
         # Protect aspiration/commitment goals from forgetting
         if is_protected:
@@ -3014,7 +3057,7 @@ class Kernle(
 
         # TODO: Add update_goal_atomic for optimistic concurrency control
         existing.version += 1
-        self._storage.save_goal(existing)
+        self._write_backend.save_goal(existing)
         return True
 
     # === Epoch Management ===
@@ -4196,7 +4239,7 @@ class Kernle(
                 }
             ],
         )
-        self._storage.save_belief(new_belief)
+        self._write_backend.save_belief(new_belief)
 
         # Update the old belief
         old_belief.superseded_by = new_id
@@ -4383,7 +4426,7 @@ class Kernle(
                 source_eps = belief.source_episodes or []
                 if episode_id not in source_eps:
                     belief.source_episodes = source_eps + [episode_id]
-                    self._storage.save_belief(belief)
+                    self._write_backend.save_belief(belief)
 
         return result
 
@@ -4721,7 +4764,7 @@ class Kernle(
                 existing.context = context
             if context_tags is not None:
                 existing.context_tags = context_tags
-            self._storage.save_drive(existing)
+            self._write_backend.save_drive(existing)
             return existing.id
         else:
             drive_id = str(uuid.uuid4())
@@ -4736,7 +4779,7 @@ class Kernle(
                 context=context,
                 context_tags=context_tags,
             )
-            self._storage.save_drive(drive)
+            self._write_backend.save_drive(drive)
             return drive_id
 
     def satisfy_drive(self, drive_type: str, amount: float = 0.2) -> bool:
@@ -4749,7 +4792,7 @@ class Kernle(
             existing.updated_at = datetime.now(timezone.utc)
             # TODO: Add update_drive_atomic for optimistic concurrency control
             existing.version += 1
-            self._storage.save_drive(existing)
+            self._write_backend.save_drive(existing)
             return True
         return False
 
@@ -4815,7 +4858,7 @@ class Kernle(
             existing.interaction_count += 1
             existing.last_interaction = now
             existing.version += 1
-            self._storage.save_relationship(existing)
+            self._write_backend.save_relationship(existing)
             return existing.id
         else:
             rel_id = str(uuid.uuid4())
@@ -4831,7 +4874,7 @@ class Kernle(
                 last_interaction=now,
                 created_at=now,
             )
-            self._storage.save_relationship(relationship)
+            self._write_backend.save_relationship(relationship)
             return rel_id
 
     # =========================================================================

@@ -1161,3 +1161,180 @@ class TestStackScopedSettings:
 
         assert stack_a.get_all_stack_settings() == {"a": "1"}
         assert stack_b.get_all_stack_settings() == {"b": "2"}
+
+
+# ==============================================================================
+# Kernle strict-mode tests
+# ==============================================================================
+
+
+class TestKernleStrictMode:
+    """Kernle(strict=True) routes writes through stack enforcement."""
+
+    @pytest.fixture
+    def strict_kernle(self, tmp_path):
+        from kernle.core import Kernle
+        from kernle.storage import SQLiteStorage
+
+        db = tmp_path / "strict.db"
+        storage = SQLiteStorage(stack_id="strict_agent", db_path=db)
+        k = Kernle(
+            stack_id="strict_agent",
+            storage=storage,
+            checkpoint_dir=tmp_path / "cp",
+            strict=True,
+        )
+        yield k
+        storage.close()
+
+    @pytest.fixture
+    def legacy_kernle(self, tmp_path):
+        from kernle.core import Kernle
+        from kernle.storage import SQLiteStorage
+
+        db = tmp_path / "legacy.db"
+        storage = SQLiteStorage(stack_id="legacy_agent", db_path=db)
+        k = Kernle(
+            stack_id="legacy_agent",
+            storage=storage,
+            checkpoint_dir=tmp_path / "cp",
+        )
+        yield k
+        storage.close()
+
+    def test_strict_flag_stored(self, strict_kernle, legacy_kernle):
+        assert strict_kernle._strict is True
+        assert legacy_kernle._strict is False
+
+    def test_write_backend_returns_stack_when_strict(self, strict_kernle):
+        backend = strict_kernle._write_backend
+        assert backend is strict_kernle.stack
+
+    def test_write_backend_returns_storage_when_legacy(self, legacy_kernle):
+        backend = legacy_kernle._write_backend
+        assert backend is legacy_kernle._storage
+
+    def test_strict_maintenance_blocks_episode(self, strict_kernle):
+        """In strict mode, maintenance state blocks writes."""
+        stack = strict_kernle.stack
+        stack.on_attach("strict_agent")
+        stack.enter_maintenance()
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.episode(
+                objective="Test",
+                outcome="Should fail",
+            )
+
+    def test_strict_maintenance_blocks_belief(self, strict_kernle):
+        stack = strict_kernle.stack
+        stack.on_attach("strict_agent")
+        stack.enter_maintenance()
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.belief(statement="Test belief")
+
+    def test_strict_maintenance_blocks_value(self, strict_kernle):
+        stack = strict_kernle.stack
+        stack.on_attach("strict_agent")
+        stack.enter_maintenance()
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.value(name="Test", statement="Test value")
+
+    def test_strict_maintenance_blocks_goal(self, strict_kernle):
+        stack = strict_kernle.stack
+        stack.on_attach("strict_agent")
+        stack.enter_maintenance()
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.goal(title="Test goal")
+
+    def test_strict_maintenance_blocks_raw(self, strict_kernle):
+        stack = strict_kernle.stack
+        stack.on_attach("strict_agent")
+        stack.enter_maintenance()
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.raw(blob="Test blob")
+
+    def test_strict_maintenance_blocks_note(self, strict_kernle):
+        stack = strict_kernle.stack
+        stack.on_attach("strict_agent")
+        stack.enter_maintenance()
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.note(content="Test note")
+
+    def test_strict_maintenance_blocks_drive(self, strict_kernle):
+        stack = strict_kernle.stack
+        stack.on_attach("strict_agent")
+        stack.enter_maintenance()
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.drive(drive_type="curiosity")
+
+    def test_strict_maintenance_blocks_relationship(self, strict_kernle):
+        stack = strict_kernle.stack
+        stack.on_attach("strict_agent")
+        stack.enter_maintenance()
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.relationship(other_stack_id="other")
+
+    def test_strict_maintenance_blocks_batches(self, strict_kernle):
+        stack = strict_kernle.stack
+        stack.on_attach("strict_agent")
+        stack.enter_maintenance()
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.episodes_batch([{"objective": "X", "outcome": "Y"}])
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.beliefs_batch([{"statement": "X"}])
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.notes_batch([{"content": "X"}])
+
+    def test_legacy_mode_ignores_maintenance(self, legacy_kernle):
+        """In legacy mode, writes go to storage directly — no enforcement."""
+        # Force the stack into maintenance, but legacy mode bypasses it
+        stack = legacy_kernle.stack
+        stack.on_attach("legacy_agent")
+        stack.enter_maintenance()
+
+        # Legacy write goes directly to storage — no error
+        raw_id = legacy_kernle.raw(blob="Should succeed in legacy mode")
+        assert raw_id is not None
+
+    def test_strict_active_allows_writes(self, strict_kernle):
+        """In strict mode with active stack, writes succeed."""
+        # Stack starts in INITIALIZING — writes should work (seed allowed)
+        raw_id = strict_kernle.raw(blob="Test raw in strict mode")
+        assert raw_id is not None
+
+        ep_id = strict_kernle.episode(
+            objective="Test episode",
+            outcome="Success",
+        )
+        assert ep_id is not None
+
+    def test_strict_requires_sqlite(self, tmp_path):
+        """strict=True with non-SQLite storage raises ValueError."""
+        from unittest.mock import MagicMock
+
+        from kernle.core import Kernle
+
+        mock_storage = MagicMock()
+        mock_storage.is_online.return_value = False
+        mock_storage.get_pending_sync_count.return_value = 0
+
+        k = Kernle(
+            stack_id="test",
+            storage=mock_storage,
+            checkpoint_dir=tmp_path / "cp",
+            strict=True,
+        )
+        # stack property returns None for non-SQLite
+        with pytest.raises(ValueError, match="strict=True requires SQLite"):
+            k._write_backend
