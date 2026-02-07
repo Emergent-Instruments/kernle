@@ -351,7 +351,7 @@ class SQLiteStack(
     ) -> List[Episode]:
         episodes = self._backend.get_episodes(limit=limit, tags=tags)
         if not include_forgotten:
-            episodes = [e for e in episodes if not e.is_forgotten]
+            episodes = [e for e in episodes if e.strength > 0.0]
         return episodes
 
     def get_beliefs(
@@ -369,7 +369,7 @@ class SQLiteStack(
         if min_confidence is not None:
             beliefs = [b for b in beliefs if b.confidence >= min_confidence]
         if not include_forgotten:
-            beliefs = [b for b in beliefs if not b.is_forgotten]
+            beliefs = [b for b in beliefs if b.strength > 0.0]
         return beliefs
 
     def get_values(
@@ -381,7 +381,7 @@ class SQLiteStack(
     ) -> List[Value]:
         values = self._backend.get_values(limit=limit)
         if not include_forgotten:
-            values = [v for v in values if not v.is_forgotten]
+            values = [v for v in values if v.strength > 0.0]
         return values
 
     def get_goals(
@@ -394,7 +394,7 @@ class SQLiteStack(
     ) -> List[Goal]:
         goals = self._backend.get_goals(status=status, limit=limit)
         if not include_forgotten:
-            goals = [g for g in goals if not g.is_forgotten]
+            goals = [g for g in goals if g.strength > 0.0]
         return goals
 
     def get_notes(
@@ -407,7 +407,7 @@ class SQLiteStack(
     ) -> List[Note]:
         notes = self._backend.get_notes(limit=limit, note_type=note_type)
         if not include_forgotten:
-            notes = [n for n in notes if not n.is_forgotten]
+            notes = [n for n in notes if n.strength > 0.0]
         return notes
 
     def get_drives(self, *, include_expired: bool = False) -> List[Drive]:

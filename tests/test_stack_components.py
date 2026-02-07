@@ -67,7 +67,7 @@ def _make_mock_episode(
     outcome_type: str = "success",
     lessons: Optional[List[str]] = None,
     tags: Optional[List[str]] = None,
-    is_forgotten: bool = False,
+    strength: float = 1.0,
     emotional_valence: float = 0.0,
     emotional_arousal: float = 0.0,
     emotional_tags: Optional[List[str]] = None,
@@ -81,7 +81,7 @@ def _make_mock_episode(
     ep.outcome_type = outcome_type
     ep.lessons = lessons or []
     ep.tags = tags or []
-    ep.is_forgotten = is_forgotten
+    ep.strength = strength
     ep.emotional_valence = emotional_valence
     ep.emotional_arousal = emotional_arousal
     ep.emotional_tags = emotional_tags or []

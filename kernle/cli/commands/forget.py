@@ -136,11 +136,7 @@ def cmd_forget(args, k: "Kernle"):
             for i, f in enumerate(forgotten, 1):
                 print(f"{i}. [{f['type']:<10}] {f['id'][:8]}...")
                 print(f"   Summary: {f['summary'][:50]}...")
-                print(
-                    f"   Forgotten at: {f['forgotten_at'][:10] if f['forgotten_at'] else 'unknown'}"
-                )
-                if f["forgotten_reason"]:
-                    print(f"   Reason: {f['forgotten_reason'][:50]}...")
+                print(f"   Strength: {f.get('strength', 0.0)}")
                 print(f"   Created: {f['created_at']}")
                 print()
 

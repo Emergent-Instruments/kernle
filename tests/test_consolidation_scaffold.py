@@ -24,7 +24,7 @@ def _make_episode(
 ):
     """Create a mock episode with sensible defaults."""
     ep = MagicMock()
-    ep.is_forgotten = False
+    ep.strength = 1.0
     ep.objective = objective
     ep.outcome = outcome
     ep.outcome_type = outcome_type

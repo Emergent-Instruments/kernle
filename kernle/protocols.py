@@ -106,6 +106,22 @@ class StorageError(KernleError):
     pass
 
 
+class ProvenanceError(KernleError):
+    """Raised when provenance validation fails.
+
+    E.g., creating a belief without citing an episode/note,
+    or citing a raw directly as a belief source.
+    """
+
+    pass
+
+
+class MaintenanceModeError(KernleError):
+    """Raised when an operation requires maintenance mode but the stack is not in it."""
+
+    pass
+
+
 # =============================================================================
 # SHARED TYPES
 # =============================================================================
@@ -127,6 +143,14 @@ class StorageError(KernleError):
 # - relationship.trust_level is typically the latest compute_trust() result
 #   for that entity. The stack may update it automatically or on request.
 # =============================================================================
+
+
+class StackState(str, Enum):
+    """Lifecycle state for a memory stack."""
+
+    INITIALIZING = "initializing"  # Seed writes allowed without provenance
+    ACTIVE = "active"  # All writes require valid provenance
+    MAINTENANCE = "maintenance"  # Only controlled admin operations
 
 
 class MemoryType(str, Enum):

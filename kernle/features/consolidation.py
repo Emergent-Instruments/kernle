@@ -63,7 +63,7 @@ class ConsolidationMixin:
             - scaffold: formatted text scaffold for reflection
         """
         episodes = self._storage.get_episodes(limit=limit)
-        episodes = [ep for ep in episodes if not ep.is_forgotten]
+        episodes = [ep for ep in episodes if ep.strength > 0.0]
 
         if not episodes:
             return {
@@ -277,7 +277,7 @@ class ConsolidationMixin:
             - scaffold: formatted text scaffold for reflection
         """
         beliefs = self._storage.get_beliefs(limit=500, include_inactive=False)
-        beliefs = [b for b in beliefs if b.is_active and not b.is_forgotten]
+        beliefs = [b for b in beliefs if b.is_active and b.strength > 0.0]
 
         # Also get existing values for dedup checking
         values = self._storage.get_values(limit=200)
@@ -760,11 +760,11 @@ def build_epoch_closing_scaffold(kernle: "Kernle", epoch_id: str) -> Dict[str, A
     # Gather data used across multiple steps
     episodes = kernle._storage.get_episodes(limit=200)
     epoch_episodes = [
-        ep for ep in episodes if not ep.is_forgotten and getattr(ep, "epoch_id", None) == epoch_id
+        ep for ep in episodes if ep.strength > 0.0 and getattr(ep, "epoch_id", None) == epoch_id
     ]
 
     beliefs = kernle._storage.get_beliefs(limit=200, include_inactive=False)
-    active_beliefs = [b for b in beliefs if b.is_active and not b.is_forgotten]
+    active_beliefs = [b for b in beliefs if b.is_active and b.strength > 0.0]
 
     relationships = kernle._storage.get_relationships()
 

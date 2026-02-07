@@ -5484,7 +5484,7 @@ class Kernle(
         min_occurrences = max(2, min_occurrences)
 
         episodes = self._storage.get_episodes(limit=limit)
-        episodes = [ep for ep in episodes if not ep.is_forgotten]
+        episodes = [ep for ep in episodes if ep.strength > 0.0]
 
         if len(episodes) < min_episodes:
             return {

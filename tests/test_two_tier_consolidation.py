@@ -29,7 +29,7 @@ def _make_episode(
 ):
     ep = MagicMock()
     ep.id = id
-    ep.is_forgotten = False
+    ep.strength = 1.0
     ep.objective = objective
     ep.outcome = outcome
     ep.outcome_type = outcome_type
@@ -72,7 +72,7 @@ def _make_belief(id="b-001", statement="Test belief", confidence=0.8):
     b.statement = statement
     b.confidence = confidence
     b.is_active = True
-    b.is_forgotten = False
+    b.strength = 1.0
     b.times_reinforced = 0
     b.superseded_by = None
     b.source_domain = None

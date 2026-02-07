@@ -114,7 +114,7 @@ class ConsolidationComponent:
         lesson_domain_map: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
 
         for ep in episodes:
-            if ep.is_forgotten:
+            if ep.strength == 0.0:
                 continue
             tags = set(ep.tags or [])
             ctx_tags = getattr(ep, "context_tags", None) or []

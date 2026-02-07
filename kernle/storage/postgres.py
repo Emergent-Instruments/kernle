@@ -181,6 +181,9 @@ class SupabaseStorage:
             # Context fields
             "context": episode.context,
             "context_tags": episode.context_tags or [],
+            # Strength and processing
+            "strength": episode.strength,
+            "processed": episode.processed,
             # Epoch tracking
             "epoch_id": episode.epoch_id,
             # Sync metadata
@@ -257,6 +260,9 @@ class SupabaseStorage:
             last_verified=self._parse_datetime(row.get("last_verified")),
             verification_count=row.get("verification_count", 0),
             confidence_history=row.get("confidence_history"),
+            # Strength and processing
+            strength=float(row.get("strength", 1.0)),
+            processed=bool(row.get("processed", False)),
             # Context/scope fields
             context=row.get("context"),
             context_tags=row.get("context_tags"),
@@ -465,6 +471,8 @@ class SupabaseStorage:
             last_verified=self._parse_datetime(row.get("last_verified")),
             verification_count=row.get("verification_count", 0),
             confidence_history=row.get("confidence_history"),
+            # Strength
+            strength=float(row.get("strength", 1.0)),
             # Context/scope fields
             context=row.get("context"),
             context_tags=row.get("context_tags"),
@@ -546,6 +554,8 @@ class SupabaseStorage:
             last_verified=self._parse_datetime(row.get("last_verified")),
             verification_count=row.get("verification_count", 0),
             confidence_history=row.get("confidence_history"),
+            # Strength
+            strength=float(row.get("strength", 1.0)),
             # Context/scope fields
             context=row.get("context"),
             context_tags=row.get("context_tags"),
@@ -628,6 +638,8 @@ class SupabaseStorage:
             last_verified=self._parse_datetime(row.get("last_verified")),
             verification_count=row.get("verification_count", 0),
             confidence_history=row.get("confidence_history"),
+            # Strength
+            strength=float(row.get("strength", 1.0)),
             # Context/scope fields
             context=row.get("context"),
             context_tags=row.get("context_tags"),
@@ -669,6 +681,9 @@ class SupabaseStorage:
             "speaker": note.speaker,
             "reason": note.reason,
             "tags": note.tags or [],
+            # Strength and processing
+            "strength": note.strength,
+            "processed": note.processed,
             # Epoch tracking
             "epoch_id": note.epoch_id,
             # Sync metadata
@@ -727,6 +742,9 @@ class SupabaseStorage:
             last_verified=self._parse_datetime(row.get("last_verified")),
             verification_count=row.get("verification_count", 0),
             confidence_history=row.get("confidence_history"),
+            # Strength and processing
+            strength=float(row.get("strength", 1.0)),
+            processed=bool(row.get("processed", False)),
             # Context/scope fields
             context=row.get("context"),
             context_tags=row.get("context_tags"),
@@ -812,6 +830,8 @@ class SupabaseStorage:
             last_verified=self._parse_datetime(row.get("last_verified")),
             verification_count=row.get("verification_count", 0),
             confidence_history=row.get("confidence_history"),
+            # Strength
+            strength=float(row.get("strength", 1.0)),
             # Context/scope fields
             context=row.get("context"),
             context_tags=row.get("context_tags"),
@@ -920,6 +940,8 @@ class SupabaseStorage:
             last_verified=self._parse_datetime(row.get("last_verified")),
             verification_count=row.get("verification_count", 0),
             confidence_history=row.get("confidence_history"),
+            # Strength
+            strength=float(row.get("strength", 1.0)),
             # Context/scope fields
             context=row.get("context"),
             context_tags=row.get("context_tags"),
@@ -1749,12 +1771,12 @@ class SupabaseStorage:
         memory_id: str,
         reason: Optional[str] = None,
     ) -> bool:
-        """Tombstone a memory (mark as forgotten, don't delete).
+        """Tombstone a memory (set strength to 0.0, don't delete).
 
         Args:
             memory_type: Type of memory
             memory_id: ID of the memory
-            reason: Optional reason for forgetting
+            reason: Optional reason for forgetting (unused in strength model)
 
         Returns:
             True if forgotten, False if not found, already forgotten, or protected
@@ -1777,22 +1799,13 @@ class SupabaseStorage:
 
         try:
             # Check if memory exists and is not protected or already forgotten
-            if memory_type == "note":
-                result = (
-                    self.client.table(table)
-                    .select("is_protected, is_forgotten")
-                    .eq("id", memory_id)
-                    .eq("stack_id", self.stack_id)
-                    .execute()
-                )
-            else:
-                result = (
-                    self.client.table(table)
-                    .select("is_protected, is_forgotten")
-                    .eq("id", memory_id)
-                    .eq("stack_id", self.stack_id)
-                    .execute()
-                )
+            result = (
+                self.client.table(table)
+                .select("is_protected, strength")
+                .eq("id", memory_id)
+                .eq("stack_id", self.stack_id)
+                .execute()
+            )
 
             if not result.data:
                 return False
@@ -1801,25 +1814,18 @@ class SupabaseStorage:
             if row.get("is_protected"):
                 logger.debug(f"Cannot forget protected memory {memory_type}:{memory_id}")
                 return False
-            if row.get("is_forgotten"):
+            if float(row.get("strength", 1.0)) == 0.0:
                 return False  # Already forgotten
 
-            # Mark as forgotten
+            # Mark as forgotten by setting strength to 0.0
             update_data = {
-                "is_forgotten": True,
-                "forgotten_at": now,
-                "forgotten_reason": reason,
+                "strength": 0.0,
                 "local_updated_at": now,
             }
 
-            if memory_type == "note":
-                self.client.table(table).update(update_data).eq("id", memory_id).eq(
-                    "stack_id", self.stack_id
-                ).execute()
-            else:
-                self.client.table(table).update(update_data).eq("id", memory_id).eq(
-                    "stack_id", self.stack_id
-                ).execute()
+            self.client.table(table).update(update_data).eq("id", memory_id).eq(
+                "stack_id", self.stack_id
+            ).execute()
 
             return True
         except Exception as e:
@@ -1827,7 +1833,7 @@ class SupabaseStorage:
             return False
 
     def recover_memory(self, memory_type: str, memory_id: str) -> bool:
-        """Recover a forgotten memory.
+        """Recover a forgotten memory by restoring strength to 0.2.
 
         Args:
             memory_type: Type of memory
@@ -1853,43 +1859,27 @@ class SupabaseStorage:
         now = self._now()
 
         try:
-            # Check if memory is forgotten
-            if memory_type == "note":
-                result = (
-                    self.client.table(table)
-                    .select("is_forgotten")
-                    .eq("id", memory_id)
-                    .eq("stack_id", self.stack_id)
-                    .execute()
-                )
-            else:
-                result = (
-                    self.client.table(table)
-                    .select("is_forgotten")
-                    .eq("id", memory_id)
-                    .eq("stack_id", self.stack_id)
-                    .execute()
-                )
+            # Check if memory is forgotten (strength == 0.0)
+            result = (
+                self.client.table(table)
+                .select("strength")
+                .eq("id", memory_id)
+                .eq("stack_id", self.stack_id)
+                .execute()
+            )
 
-            if not result.data or not result.data[0].get("is_forgotten"):
+            if not result.data or float(result.data[0].get("strength", 1.0)) != 0.0:
                 return False
 
-            # Clear forgotten status
+            # Recover by setting strength to 0.2
             update_data = {
-                "is_forgotten": False,
-                "forgotten_at": None,
-                "forgotten_reason": None,
+                "strength": 0.2,
                 "local_updated_at": now,
             }
 
-            if memory_type == "note":
-                self.client.table(table).update(update_data).eq("id", memory_id).eq(
-                    "stack_id", self.stack_id
-                ).execute()
-            else:
-                self.client.table(table).update(update_data).eq("id", memory_id).eq(
-                    "stack_id", self.stack_id
-                ).execute()
+            self.client.table(table).update(update_data).eq("id", memory_id).eq(
+                "stack_id", self.stack_id
+            ).execute()
 
             return True
         except Exception as e:
@@ -1955,19 +1945,15 @@ class SupabaseStorage:
         self,
         memory_types: Optional[List[str]] = None,
         limit: int = 100,
+        threshold: float = 0.5,
     ) -> List[SearchResult]:
         """Get memories that are candidates for forgetting.
 
         Returns memories that are:
         - Not protected
-        - Not already forgotten
-        - Sorted by computed salience (lowest first)
-
-        Salience formula:
-        salience = (confidence × reinforcement_weight) / (age_factor + 1)
-        where:
-            reinforcement_weight = log(times_accessed + 1)
-            age_factor = days_since_last_access / half_life (30 days)
+        - Not already forgotten (strength > 0.0)
+        - Below the strength threshold
+        - Sorted by strength (lowest first)
 
         Args:
             memory_types: Filter by memory type
@@ -2014,8 +2000,8 @@ class SupabaseStorage:
                 result = query.limit(limit * 2).execute()
 
                 for row in result.data:
-                    # Skip protected or already forgotten
-                    if row.get("is_protected") or row.get("is_forgotten"):
+                    # Skip protected or already forgotten (strength == 0.0)
+                    if row.get("is_protected") or float(row.get("strength", 1.0)) == 0.0:
                         continue
 
                     record = converter(row)
@@ -2097,24 +2083,14 @@ class SupabaseStorage:
             table, converter = table_map[memory_type]
 
             try:
-                if memory_type == "note":
-                    query = (
-                        self.client.table(table)
-                        .select("*")
-                        .eq("stack_id", self.stack_id)
-                        .eq("is_forgotten", True)
-                        .order("forgotten_at", desc=True)
-                        .limit(limit)
-                    )
-                else:
-                    query = (
-                        self.client.table(table)
-                        .select("*")
-                        .eq("stack_id", self.stack_id)
-                        .eq("is_forgotten", True)
-                        .order("forgotten_at", desc=True)
-                        .limit(limit)
-                    )
+                query = (
+                    self.client.table(table)
+                    .select("*")
+                    .eq("stack_id", self.stack_id)
+                    .eq("strength", 0.0)
+                    .order("local_updated_at", desc=True)
+                    .limit(limit)
+                )
 
                 result = query.execute()
 

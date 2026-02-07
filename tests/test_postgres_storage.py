@@ -1035,9 +1035,7 @@ class TestSupabaseForgetting:
                 "objective": "Test episode",
                 "outcome": "Success",
                 "is_protected": False,
-                "is_forgotten": False,
-                "forgotten_at": None,
-                "forgotten_reason": None,
+                "strength": 1.0,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
         )
@@ -1046,9 +1044,7 @@ class TestSupabaseForgetting:
         assert result is True
 
         updated = db["episodes"][0]
-        assert updated["is_forgotten"] is True
-        assert updated["forgotten_reason"] == "Low salience"
-        assert updated["forgotten_at"] is not None
+        assert updated["strength"] == 0.0
 
     def test_forget_protected_memory_fails(self, supabase_storage):
         """Test that protected memories cannot be forgotten."""
@@ -1062,7 +1058,7 @@ class TestSupabaseForgetting:
                 "objective": "Protected episode",
                 "outcome": "Success",
                 "is_protected": True,
-                "is_forgotten": False,
+                "strength": 1.0,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
         )
@@ -1071,7 +1067,7 @@ class TestSupabaseForgetting:
         assert result is False
 
         updated = db["episodes"][0]
-        assert updated["is_forgotten"] is False
+        assert updated["strength"] == 1.0
 
     def test_forget_already_forgotten_fails(self, supabase_storage):
         """Test that already forgotten memories return False."""
@@ -1085,8 +1081,7 @@ class TestSupabaseForgetting:
                 "objective": "Already forgotten",
                 "outcome": "Success",
                 "is_protected": False,
-                "is_forgotten": True,
-                "forgotten_at": datetime.now(timezone.utc).isoformat(),
+                "strength": 0.0,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
         )
@@ -1105,9 +1100,7 @@ class TestSupabaseForgetting:
                 "stack_id": "test_agent",
                 "objective": "Forgotten episode",
                 "outcome": "Success",
-                "is_forgotten": True,
-                "forgotten_at": datetime.now(timezone.utc).isoformat(),
-                "forgotten_reason": "Test",
+                "strength": 0.0,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
         )
@@ -1116,9 +1109,7 @@ class TestSupabaseForgetting:
         assert result is True
 
         updated = db["episodes"][0]
-        assert updated["is_forgotten"] is False
-        assert updated["forgotten_at"] is None
-        assert updated["forgotten_reason"] is None
+        assert updated["strength"] > 0.0
 
     def test_recover_not_forgotten_fails(self, supabase_storage):
         """Test that recovering non-forgotten memory returns False."""
@@ -1131,7 +1122,7 @@ class TestSupabaseForgetting:
                 "stack_id": "test_agent",
                 "objective": "Normal episode",
                 "outcome": "Success",
-                "is_forgotten": False,
+                "strength": 1.0,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
         )
@@ -1199,7 +1190,7 @@ class TestSupabaseForgetting:
                 "times_accessed": 0,
                 "last_accessed": None,
                 "is_protected": False,
-                "is_forgotten": False,
+                "strength": 1.0,
                 "created_at": old_date,
             }
         )
@@ -1214,7 +1205,7 @@ class TestSupabaseForgetting:
                 "confidence": 0.3,
                 "times_accessed": 0,
                 "is_protected": True,
-                "is_forgotten": False,
+                "strength": 1.0,
                 "created_at": old_date,
             }
         )
@@ -1229,7 +1220,7 @@ class TestSupabaseForgetting:
                 "confidence": 0.3,
                 "times_accessed": 0,
                 "is_protected": False,
-                "is_forgotten": True,
+                "strength": 0.0,
                 "created_at": old_date,
             }
         )
@@ -1258,7 +1249,7 @@ class TestSupabaseForgetting:
                 "times_accessed": 10,
                 "last_accessed": now,
                 "is_protected": False,
-                "is_forgotten": False,
+                "strength": 1.0,
                 "created_at": now,
             }
         )
@@ -1274,7 +1265,7 @@ class TestSupabaseForgetting:
                 "times_accessed": 0,
                 "last_accessed": None,
                 "is_protected": False,
-                "is_forgotten": False,
+                "strength": 1.0,
                 "created_at": now,
             }
         )
@@ -1300,9 +1291,7 @@ class TestSupabaseForgetting:
                 "stack_id": "test_agent",
                 "objective": "Forgotten 1",
                 "outcome": "Old",
-                "is_forgotten": True,
-                "forgotten_at": now,
-                "forgotten_reason": "Low salience",
+                "strength": 0.0,
                 "created_at": now,
             }
         )
@@ -1313,9 +1302,7 @@ class TestSupabaseForgetting:
                 "stack_id": "test_agent",
                 "objective": "Forgotten 2",
                 "outcome": "Old",
-                "is_forgotten": True,
-                "forgotten_at": now,
-                "forgotten_reason": "Manual",
+                "strength": 0.0,
                 "created_at": now,
             }
         )
@@ -1327,7 +1314,7 @@ class TestSupabaseForgetting:
                 "stack_id": "test_agent",
                 "objective": "Active",
                 "outcome": "Current",
-                "is_forgotten": False,
+                "strength": 1.0,
                 "created_at": now,
             }
         )
@@ -1350,7 +1337,7 @@ class TestSupabaseForgetting:
                 "stack_id": "test_agent",
                 "objective": "Active",
                 "outcome": "Current",
-                "is_forgotten": False,
+                "strength": 1.0,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
         )
@@ -1371,7 +1358,7 @@ class TestSupabaseForgetting:
                 "belief_type": "fact",
                 "confidence": 0.5,
                 "is_protected": False,
-                "is_forgotten": False,
+                "strength": 1.0,
                 "is_active": True,
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
@@ -1381,7 +1368,7 @@ class TestSupabaseForgetting:
         assert result is True
 
         updated = db["beliefs"][0]
-        assert updated["is_forgotten"] is True
+        assert updated["strength"] == 0.0
 
     def test_forget_note_uses_stack_id(self, supabase_storage):
         """Test that forgetting notes uses stack_id correctly."""
@@ -1395,7 +1382,7 @@ class TestSupabaseForgetting:
                 "content": "Test note",
                 "source": "curated",
                 "is_protected": False,
-                "is_forgotten": False,
+                "strength": 1.0,
                 "metadata": {},
                 "created_at": datetime.now(timezone.utc).isoformat(),
             }
@@ -1405,4 +1392,4 @@ class TestSupabaseForgetting:
         assert result is True
 
         updated = db["notes"][0]
-        assert updated["is_forgotten"] is True
+        assert updated["strength"] == 0.0

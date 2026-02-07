@@ -952,17 +952,20 @@ class Storage(Protocol):
         self,
         memory_types: Optional[List[str]] = None,
         limit: int = 100,
+        threshold: float = 0.5,
     ) -> List[SearchResult]:
         """Get memories that are candidates for forgetting.
 
         Returns memories that are:
         - Not protected
-        - Not already forgotten
-        - Sorted by salience (lowest first)
+        - Not already forgotten (strength > 0.0)
+        - Below the strength threshold
+        - Sorted by strength (lowest first)
 
         Args:
             memory_types: Filter by memory type
             limit: Maximum results
+            threshold: Strength threshold (memories below this are candidates)
 
         Returns:
             List of candidate memories with computed salience scores
