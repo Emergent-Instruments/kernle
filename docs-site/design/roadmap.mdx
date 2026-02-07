@@ -7,41 +7,80 @@ This roadmap outlines planned features that extend Kernle's cognitive infrastruc
 
 ## What's Been Built
 
-The core cognitive infrastructure is in place:
+The core cognitive infrastructure is in place, built across six versioned milestones:
 
 <CardGroup cols={3}>
-  <Card title="Memory Stack" icon="layer-group">
-    16 memory types in a stratified hierarchy with budget-aware loading
+  <Card title="Protocol System" icon="diagram-project">
+    5 protocols defining composition architecture for cores, stacks, plugins, models, and components
   </Card>
-  <Card title="Temporal Architecture" icon="clock">
-    Epochs, fractal summarization, two-tier consolidation
+  <Card title="Stack Components" icon="layer-group">
+    8 default components with hook dispatch (on_save, on_search, on_load) for embedding, forgetting, consolidation, emotions, and more
   </Card>
-  <Card title="Identity & Trust" icon="fingerprint">
-    Self-narrative, trust assessments, authority gating, diagnostics
+  <Card title="Plugin Ecosystem" icon="plug">
+    chainbased (commerce: wallet, jobs, skills, escrow) and fatline (communications: agent registry, Ed25519 crypto)
   </Card>
 </CardGroup>
 
-### Implemented Features
+### Version History
 
-| Feature | Status | Description |
-|---------|--------|-------------|
-| Temporal epochs | Done | SI-declared eras with snapshots |
-| Fractal summarization | Done | Month/quarter/year/decade/epoch summaries |
-| Self-narrative | Done | Identity, developmental, aspirational narratives |
-| Trust assessments | Done | Multi-dimensional trust with authority gating |
-| Seed trust templates | Done | Structural safety from day one |
-| Doctor pattern | Done | Structural health checks and diagnostics |
-| Emotional salience | Done | Priority scoring boost for high-arousal memories |
-| Epoch staleness | Done | Anxiety dimension for epoch review |
-| Promote (consolidation) | Done | Renamed from `consolidate` with deprecation alias |
-| Provenance protection | Done | Write-once source_type, append-only derived_from |
-| Cycle detection | Done | Prevents circular `derived_from` references |
+#### v0.3.0 — Protocol & Types Foundation
+
+Established the protocol definitions, shared type system, and plugin discovery mechanism that all subsequent architecture builds on.
+
+- Protocol definitions (CoreProtocol, StackProtocol, PluginProtocol, ModelProtocol, StackComponentProtocol)
+- Shared types (`types.py` — all memory dataclasses)
+- Discovery system (`discovery.py` — entry point discovery via `importlib.metadata`)
+
+#### v0.4.0 — Core/Stack Split
+
+Separated the coordinator (Entity) from the memory container (SQLiteStack), enabling independent evolution and composability.
+
+- **Entity** — CoreProtocol implementation (coordinator/bus, provenance routing, InferenceService creation)
+- **SQLiteStack** — StackProtocol implementation (wraps SQLiteStorage + feature mixins + component registry)
+- **Kernle compat layer** — lazy `.entity` and `.stack` properties for backward compatibility
+- **Contract tests** — 163 tests for StackProtocol + CoreProtocol conformance
+- **CLI migration** — composition info in status, plugin discovery
+
+#### v0.5.0 — Stack Components
+
+Extracted feature mixins into discoverable, composable stack components that can be independently configured.
+
+- **InferenceService** — wraps ModelProtocol with HashEmbedder fallback
+- **EmbeddingComponent** — vector embedding via StackComponentProtocol
+- **7 feature mixin components** — forgetting, consolidation, emotions, anxiety, suggestions, metamemory, knowledge
+- **Component discovery** — auto-loading of 8 default components via entry points
+
+#### v0.6.0 — Plugin System
+
+Added model provider implementations and wired plugin tools through the Entity and MCP server.
+
+- **AnthropicModel + OllamaModel** — ModelProtocol implementations for cloud and local inference
+- **Plugin CLI/MCP tool registration** — Entity wiring, namespaced `{plugin_name}.{tool_name}` dispatch
+- **MCP dispatch fix** — resolved `validate_tool_input` rejecting plugin tool names
+
+#### v0.7.0 — Plugin Extraction
+
+Moved commerce and communications into independent packages that implement PluginProtocol.
+
+- **chainbased** — PluginProtocol package (wallet, jobs, skills, escrow), comms module removed from kernle
+- **fatline** — AgentRegistry + Ed25519 crypto identity, own SQLite DB in plugin data dir
+- Both registered as `kernle.plugins` entry points
+
+#### v0.8.0 — Audit Fixes
+
+Hardened the protocol system and fixed issues surfaced during architecture audits.
+
+- **Stack component hooks** — on_save, on_search, on_load dispatch
+- **Protocol version enforcement** — runtime version compatibility checks
+- **Episode repeat/avoid fields** — previously silently dropped
+- **Public API conformance** — source_entity fields, tags handling
+- **sqlite-vec test robustness** — fixed flaky vector search tests
 
 ---
 
 ## Near-Term: Enriched Cognition
 
-These features extend existing patterns with no breaking changes.
+These features extend the existing protocol system with no breaking changes. New capabilities are delivered as StackComponentProtocol implementations or protocol extensions.
 
 ### Memory Echoes
 
@@ -94,6 +133,8 @@ abstraction_level: "domain"  # 'specific' | 'domain' | 'universal'
 ---
 
 ## Medium-Term: Social & Temporal Depth
+
+These features involve new storage schemas and more sophisticated protocol interactions.
 
 ### Relationship History
 
@@ -221,6 +262,7 @@ These areas are acknowledged but not yet designed in detail:
 | **Embedding strategy** | Current 384-dim vectors may need updating for longer-lived stacks |
 | **MCP tool coverage** | Each new table/feature needs corresponding MCP tools |
 | **Transfer learning** | Cross-domain belief application with domain metadata |
+| **`kernle import` command** | Migration from flat-file memory systems (MEMORY.md, Obsidian, etc.) into stratified memory with heuristic classification and optional LLM-assisted analysis |
 
 ---
 

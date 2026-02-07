@@ -76,6 +76,73 @@ kernle -s mystack checkpoint save "end of work session"
 kernle -s mystack checkpoint load
 ```
 
+## Python API
+
+<Tabs>
+  <Tab title="Library Usage">
+    ```python
+    from kernle.entity import Entity
+    from kernle.stack import SQLiteStack
+    from kernle.models.anthropic import AnthropicModel
+
+    # Create the core
+    entity = Entity()
+
+    # Bind a model
+    entity.set_model(AnthropicModel())
+
+    # Attach a memory stack
+    stack = SQLiteStack(db_path="~/.kernle/stacks/mystack/memory.db")
+    entity.attach_stack(stack, alias="mystack", set_active=True)
+
+    # Write memories (with full provenance)
+    entity.episode(
+        "Optimized the sync pipeline",
+        "Reduced latency from 300ms to 100ms",
+        lessons=["Batching network calls is worth the complexity"],
+    )
+
+    entity.belief(
+        "Batch processing outperforms sequential I/O",
+        confidence=0.85,
+    )
+
+    # Search
+    results = entity.search("performance optimization")
+    for r in results:
+        print(f"{r.memory_type}: {r.content[:80]}")
+
+    # Load working memory
+    context = entity.load(token_budget=8000)
+    ```
+  </Tab>
+  <Tab title="With Plugins">
+    ```python
+    from kernle.entity import Entity
+    from kernle.stack import SQLiteStack
+
+    entity = Entity()
+    stack = SQLiteStack(db_path="memory.db")
+    entity.attach_stack(stack)
+
+    # Discover installed plugins
+    available = entity.discover_plugins()
+    for p in available:
+        print(f"Found: {p.name} v{p.version}")
+
+    # Load a plugin (e.g., chainbased for commerce)
+    from chainbased import ChainbasedPlugin
+    entity.load_plugin(ChainbasedPlugin())
+
+    # The plugin writes memories through PluginContext
+    # with automatic source attribution
+
+    # Unload when done -- only memories remain
+    entity.unload_plugin("chainbased")
+    ```
+  </Tab>
+</Tabs>
+
 ## MCP Integration
 
 Add Kernle to Claude Desktop:
