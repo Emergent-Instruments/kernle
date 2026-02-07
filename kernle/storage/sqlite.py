@@ -2955,6 +2955,37 @@ class SQLiteStorage:
 
         return episodes
 
+    def memory_exists(self, memory_type: str, memory_id: str) -> bool:
+        """Check if a memory record exists in the stack.
+
+        Args:
+            memory_type: Type of memory (episode, belief, note, raw, etc.)
+            memory_id: ID of the memory record
+
+        Returns:
+            True if the record exists and is not deleted
+        """
+        table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "agent_values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+            "raw": "raw_entries",
+            "playbook": "playbooks",
+        }
+        table = table_map.get(memory_type)
+        if not table:
+            return False
+        with self._connect() as conn:
+            row = conn.execute(
+                f"SELECT 1 FROM {table} WHERE id = ? AND stack_id = ? AND deleted = 0",
+                (memory_id, self.stack_id),
+            ).fetchone()
+        return row is not None
+
     def get_episode(
         self, episode_id: str, requesting_entity: Optional[str] = None
     ) -> Optional[Episode]:

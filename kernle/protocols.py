@@ -618,6 +618,21 @@ class StackProtocol(Protocol):
         """Current schema version of this stack's storage."""
         ...
 
+    # ---- Lifecycle State ----
+
+    @property
+    def state(self) -> StackState:
+        """Current lifecycle state (INITIALIZING, ACTIVE, or MAINTENANCE)."""
+        ...
+
+    def enter_maintenance(self) -> None:
+        """Enter maintenance mode. Only controlled admin operations allowed."""
+        ...
+
+    def exit_maintenance(self) -> None:
+        """Exit maintenance mode, returning to ACTIVE state."""
+        ...
+
     # ---- Component Management ----
 
     @property

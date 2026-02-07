@@ -29,7 +29,10 @@ from kernle.features import (
 )
 from kernle.protocols import (
     InferenceService,
+    MaintenanceModeError,
+    ProvenanceError,
     StackComponentProtocol,
+    StackState,
 )
 from kernle.protocols import (
     SearchResult as ProtocolSearchResult,
@@ -116,6 +119,18 @@ def _compute_priority_score(memory_type: str, record: Any) -> float:
     return base + bonus
 
 
+# Provenance hierarchy: which source types are allowed for each memory type
+PROVENANCE_RULES: Dict[str, List[str]] = {
+    "episode": ["raw"],
+    "note": ["raw"],
+    "belief": ["episode", "note"],
+    "goal": ["episode", "belief"],
+    "relationship": ["episode"],
+    "value": ["belief"],
+    "drive": ["episode", "belief"],
+}
+
+
 class SQLiteStack(
     AnxietyMixin,
     ConsolidationMixin,
@@ -139,6 +154,7 @@ class SQLiteStack(
         cloud_storage: Optional[Any] = None,
         embedder: Optional[Any] = None,
         components: Optional[List[StackComponentProtocol]] = None,
+        enforce_provenance: bool = False,
     ):
         self._backend = SQLiteStorage(
             stack_id=stack_id,
@@ -155,6 +171,8 @@ class SQLiteStack(
         # Composition state
         self._attached_core_id: Optional[str] = None
         self._inference: Optional[InferenceService] = None
+        self._state: StackState = StackState.INITIALIZING
+        self._enforce_provenance = enforce_provenance
 
         # Auto-load components: None = defaults, [] = bare, list = explicit
         if components is None:
@@ -249,44 +267,122 @@ class SQLiteStack(
             except Exception as e:
                 logger.warning("Component '%s' on_load failed: %s", name, e)
 
+    # ---- State Management ----
+
+    @property
+    def state(self) -> StackState:
+        """Current lifecycle state of the stack."""
+        return self._state
+
+    def enter_maintenance(self) -> None:
+        """Enter maintenance mode. Only controlled admin operations allowed."""
+        if self._state == StackState.MAINTENANCE:
+            return
+        self._state = StackState.MAINTENANCE
+
+    def exit_maintenance(self) -> None:
+        """Exit maintenance mode, returning to ACTIVE state."""
+        if self._state != StackState.MAINTENANCE:
+            return
+        self._state = StackState.ACTIVE
+
+    # ---- Provenance Validation ----
+
+    def _validate_provenance(self, memory_type: str, derived_from: Optional[list]) -> None:
+        """Validate provenance for a memory write.
+
+        Only enforced when stack is ACTIVE. INITIALIZING allows any write
+        (for seed data). MAINTENANCE rejects non-admin writes.
+
+        Raises:
+            ProvenanceError: If provenance is missing or invalid
+            MaintenanceModeError: If stack is in maintenance mode
+        """
+        if self._state == StackState.INITIALIZING:
+            return  # Seed writes don't need provenance
+
+        if not self._enforce_provenance:
+            return  # Provenance enforcement disabled
+
+        if self._state == StackState.MAINTENANCE:
+            raise MaintenanceModeError(
+                f"Cannot save {memory_type} in maintenance mode. " "Use exit_maintenance() first."
+            )
+
+        # Raw entries don't need provenance
+        if memory_type not in PROVENANCE_RULES:
+            return
+
+        allowed_types = PROVENANCE_RULES[memory_type]
+
+        if not derived_from:
+            raise ProvenanceError(
+                f"Cannot save {memory_type} without provenance. "
+                f"derived_from must cite at least one: {', '.join(allowed_types)}"
+            )
+
+        for ref in derived_from:
+            if ":" not in ref:
+                raise ProvenanceError(
+                    f"Invalid provenance reference '{ref}'. "
+                    "Expected format 'type:id' (e.g., 'episode:abc123')"
+                )
+            ref_type, ref_id = ref.split(":", 1)
+            if ref_type not in allowed_types:
+                raise ProvenanceError(
+                    f"Invalid provenance for {memory_type}: '{ref_type}' is not an allowed source. "
+                    f"Allowed sources: {', '.join(allowed_types)}"
+                )
+            # Verify the referenced memory exists
+            if not self._backend.memory_exists(ref_type, ref_id):
+                raise ProvenanceError(f"Referenced {ref_type}:{ref_id} does not exist in the stack")
+
     # ---- Write Operations ----
 
     def save_episode(self, episode: Episode) -> str:
+        self._validate_provenance("episode", episode.derived_from)
         result_id = self._backend.save_episode(episode)
         self._dispatch_on_save("episode", result_id, episode)
         return result_id
 
     def save_belief(self, belief: Belief) -> str:
+        self._validate_provenance("belief", belief.derived_from)
         result_id = self._backend.save_belief(belief)
         self._dispatch_on_save("belief", result_id, belief)
         return result_id
 
     def save_value(self, value: Value) -> str:
+        self._validate_provenance("value", value.derived_from)
         result_id = self._backend.save_value(value)
         self._dispatch_on_save("value", result_id, value)
         return result_id
 
     def save_goal(self, goal: Goal) -> str:
+        self._validate_provenance("goal", goal.derived_from)
         result_id = self._backend.save_goal(goal)
         self._dispatch_on_save("goal", result_id, goal)
         return result_id
 
     def save_note(self, note: Note) -> str:
+        self._validate_provenance("note", note.derived_from)
         result_id = self._backend.save_note(note)
         self._dispatch_on_save("note", result_id, note)
         return result_id
 
     def save_drive(self, drive: Drive) -> str:
+        self._validate_provenance("drive", drive.derived_from)
         result_id = self._backend.save_drive(drive)
         self._dispatch_on_save("drive", result_id, drive)
         return result_id
 
     def save_relationship(self, relationship: Relationship) -> str:
+        self._validate_provenance("relationship", relationship.derived_from)
         result_id = self._backend.save_relationship(relationship)
         self._dispatch_on_save("relationship", result_id, relationship)
         return result_id
 
     def save_raw(self, raw: RawEntry) -> str:
+        self._validate_provenance("raw", None)  # Raw entries need no provenance
         result_id = self._backend.save_raw(
             blob=raw.blob or raw.content or "",
             source=raw.source,
@@ -892,6 +988,9 @@ class SQLiteStack(
         self._inference = inference
         for component in self._components.values():
             component.set_inference(inference)
+        # Transition to ACTIVE on first attach (provenance enforcement begins)
+        if self._state == StackState.INITIALIZING:
+            self._state = StackState.ACTIVE
 
     def on_detach(self, core_id: str) -> None:
         self._attached_core_id = None
