@@ -202,7 +202,7 @@ Components hook into the stack lifecycle through four dispatch points. Errors in
 Called after every memory save with the memory type, ID, and the memory object.
 
 ```mermaid
-flowchart LR
+graph LR
   A["stack.save_episode(ep)"] --> B["backend.save_episode(ep)"]
   B --> C["_dispatch_on_save()"]
   C --> D["embedding.on_save()"]
@@ -222,7 +222,7 @@ Components can modify the memory by returning a modified version. Return `None` 
 Called after search results are assembled. Components can re-rank, filter, or augment results.
 
 ```mermaid
-flowchart LR
+graph LR
   A["stack.search(query)"] --> B["backend.search(query)"]
   B --> C["Build SearchResult list"]
   C --> D["_dispatch_on_search()"]
@@ -268,7 +268,7 @@ stats = stack.maintenance()
 The `load()` method assembles the most relevant memories within a token budget. Here is the flow:
 
 ```mermaid
-flowchart TD
+graph TD
   A["load(token_budget=8000)"] --> B["Fetch all candidate memories"]
   B --> C["Compute priority score per memory"]
   C --> D["Sort by priority (descending)"]

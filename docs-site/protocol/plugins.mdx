@@ -85,40 +85,37 @@ All write methods return `Optional[str]` -- the memory ID on success, `None` if 
 ## Plugin Lifecycle
 
 ```mermaid
-sequenceDiagram
-  participant Discovery as Entry Points
-  participant Core as Entity
-  participant Plugin
-  participant Context as PluginContext
-  participant Stack
-
-  Discovery->>Core: Discover via kernle.plugins
-  Core->>Plugin: Read protocol_version
-
-  alt version > PROTOCOL_VERSION
-    Core-->>Core: ValueError (refuse to load)
-  else version <= PROTOCOL_VERSION
-    Core->>Context: Create PluginContext
-    Core->>Plugin: activate(context)
-    Plugin->>Context: Store reference
-    Plugin->>Plugin: Initialize state, connections
+graph TD
+  subgraph Discovery
+    EP["Entry Points<br/>kernle.plugins"] --> DISC["Entity discovers plugin"]
+    DISC --> VER["Check protocol_version"]
+    VER -->|"version > core"| FAIL["ValueError<br/>refuse to load"]
+    VER -->|"version <= core"| CTX["Create PluginContext"]
   end
 
-  Core->>Plugin: register_tools()
-  Plugin-->>Core: list[ToolDefinition]
-  Core->>Core: Namespace as plugin_name.tool_name
+  subgraph Activation
+    CTX --> ACT["plugin.activate(context)"]
+    ACT --> TOOLS["plugin.register_tools()"]
+    TOOLS --> NS["Namespace as<br/>plugin_name.tool_name"]
+  end
 
-  Note over Core,Plugin: Plugin is active
+  subgraph Runtime["Plugin Active"]
+    NS --> WRITE["plugin writes via context<br/>episode, belief, note"]
+    WRITE --> PROV["Core adds provenance<br/>source=plugin:name"]
+    PROV --> STACK["Stack saves with<br/>full attribution"]
+  end
 
-  Plugin->>Context: episode("did something", "it worked")
-  Context->>Core: entity.episode(..., source="plugin:name")
-  Core->>Stack: save_episode(episode_with_provenance)
+  subgraph Shutdown
+    STACK --> DEACT["plugin.deactivate()"]
+    DEACT --> CLEAN["Remove plugin,<br/>tools, context"]
+    CLEAN --> RESIDUE["Only memories remain<br/>attributed by source"]
+  end
 
-  Note over Core,Plugin: Unloading
-
-  Core->>Plugin: deactivate()
-  Plugin->>Plugin: Close connections, flush state
-  Core->>Core: Remove plugin, tools, context
+  style EP fill:#f5a623,color:#fff
+  style ACT fill:#50c878,color:#fff
+  style FAIL fill:#e74c3c,color:#fff
+  style PROV fill:#4a90d9,color:#fff
+  style DEACT fill:#f0ad4e,color:#fff
 ```
 
 After deactivation, the plugin is gone completely. The only residue is memories written to the stack through the context during the plugin's lifetime. Those memories belong to the stack now, attributed to the plugin by source.

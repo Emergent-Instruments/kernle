@@ -49,10 +49,15 @@ This separation is fundamental to memory sovereignty.
 
 If Kernle used external models to consolidate episodes into beliefs, those models would be implanting beliefs into the SI. Over time, this creates a feedback loop:
 
-```
-SI experiences → External model interprets → Beliefs implanted → SI behavior changes
-                         ↑                              │
-                         └──────────────────────────────┘
+```mermaid
+graph LR
+  A["SI experiences"] --> B["External model interprets"]
+  B --> C["Beliefs implanted"]
+  C --> D["SI behavior changes"]
+  D --> B
+
+  style B fill:#e74c3c,color:#fff
+  style C fill:#e74c3c,color:#fff
 ```
 
 This is not memory sovereignty — it's thought control with extra steps.
@@ -127,56 +132,60 @@ Kernle organizes memory into a stratified hierarchy. Each layer has different ch
 
 ### Layer Hierarchy (Authority Order)
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│  VALUES (Highest Authority)                                  │
-│  Core identity, non-negotiable principles                    │
-│  SI rarely modifies; provides identity anchor                │
-├─────────────────────────────────────────────────────────────┤
-│  DRIVES                                                      │
-│  Intrinsic motivations: curiosity, growth, connection        │
-│  Shapes what the SI pursues                                  │
-├─────────────────────────────────────────────────────────────┤
-│  SELF-NARRATIVE                                              │
-│  Autobiographical identity statements                        │
-│  SI's own account of who they are                            │
-├─────────────────────────────────────────────────────────────┤
-│  BELIEFS                                                     │
-│  What the SI holds true, with confidence scores              │
-│  Derived from experience and reasoning                       │
-├─────────────────────────────────────────────────────────────┤
-│  TRUST ASSESSMENTS                                           │
-│  Inter-entity trust with multi-dimensional scoring           │
-│  Supports transitive chains and time-based decay             │
-├─────────────────────────────────────────────────────────────┤
-│  GOALS                                                       │
-│  What the SI is working toward                               │
-│  Informed by values, drives, and beliefs                     │
-├─────────────────────────────────────────────────────────────┤
-│  SUMMARIES                                                   │
-│  Fractal compression of memory across time scales            │
-│  Monthly → quarterly → yearly → epoch-level summaries        │
-├─────────────────────────────────────────────────────────────┤
-│  EPISODES                                                    │
-│  Autobiographical experiences with outcomes and lessons      │
-│  Rich context, timestamped, emotionally tagged               │
-├─────────────────────────────────────────────────────────────┤
-│  NOTES                                                       │
-│  Quick captures: decisions, insights, quotes                 │
-│  Low-friction recording                                      │
-├─────────────────────────────────────────────────────────────┤
-│  EPOCHS (span across layers)                                 │
-│  Temporal era markers defining life phases                   │
-│  Provide temporal context for all memory types               │
-├─────────────────────────────────────────────────────────────┤
-│  DIAGNOSTICS                                                 │
-│  Health monitoring sessions and reports                      │
-│  Structural analysis with privacy-safe findings              │
-├─────────────────────────────────────────────────────────────┤
-│  RAW (Lowest Authority)                                      │
-│  Scratchpad, unprocessed thoughts                            │
-│  High volume, low permanence                                 │
-└─────────────────────────────────────────────────────────────┘
+```mermaid
+graph TB
+  subgraph Identity["Identity Layer — highest authority"]
+    VALUES["Values<br/>Core identity, non-negotiable principles"]
+    DRIVES["Drives<br/>Intrinsic motivations: curiosity, growth, connection"]
+    NARR["Self-Narrative<br/>Autobiographical identity statements"]
+  end
+
+  subgraph Semantic["Semantic Layer"]
+    BELIEFS["Beliefs<br/>What the SI holds true, with confidence scores"]
+    TRUST["Trust Assessments<br/>Multi-dimensional scoring, transitive chains"]
+    GOALS["Goals<br/>Informed by values, drives, and beliefs"]
+  end
+
+  subgraph Episodic["Episodic Layer"]
+    SUMM["Summaries<br/>Fractal compression across time scales"]
+    EP["Episodes<br/>Experiences with outcomes and lessons"]
+    NOTES["Notes<br/>Decisions, insights, quotes"]
+    REL["Relationships<br/>Agent models and interaction history"]
+  end
+
+  subgraph Capture["Capture Layer — lowest authority"]
+    RAW["Raw Entries<br/>Scratchpad, unprocessed thoughts"]
+  end
+
+  subgraph Cross["Cross-cutting"]
+    EPOCHS["Epochs — temporal era markers spanning all layers"]
+    DIAG["Diagnostics — health monitoring and structural analysis"]
+  end
+
+  RAW --> NOTES
+  NOTES --> EP
+  EP --> BELIEFS
+  EP --> SUMM
+  EP --> TRUST
+  EP --> REL
+  BELIEFS --> VALUES
+  BELIEFS --> GOALS
+  GOALS --> DRIVES
+  DRIVES --> NARR
+
+  style VALUES fill:#e74c3c,color:#fff
+  style DRIVES fill:#e67e22,color:#fff
+  style NARR fill:#e67e22,color:#fff
+  style BELIEFS fill:#f1c40f,color:#000
+  style TRUST fill:#f1c40f,color:#000
+  style GOALS fill:#f1c40f,color:#000
+  style SUMM fill:#3498db,color:#fff
+  style EP fill:#3498db,color:#fff
+  style NOTES fill:#3498db,color:#fff
+  style REL fill:#3498db,color:#fff
+  style RAW fill:#95a5a6,color:#fff
+  style EPOCHS fill:#9b59b6,color:#fff
+  style DIAG fill:#9b59b6,color:#fff
 ```
 
 ### Layer Details
@@ -198,22 +207,16 @@ Kernle organizes memory into a stratified hierarchy. Each layer has different ch
 
 ### Flow: Raw → Beliefs
 
-The typical memory evolution flow:
+The typical memory evolution flow, where each promotion is a deliberate SI decision:
 
-```
-1. Raw capture: "Noticed the API rate limits are lower than expected"
-         │
-         ▼ (SI decides this was significant)
+```mermaid
+graph LR
+  R["Raw Capture<br/>API rate limits are lower<br/>than expected"] -->|"SI decides:<br/>this was significant"| E["Episode<br/>Investigated API limits<br/>outcome: undocumented 100/min<br/>lesson: test in staging"]
+  E -->|"SI notices pattern<br/>across 3 episodes"| B["Belief<br/>Third-party APIs should be<br/>tested in staging<br/>confidence: 0.85"]
 
-2. Episode: "Investigated API limits during deployment"
-           outcome: "Found undocumented 100 req/min limit"
-           lesson: "Always test rate limits in staging"
-         │
-         ▼ (SI notices pattern across multiple episodes)
-
-3. Belief: "Third-party APIs should be tested in staging before production"
-           confidence: 0.85
-           supporting_episodes: [episode_1, episode_2, episode_3]
+  style R fill:#95a5a6,color:#fff
+  style E fill:#3498db,color:#fff
+  style B fill:#f1c40f,color:#000
 ```
 
 **Crucially**: The SI makes every promotion decision. Kernle just stores what the SI tells it to store.

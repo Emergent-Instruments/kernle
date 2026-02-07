@@ -115,35 +115,34 @@ When a stack is attached, the core calls `stack.on_attach(core_id, inference_ser
 Plugins follow a strict lifecycle managed by the core.
 
 ```mermaid
-sequenceDiagram
-  participant Core as Entity
-  participant Plugin
-  participant Context as PluginContext
-
-  Core->>Core: discover_plugins() via entry points
-  Core->>Plugin: Check protocol_version
-  alt version > PROTOCOL_VERSION
-    Core-->>Core: Raise ValueError (refuse to load)
-  else version < PROTOCOL_VERSION
-    Core-->>Core: Log warning (proceed)
+graph TD
+  subgraph Discovery
+    A["discover_plugins()"] --> B["Check protocol_version"]
+    B -->|"version > core"| C["Raise ValueError"]
+    B -->|"version <= core"| D["Create PluginContext"]
   end
-  Core->>Context: Create _PluginContextImpl(entity, plugin.name)
-  Core->>Plugin: activate(context)
-  Plugin->>Context: Store context reference
-  Core->>Plugin: register_tools()
-  Core->>Core: Store tools in _plugin_tools
 
-  Note over Core,Plugin: Plugin is active
+  subgraph Activation
+    D --> E["plugin.activate(context)"]
+    E --> F["plugin.register_tools()"]
+    F --> G["Store tools in _plugin_tools"]
+  end
 
-  Core->>Plugin: on_load(context_dict) during load()
-  Core->>Plugin: on_status(status_dict) during status()
-  Core->>Plugin: health_check() during doctor
+  subgraph Active["Plugin Active"]
+    G --> H["on_load — contribute to working memory"]
+    G --> I["on_status — contribute to status"]
+    G --> J["health_check — report health"]
+  end
 
-  Note over Core,Plugin: Unloading
+  subgraph Unloading
+    H & I & J --> K["plugin.deactivate()"]
+    K --> L["Remove plugin, tools, context"]
+  end
 
-  Core->>Plugin: deactivate()
-  Plugin->>Plugin: Clean up resources
-  Core->>Core: Remove from _plugins, _plugin_tools
+  style A fill:#4a90d9,color:#fff
+  style E fill:#50c878,color:#fff
+  style C fill:#e74c3c,color:#fff
+  style K fill:#f0ad4e,color:#fff
 ```
 
 ## Protocol Version Enforcement
@@ -172,7 +171,7 @@ This ensures that a plugin built for a newer protocol cannot silently break on a
 When you call `entity.episode(...)`, the core does not just forward to the stack. It enforces provenance first.
 
 ```mermaid
-flowchart LR
+graph LR
   A["entity.episode(objective, outcome)"] --> B["_require_active_stack()"]
   B --> C["Create Episode dataclass"]
   C --> D["Populate provenance fields"]
