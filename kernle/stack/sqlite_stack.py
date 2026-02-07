@@ -984,6 +984,10 @@ class SQLiteStack(
         """Mark a note as processed."""
         return self._backend.mark_note_processed(note_id)
 
+    def mark_belief_processed(self, belief_id: str) -> bool:
+        """Mark a belief as processed."""
+        return self._backend.mark_belief_processed(belief_id)
+
     # ---- Stack Settings ----
 
     def get_stack_setting(self, key: str) -> Optional[str]:

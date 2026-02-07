@@ -2,11 +2,13 @@
 
 Provides advanced memory consolidation: cross-domain pattern detection,
 belief-to-value promotion, and entity model-to-belief promotion.
-When inference is available, can synthesize episodes into beliefs.
+When inference is available, synthesizes episodes into thematic patterns;
+falls back to keyword counting otherwise.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from collections import Counter, defaultdict
 from typing import Any, Dict, List, Optional
@@ -25,7 +27,8 @@ class ConsolidationComponent:
 
     Detects cross-domain patterns, identifies belief-to-value promotion
     candidates, and runs consolidation sweeps during maintenance.
-    Inference-dependent operations degrade gracefully without a model.
+    When inference is available, synthesizes themes from episodes;
+    falls back to keyword counting without a model.
     """
 
     name = "consolidation"
@@ -99,15 +102,62 @@ class ConsolidationComponent:
         if patterns:
             result["cross_domain_patterns"] = len(patterns)
 
-        if self._inference is None:
-            logger.debug("ConsolidationComponent: no inference, skipping synthesis")
-            result["inference_available"] = False
-        else:
+        # Try inference-based synthesis
+        synthesized = self._synthesize_via_inference(episodes)
+        if synthesized is not None:
             result["inference_available"] = True
+            result["synthesized_themes"] = synthesized
+        else:
+            if self._inference is None:
+                logger.debug("ConsolidationComponent: no inference, skipping synthesis")
+            result["inference_available"] = self._inference is not None
 
         return result
 
     # ---- Core Logic ----
+
+    def _synthesize_via_inference(self, episodes: list) -> Optional[List[str]]:
+        """Attempt to synthesize themes from episodes using inference.
+
+        Returns a list of theme strings on success, or None if inference
+        is unavailable or returns invalid data.
+        """
+        if self._inference is None:
+            return None
+
+        # Build a summary of episodes for the model
+        episode_summaries = []
+        for ep in episodes[:20]:  # Limit to avoid overly long prompts
+            objective = getattr(ep, "objective", "") or ""
+            outcome = getattr(ep, "outcome", "") or ""
+            lessons = getattr(ep, "lessons", None) or []
+            lesson_str = "; ".join(lessons) if lessons else "none"
+            episode_summaries.append(
+                f"- Objective: {objective}, Outcome: {outcome}, Lessons: {lesson_str}"
+            )
+
+        episodes_text = "\n".join(episode_summaries)
+
+        try:
+            response = self._inference.infer(
+                prompt=(
+                    "Analyze these episodes and identify recurring themes and patterns.\n\n"
+                    f"{episodes_text}\n\n"
+                    "Return a JSON object: "
+                    '{"themes": [list of theme strings describing recurring patterns]}'
+                ),
+                system="You are a pattern analysis system. Return only valid JSON.",
+            )
+            data = json.loads(response)
+            themes = data.get("themes", [])
+
+            if not isinstance(themes, list):
+                return None
+
+            return [str(t) for t in themes if isinstance(t, str)][:10]
+        except Exception:
+            logger.debug("ConsolidationComponent: inference synthesis failed, skipping")
+            return None
 
     def _detect_cross_domain_patterns(self, episodes: list) -> List[Dict[str, Any]]:
         """Detect structural similarities in outcomes across domains."""

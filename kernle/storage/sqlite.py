@@ -266,6 +266,8 @@ CREATE TABLE IF NOT EXISTS beliefs (
     consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
     -- Epoch tracking
     epoch_id TEXT,
+    -- Processing state
+    processed INTEGER DEFAULT 0,
     -- Belief scope and domain metadata (KEP v3)
     belief_scope TEXT DEFAULT 'world',
     source_domain TEXT,
@@ -2367,8 +2369,8 @@ class SQLiteStorage:
                 except Exception as e:
                     logger.warning(f"Failed to migrate is_forgotten data in {tbl}: {e}")
 
-        # Add processed column to episodes and notes
-        for tbl in ["episodes", "notes"]:
+        # Add processed column to episodes, notes, and beliefs
+        for tbl in ["episodes", "notes", "beliefs"]:
             if tbl not in table_names:
                 continue
             cols = get_columns(tbl)
@@ -3241,10 +3243,11 @@ class SQLiteStorage:
                  last_verified, verification_count, confidence_history,
                  supersedes, superseded_by, times_reinforced, is_active,
                  context, context_tags, source_entity, subject_ids, access_grants, consent_grants,
+                 processed,
                  belief_scope, source_domain, cross_domain_applications, abstraction_level,
                  epoch_id,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     belief.id,
@@ -3269,6 +3272,7 @@ class SQLiteStorage:
                     self._to_json(getattr(belief, "subject_ids", None)),
                     self._to_json(getattr(belief, "access_grants", None)),
                     self._to_json(getattr(belief, "consent_grants", None)),
+                    1 if belief.processed else 0,
                     getattr(belief, "belief_scope", "world"),
                     getattr(belief, "source_domain", None),
                     self._to_json(getattr(belief, "cross_domain_applications", None)),
@@ -3426,11 +3430,11 @@ class SQLiteStorage:
                      last_verified, verification_count, confidence_history,
                      supersedes, superseded_by, times_reinforced, is_active,
                      times_accessed, last_accessed, is_protected, strength,
-                     context, context_tags,
+                     context, context_tags, processed,
                      belief_scope, source_domain, cross_domain_applications, abstraction_level,
                      epoch_id,
                      local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         belief.id,
@@ -3455,6 +3459,7 @@ class SQLiteStorage:
                         belief.strength,
                         belief.context,
                         self._to_json(belief.context_tags),
+                        1 if belief.processed else 0,
                         getattr(belief, "belief_scope", "world"),
                         getattr(belief, "source_domain", None),
                         self._to_json(getattr(belief, "cross_domain_applications", None)),
@@ -3592,6 +3597,8 @@ class SQLiteStorage:
             subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
             access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
             consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
+            # Processing state
+            processed=bool(self._safe_get(row, "processed", 0)),
             # Belief scope and domain metadata (KEP v3)
             belief_scope=self._safe_get(row, "belief_scope", "world"),
             source_domain=self._safe_get(row, "source_domain", None),
@@ -6231,6 +6238,26 @@ class SQLiteStorage:
             )
             if cursor.rowcount > 0:
                 self._queue_sync(conn, "notes", note_id, "upsert")
+                conn.commit()
+                return True
+        return False
+
+    def mark_belief_processed(self, belief_id: str) -> bool:
+        """Mark a belief as processed for promotion."""
+        now = self._now()
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE beliefs SET
+                    processed = 1,
+                    local_updated_at = ?,
+                    version = version + 1
+                WHERE id = ? AND stack_id = ? AND deleted = 0
+            """,
+                (now, belief_id, self.stack_id),
+            )
+            if cursor.rowcount > 0:
+                self._queue_sync(conn, "beliefs", belief_id, "upsert")
                 conn.commit()
                 return True
         return False
