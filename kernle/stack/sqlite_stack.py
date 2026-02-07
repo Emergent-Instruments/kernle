@@ -573,6 +573,11 @@ class SQLiteStack(
             else:
                 content = str(record)[:200]
 
+            # Exclude forgotten/dormant memories from search
+            record_strength = getattr(record, "strength", 1.0)
+            if record_strength <= 0.0:
+                continue
+
             if min_confidence is not None:
                 record_conf = getattr(record, "confidence", 1.0)
                 if record_conf < min_confidence:

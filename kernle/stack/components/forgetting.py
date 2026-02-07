@@ -72,12 +72,44 @@ class ForgettingComponent:
         pass  # No working memory contribution
 
     def on_maintenance(self) -> Dict[str, Any]:
-        """Run forgetting sweep: decay salience, forget low-salience memories."""
+        """Run strength decay and forgetting sweep.
+
+        1. Compute new strength for all active, unprotected memories
+        2. Persist updated strength values
+        3. Forget memories that have decayed to 0.0
+        """
         if self._storage is None:
             logger.debug("ForgettingComponent: no storage, skipping maintenance")
             return {"skipped": True, "reason": "no_storage"}
 
-        candidates = self._get_forgetting_candidates(threshold=0.3, limit=10)
+        # Phase 1: Decay strength for all active memories
+        decayed = 0
+        strength_updates = []
+
+        try:
+            memories = self._storage.get_all_active_memories()
+        except AttributeError:
+            # Storage doesn't support bulk retrieval — fall back to old behavior
+            memories = []
+
+        for memory_type, record in memories:
+            current_strength = getattr(record, "strength", 1.0)
+            new_strength = self._compute_decayed_strength(memory_type, record)
+
+            if abs(new_strength - current_strength) > 0.001:
+                strength_updates.append((memory_type, record.id, new_strength))
+                decayed += 1
+
+        if strength_updates:
+            try:
+                self._storage.update_strength_batch(strength_updates)
+            except AttributeError:
+                # Fall back to individual updates
+                for mtype, mid, strength in strength_updates:
+                    self._storage.update_strength(mtype, mid, strength)
+
+        # Phase 2: Forget memories with very low strength
+        candidates = self._get_forgetting_candidates(threshold=0.2, limit=10)
         forgotten = 0
         protected = 0
 
@@ -85,7 +117,7 @@ class ForgettingComponent:
             success = self._storage.forget_memory(
                 candidate["type"],
                 candidate["id"],
-                f"Low salience ({candidate['salience']:.4f}) in forgetting cycle",
+                f"Low strength ({candidate['salience']:.4f}) in forgetting cycle",
             )
             if success:
                 forgotten += 1
@@ -93,10 +125,41 @@ class ForgettingComponent:
                 protected += 1
 
         return {
+            "decayed": decayed,
             "candidates_found": len(candidates),
             "forgotten": forgotten,
             "protected": protected,
         }
+
+    def _compute_decayed_strength(self, memory_type: str, record: Any) -> float:
+        """Compute new strength value after time-based decay.
+
+        Formula:
+        decay = days_since_last_access / half_life
+        reinforcement = log(times_accessed + 1) * 0.1
+        new_strength = max(0.0, current_strength - decay * 0.01 + reinforcement * 0.01)
+
+        The decay is gentle — 0.01 per half-life period — so memories fade
+        gradually over many maintenance cycles rather than all at once.
+        """
+        current_strength = getattr(record, "strength", 1.0)
+        times_accessed = getattr(record, "times_accessed", 0) or 0
+        last_accessed = getattr(record, "last_accessed", None)
+        created_at = getattr(record, "created_at", None)
+
+        reference_time = last_accessed or created_at
+        now = datetime.now(timezone.utc)
+        if reference_time:
+            days_since = (now - reference_time).total_seconds() / 86400
+        else:
+            days_since = 365
+
+        half_life = self._get_half_life(memory_type, record)
+        decay = days_since / half_life
+        reinforcement = math.log(times_accessed + 1) * 0.1
+
+        new_strength = current_strength - (decay * 0.01) + (reinforcement * 0.01)
+        return max(0.0, min(1.0, new_strength))
 
     # ---- Core Logic ----
 

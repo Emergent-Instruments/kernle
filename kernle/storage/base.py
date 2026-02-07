@@ -807,6 +807,20 @@ class Storage(Protocol):
         ...
 
     @abstractmethod
+    def update_strength(self, memory_type: str, memory_id: str, strength: float) -> bool:
+        """Update the strength field of a memory.
+
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            strength: New strength value (clamped to 0.0-1.0)
+
+        Returns:
+            True if updated, False if memory not found
+        """
+        ...
+
+    @abstractmethod
     def update_memory_meta(
         self,
         memory_type: str,

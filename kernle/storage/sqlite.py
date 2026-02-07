@@ -7185,12 +7185,16 @@ class SQLiteStorage:
 
         now = self._now()
 
+        # Boost strength slightly on access (diminishing returns)
+        # boost = 0.02 / (1 + times_accessed / 10) — starts at 0.02, falls to ~0.002 at 100 accesses
         with self._connect() as conn:
             cursor = conn.execute(
                 f"""UPDATE {table}
                    SET times_accessed = COALESCE(times_accessed, 0) + 1,
                        last_accessed = ?,
-                       local_updated_at = ?
+                       local_updated_at = ?,
+                       strength = MIN(1.0,
+                           COALESCE(strength, 1.0) + 0.02 / (1.0 + COALESCE(times_accessed, 0) / 10.0))
                    WHERE id = ? AND stack_id = ?""",
                 (now, now, memory_id, self.stack_id),
             )
@@ -7257,6 +7261,132 @@ class SQLiteStorage:
             conn.commit()
 
         return total_updated
+
+    def update_strength(self, memory_type: str, memory_id: str, strength: float) -> bool:
+        """Update the strength field of a memory.
+
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            strength: New strength value (clamped to 0.0-1.0)
+
+        Returns:
+            True if updated, False if memory not found
+        """
+        table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "agent_values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+        }
+        table = table_map.get(memory_type)
+        if not table:
+            return False
+
+        strength = max(0.0, min(1.0, strength))
+        now = self._now()
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                f"""UPDATE {table}
+                   SET strength = ?,
+                       local_updated_at = ?
+                   WHERE id = ? AND stack_id = ? AND deleted = 0""",
+                (strength, now, memory_id, self.stack_id),
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def update_strength_batch(self, updates: list[tuple[str, str, float]]) -> int:
+        """Update strength for multiple memories in a single transaction.
+
+        Args:
+            updates: List of (memory_type, memory_id, new_strength) tuples
+
+        Returns:
+            Number of memories successfully updated
+        """
+        if not updates:
+            return 0
+
+        table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "agent_values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+        }
+
+        now = self._now()
+        total_updated = 0
+
+        with self._connect() as conn:
+            for memory_type, memory_id, strength in updates:
+                table = table_map.get(memory_type)
+                if not table:
+                    continue
+                strength = max(0.0, min(1.0, strength))
+                cursor = conn.execute(
+                    f"""UPDATE {table}
+                       SET strength = ?,
+                           local_updated_at = ?
+                       WHERE id = ? AND stack_id = ? AND deleted = 0""",
+                    (strength, now, memory_id, self.stack_id),
+                )
+                total_updated += cursor.rowcount
+            conn.commit()
+
+        return total_updated
+
+    def get_all_active_memories(
+        self, memory_types: Optional[list[str]] = None
+    ) -> list[tuple[str, Any]]:
+        """Get all active (non-deleted, non-forgotten) memories for strength decay.
+
+        Args:
+            memory_types: Types to include (default: all except raw)
+
+        Returns:
+            List of (memory_type, record) tuples
+        """
+        if memory_types is None:
+            memory_types = ["episode", "belief", "goal", "note", "relationship"]
+
+        table_map = {
+            "episode": ("episodes", self._row_to_episode),
+            "belief": ("beliefs", self._row_to_belief),
+            "goal": ("goals", self._row_to_goal),
+            "note": ("notes", self._row_to_note),
+            "relationship": ("relationships", self._row_to_relationship),
+        }
+
+        results = []
+        with self._connect() as conn:
+            for mtype in memory_types:
+                entry = table_map.get(mtype)
+                if not entry:
+                    continue
+                table, converter = entry
+                rows = conn.execute(
+                    f"""SELECT * FROM {table}
+                       WHERE stack_id = ?
+                         AND deleted = 0
+                         AND COALESCE(is_protected, 0) = 0
+                         AND COALESCE(strength, 1.0) > 0.0
+                       ORDER BY strength ASC
+                       LIMIT 500""",
+                    (self.stack_id,),
+                ).fetchall()
+                for row in rows:
+                    record = converter(dict(row))
+                    results.append((mtype, record))
+
+        return results
 
     def forget_memory(
         self,
