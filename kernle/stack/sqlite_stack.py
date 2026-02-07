@@ -991,8 +991,13 @@ class SQLiteStack(
         return self._backend.get_stack_setting(key)
 
     def set_stack_setting(self, key: str, value: str) -> None:
-        """Set a stack setting (upsert)."""
+        """Set a stack setting (upsert). Updates in-memory state for known keys."""
         self._backend.set_stack_setting(key, value)
+        # Sync in-memory flags so changes take effect immediately
+        if key == "enforce_provenance":
+            self._enforce_provenance = value == "true"
+        elif key == "stack_state" and value in StackState.__members__:
+            self._state = StackState[value]
 
     def get_all_stack_settings(self) -> Dict[str, str]:
         """Get all stack settings as a dict."""

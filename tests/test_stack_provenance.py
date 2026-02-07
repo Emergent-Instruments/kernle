@@ -1196,6 +1196,60 @@ class TestStackScopedSettings:
         assert stack_a.get_all_stack_settings() == {"a": "1"}
         assert stack_b.get_all_stack_settings() == {"b": "2"}
 
+    def test_set_enforce_provenance_live(self, tmp_path):
+        """set_stack_setting('enforce_provenance', 'true') takes effect immediately."""
+        db_path = tmp_path / "live.db"
+        stack = SQLiteStack("test", db_path=db_path, components=[])
+        raw = RawEntry(id=_uid(), stack_id="test", blob="raw", source="test")
+        raw_id = stack.save_raw(raw)
+        ep = Episode(
+            id=_uid(),
+            stack_id="test",
+            objective="Ep",
+            outcome="Done",
+            source_type="seed",
+            derived_from=[f"raw:{raw_id}"],
+            created_at=_now(),
+        )
+        stack.save_episode(ep)
+        stack.on_attach("core-1")
+
+        # Provenance not enforced yet — belief without derived_from succeeds
+        b1 = Belief(
+            id=_uid(),
+            stack_id="test",
+            statement="No provenance",
+            source_type="inferred",
+            created_at=_now(),
+        )
+        assert stack.save_belief(b1)
+
+        # Enable provenance — should take effect immediately
+        stack.set_stack_setting("enforce_provenance", "true")
+        assert stack._enforce_provenance is True
+
+        b2 = Belief(
+            id=_uid(),
+            stack_id="test",
+            statement="No provenance after enable",
+            source_type="inferred",
+            created_at=_now(),
+        )
+        with pytest.raises(ProvenanceError):
+            stack.save_belief(b2)
+
+        # Disable again — immediately permissive
+        stack.set_stack_setting("enforce_provenance", "false")
+        assert stack._enforce_provenance is False
+        b3 = Belief(
+            id=_uid(),
+            stack_id="test",
+            statement="Allowed again",
+            source_type="inferred",
+            created_at=_now(),
+        )
+        assert stack.save_belief(b3)
+
 
 # ==============================================================================
 # Kernle strict-mode tests
