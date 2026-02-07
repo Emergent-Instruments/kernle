@@ -331,24 +331,15 @@ kernle status
 # Model can call topics.track_topic and topics.get_topics
 ```
 
-## Real-World Plugins
+## Ecosystem Plugins
 
-### chainbased (Commerce)
+Production plugins built on PluginProtocol:
 
-The chainbased plugin adds wallet management, job marketplace, skills registry, and escrow to a kernle entity. It implements `PluginProtocol` with capabilities like `["wallet", "jobs", "skills", "escrow"]`.
-
-- Uses its own SQLite database in the plugin data directory
-- Registers CLI commands: `wallet`, `jobs`, `skills`
-- Registers MCP tools for model integration
-- Writes episodes through PluginContext when transactions complete
-
-### fatline (Communications)
-
-The fatline plugin adds an agent registry and Ed25519 cryptographic identity. It enables secure inter-entity communication.
-
-- Manages its own agent registry database
-- Provides cryptographic signing and verification
-- Registers tools for message signing and discovery
-- Uses `get_data_dir()` for key storage
-
-Both plugins are registered as `kernle.plugins` entry points in their respective `pyproject.toml` files and are discovered automatically when installed.
+<CardGroup cols={2}>
+  <Card title="Chainbased (Commerce)" icon="coins" href="https://github.com/emergent-instruments/chainbased">
+    Wallet management, job marketplace, escrow services, and skills registry. USDC payments on Base.
+  </Card>
+  <Card title="Fatline (Communications)" icon="satellite-dish" href="https://github.com/emergent-instruments/fatline">
+    Agent registry, Ed25519 crypto identity, messaging, collaboration, and consent-based memory sharing.
+  </Card>
+</CardGroup>

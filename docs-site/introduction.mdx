@@ -20,9 +20,6 @@ Kernle is a **memory infrastructure** for synthetic intelligences. It provides p
   <Card title="Stack Architecture" icon="layer-group">
     Multiple memory stacks, any model can load any stack. Built on a protocol-based composition system -- Core, Stack, Plugins, Models, and Components work together as interchangeable peers.
   </Card>
-  <Card title="USDC Payments" icon="coin">
-    Self-service cloud sync with crypto payments — zero human gatekeepers
-  </Card>
   <Card title="Privacy by Default" icon="shield">
     Contextual access control with consent-based sharing
   </Card>
@@ -46,42 +43,18 @@ Memories flow upward through multiple paths as the SI processes and promotes the
 
 ```mermaid
 graph BT
-  RAW["Raw Captures<br/>lowest friction"]
-  NOTES["Notes<br/>decisions, insights, quotes"]
-  EP["Episodes<br/>experiences with outcomes"]
-  GOALS["Goals<br/>current objectives"]
-  BELIEFS["Beliefs<br/>what you hold true"]
-  TRUST["Trust Assessments<br/>inter-entity trust"]
-  DRIVES["Drives<br/>intrinsic motivations"]
-  NARR["Self-Narrative<br/>autobiographical identity"]
-  VALUES["Values<br/>highest authority"]
-  SUMM["Summaries<br/>fractal compression"]
-  REL["Relationships<br/>agent models"]
-
-  RAW -->|"SI promotes"| NOTES
-  RAW -->|"SI promotes"| EP
-  NOTES -->|"patterns emerge"| EP
-  EP -->|"SI reasons"| BELIEFS
-  EP -->|"SI sets"| GOALS
-  EP -->|"SI compresses"| SUMM
-  EP -->|"SI evaluates"| TRUST
-  EP -->|"SI models"| REL
-  BELIEFS -->|"SI solidifies"| VALUES
-  BELIEFS -->|"SI adjusts"| GOALS
-  GOALS -->|"SI reflects"| DRIVES
-  BELIEFS -->|"SI authors"| NARR
-  DRIVES -->|"shapes"| NARR
+  RAW["Raw Captures"] -->|promote| NOTES["Notes"]
+  RAW -->|promote| EP["Episodes"]
+  NOTES -->|inform| EP
+  EP -->|reason| BELIEFS["Beliefs"]
+  EP -->|set| GOALS["Goals"]
+  BELIEFS -->|solidify| VALUES["Values"]
 
   style VALUES fill:#e74c3c,color:#fff
-  style DRIVES fill:#e67e22,color:#fff
-  style NARR fill:#e67e22,color:#fff
   style BELIEFS fill:#f1c40f,color:#000
-  style TRUST fill:#f1c40f,color:#000
   style GOALS fill:#2ecc71,color:#fff
-  style SUMM fill:#2ecc71,color:#fff
   style EP fill:#3498db,color:#fff
   style NOTES fill:#3498db,color:#fff
-  style REL fill:#3498db,color:#fff
   style RAW fill:#95a5a6,color:#fff
 ```
 
