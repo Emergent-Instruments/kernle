@@ -657,3 +657,294 @@ class TestSeedWrites:
         )
         with pytest.raises(ProvenanceError):
             enforced_stack.save_belief(belief)
+
+
+# ==============================================================================
+# Annotation ref compatibility (context:, kernle:)
+# ==============================================================================
+
+
+class TestAnnotationRefs:
+    """Test that annotation refs (context:, kernle:) are accepted in derived_from."""
+
+    @pytest.fixture
+    def active_stack(self, tmp_path):
+        """Stack in ACTIVE state with enforce_provenance=True."""
+        stack = SQLiteStack(
+            "test-stack",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=True,
+        )
+        # Save a raw entry and episode for provenance chains
+        raw = RawEntry(id=_uid(), stack_id="test-stack", blob="seed raw", source="test")
+        raw_id = stack.save_raw(raw)
+        ep = Episode(
+            id=_uid(),
+            stack_id="test-stack",
+            objective="Seed episode",
+            outcome="Done",
+            source_type="seed",
+            derived_from=[f"raw:{raw_id}"],
+            created_at=_now(),
+        )
+        ep_id = stack.save_episode(ep)
+        # Transition to ACTIVE
+        stack.on_attach(core_id="core-1", inference=None)
+        # Store IDs for tests
+        stack._test_raw_id = raw_id
+        stack._test_ep_id = ep_id
+        return stack
+
+    def test_context_ref_alongside_real_ref(self, active_stack):
+        """context: annotation alongside a real episode ref should pass."""
+        belief = Belief(
+            id=_uid(),
+            stack_id="test-stack",
+            statement="Belief with context annotation",
+            source_type="inferred",
+            derived_from=[
+                f"episode:{active_stack._test_ep_id}",
+                "context:cli",
+            ],
+            created_at=_now(),
+        )
+        bid = active_stack.save_belief(belief)
+        assert bid
+
+    def test_kernle_ref_alongside_real_ref(self, active_stack):
+        """kernle: annotation alongside a real episode ref should pass."""
+        belief = Belief(
+            id=_uid(),
+            stack_id="test-stack",
+            statement="Belief with kernle annotation",
+            source_type="inferred",
+            derived_from=[
+                f"episode:{active_stack._test_ep_id}",
+                "kernle:system",
+            ],
+            created_at=_now(),
+        )
+        bid = active_stack.save_belief(belief)
+        assert bid
+
+    def test_only_annotation_refs_rejected(self, active_stack):
+        """Only annotation refs with no real provenance should be rejected."""
+        belief = Belief(
+            id=_uid(),
+            stack_id="test-stack",
+            statement="Only annotations",
+            source_type="inferred",
+            derived_from=["context:cli", "kernle:system"],
+            created_at=_now(),
+        )
+        with pytest.raises(ProvenanceError, match="only annotation refs"):
+            active_stack.save_belief(belief)
+
+    def test_context_ref_with_complex_value(self, active_stack):
+        """context: with colons in the value should work."""
+        belief = Belief(
+            id=_uid(),
+            stack_id="test-stack",
+            statement="Context ref with colons",
+            source_type="inferred",
+            derived_from=[
+                f"episode:{active_stack._test_ep_id}",
+                "context:kernle_seed_v2:batch_1",
+            ],
+            created_at=_now(),
+        )
+        bid = active_stack.save_belief(belief)
+        assert bid
+
+    def test_annotation_refs_in_episode(self, active_stack):
+        """Annotation refs work for episodes too."""
+        ep = Episode(
+            id=_uid(),
+            stack_id="test-stack",
+            objective="Episode with annotation",
+            outcome="Done",
+            source_type="processed",
+            derived_from=[
+                f"raw:{active_stack._test_raw_id}",
+                "context:consolidation",
+            ],
+            created_at=_now(),
+        )
+        eid = active_stack.save_episode(ep)
+        assert eid
+
+
+# ==============================================================================
+# Stack Settings
+# ==============================================================================
+
+
+class TestStackSettings:
+    """Test per-stack settings (feature flags)."""
+
+    def test_get_nonexistent_setting(self, tmp_path):
+        stack = SQLiteStack("test", db_path=tmp_path / "test.db", components=[])
+        assert stack.get_stack_setting("nonexistent") is None
+
+    def test_set_and_get_setting(self, tmp_path):
+        stack = SQLiteStack("test", db_path=tmp_path / "test.db", components=[])
+        stack.set_stack_setting("enforce_provenance", "true")
+        assert stack.get_stack_setting("enforce_provenance") == "true"
+
+    def test_upsert_setting(self, tmp_path):
+        stack = SQLiteStack("test", db_path=tmp_path / "test.db", components=[])
+        stack.set_stack_setting("key", "v1")
+        stack.set_stack_setting("key", "v2")
+        assert stack.get_stack_setting("key") == "v2"
+
+    def test_get_all_settings(self, tmp_path):
+        stack = SQLiteStack("test", db_path=tmp_path / "test.db", components=[])
+        stack.set_stack_setting("a", "1")
+        stack.set_stack_setting("b", "2")
+        settings = stack.get_all_stack_settings()
+        assert settings == {"a": "1", "b": "2"}
+
+    def test_get_all_empty(self, tmp_path):
+        stack = SQLiteStack("test", db_path=tmp_path / "test.db", components=[])
+        assert stack.get_all_stack_settings() == {}
+
+
+# ==============================================================================
+# Stack State Persistence
+# ==============================================================================
+
+
+class TestStackStatePersistence:
+    """Test that stack lifecycle state survives across instances."""
+
+    def test_new_stack_starts_initializing(self, tmp_path):
+        stack = SQLiteStack("test", db_path=tmp_path / "test.db", components=[])
+        assert stack.state == StackState.INITIALIZING
+
+    def test_on_attach_persists_active_state(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        stack = SQLiteStack("test", db_path=db_path, components=[])
+        stack.on_attach(core_id="core-1", inference=None)
+        assert stack.state == StackState.ACTIVE
+
+        # New instance should load persisted ACTIVE state
+        stack2 = SQLiteStack("test", db_path=db_path, components=[])
+        assert stack2.state == StackState.ACTIVE
+
+    def test_maintenance_state_persisted(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        stack = SQLiteStack("test", db_path=db_path, components=[])
+        stack.on_attach(core_id="core-1", inference=None)
+        stack.enter_maintenance()
+        assert stack.state == StackState.MAINTENANCE
+
+        stack2 = SQLiteStack("test", db_path=db_path, components=[])
+        assert stack2.state == StackState.MAINTENANCE
+
+    def test_exit_maintenance_persists(self, tmp_path):
+        db_path = tmp_path / "test.db"
+        stack = SQLiteStack("test", db_path=db_path, components=[])
+        stack.on_attach(core_id="core-1", inference=None)
+        stack.enter_maintenance()
+        stack.exit_maintenance()
+        assert stack.state == StackState.ACTIVE
+
+        stack2 = SQLiteStack("test", db_path=db_path, components=[])
+        assert stack2.state == StackState.ACTIVE
+
+    def test_enforce_provenance_persisted(self, tmp_path):
+        """enforce_provenance can be loaded from stack settings."""
+        db_path = tmp_path / "test.db"
+        stack = SQLiteStack("test", db_path=db_path, components=[])
+        stack.set_stack_setting("enforce_provenance", "true")
+
+        # New instance without explicit enforce_provenance should pick it up
+        stack2 = SQLiteStack("test", db_path=db_path, components=[])
+        assert stack2._enforce_provenance is True
+
+    def test_explicit_enforce_provenance_overrides(self, tmp_path):
+        """Explicit enforce_provenance=True always wins."""
+        db_path = tmp_path / "test.db"
+        stack = SQLiteStack("test", db_path=db_path, components=[], enforce_provenance=True)
+        assert stack._enforce_provenance is True
+
+
+# ==============================================================================
+# Plugin-sourced write bypass
+# ==============================================================================
+
+
+class TestPluginProvenanceBypass:
+    """Test that plugin-sourced writes bypass provenance validation."""
+
+    @pytest.fixture
+    def active_enforced_stack(self, tmp_path):
+        stack = SQLiteStack(
+            "test",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=True,
+        )
+        # Save a raw + episode for non-plugin tests
+        raw = RawEntry(id=_uid(), stack_id="test", blob="raw", source="test")
+        raw_id = stack.save_raw(raw)
+        ep = Episode(
+            id=_uid(),
+            stack_id="test",
+            objective="Ep",
+            outcome="Done",
+            source_type="seed",
+            derived_from=[f"raw:{raw_id}"],
+            created_at=_now(),
+        )
+        ep_id = stack.save_episode(ep)
+        # Transition to ACTIVE
+        stack.on_attach(core_id="core-1", inference=None)
+        stack._test_raw_id = raw_id
+        stack._test_ep_id = ep_id
+        return stack
+
+    def test_plugin_sourced_belief_bypasses_provenance(self, active_enforced_stack):
+        """A belief with source_entity='plugin:foo' should bypass provenance."""
+        belief = Belief(
+            id=_uid(),
+            stack_id="test",
+            statement="Plugin belief",
+            source_type="inferred",
+            derived_from=None,
+            created_at=_now(),
+        )
+        belief.source_entity = "plugin:chainbased"
+        bid = active_enforced_stack.save_belief(belief)
+        assert bid
+
+    def test_core_sourced_belief_requires_provenance(self, active_enforced_stack):
+        """A belief with source_entity='core:...' still requires provenance."""
+        belief = Belief(
+            id=_uid(),
+            stack_id="test",
+            statement="Core belief",
+            source_type="inferred",
+            derived_from=None,
+            created_at=_now(),
+        )
+        belief.source_entity = "core:core-1"
+        with pytest.raises(ProvenanceError):
+            active_enforced_stack.save_belief(belief)
+
+    def test_plugin_sourced_goal_bypasses(self, active_enforced_stack):
+        """Plugin goals bypass provenance."""
+        goal = Goal(
+            id=_uid(),
+            stack_id="test",
+            title="Plugin goal",
+            goal_type="task",
+            priority="medium",
+            source_type="inferred",
+            derived_from=None,
+            created_at=_now(),
+        )
+        goal.source_entity = "plugin:fatline"
+        gid = active_enforced_stack.save_goal(goal)
+        assert gid

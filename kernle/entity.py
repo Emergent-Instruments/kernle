@@ -217,6 +217,29 @@ class _PluginContextImpl:
             source=f"plugin:{self._plugin_name}",
         )
 
+    def drive(
+        self,
+        drive_type: str,
+        *,
+        intensity: float = 0.5,
+        focus_areas: Optional[list[str]] = None,
+        decay_hours: int = 24,
+        derived_from: Optional[list[str]] = None,
+        context: Optional[str] = None,
+    ) -> Optional[str]:
+        stack = self._entity.active_stack
+        if stack is None:
+            return None
+        return self._entity.drive(
+            drive_type,
+            intensity=intensity,
+            focus_areas=focus_areas,
+            decay_hours=decay_hours,
+            derived_from=derived_from,
+            source=f"plugin:{self._plugin_name}",
+            context=context,
+        )
+
     def raw(
         self,
         content: str,

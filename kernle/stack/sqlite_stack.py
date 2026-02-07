@@ -130,6 +130,12 @@ PROVENANCE_RULES: Dict[str, List[str]] = {
     "drive": ["episode", "belief"],
 }
 
+# Annotation ref types: valid in derived_from but not traversable provenance.
+# These are metadata markers (e.g., "context:cli", "kernle:system") that
+# indicate how/where a memory was created, not what it was derived from.
+# Lineage.py also skips these during cycle detection.
+ANNOTATION_REF_TYPES = {"context", "kernle"}
+
 
 class SQLiteStack(
     AnxietyMixin,
@@ -171,8 +177,20 @@ class SQLiteStack(
         # Composition state
         self._attached_core_id: Optional[str] = None
         self._inference: Optional[InferenceService] = None
-        self._state: StackState = StackState.INITIALIZING
         self._enforce_provenance = enforce_provenance
+
+        # Load persisted state or default to INITIALIZING
+        persisted_state = self._backend.get_stack_setting("stack_state")
+        if persisted_state and persisted_state in StackState.__members__:
+            self._state: StackState = StackState[persisted_state]
+        else:
+            self._state = StackState.INITIALIZING
+
+        # Load enforce_provenance from settings if not explicitly set
+        if not enforce_provenance:
+            persisted_provenance = self._backend.get_stack_setting("enforce_provenance")
+            if persisted_provenance == "true":
+                self._enforce_provenance = True
 
         # Auto-load components: None = defaults, [] = bare, list = explicit
         if components is None:
@@ -279,20 +297,26 @@ class SQLiteStack(
         if self._state == StackState.MAINTENANCE:
             return
         self._state = StackState.MAINTENANCE
+        self._backend.set_stack_setting("stack_state", StackState.MAINTENANCE.name)
 
     def exit_maintenance(self) -> None:
         """Exit maintenance mode, returning to ACTIVE state."""
         if self._state != StackState.MAINTENANCE:
             return
         self._state = StackState.ACTIVE
+        self._backend.set_stack_setting("stack_state", StackState.ACTIVE.name)
 
     # ---- Provenance Validation ----
 
-    def _validate_provenance(self, memory_type: str, derived_from: Optional[list]) -> None:
+    def _validate_provenance(
+        self, memory_type: str, derived_from: Optional[list], source_entity: Optional[str] = None
+    ) -> None:
         """Validate provenance for a memory write.
 
         Only enforced when stack is ACTIVE. INITIALIZING allows any write
         (for seed data). MAINTENANCE rejects non-admin writes.
+        Plugin-sourced writes (source_entity starting with "plugin:") have
+        relaxed provenance requirements.
 
         Raises:
             ProvenanceError: If provenance is missing or invalid
@@ -303,6 +327,10 @@ class SQLiteStack(
 
         if not self._enforce_provenance:
             return  # Provenance enforcement disabled
+
+        # Plugin-sourced writes have relaxed provenance requirements
+        if source_entity and source_entity.startswith("plugin:"):
+            return
 
         if self._state == StackState.MAINTENANCE:
             raise MaintenanceModeError(
@@ -321,6 +349,7 @@ class SQLiteStack(
                 f"derived_from must cite at least one: {', '.join(allowed_types)}"
             )
 
+        has_real_ref = False
         for ref in derived_from:
             if ":" not in ref:
                 raise ProvenanceError(
@@ -328,6 +357,11 @@ class SQLiteStack(
                     "Expected format 'type:id' (e.g., 'episode:abc123')"
                 )
             ref_type, ref_id = ref.split(":", 1)
+            # Annotation refs (context:, kernle:) are metadata markers,
+            # not provenance sources. Skip hierarchy/existence checks.
+            if ref_type in ANNOTATION_REF_TYPES:
+                continue
+            has_real_ref = True
             if ref_type not in allowed_types:
                 raise ProvenanceError(
                     f"Invalid provenance for {memory_type}: '{ref_type}' is not an allowed source. "
@@ -337,46 +371,63 @@ class SQLiteStack(
             if not self._backend.memory_exists(ref_type, ref_id):
                 raise ProvenanceError(f"Referenced {ref_type}:{ref_id} does not exist in the stack")
 
+        # Must have at least one real provenance ref (not just annotations)
+        if not has_real_ref:
+            raise ProvenanceError(
+                f"Cannot save {memory_type} with only annotation refs. "
+                f"derived_from must cite at least one: {', '.join(allowed_types)}"
+            )
+
     # ---- Write Operations ----
 
     def save_episode(self, episode: Episode) -> str:
-        self._validate_provenance("episode", episode.derived_from)
+        self._validate_provenance(
+            "episode", episode.derived_from, getattr(episode, "source_entity", None)
+        )
         result_id = self._backend.save_episode(episode)
         self._dispatch_on_save("episode", result_id, episode)
         return result_id
 
     def save_belief(self, belief: Belief) -> str:
-        self._validate_provenance("belief", belief.derived_from)
+        self._validate_provenance(
+            "belief", belief.derived_from, getattr(belief, "source_entity", None)
+        )
         result_id = self._backend.save_belief(belief)
         self._dispatch_on_save("belief", result_id, belief)
         return result_id
 
     def save_value(self, value: Value) -> str:
-        self._validate_provenance("value", value.derived_from)
+        self._validate_provenance(
+            "value", value.derived_from, getattr(value, "source_entity", None)
+        )
         result_id = self._backend.save_value(value)
         self._dispatch_on_save("value", result_id, value)
         return result_id
 
     def save_goal(self, goal: Goal) -> str:
-        self._validate_provenance("goal", goal.derived_from)
+        self._validate_provenance("goal", goal.derived_from, getattr(goal, "source_entity", None))
         result_id = self._backend.save_goal(goal)
         self._dispatch_on_save("goal", result_id, goal)
         return result_id
 
     def save_note(self, note: Note) -> str:
-        self._validate_provenance("note", note.derived_from)
+        self._validate_provenance("note", note.derived_from, getattr(note, "source_entity", None))
         result_id = self._backend.save_note(note)
         self._dispatch_on_save("note", result_id, note)
         return result_id
 
     def save_drive(self, drive: Drive) -> str:
-        self._validate_provenance("drive", drive.derived_from)
+        self._validate_provenance(
+            "drive", drive.derived_from, getattr(drive, "source_entity", None)
+        )
         result_id = self._backend.save_drive(drive)
         self._dispatch_on_save("drive", result_id, drive)
         return result_id
 
     def save_relationship(self, relationship: Relationship) -> str:
-        self._validate_provenance("relationship", relationship.derived_from)
+        self._validate_provenance(
+            "relationship", relationship.derived_from, getattr(relationship, "source_entity", None)
+        )
         result_id = self._backend.save_relationship(relationship)
         self._dispatch_on_save("relationship", result_id, relationship)
         return result_id
@@ -906,6 +957,20 @@ class SQLiteStack(
         """Mark a note as processed."""
         return self._backend.mark_note_processed(note_id)
 
+    # ---- Stack Settings ----
+
+    def get_stack_setting(self, key: str) -> Optional[str]:
+        """Get a stack setting value by key."""
+        return self._backend.get_stack_setting(key)
+
+    def set_stack_setting(self, key: str, value: str) -> None:
+        """Set a stack setting (upsert)."""
+        self._backend.set_stack_setting(key, value)
+
+    def get_all_stack_settings(self) -> Dict[str, str]:
+        """Get all stack settings as a dict."""
+        return self._backend.get_all_stack_settings()
+
     # ---- Trust Layer ----
 
     def save_trust_assessment(self, assessment: TrustAssessment) -> str:
@@ -1059,6 +1124,7 @@ class SQLiteStack(
         # Transition to ACTIVE on first attach (provenance enforcement begins)
         if self._state == StackState.INITIALIZING:
             self._state = StackState.ACTIVE
+            self._backend.set_stack_setting("stack_state", StackState.ACTIVE.name)
 
     def on_detach(self, core_id: str) -> None:
         self._attached_core_id = None
