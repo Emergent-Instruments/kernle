@@ -974,6 +974,74 @@ class Storage(Protocol):
         """
         ...
 
+    def weaken_memory(self, memory_type: str, memory_id: str, amount: float) -> bool:
+        """Reduce a memory's strength by a given amount.
+
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            amount: Amount to reduce strength by (positive value)
+
+        Returns:
+            True if updated, False if not found or protected
+        """
+        ...
+
+    def verify_memory(self, memory_type: str, memory_id: str) -> bool:
+        """Verify a memory: boost strength and increment verification count.
+
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+
+        Returns:
+            True if updated, False if not found
+        """
+        ...
+
+    def log_audit(
+        self,
+        memory_type: str,
+        memory_id: str,
+        operation: str,
+        actor: str,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Log an audit entry for a memory operation.
+
+        Args:
+            memory_type: Type of memory affected
+            memory_id: ID of the memory affected
+            operation: Operation name (forget, recover, protect, weaken, verify)
+            actor: Who performed the operation
+            details: Optional JSON-serializable details
+
+        Returns:
+            The audit entry ID
+        """
+        ...
+
+    def get_audit_log(
+        self,
+        *,
+        memory_type: Optional[str] = None,
+        memory_id: Optional[str] = None,
+        operation: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Get audit log entries.
+
+        Args:
+            memory_type: Filter by memory type
+            memory_id: Filter by memory ID
+            operation: Filter by operation type
+            limit: Max entries to return
+
+        Returns:
+            List of audit entry dicts
+        """
+        ...
+
     @abstractmethod
     def get_forgetting_candidates(
         self,
