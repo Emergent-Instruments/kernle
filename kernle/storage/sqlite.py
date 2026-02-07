@@ -7445,6 +7445,20 @@ class SQLiteStorage:
                    WHERE id = ? AND stack_id = ?""",
                 (now, memory_id, self.stack_id),
             )
+            if cursor.rowcount > 0:
+                conn.execute(
+                    """INSERT INTO memory_audit (id, memory_type, memory_id, operation, details, actor, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        str(uuid.uuid4()),
+                        memory_type,
+                        memory_id,
+                        "forget",
+                        json.dumps({"reason": reason}) if reason else None,
+                        "system",
+                        now,
+                    ),
+                )
             self._queue_sync(conn, table, memory_id, "update")
             conn.commit()
             return cursor.rowcount > 0
@@ -7492,6 +7506,12 @@ class SQLiteStorage:
                    WHERE id = ? AND stack_id = ?""",
                 (now, memory_id, self.stack_id),
             )
+            if cursor.rowcount > 0:
+                conn.execute(
+                    """INSERT INTO memory_audit (id, memory_type, memory_id, operation, details, actor, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (str(uuid.uuid4()), memory_type, memory_id, "recover", None, "system", now),
+                )
             self._queue_sync(conn, table, memory_id, "update")
             conn.commit()
             return cursor.rowcount > 0
@@ -7530,6 +7550,208 @@ class SQLiteStorage:
                        local_updated_at = ?
                    WHERE id = ? AND stack_id = ?""",
                 (1 if protected else 0, now, memory_id, self.stack_id),
+            )
+            if cursor.rowcount > 0:
+                conn.execute(
+                    """INSERT INTO memory_audit (id, memory_type, memory_id, operation, details, actor, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        str(uuid.uuid4()),
+                        memory_type,
+                        memory_id,
+                        "protect" if protected else "unprotect",
+                        None,
+                        "system",
+                        now,
+                    ),
+                )
+            self._queue_sync(conn, table, memory_id, "update")
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def log_audit(
+        self,
+        memory_type: str,
+        memory_id: str,
+        operation: str,
+        actor: str,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Log an audit entry for a memory operation.
+
+        Args:
+            memory_type: Type of memory affected
+            memory_id: ID of the memory affected
+            operation: Operation name (forget, recover, protect, weaken, verify)
+            actor: Who performed the operation (e.g. 'core:{id}', 'plugin:{name}')
+            details: Optional JSON-serializable details about the operation
+
+        Returns:
+            The audit entry ID
+        """
+        audit_id = str(uuid.uuid4())
+        now = self._now()
+
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO memory_audit (id, memory_type, memory_id, operation, details, actor, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    audit_id,
+                    memory_type,
+                    memory_id,
+                    operation,
+                    json.dumps(details) if details else None,
+                    actor,
+                    now,
+                ),
+            )
+            conn.commit()
+        return audit_id
+
+    def get_audit_log(
+        self,
+        *,
+        memory_type: Optional[str] = None,
+        memory_id: Optional[str] = None,
+        operation: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Get audit log entries.
+
+        Args:
+            memory_type: Filter by memory type
+            memory_id: Filter by memory ID
+            operation: Filter by operation type
+            limit: Max entries to return
+
+        Returns:
+            List of audit entry dicts
+        """
+        conditions = ["1=1"]
+        params: list = []
+
+        if memory_type:
+            conditions.append("memory_type = ?")
+            params.append(memory_type)
+        if memory_id:
+            conditions.append("memory_id = ?")
+            params.append(memory_id)
+        if operation:
+            conditions.append("operation = ?")
+            params.append(operation)
+
+        params.append(limit)
+
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""SELECT id, memory_type, memory_id, operation, details, actor, created_at
+                   FROM memory_audit
+                   WHERE {' AND '.join(conditions)}
+                   ORDER BY created_at DESC
+                   LIMIT ?""",
+                params,
+            ).fetchall()
+
+        results = []
+        for row in rows:
+            entry = {
+                "id": row["id"],
+                "memory_type": row["memory_type"],
+                "memory_id": row["memory_id"],
+                "operation": row["operation"],
+                "details": json.loads(row["details"]) if row["details"] else None,
+                "actor": row["actor"],
+                "created_at": row["created_at"],
+            }
+            results.append(entry)
+        return results
+
+    def weaken_memory(
+        self,
+        memory_type: str,
+        memory_id: str,
+        amount: float,
+    ) -> bool:
+        """Reduce a memory's strength by a given amount.
+
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            amount: Amount to reduce strength by (positive value)
+
+        Returns:
+            True if updated, False if memory not found or protected
+        """
+        table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "agent_values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+        }
+
+        table = table_map.get(memory_type)
+        if not table:
+            return False
+
+        amount = abs(amount)  # Ensure positive
+        now = self._now()
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                f"""UPDATE {table}
+                   SET strength = MAX(0.0, COALESCE(strength, 1.0) - ?),
+                       local_updated_at = ?
+                   WHERE id = ? AND stack_id = ? AND deleted = 0
+                     AND COALESCE(is_protected, 0) = 0""",
+                (amount, now, memory_id, self.stack_id),
+            )
+            self._queue_sync(conn, table, memory_id, "update")
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def verify_memory(
+        self,
+        memory_type: str,
+        memory_id: str,
+    ) -> bool:
+        """Verify a memory: boost strength and increment verification count.
+
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+
+        Returns:
+            True if updated, False if memory not found
+        """
+        table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "agent_values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+        }
+
+        table = table_map.get(memory_type)
+        if not table:
+            return False
+
+        now = self._now()
+
+        with self._connect() as conn:
+            cursor = conn.execute(
+                f"""UPDATE {table}
+                   SET strength = MIN(1.0, COALESCE(strength, 1.0) + 0.1),
+                       verification_count = COALESCE(verification_count, 0) + 1,
+                       last_verified = ?,
+                       local_updated_at = ?
+                   WHERE id = ? AND stack_id = ? AND deleted = 0""",
+                (now, now, memory_id, self.stack_id),
             )
             self._queue_sync(conn, table, memory_id, "update")
             conn.commit()

@@ -22,6 +22,7 @@ Use SQLiteStorage for full functionality. SupabaseStorage is suitable for
 cloud sync of core memories and supports forgetting/tombstoning operations.
 """
 
+import json
 import logging
 import os
 import uuid
@@ -1995,6 +1996,176 @@ class SupabaseStorage:
         except Exception as e:
             logger.warning(f"Could not protect {memory_type}:{memory_id}: {e}")
             return False
+
+    def weaken_memory(self, memory_type: str, memory_id: str, amount: float) -> bool:
+        """Reduce a memory's strength by a given amount."""
+        table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+        }
+
+        table = table_map.get(memory_type)
+        if not table:
+            return False
+
+        amount = abs(amount)
+        now = self._now()
+
+        try:
+            # Get current strength first
+            result = (
+                self.client.table(table)
+                .select("strength, is_protected")
+                .eq("id", memory_id)
+                .eq("stack_id", self.stack_id)
+                .execute()
+            )
+            if not result.data:
+                return False
+
+            row = result.data[0]
+            if row.get("is_protected"):
+                return False
+
+            current = row.get("strength", 1.0) or 1.0
+            new_strength = max(0.0, current - amount)
+
+            result = (
+                self.client.table(table)
+                .update({"strength": new_strength, "local_updated_at": now})
+                .eq("id", memory_id)
+                .eq("stack_id", self.stack_id)
+                .execute()
+            )
+            return len(result.data) > 0
+        except Exception as e:
+            logger.warning(f"Could not weaken {memory_type}:{memory_id}: {e}")
+            return False
+
+    def verify_memory(self, memory_type: str, memory_id: str) -> bool:
+        """Verify a memory: boost strength and increment verification count."""
+        table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+        }
+
+        table = table_map.get(memory_type)
+        if not table:
+            return False
+
+        now = self._now()
+
+        try:
+            # Get current values
+            result = (
+                self.client.table(table)
+                .select("strength, verification_count")
+                .eq("id", memory_id)
+                .eq("stack_id", self.stack_id)
+                .execute()
+            )
+            if not result.data:
+                return False
+
+            row = result.data[0]
+            current_strength = row.get("strength", 1.0) or 1.0
+            current_count = row.get("verification_count", 0) or 0
+
+            result = (
+                self.client.table(table)
+                .update(
+                    {
+                        "strength": min(1.0, current_strength + 0.1),
+                        "verification_count": current_count + 1,
+                        "last_verified": now,
+                        "local_updated_at": now,
+                    }
+                )
+                .eq("id", memory_id)
+                .eq("stack_id", self.stack_id)
+                .execute()
+            )
+            return len(result.data) > 0
+        except Exception as e:
+            logger.warning(f"Could not verify {memory_type}:{memory_id}: {e}")
+            return False
+
+    def log_audit(
+        self,
+        memory_type: str,
+        memory_id: str,
+        operation: str,
+        actor: str,
+        details: Optional[Dict[str, Any]] = None,
+    ) -> str:
+        """Log an audit entry for a memory operation."""
+        import uuid as _uuid
+
+        audit_id = str(_uuid.uuid4())
+        now = self._now()
+
+        try:
+            self.client.table("memory_audit").insert(
+                {
+                    "id": audit_id,
+                    "memory_type": memory_type,
+                    "memory_id": memory_id,
+                    "operation": operation,
+                    "details": json.dumps(details) if details else None,
+                    "actor": actor,
+                    "created_at": now,
+                }
+            ).execute()
+        except Exception as e:
+            logger.warning(f"Could not log audit for {operation} {memory_type}:{memory_id}: {e}")
+
+        return audit_id
+
+    def get_audit_log(
+        self,
+        *,
+        memory_type: Optional[str] = None,
+        memory_id: Optional[str] = None,
+        operation: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """Get audit log entries."""
+        try:
+            query = self.client.table("memory_audit").select("*")
+            if memory_type:
+                query = query.eq("memory_type", memory_type)
+            if memory_id:
+                query = query.eq("memory_id", memory_id)
+            if operation:
+                query = query.eq("operation", operation)
+            result = query.order("created_at", desc=True).limit(limit).execute()
+
+            entries = []
+            for row in result.data:
+                entry = {
+                    "id": row["id"],
+                    "memory_type": row["memory_type"],
+                    "memory_id": row["memory_id"],
+                    "operation": row["operation"],
+                    "details": json.loads(row["details"]) if row.get("details") else None,
+                    "actor": row["actor"],
+                    "created_at": row["created_at"],
+                }
+                entries.append(entry)
+            return entries
+        except Exception as e:
+            logger.warning(f"Could not get audit log: {e}")
+            return []
 
     def get_forgetting_candidates(
         self,

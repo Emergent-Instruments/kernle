@@ -843,6 +843,47 @@ class SQLiteStack(
     ) -> bool:
         return self._backend.protect_memory(memory_type, memory_id, protected)
 
+    def weaken_memory(
+        self,
+        memory_type: str,
+        memory_id: str,
+        amount: float,
+    ) -> bool:
+        return self._backend.weaken_memory(memory_type, memory_id, amount)
+
+    def verify_memory(
+        self,
+        memory_type: str,
+        memory_id: str,
+    ) -> bool:
+        return self._backend.verify_memory(memory_type, memory_id)
+
+    def log_audit(
+        self,
+        memory_type: str,
+        memory_id: str,
+        operation: str,
+        *,
+        actor: str = "system",
+        details: Optional[Any] = None,
+    ) -> str:
+        return self._backend.log_audit(memory_type, memory_id, operation, actor, details)
+
+    def get_audit_log(
+        self,
+        *,
+        memory_type: Optional[str] = None,
+        memory_id: Optional[str] = None,
+        operation: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Any]:
+        return self._backend.get_audit_log(
+            memory_type=memory_type,
+            memory_id=memory_id,
+            operation=operation,
+            limit=limit,
+        )
+
     # ---- Trust Layer ----
 
     def save_trust_assessment(self, assessment: TrustAssessment) -> str:

@@ -837,6 +837,46 @@ class StackProtocol(Protocol):
         """Protect/unprotect a memory from forgetting."""
         ...
 
+    def weaken_memory(
+        self,
+        memory_type: str,
+        memory_id: str,
+        amount: float,
+    ) -> bool:
+        """Reduce a memory's strength by a given amount."""
+        ...
+
+    def verify_memory(
+        self,
+        memory_type: str,
+        memory_id: str,
+    ) -> bool:
+        """Verify a memory: boost strength and increment verification count."""
+        ...
+
+    def log_audit(
+        self,
+        memory_type: str,
+        memory_id: str,
+        operation: str,
+        *,
+        actor: str = "system",
+        details: Optional[Any] = None,
+    ) -> str:
+        """Log an audit entry for a memory operation."""
+        ...
+
+    def get_audit_log(
+        self,
+        *,
+        memory_type: Optional[str] = None,
+        memory_id: Optional[str] = None,
+        operation: Optional[str] = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Get audit log entries."""
+        ...
+
     # ---- Trust Layer ----
 
     def save_trust_assessment(self, assessment: TrustAssessment) -> str: ...
@@ -1578,6 +1618,55 @@ class CoreProtocol(Protocol):
         domain: Optional[str] = None,
         min_score: Optional[float] = None,
     ) -> list[TrustAssessment]: ...
+
+    # ---- Routed Memory Control ----
+
+    def weaken(
+        self,
+        memory_type: str,
+        memory_id: str,
+        amount: float,
+        *,
+        reason: Optional[str] = None,
+    ) -> bool:
+        """Reduce a memory's strength by a given amount."""
+        ...
+
+    def forget(
+        self,
+        memory_type: str,
+        memory_id: str,
+        reason: str,
+    ) -> bool:
+        """Forget a memory (set strength to 0.0)."""
+        ...
+
+    def recover(
+        self,
+        memory_type: str,
+        memory_id: str,
+    ) -> bool:
+        """Recover a forgotten memory (restore strength to 0.2)."""
+        ...
+
+    def verify(
+        self,
+        memory_type: str,
+        memory_id: str,
+        *,
+        evidence: Optional[str] = None,
+    ) -> bool:
+        """Verify a memory: boost strength and increment verification count."""
+        ...
+
+    def protect(
+        self,
+        memory_type: str,
+        memory_id: str,
+        protected: bool = True,
+    ) -> bool:
+        """Protect or unprotect a memory from forgetting/decay."""
+        ...
 
     # ---- Routed Sync ----
 

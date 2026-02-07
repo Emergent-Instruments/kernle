@@ -836,6 +836,123 @@ class Entity:
             return filtered
         return assessments
 
+    # ---- Routed Memory Control ----
+
+    def weaken(
+        self,
+        memory_type: str,
+        memory_id: str,
+        amount: float,
+        *,
+        reason: Optional[str] = None,
+    ) -> bool:
+        """Reduce a memory's strength by a given amount.
+
+        Args:
+            memory_type: Type of memory (episode, belief, etc.)
+            memory_id: ID of the memory
+            amount: Amount to reduce strength by (positive value)
+            reason: Optional reason for weakening
+
+        Returns:
+            True if weakened, False if not found or protected
+        """
+        stack = self._require_active_stack()
+        success = stack.weaken_memory(memory_type, memory_id, amount)
+        if success:
+            stack.log_audit(
+                memory_type,
+                memory_id,
+                "weaken",
+                actor=f"core:{self._core_id}",
+                details={"amount": amount, "reason": reason},
+            )
+        return success
+
+    def forget(
+        self,
+        memory_type: str,
+        memory_id: str,
+        reason: str,
+    ) -> bool:
+        """Forget a memory (set strength to 0.0).
+
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            reason: Why this memory is being forgotten
+
+        Returns:
+            True if forgotten, False if not found or protected
+        """
+        stack = self._require_active_stack()
+        return stack.forget_memory(memory_type, memory_id, reason)
+
+    def recover(
+        self,
+        memory_type: str,
+        memory_id: str,
+    ) -> bool:
+        """Recover a forgotten memory (restore strength to 0.2).
+
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+
+        Returns:
+            True if recovered, False if not found or not forgotten
+        """
+        stack = self._require_active_stack()
+        return stack.recover_memory(memory_type, memory_id)
+
+    def verify(
+        self,
+        memory_type: str,
+        memory_id: str,
+        *,
+        evidence: Optional[str] = None,
+    ) -> bool:
+        """Verify a memory: boost strength and increment verification count.
+
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            evidence: Optional evidence supporting the verification
+
+        Returns:
+            True if verified, False if not found
+        """
+        stack = self._require_active_stack()
+        success = stack.verify_memory(memory_type, memory_id)
+        if success:
+            stack.log_audit(
+                memory_type,
+                memory_id,
+                "verify",
+                actor=f"core:{self._core_id}",
+                details={"evidence": evidence} if evidence else None,
+            )
+        return success
+
+    def protect(
+        self,
+        memory_type: str,
+        memory_id: str,
+        protected: bool = True,
+    ) -> bool:
+        """Protect or unprotect a memory from forgetting/decay.
+
+        Args:
+            memory_type: Type of memory
+            memory_id: ID of the memory
+            protected: True to protect, False to unprotect
+
+        Returns:
+            True if updated, False if not found
+        """
+        stack = self._require_active_stack()
+        return stack.protect_memory(memory_type, memory_id, protected)
+
     # ---- Routed Sync ----
 
     def sync(self) -> SyncResult:
