@@ -77,18 +77,16 @@ class TestDiscoverPlugins:
     @patch("kernle.discovery._get_entry_points")
     def test_finds_plugins(self, mock_eps):
         mock_eps.return_value = [
-            _make_entry_point(
-                "chainbased", "chainbased:ChainbasedPlugin", ENTRY_POINT_GROUP_PLUGINS
-            ),
+            _make_entry_point("analytics", "analytics:AnalyticsPlugin", ENTRY_POINT_GROUP_PLUGINS),
             _make_entry_point(
                 "web-search", "kernle_web:WebSearchPlugin", ENTRY_POINT_GROUP_PLUGINS
             ),
         ]
         result = discover_plugins()
         assert len(result) == 2
-        assert result[0].name == "chainbased"
-        assert result[0].module == "chainbased"
-        assert result[0].attr == "ChainbasedPlugin"
+        assert result[0].name == "analytics"
+        assert result[0].module == "analytics"
+        assert result[0].attr == "AnalyticsPlugin"
         assert result[0].group == ENTRY_POINT_GROUP_PLUGINS
         assert result[0].dist_name == "test-pkg"
         assert result[1].name == "web-search"

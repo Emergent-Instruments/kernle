@@ -690,3 +690,19 @@ class TestCheckpoint:
     def test_checkpoint_no_stack_raises(self, entity):
         with pytest.raises(NoActiveStackError):
             entity.checkpoint("no stack")
+
+
+class TestRepeatAvoidRoundtrip:
+    def test_repeat_avoid_roundtrip(self, entity_with_stack):
+        entity, stack = entity_with_stack
+        ep_id = entity.episode(
+            "roundtrip obj",
+            "roundtrip out",
+            repeat=["good pattern"],
+            avoid=["bad pattern"],
+        )
+        episodes = stack.get_episodes()
+        found = [e for e in episodes if e.id == ep_id]
+        assert len(found) == 1
+        assert found[0].repeat == ["good pattern"]
+        assert found[0].avoid == ["bad pattern"]

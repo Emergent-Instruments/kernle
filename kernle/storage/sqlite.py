@@ -207,6 +207,9 @@ CREATE TABLE IF NOT EXISTS episodes (
     consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
     -- Epoch tracking
     epoch_id TEXT,
+    -- Repeat/avoid patterns
+    repeat TEXT,   -- JSON array of patterns to replicate
+    avoid TEXT,    -- JSON array of patterns to avoid
     -- Sync metadata
     local_updated_at TEXT NOT NULL,
     cloud_synced_at TEXT,
@@ -1549,6 +1552,10 @@ class SQLiteStorage:
             )
         if "confidence_history" not in episode_cols:
             migrations.append("ALTER TABLE episodes ADD COLUMN confidence_history TEXT")
+        if "repeat" not in episode_cols:
+            migrations.append("ALTER TABLE episodes ADD COLUMN repeat TEXT")
+        if "avoid" not in episode_cols:
+            migrations.append("ALTER TABLE episodes ADD COLUMN avoid TEXT")
 
         # Migrations for beliefs table
         belief_cols = get_columns("beliefs")
@@ -2535,9 +2542,9 @@ class SQLiteStorage:
                  times_accessed, last_accessed, is_protected, is_forgotten,
                  forgotten_at, forgotten_reason, context, context_tags,
                  source_entity, subject_ids, access_grants, consent_grants,
-                 epoch_id,
+                 epoch_id, repeat, avoid,
                  created_at, local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     episode.id,
@@ -2570,6 +2577,8 @@ class SQLiteStorage:
                     self._to_json(getattr(episode, "access_grants", None)),
                     self._to_json(getattr(episode, "consent_grants", None)),
                     episode.epoch_id,
+                    self._to_json(episode.repeat),
+                    self._to_json(episode.avoid),
                     episode.created_at.isoformat() if episode.created_at else now,
                     now,
                     episode.cloud_synced_at.isoformat() if episode.cloud_synced_at else None,
@@ -2760,9 +2769,9 @@ class SQLiteStorage:
                      last_verified, verification_count, confidence_history,
                      times_accessed, last_accessed, is_protected, is_forgotten,
                      forgotten_at, forgotten_reason, context, context_tags,
-                     epoch_id,
+                     epoch_id, repeat, avoid,
                      created_at, local_updated_at, cloud_synced_at, version, deleted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         episode.id,
@@ -2791,6 +2800,8 @@ class SQLiteStorage:
                         episode.context,
                         self._to_json(episode.context_tags),
                         episode.epoch_id,
+                        self._to_json(episode.repeat),
+                        self._to_json(episode.avoid),
                         episode.created_at.isoformat() if episode.created_at else now,
                         now,
                         episode.cloud_synced_at.isoformat() if episode.cloud_synced_at else None,
@@ -2904,6 +2915,9 @@ class SQLiteStorage:
             consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
             # Epoch tracking
             epoch_id=self._safe_get(row, "epoch_id", None),
+            # Repeat/avoid patterns
+            repeat=self._from_json(self._safe_get(row, "repeat", None)),
+            avoid=self._from_json(self._safe_get(row, "avoid", None)),
         )
 
     def get_episodes_by_source_entity(self, source_entity: str, limit: int = 500) -> List[Episode]:

@@ -219,6 +219,8 @@ class Episode:
     outcome: str
     outcome_type: Optional[str] = None
     lessons: Optional[List[str]] = None
+    repeat: Optional[List[str]] = None  # Patterns to replicate
+    avoid: Optional[List[str]] = None  # Patterns to avoid
     tags: Optional[List[str]] = None
     created_at: Optional[datetime] = None
     # Emotional memory fields

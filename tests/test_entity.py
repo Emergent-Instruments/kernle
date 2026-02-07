@@ -637,6 +637,45 @@ class TestCheckpoint:
 # ---- Sync ----
 
 
+class TestRepeatAvoid:
+    def test_episode_forwards_repeat_avoid(self, entity, stack):
+        entity.attach_stack(stack)
+        ep_id = entity.episode(
+            "test objective",
+            "test outcome",
+            repeat=["pattern1"],
+            avoid=["antipattern1"],
+        )
+        assert isinstance(ep_id, str)
+        # Verify the Episode object passed to save_episode has repeat/avoid
+        ep = stack.save_episode.call_args[0][0]
+        assert ep.repeat == ["pattern1"]
+        assert ep.avoid == ["antipattern1"]
+
+    def test_episode_repeat_avoid_defaults_none(self, entity, stack):
+        entity.attach_stack(stack)
+        entity.episode("obj", "out")
+        ep = stack.save_episode.call_args[0][0]
+        assert ep.repeat is None
+        assert ep.avoid is None
+
+    def test_plugin_context_forwards_repeat_avoid(self, entity, stack):
+        entity.attach_stack(stack)
+        from kernle.entity import _PluginContextImpl
+
+        ctx = _PluginContextImpl(entity, "test-plugin")
+        ep_id = ctx.episode(
+            "plugin obj",
+            "plugin out",
+            repeat=["do this"],
+            avoid=["not this"],
+        )
+        assert isinstance(ep_id, str)
+        ep = stack.save_episode.call_args[0][0]
+        assert ep.repeat == ["do this"]
+        assert ep.avoid == ["not this"]
+
+
 class TestSync:
     def test_sync_routes_to_stack(self, entity, stack):
         entity.attach_stack(stack)

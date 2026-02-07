@@ -17,7 +17,7 @@ The "entity" is the composition — no single component IS the entity.
 Package structure:
 - kernle-core:  Core, protocols, shared types, plugin/stack management, CLI
 - kernle-stack: Default memory implementation (SQLite, embeddings, features)
-- plugins:      Independent packages (chainbased, etc.) discovered via entry points
+- plugins:      Independent packages discovered via entry points
 
 Design principles:
 - Components are peers, not parent-child
@@ -1110,8 +1110,8 @@ class PluginContext(Protocol):
     def get_secret(self, key: str) -> Optional[str]:
         """Read a secret (API key, credential).
 
-        Secrets are stored securely by the core and scoped to the
-        plugin. Never persisted in memory stacks.
+        Secrets are stored in-memory by the core, scoped to the
+        plugin. Not persisted in memory stacks or across restarts.
         """
         ...
 
@@ -1137,7 +1137,7 @@ class PluginContext(Protocol):
 class PluginProtocol(Protocol):
     """Interface for capability extensions.
 
-    Implementations: chainbased, web-search, code-executor, etc.
+    Implementations: analytics, web-search, code-executor, etc.
     """
 
     @property
@@ -1168,7 +1168,7 @@ class PluginProtocol(Protocol):
         """What this plugin can do.
 
         Used for discovery, status display, and source tagging.
-        e.g., ['commerce', 'wallet', 'escrow', 'jobs']
+        e.g., ['analytics', 'data-pipeline', 'reporting']
         """
         ...
 
@@ -1225,7 +1225,7 @@ class PluginProtocol(Protocol):
 
         Args:
             load_context: The working memory dict being built.
-                         Add your key: load_context['chainbased'] = {...}
+                         Add your key: load_context['my_plugin'] = {...}
         """
         ...
 
@@ -1263,7 +1263,7 @@ class PluginProtocol(Protocol):
 class CoreProtocol(Protocol):
     """Interface for the coordinator.
 
-    The default implementation is kernle.core.Entity.
+    The default implementation is kernle.entity.Entity.
     """
 
     @property
@@ -1561,7 +1561,7 @@ class CoreProtocol(Protocol):
 #
 # Core plugins (limbs):
 #   [project.entry-points."kernle.plugins"]
-#   chainbased = "chainbased:ChainbasedPlugin"
+#   my-plugin = "my_plugin:MyPlugin"
 #
 # Stack implementations:
 #   [project.entry-points."kernle.stacks"]
