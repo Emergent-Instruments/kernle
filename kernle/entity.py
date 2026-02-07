@@ -316,6 +316,7 @@ class Entity:
         self._plugin_tools: dict[str, list[ToolDefinition]] = {}
         self._plugin_configs: dict[str, dict[str, Any]] = {}
         self._plugin_secrets: dict[str, dict[str, str]] = {}
+        self._restored_binding: Optional[Binding] = None
 
     # ---- Core Properties ----
 
@@ -396,6 +397,21 @@ class Entity:
     # ---- Plugin Management ----
 
     def load_plugin(self, plugin: PluginProtocol, *, subparsers: Any = None) -> None:
+        from kernle.protocols import PROTOCOL_VERSION
+
+        plugin_pv = getattr(plugin, "protocol_version", None)
+        if plugin_pv is not None and plugin_pv > PROTOCOL_VERSION:
+            raise ValueError(
+                f"Plugin '{plugin.name}' requires protocol version {plugin_pv}, "
+                f"but this core supports version {PROTOCOL_VERSION}."
+            )
+        elif plugin_pv is not None and plugin_pv < PROTOCOL_VERSION:
+            logger.warning(
+                "Plugin '%s' uses protocol version %d (current: %d).",
+                plugin.name,
+                plugin_pv,
+                PROTOCOL_VERSION,
+            )
         context = _PluginContextImpl(self, plugin.name)
         plugin.activate(context)
         self._plugins[plugin.name] = plugin
@@ -849,7 +865,19 @@ class Entity:
                 active_stack_alias=data.get("active_stack_alias"),
                 plugins=data.get("plugins", []),
             )
-        return cls(core_id=binding.core_id)
+        entity = cls(core_id=binding.core_id)
+        entity._restored_binding = binding
+
+        # Attempt plugin discovery for binding plugins
+        if binding.plugins:
+            from kernle.discovery import discover_plugins
+
+            discovered_names = {dc.name for dc in discover_plugins()}
+            for pname in binding.plugins:
+                if pname not in discovered_names:
+                    logger.warning("Plugin '%s' from binding not found", pname)
+
+        return entity
 
     # ---- Internal Helpers ----
 

@@ -706,3 +706,35 @@ class TestRepeatAvoidRoundtrip:
         assert len(found) == 1
         assert found[0].repeat == ["good pattern"]
         assert found[0].avoid == ["bad pattern"]
+
+
+# ============================================================================
+# 11. Public API Conformance
+# ============================================================================
+
+
+class TestPublicAPIConformance:
+    """Verify public API exports and protocol conformance."""
+
+    def test_entity_exported_from_package(self):
+        """Entity should be importable from the kernle package."""
+        from kernle import Entity
+
+        assert Entity is not None
+
+    def test_entity_satisfies_core_protocol(self):
+        """Entity should satisfy CoreProtocol."""
+        from kernle import Entity
+        from kernle.protocols import CoreProtocol
+
+        entity = Entity(core_id="api-test")
+        assert isinstance(entity, CoreProtocol)
+
+    def test_version_matches_pyproject(self):
+        """Package version should match importlib.metadata."""
+        from importlib.metadata import version
+
+        import kernle
+
+        expected = version("kernle")
+        assert kernle.__version__ == expected

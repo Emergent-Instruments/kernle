@@ -682,3 +682,68 @@ class TestSync:
         result = entity.sync()
         stack.sync.assert_called_once()
         assert isinstance(result, SyncResult)
+
+
+# ---- Plugin Protocol Version ----
+
+
+class TestPluginProtocolVersion:
+    def test_matching_version_loads(self, entity, stack):
+        entity.attach_stack(stack)
+        plugin = MagicMock()
+        plugin.name = "version-test"
+        plugin.version = "1.0.0"
+        plugin.protocol_version = 1  # matches PROTOCOL_VERSION
+        plugin.description = "test"
+        plugin.register_tools.return_value = []
+        # Should not raise
+        entity.load_plugin(plugin)
+        assert "version-test" in entity.plugins
+
+    def test_future_version_raises(self, entity, stack):
+        entity.attach_stack(stack)
+        plugin = MagicMock()
+        plugin.name = "future-plugin"
+        plugin.version = "1.0.0"
+        plugin.protocol_version = 999
+        plugin.description = "test"
+        with pytest.raises(ValueError, match="protocol version 999"):
+            entity.load_plugin(plugin)
+
+    def test_old_version_warns(self, entity, stack):
+        entity.attach_stack(stack)
+        plugin = MagicMock()
+        plugin.name = "old-plugin"
+        plugin.version = "1.0.0"
+        plugin.protocol_version = 0
+        plugin.description = "test"
+        plugin.register_tools.return_value = []
+        # logger.warning doesn't trigger pytest.warns, so just verify it loads
+        entity.load_plugin(plugin)
+        assert "old-plugin" in entity.plugins
+
+
+# ---- Binding Metadata ----
+
+
+class TestBindingMetadata:
+    def test_from_binding_stores_metadata(self):
+        from kernle.protocols import Binding
+
+        binding = Binding(
+            core_id="meta-test",
+            model_config={"model_id": "test-model"},
+            stacks={"main": {"stack_id": "s1"}},
+            plugins=["plugin-a"],
+        )
+        entity = Entity.from_binding(binding)
+        assert entity._restored_binding is not None
+        assert entity._restored_binding.core_id == "meta-test"
+        assert entity._restored_binding.plugins == ["plugin-a"]
+
+    def test_from_binding_path_stores_metadata(self, entity, stack, tmp_path):
+        entity.attach_stack(stack)
+        path = entity.save_binding(path=tmp_path / "test_binding.json")
+        restored = Entity.from_binding(path)
+        assert restored._restored_binding is not None
+        assert restored._restored_binding.core_id == entity.core_id
