@@ -56,7 +56,7 @@ Every major component implements a protocol -- a Python `Protocol` class that de
 |----------|------|----------------------|---------|
 | **CoreProtocol** | Bus / coordinator | `Entity` | Torso -- connects everything |
 | **StackProtocol** | Memory container | `SQLiteStack` | Head -- stores knowledge |
-| **PluginProtocol** | Capability extension | chainbased, fatline | Limbs -- reach into the world |
+| **PluginProtocol** | Capability extension | installed plugins | Limbs -- reach into the world |
 | **ModelProtocol** | Thinking engine | `AnthropicModel`, `OllamaModel` | Heart -- drives behavior |
 | **StackComponentProtocol** | Stack sub-plugin | Embedding, Forgetting, etc. | Organs -- internal functions |
 
