@@ -4,7 +4,7 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
-from kernle.entity import Entity
+from kernle.entity import Entity, _PluginContextImpl
 from kernle.protocols import (
     Binding,
     NoActiveStackError,
@@ -747,3 +747,136 @@ class TestBindingMetadata:
         restored = Entity.from_binding(path)
         assert restored._restored_binding is not None
         assert restored._restored_binding.core_id == entity.core_id
+
+
+# ---- source_entity Attribution ----
+
+
+class TestSourceEntity:
+    """All write methods should set source_entity on the created memory."""
+
+    def test_value_sets_source_entity(self, entity, stack):
+        entity.attach_stack(stack)
+        entity.value("honesty", "Be truthful")
+        v = stack.save_value.call_args[0][0]
+        assert v.source_entity == "core:test-core"
+
+    def test_value_uses_custom_source(self, entity, stack):
+        entity.attach_stack(stack)
+        entity.value("honesty", "Be truthful", source="user:alice")
+        v = stack.save_value.call_args[0][0]
+        assert v.source_entity == "user:alice"
+
+    def test_goal_sets_source_entity(self, entity, stack):
+        entity.attach_stack(stack)
+        entity.goal("learn rust")
+        g = stack.save_goal.call_args[0][0]
+        assert g.source_entity == "core:test-core"
+
+    def test_goal_uses_custom_source(self, entity, stack):
+        entity.attach_stack(stack)
+        entity.goal("learn rust", source="user:bob")
+        g = stack.save_goal.call_args[0][0]
+        assert g.source_entity == "user:bob"
+
+    def test_drive_sets_source_entity(self, entity, stack):
+        entity.attach_stack(stack)
+        entity.drive("curiosity")
+        d = stack.save_drive.call_args[0][0]
+        assert d.source_entity == "core:test-core"
+
+    def test_drive_uses_custom_source(self, entity, stack):
+        entity.attach_stack(stack)
+        entity.drive("curiosity", source="user:charlie")
+        d = stack.save_drive.call_args[0][0]
+        assert d.source_entity == "user:charlie"
+
+    def test_relationship_sets_source_entity(self, entity, stack):
+        entity.attach_stack(stack)
+        entity.relationship("other-agent")
+        r = stack.save_relationship.call_args[0][0]
+        assert r.source_entity == "core:test-core"
+
+    def test_relationship_uses_custom_source(self, entity, stack):
+        entity.attach_stack(stack)
+        entity.relationship("other-agent", source="user:dave")
+        r = stack.save_relationship.call_args[0][0]
+        assert r.source_entity == "user:dave"
+
+
+# ---- derived_from Pass-Through ----
+
+
+class TestDerivedFrom:
+    """All write methods should pass derived_from to the created memory."""
+
+    def test_value_passes_derived_from(self, entity, stack):
+        entity.attach_stack(stack)
+        entity.value("honesty", "Be truthful", derived_from=["belief:abc123"])
+        v = stack.save_value.call_args[0][0]
+        assert v.derived_from == ["belief:abc123"]
+
+    def test_goal_passes_derived_from(self, entity, stack):
+        entity.attach_stack(stack)
+        entity.goal("learn rust", derived_from=["episode:ep1"])
+        g = stack.save_goal.call_args[0][0]
+        assert g.derived_from == ["episode:ep1"]
+
+    def test_drive_passes_derived_from(self, entity, stack):
+        entity.attach_stack(stack)
+        entity.drive("curiosity", derived_from=["episode:ep1", "belief:b1"])
+        d = stack.save_drive.call_args[0][0]
+        assert d.derived_from == ["episode:ep1", "belief:b1"]
+
+    def test_relationship_passes_derived_from(self, entity, stack):
+        entity.attach_stack(stack)
+        entity.relationship("other-agent", derived_from=["episode:ep1"])
+        r = stack.save_relationship.call_args[0][0]
+        assert r.derived_from == ["episode:ep1"]
+
+    def test_value_without_derived_from(self, entity, stack):
+        entity.attach_stack(stack)
+        entity.value("honesty", "Be truthful")
+        v = stack.save_value.call_args[0][0]
+        assert v.derived_from is None
+
+    def test_goal_without_derived_from(self, entity, stack):
+        entity.attach_stack(stack)
+        entity.goal("learn rust")
+        g = stack.save_goal.call_args[0][0]
+        assert g.derived_from is None
+
+
+# ---- PluginContext Attribution ----
+
+
+class TestPluginContextAttribution:
+    """Plugin writes should be attributed with source=plugin:{name}."""
+
+    def test_plugin_value_sets_source(self, entity, stack):
+        entity.attach_stack(stack)
+        ctx = _PluginContextImpl(entity, "test-plugin")
+        ctx.value("honesty", "Be truthful")
+        v = stack.save_value.call_args[0][0]
+        assert v.source_entity == "plugin:test-plugin"
+
+    def test_plugin_goal_sets_source(self, entity, stack):
+        entity.attach_stack(stack)
+        ctx = _PluginContextImpl(entity, "test-plugin")
+        ctx.goal("learn rust")
+        g = stack.save_goal.call_args[0][0]
+        assert g.source_entity == "plugin:test-plugin"
+
+    def test_plugin_relationship_sets_source(self, entity, stack):
+        entity.attach_stack(stack)
+        ctx = _PluginContextImpl(entity, "test-plugin")
+        ctx.relationship("other-agent")
+        r = stack.save_relationship.call_args[0][0]
+        assert r.source_entity == "plugin:test-plugin"
+
+    def test_plugin_derived_from_passes_through(self, entity, stack):
+        entity.attach_stack(stack)
+        ctx = _PluginContextImpl(entity, "test-plugin")
+        ctx.belief("test statement", derived_from=["episode:ep1"])
+        b = stack.save_belief.call_args[0][0]
+        assert b.derived_from == ["episode:ep1"]

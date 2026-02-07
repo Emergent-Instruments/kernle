@@ -90,6 +90,7 @@ class _PluginContextImpl:
         repeat: Optional[list[str]] = None,
         avoid: Optional[list[str]] = None,
         tags: Optional[list[str]] = None,
+        derived_from: Optional[list[str]] = None,
         context: Optional[str] = None,
     ) -> Optional[str]:
         stack = self._entity.active_stack
@@ -102,6 +103,7 @@ class _PluginContextImpl:
             repeat=repeat,
             avoid=avoid,
             tags=tags,
+            derived_from=derived_from,
             source=f"plugin:{self._plugin_name}",
             context=context,
         )
@@ -112,6 +114,7 @@ class _PluginContextImpl:
         *,
         belief_type: str = "fact",
         confidence: float = 0.8,
+        derived_from: Optional[list[str]] = None,
         context: Optional[str] = None,
     ) -> Optional[str]:
         stack = self._entity.active_stack
@@ -121,6 +124,7 @@ class _PluginContextImpl:
             statement,
             type=belief_type,
             confidence=confidence,
+            derived_from=derived_from,
             source=f"plugin:{self._plugin_name}",
             context=context,
         )
@@ -131,6 +135,7 @@ class _PluginContextImpl:
         statement: str,
         *,
         priority: int = 50,
+        derived_from: Optional[list[str]] = None,
         context: Optional[str] = None,
     ) -> Optional[str]:
         stack = self._entity.active_stack
@@ -140,6 +145,8 @@ class _PluginContextImpl:
             name,
             statement,
             priority=priority,
+            derived_from=derived_from,
+            source=f"plugin:{self._plugin_name}",
             context=context,
         )
 
@@ -150,6 +157,7 @@ class _PluginContextImpl:
         description: Optional[str] = None,
         goal_type: str = "task",
         priority: str = "medium",
+        derived_from: Optional[list[str]] = None,
         context: Optional[str] = None,
     ) -> Optional[str]:
         stack = self._entity.active_stack
@@ -160,6 +168,8 @@ class _PluginContextImpl:
             description=description,
             goal_type=goal_type,
             priority=priority,
+            derived_from=derived_from,
+            source=f"plugin:{self._plugin_name}",
             context=context,
         )
 
@@ -169,6 +179,7 @@ class _PluginContextImpl:
         *,
         note_type: str = "note",
         tags: Optional[list[str]] = None,
+        derived_from: Optional[list[str]] = None,
         context: Optional[str] = None,
     ) -> Optional[str]:
         stack = self._entity.active_stack
@@ -178,6 +189,7 @@ class _PluginContextImpl:
             content,
             type=note_type,
             tags=tags,
+            derived_from=derived_from,
             source=f"plugin:{self._plugin_name}",
             context=context,
         )
@@ -190,6 +202,7 @@ class _PluginContextImpl:
         interaction_type: Optional[str] = None,
         notes: Optional[str] = None,
         entity_type: Optional[str] = None,
+        derived_from: Optional[list[str]] = None,
     ) -> Optional[str]:
         stack = self._entity.active_stack
         if stack is None:
@@ -200,6 +213,8 @@ class _PluginContextImpl:
             notes=notes,
             interaction_type=interaction_type,
             entity_type=entity_type,
+            derived_from=derived_from,
+            source=f"plugin:{self._plugin_name}",
         )
 
     def raw(
@@ -543,6 +558,8 @@ class Entity:
         priority: int = 50,
         type: str = "core_value",
         foundational: bool = False,
+        derived_from: Optional[list[str]] = None,
+        source: Optional[str] = None,
         context: Optional[str] = None,
         context_tags: Optional[list[str]] = None,
     ) -> str:
@@ -556,9 +573,14 @@ class Entity:
             created_at=datetime.now(timezone.utc),
             is_protected=foundational,
             source_type="direct_experience",
+            derived_from=derived_from,
             context=context,
             context_tags=context_tags,
         )
+        if source:
+            v.source_entity = source
+        else:
+            v.source_entity = f"core:{self._core_id}"
         return stack.save_value(v)
 
     def goal(
@@ -568,6 +590,8 @@ class Entity:
         description: Optional[str] = None,
         goal_type: str = "task",
         priority: str = "medium",
+        derived_from: Optional[list[str]] = None,
+        source: Optional[str] = None,
         context: Optional[str] = None,
         context_tags: Optional[list[str]] = None,
     ) -> str:
@@ -581,9 +605,14 @@ class Entity:
             priority=priority,
             created_at=datetime.now(timezone.utc),
             source_type="direct_experience",
+            derived_from=derived_from,
             context=context,
             context_tags=context_tags,
         )
+        if source:
+            g.source_entity = source
+        else:
+            g.source_entity = f"core:{self._core_id}"
         return stack.save_goal(g)
 
     def note(
@@ -629,6 +658,8 @@ class Entity:
         intensity: float = 0.5,
         focus_areas: Optional[list[str]] = None,
         decay_hours: int = 24,
+        derived_from: Optional[list[str]] = None,
+        source: Optional[str] = None,
         context: Optional[str] = None,
         context_tags: Optional[list[str]] = None,
     ) -> str:
@@ -641,9 +672,14 @@ class Entity:
             focus_areas=focus_areas,
             created_at=datetime.now(timezone.utc),
             source_type="direct_experience",
+            derived_from=derived_from,
             context=context,
             context_tags=context_tags,
         )
+        if source:
+            d.source_entity = source
+        else:
+            d.source_entity = f"core:{self._core_id}"
         return stack.save_drive(d)
 
     def relationship(
@@ -654,6 +690,8 @@ class Entity:
         notes: Optional[str] = None,
         interaction_type: Optional[str] = None,
         entity_type: Optional[str] = None,
+        derived_from: Optional[list[str]] = None,
+        source: Optional[str] = None,
     ) -> str:
         stack = self._require_active_stack()
         r = Relationship(
@@ -666,7 +704,12 @@ class Entity:
             sentiment=trust_level if trust_level is not None else 0.0,
             created_at=datetime.now(timezone.utc),
             source_type="direct_experience",
+            derived_from=derived_from,
         )
+        if source:
+            r.source_entity = source
+        else:
+            r.source_entity = f"core:{self._core_id}"
         return stack.save_relationship(r)
 
     def raw(
