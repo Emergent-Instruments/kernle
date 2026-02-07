@@ -899,6 +899,20 @@ class StackProtocol(Protocol):
         """Mark a note as processed."""
         ...
 
+    # ---- Stack Settings ----
+
+    def get_stack_setting(self, key: str) -> Optional[str]:
+        """Get a stack setting value by key."""
+        ...
+
+    def set_stack_setting(self, key: str, value: str) -> None:
+        """Set a stack setting (upsert)."""
+        ...
+
+    def get_all_stack_settings(self) -> dict[str, str]:
+        """Get all stack settings as a dict."""
+        ...
+
     # ---- Trust Layer ----
 
     def save_trust_assessment(self, assessment: TrustAssessment) -> str: ...

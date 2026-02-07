@@ -145,6 +145,7 @@ ALLOWED_TABLES = frozenset(
         "self_narratives",  # KEP v3 self-narrative layer
         "memory_audit",  # v0.9.0 memory audit trail
         "processing_config",  # v0.9.0 processing configuration
+        "stack_settings",  # per-stack feature flags
     }
 )
 
@@ -888,6 +889,13 @@ CREATE TABLE IF NOT EXISTS processing_config (
     batch_size INTEGER DEFAULT 10,
     max_sessions_per_day INTEGER,
     updated_at TEXT
+);
+
+-- Stack settings (per-stack feature flags)
+CREATE TABLE IF NOT EXISTS stack_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
 );
 """
 
@@ -2408,6 +2416,17 @@ class SQLiteStorage:
                 )
             """)
             logger.info("Created processing_config table")
+
+        # Create stack_settings table if it doesn't exist
+        if "stack_settings" not in table_names:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS stack_settings (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+            """)
+            logger.info("Created stack_settings table")
 
         conn.commit()
 
@@ -6280,6 +6299,35 @@ class SQLiteStorage:
                 )
             conn.commit()
         return True
+
+    def get_stack_setting(self, key: str) -> Optional[str]:
+        """Get a stack setting value by key."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM stack_settings WHERE key = ?",
+                (key,),
+            ).fetchone()
+        return row["value"] if row else None
+
+    def set_stack_setting(self, key: str, value: str) -> None:
+        """Set a stack setting (upsert)."""
+        now = self._now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO stack_settings (key, value, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = ?
+                """,
+                (key, value, now, value, now),
+            )
+            conn.commit()
+
+    def get_all_stack_settings(self) -> Dict[str, str]:
+        """Get all stack settings as a dict."""
+        with self._connect() as conn:
+            rows = conn.execute("SELECT key, value FROM stack_settings ORDER BY key").fetchall()
+        return {row["key"]: row["value"] for row in rows}
 
     def delete_raw(self, raw_id: str) -> bool:
         """Delete a raw entry (soft delete by marking deleted=1)."""
