@@ -1325,6 +1325,33 @@ class SupabaseStorage:
             logger.warning(f"Could not check existence of {memory_type}:{memory_id}: {e}")
             return False
 
+    def update_strength(self, memory_type: str, memory_id: str, strength: float) -> bool:
+        """Update the strength field of a memory."""
+        table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+        }
+        table = table_map.get(memory_type)
+        if not table:
+            return False
+
+        strength = max(0.0, min(1.0, strength))
+        now = self._now()
+
+        try:
+            self.client.table(table).update({"strength": strength, "local_updated_at": now}).eq(
+                "id", memory_id
+            ).eq("stack_id", self.stack_id).execute()
+            return True
+        except Exception as e:
+            logger.warning(f"Could not update strength for {memory_type}:{memory_id}: {e}")
+            return False
+
     def update_memory_meta(
         self,
         memory_type: str,
