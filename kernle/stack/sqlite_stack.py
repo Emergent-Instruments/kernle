@@ -218,60 +218,126 @@ class SQLiteStack(
                 results[name] = {"error": str(e)}
         return results
 
+    # ---- Component Dispatch Helpers ----
+
+    def _dispatch_on_save(self, memory_type: str, memory_id: str, memory: Any) -> None:
+        """Notify components after a memory is saved."""
+        for name, component in self._components.items():
+            try:
+                component.on_save(memory_type, memory_id, memory)
+            except Exception as e:
+                logger.warning("Component '%s' on_save failed: %s", name, e)
+
+    def _dispatch_on_search(
+        self, query: str, results: List[ProtocolSearchResult]
+    ) -> List[ProtocolSearchResult]:
+        """Let components modify search results."""
+        for name, component in self._components.items():
+            try:
+                modified = component.on_search(query, results)
+                if modified is not None:
+                    results = modified
+            except Exception as e:
+                logger.warning("Component '%s' on_search failed: %s", name, e)
+        return results
+
+    def _dispatch_on_load(self, context: Dict[str, Any]) -> None:
+        """Notify components when working memory is loaded."""
+        for name, component in self._components.items():
+            try:
+                component.on_load(context)
+            except Exception as e:
+                logger.warning("Component '%s' on_load failed: %s", name, e)
+
     # ---- Write Operations ----
 
     def save_episode(self, episode: Episode) -> str:
-        return self._backend.save_episode(episode)
+        result_id = self._backend.save_episode(episode)
+        self._dispatch_on_save("episode", result_id, episode)
+        return result_id
 
     def save_belief(self, belief: Belief) -> str:
-        return self._backend.save_belief(belief)
+        result_id = self._backend.save_belief(belief)
+        self._dispatch_on_save("belief", result_id, belief)
+        return result_id
 
     def save_value(self, value: Value) -> str:
-        return self._backend.save_value(value)
+        result_id = self._backend.save_value(value)
+        self._dispatch_on_save("value", result_id, value)
+        return result_id
 
     def save_goal(self, goal: Goal) -> str:
-        return self._backend.save_goal(goal)
+        result_id = self._backend.save_goal(goal)
+        self._dispatch_on_save("goal", result_id, goal)
+        return result_id
 
     def save_note(self, note: Note) -> str:
-        return self._backend.save_note(note)
+        result_id = self._backend.save_note(note)
+        self._dispatch_on_save("note", result_id, note)
+        return result_id
 
     def save_drive(self, drive: Drive) -> str:
-        return self._backend.save_drive(drive)
+        result_id = self._backend.save_drive(drive)
+        self._dispatch_on_save("drive", result_id, drive)
+        return result_id
 
     def save_relationship(self, relationship: Relationship) -> str:
-        return self._backend.save_relationship(relationship)
+        result_id = self._backend.save_relationship(relationship)
+        self._dispatch_on_save("relationship", result_id, relationship)
+        return result_id
 
     def save_raw(self, raw: RawEntry) -> str:
-        return self._backend.save_raw(
+        result_id = self._backend.save_raw(
             blob=raw.blob or raw.content or "",
             source=raw.source,
         )
+        self._dispatch_on_save("raw", result_id, raw)
+        return result_id
 
     def save_playbook(self, playbook: Playbook) -> str:
-        return self._backend.save_playbook(playbook)
+        result_id = self._backend.save_playbook(playbook)
+        self._dispatch_on_save("playbook", result_id, playbook)
+        return result_id
 
     def save_epoch(self, epoch: Epoch) -> str:
-        return self._backend.save_epoch(epoch)
+        result_id = self._backend.save_epoch(epoch)
+        self._dispatch_on_save("epoch", result_id, epoch)
+        return result_id
 
     def save_summary(self, summary: Summary) -> str:
-        return self._backend.save_summary(summary)
+        result_id = self._backend.save_summary(summary)
+        self._dispatch_on_save("summary", result_id, summary)
+        return result_id
 
     def save_self_narrative(self, narrative: SelfNarrative) -> str:
-        return self._backend.save_self_narrative(narrative)
+        result_id = self._backend.save_self_narrative(narrative)
+        self._dispatch_on_save("self_narrative", result_id, narrative)
+        return result_id
 
     def save_suggestion(self, suggestion: MemorySuggestion) -> str:
-        return self._backend.save_suggestion(suggestion)
+        result_id = self._backend.save_suggestion(suggestion)
+        self._dispatch_on_save("suggestion", result_id, suggestion)
+        return result_id
 
     # ---- Batch Write ----
 
     def save_episodes_batch(self, episodes: List[Episode]) -> List[str]:
-        return self._backend.save_episodes_batch(episodes)
+        ids = self._backend.save_episodes_batch(episodes)
+        for ep, eid in zip(episodes, ids):
+            self._dispatch_on_save("episode", eid, ep)
+        return ids
 
     def save_beliefs_batch(self, beliefs: List[Belief]) -> List[str]:
-        return self._backend.save_beliefs_batch(beliefs)
+        ids = self._backend.save_beliefs_batch(beliefs)
+        for belief, bid in zip(beliefs, ids):
+            self._dispatch_on_save("belief", bid, belief)
+        return ids
 
     def save_notes_batch(self, notes: List[Note]) -> List[str]:
-        return self._backend.save_notes_batch(notes)
+        ids = self._backend.save_notes_batch(notes)
+        for note, nid in zip(notes, ids):
+            self._dispatch_on_save("note", nid, note)
+        return ids
 
     # ---- Read Operations ----
 
@@ -427,6 +493,7 @@ class SQLiteStack(
                     },
                 )
             )
+        results = self._dispatch_on_search(query, results)
         return results
 
     # ---- Working Memory ----
@@ -455,7 +522,7 @@ class SQLiteStack(
 
         if batched is None:
             # Fallback to individual queries
-            return {
+            result = {
                 "values": [
                     {"id": v.id, "name": v.name, "statement": v.statement, "priority": v.priority}
                     for v in self._backend.get_values(limit=50)
@@ -474,6 +541,8 @@ class SQLiteStack(
                 ],
                 "_meta": {"budget_used": budget, "budget_total": budget},
             }
+            self._dispatch_on_load(result)
+            return result
 
         # Build candidate list with priorities
         candidates = []
@@ -636,6 +705,7 @@ class SQLiteStack(
         if accesses:
             self._backend.record_access_batch(accesses)
 
+        self._dispatch_on_load(result)
         return result
 
     # ---- Meta-Memory ----

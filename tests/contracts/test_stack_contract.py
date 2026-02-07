@@ -957,3 +957,46 @@ class TestSyncLocal:
         count = stack.get_pending_sync_count()
         assert isinstance(count, int)
         assert count >= 0
+
+
+# ============================================================================
+# 14. Component Hook Contracts
+# ============================================================================
+
+
+class TestComponentHookContract:
+    """Contract: StackProtocol implementations MUST dispatch component hooks."""
+
+    def _make_tracking_component(self):
+        comp = MagicMock(spec=StackComponentProtocol)
+        comp.name = "hook-tracker"
+        comp.required = False
+        comp.needs_inference = False
+        comp.on_save = MagicMock()
+        comp.on_search = MagicMock(return_value=None)
+        comp.on_load = MagicMock()
+        comp.on_maintenance = MagicMock(return_value=None)
+        comp.on_model_changed = MagicMock()
+        comp.attach = MagicMock()
+        comp.detach = MagicMock()
+        return comp
+
+    def test_save_dispatches_on_save(self, stack):
+        comp = self._make_tracking_component()
+        stack.add_component(comp)
+        ep = _make_episode()
+        eid = stack.save_episode(ep)
+        comp.on_save.assert_called_once_with("episode", eid, ep)
+
+    def test_search_dispatches_on_search(self, stack):
+        comp = self._make_tracking_component()
+        stack.add_component(comp)
+        stack.save_episode(_make_episode(objective="hook test"))
+        stack.search("hook test")
+        comp.on_search.assert_called_once()
+
+    def test_load_dispatches_on_load(self, stack):
+        comp = self._make_tracking_component()
+        stack.add_component(comp)
+        stack.load()
+        comp.on_load.assert_called_once()
