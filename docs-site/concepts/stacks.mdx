@@ -26,6 +26,21 @@ The stack architecture enables: **accounts own stacks, any model can load any st
   </Card>
 </CardGroup>
 
+## Under the Hood: StackProtocol
+
+Stacks are defined by the `StackProtocol` (in `kernle/protocols.py`), which specifies the full interface for memory storage, retrieval, search, and lifecycle operations. The default implementation is `SQLiteStack`.
+
+Key architectural properties:
+
+- **Self-contained**: A stack owns its storage backend, component registry, and schema. It does not depend on any particular Core (Entity) to function.
+- **Component registry**: Stacks manage a set of `StackComponentProtocol` instances (embedding, forgetting, consolidation, emotions, anxiety, suggestions, metamemory, knowledge). Components hook into save, search, and load operations.
+- **Attachable/detachable**: Any stack can be attached to any Core (Entity) at runtime. The Entity provides coordination and provenance routing; the stack provides memory persistence. They compose, not inherit.
+- **Discoverable**: Stack implementations are registered as `kernle.stacks` entry points, so custom backends can be discovered and loaded automatically.
+
+<Info>
+For the full protocol definition and implementation details, see the [Stack Protocol](/protocol/stack) reference.
+</Info>
+
 ## Terminology
 
 | Old Term | New Term | Why |

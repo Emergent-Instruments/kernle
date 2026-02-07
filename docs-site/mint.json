@@ -74,6 +74,18 @@
       ]
     },
     {
+      "group": "Protocol System",
+      "pages": [
+        "protocol/overview",
+        "protocol/core",
+        "protocol/stack",
+        "protocol/plugins",
+        "protocol/models",
+        "protocol/components",
+        "protocol/discovery"
+      ]
+    },
+    {
       "group": "Advanced Features",
       "pages": [
         "features/psychology",

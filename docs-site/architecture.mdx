@@ -220,6 +220,68 @@ The typical memory evolution flow:
 
 ---
 
+## System Composition
+
+Since v0.4.0, Kernle uses a protocol-based composition architecture. No single component is the entity -- the entity is the composition.
+
+### Component Roles
+
+| Component | Protocol | Role | Analogy |
+|-----------|----------|------|---------|
+| **Core** (Entity) | `CoreProtocol` | Bus, coordinator, routing | Torso -- connects everything |
+| **Stack** (SQLiteStack) | `StackProtocol` | Memory container | Head -- stores knowledge |
+| **Plugin** | `PluginProtocol` | Capability extension | Limb -- reaches into the world |
+| **Model** | `ModelProtocol` | Thinking engine | Heart -- drives behavior |
+| **Component** | `StackComponentProtocol` | Cross-cutting behavior | Organ -- internal function |
+
+```mermaid
+graph TB
+  E["Entity (Core)"]
+  M["Model"]
+  S["Stack"]
+  P1["Plugin A"]
+  P2["Plugin B"]
+  C1["Embedding"]
+  C2["Forgetting"]
+  C3["Consolidation"]
+  C4["Emotions"]
+  C5["Anxiety"]
+  C6["+ 3 more"]
+  IS["InferenceService"]
+
+  E -->|"set_model()"| M
+  E -->|"routes memory ops"| S
+  E -->|"activates"| P1
+  E -->|"activates"| P2
+  M -.->|wraps| IS
+  IS -.->|"infer / embed"| S
+  S -->|hooks| C1
+  S -->|hooks| C2
+  S -->|hooks| C3
+  S -->|hooks| C4
+  S -->|hooks| C5
+  S -->|hooks| C6
+
+  style E fill:#4a90d9,color:#fff
+  style M fill:#e8715a,color:#fff
+  style S fill:#50c878,color:#fff
+  style P1 fill:#9b59b6,color:#fff
+  style P2 fill:#9b59b6,color:#fff
+  style IS fill:#f5a623,color:#fff
+```
+
+- **Core** is the bus. It connects stacks, plugins, and the model. It has a persistent `core_id` that survives reconfiguration. All memory writes go through the core to ensure provenance.
+- **Stack** is self-contained. It can be attached to one core, many cores, or none. Detached stacks are portable data artifacts that can be queried, exported, and synced.
+- **Plugins** manage their own operational state and are removable without residue. When unloaded, the only trace is memories they wrote to the stack.
+- **Model** is interchangeable. Swapping from Claude to Llama changes how the entity thinks. The model is wrapped in an `InferenceService` for stack components.
+- **Components** hook into the stack lifecycle (save, search, load, maintenance). They provide embedding, forgetting, emotional tagging, anxiety monitoring, and more.
+
+<Info>
+For the full protocol reference, see the [Protocol System](/protocol/overview) documentation.
+</Info>
+
+---
+
 ## What Kernle Does vs What the SI Does
 
 ### Storage Operations
