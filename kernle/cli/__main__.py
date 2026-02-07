@@ -893,23 +893,41 @@ def cmd_relation(args, k: Kernle):
         entity_type = args.type or "person"
         trust = args.trust if args.trust is not None else 0.5
         notes = validate_input(args.notes, "notes", 1000) if args.notes else None
+        derived_from = getattr(args, "derived_from", None)
 
-        _rel_id = k.relationship(name, trust_level=trust, notes=notes, entity_type=entity_type)
+        _rel_id = k.relationship(
+            name,
+            trust_level=trust,
+            notes=notes,
+            entity_type=entity_type,
+            derived_from=derived_from,
+        )
         print(f"✓ Relationship added: {name}")
         print(f"  Type: {entity_type}, Trust: {int(trust * 100)}%")
+        if derived_from:
+            print(f"  Derived from: {len(derived_from)} memories")
 
     elif args.relation_action == "update":
         name = validate_input(args.name, "name", 200)
         trust = args.trust
         notes = validate_input(args.notes, "notes", 1000) if args.notes else None
         entity_type = getattr(args, "type", None)
+        derived_from = getattr(args, "derived_from", None)
 
-        if trust is None and notes is None and entity_type is None:
-            print("✗ Provide --trust, --notes, or --type to update")
+        if trust is None and notes is None and entity_type is None and derived_from is None:
+            print("✗ Provide --trust, --notes, --type, or --derived-from to update")
             return
 
-        _rel_id = k.relationship(name, trust_level=trust, notes=notes, entity_type=entity_type)
+        _rel_id = k.relationship(
+            name,
+            trust_level=trust,
+            notes=notes,
+            entity_type=entity_type,
+            derived_from=derived_from,
+        )
         print(f"✓ Relationship updated: {name}")
+        if derived_from:
+            print(f"  Derived from: {len(derived_from)} memories")
 
     elif args.relation_action == "show":
         name = args.name
@@ -3032,6 +3050,12 @@ def main():
     )
     relation_add.add_argument("--trust", type=float, help="Trust level 0.0-1.0")
     relation_add.add_argument("--notes", "-n", help="Notes about this relationship")
+    relation_add.add_argument(
+        "--derived-from",
+        action="append",
+        dest="derived_from",
+        help="Source memory ID (repeatable)",
+    )
 
     relation_update = relation_sub.add_parser("update", help="Update a relationship")
     relation_update.add_argument("name", help="Entity name")
@@ -3039,6 +3063,12 @@ def main():
     relation_update.add_argument("--notes", "-n", help="Updated notes")
     relation_update.add_argument(
         "--type", "-t", choices=["person", "si", "organization", "system"], help="Entity type"
+    )
+    relation_update.add_argument(
+        "--derived-from",
+        action="append",
+        dest="derived_from",
+        help="Source memory ID (repeatable)",
     )
 
     relation_show = relation_sub.add_parser("show", help="Show relationship details")
@@ -4153,6 +4183,12 @@ Typical usage in a memoryFlush hook:
         action="store_false",
         dest="skip_duplicates",
         help="Import all items even if they already exist",
+    )
+    p_import.add_argument(
+        "--derived-from",
+        action="append",
+        dest="derived_from",
+        help="Source memory ID for all imported items (repeatable)",
     )
 
     # migrate - migrate from other platforms (Clawdbot, etc.)

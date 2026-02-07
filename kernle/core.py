@@ -2953,12 +2953,14 @@ class Kernle(
         foundational: bool = False,
         context: Optional[str] = None,
         context_tags: Optional[List[str]] = None,
+        derived_from: Optional[List[str]] = None,
     ) -> str:
         """Add or affirm a value.
 
         Args:
             context: Project/scope context (e.g., 'project:api-service', 'repo:myorg/myrepo')
             context_tags: Additional context tags for filtering
+            derived_from: List of memory refs this was derived from (format: type:id)
         """
         value_id = str(uuid.uuid4())
 
@@ -2971,6 +2973,7 @@ class Kernle(
             created_at=datetime.now(timezone.utc),
             context=context,
             context_tags=context_tags,
+            derived_from=derived_from,
         )
 
         self._write_backend.save_value(value)
@@ -2984,6 +2987,7 @@ class Kernle(
         priority: str = "medium",
         context: Optional[str] = None,
         context_tags: Optional[List[str]] = None,
+        derived_from: Optional[List[str]] = None,
     ) -> str:
         """Add a goal.
 
@@ -2991,6 +2995,7 @@ class Kernle(
             goal_type: Type of goal (task, aspiration, commitment, exploration)
             context: Project/scope context (e.g., 'project:api-service', 'repo:myorg/myrepo')
             context_tags: Additional context tags for filtering
+            derived_from: List of memory refs this was derived from (format: type:id)
         """
         valid_goal_types = ("task", "aspiration", "commitment", "exploration")
         if goal_type not in valid_goal_types:
@@ -3013,6 +3018,7 @@ class Kernle(
             is_protected=is_protected,
             context=context,
             context_tags=context_tags,
+            derived_from=derived_from,
         )
 
         self._write_backend.save_goal(goal)
@@ -4836,6 +4842,7 @@ class Kernle(
         notes: Optional[str] = None,
         interaction_type: Optional[str] = None,
         entity_type: Optional[str] = None,
+        derived_from: Optional[List[str]] = None,
     ) -> str:
         """Update relationship model for another entity.
 
@@ -4845,6 +4852,7 @@ class Kernle(
             notes: Notes about the relationship
             interaction_type: Type of interaction being logged
             entity_type: Type of entity (person, agent, organization, system)
+            derived_from: Memory IDs this relationship was derived from
         """
         # Check existing
         existing = self._storage.get_relationship(other_stack_id)
@@ -4859,6 +4867,8 @@ class Kernle(
                 existing.notes = notes
             if entity_type:
                 existing.entity_type = entity_type
+            if derived_from:
+                existing.derived_from = derived_from
             existing.interaction_count += 1
             existing.last_interaction = now
             existing.version += 1
@@ -4877,6 +4887,7 @@ class Kernle(
                 interaction_count=1,
                 last_interaction=now,
                 created_at=now,
+                derived_from=derived_from,
             )
             self._write_backend.save_relationship(relationship)
             return rel_id

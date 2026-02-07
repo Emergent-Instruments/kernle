@@ -49,17 +49,23 @@ def cmd_import(args: "argparse.Namespace", k: "Kernle") -> None:
     interactive = getattr(args, "interactive", False)
     target_layer = getattr(args, "layer", None)
     skip_duplicates = getattr(args, "skip_duplicates", True)
+    derived_from = getattr(args, "derived_from", None)
 
     if file_format == "markdown":
-        _import_markdown(file_path, k, dry_run, interactive, target_layer)
+        _import_markdown(file_path, k, dry_run, interactive, target_layer, derived_from)
     elif file_format == "json":
-        _import_json(file_path, k, dry_run, skip_duplicates)
+        _import_json(file_path, k, dry_run, skip_duplicates, derived_from)
     elif file_format == "csv":
-        _import_csv(file_path, k, dry_run, target_layer, skip_duplicates)
+        _import_csv(file_path, k, dry_run, target_layer, skip_duplicates, derived_from)
 
 
 def _import_markdown(
-    file_path: Path, k: "Kernle", dry_run: bool, interactive: bool, target_layer: Optional[str]
+    file_path: Path,
+    k: "Kernle",
+    dry_run: bool,
+    interactive: bool,
+    target_layer: Optional[str],
+    derived_from: Optional[List[str]] = None,
 ) -> None:
     """Import from a markdown file."""
     content = file_path.read_text(encoding="utf-8")
@@ -102,12 +108,18 @@ def _import_markdown(
         return
 
     if interactive:
-        _interactive_import(items, k)
+        _interactive_import(items, k, derived_from)
     else:
-        _batch_import(items, k)
+        _batch_import(items, k, derived_from=derived_from)
 
 
-def _import_json(file_path: Path, k: "Kernle", dry_run: bool, skip_duplicates: bool) -> None:
+def _import_json(
+    file_path: Path,
+    k: "Kernle",
+    dry_run: bool,
+    skip_duplicates: bool,
+    derived_from: Optional[List[str]] = None,
+) -> None:
     """Import from a Kernle JSON export file."""
     try:
         content = file_path.read_text(encoding="utf-8")
@@ -180,6 +192,7 @@ def _import_json(file_path: Path, k: "Kernle", dry_run: bool, skip_duplicates: b
                 name=item.get("name", ""),
                 description=item.get("statement", item.get("description", "")),
                 priority=item.get("priority", 50),
+                derived_from=derived_from,
             )
             imported["value"] = imported.get("value", 0) + 1
         except Exception as e:
@@ -197,6 +210,7 @@ def _import_json(file_path: Path, k: "Kernle", dry_run: bool, skip_duplicates: b
                 statement=statement,
                 type=item.get("type", "fact"),
                 confidence=item.get("confidence", 0.8),
+                derived_from=derived_from,
             )
             imported["belief"] = imported.get("belief", 0) + 1
         except Exception as e:
@@ -218,6 +232,7 @@ def _import_json(file_path: Path, k: "Kernle", dry_run: bool, skip_duplicates: b
                 title=title,
                 priority=item.get("priority", "medium"),
                 status=item.get("status", "active"),
+                derived_from=derived_from,
             )
             imported["goal"] = imported.get("goal", 0) + 1
         except Exception as e:
@@ -242,6 +257,7 @@ def _import_json(file_path: Path, k: "Kernle", dry_run: bool, skip_duplicates: b
                 outcome=outcome,
                 lessons=item.get("lessons"),
                 tags=item.get("tags"),
+                derived_from=derived_from,
             )
             imported["episode"] = imported.get("episode", 0) + 1
         except Exception as e:
@@ -265,6 +281,7 @@ def _import_json(file_path: Path, k: "Kernle", dry_run: bool, skip_duplicates: b
                 speaker=item.get("speaker"),
                 reason=item.get("reason"),
                 tags=item.get("tags"),
+                derived_from=derived_from,
             )
             imported["note"] = imported.get("note", 0) + 1
         except Exception as e:
@@ -305,6 +322,7 @@ def _import_json(file_path: Path, k: "Kernle", dry_run: bool, skip_duplicates: b
                 relationship_type=item.get("relationship_type", "knows"),
                 sentiment=item.get("sentiment", 0.0),
                 notes=item.get("notes"),
+                derived_from=derived_from,
             )
             imported["relationship"] = imported.get("relationship", 0) + 1
         except Exception as e:
@@ -348,7 +366,12 @@ def _import_json(file_path: Path, k: "Kernle", dry_run: bool, skip_duplicates: b
 
 
 def _import_csv(
-    file_path: Path, k: "Kernle", dry_run: bool, target_layer: Optional[str], skip_duplicates: bool
+    file_path: Path,
+    k: "Kernle",
+    dry_run: bool,
+    target_layer: Optional[str],
+    skip_duplicates: bool,
+    derived_from: Optional[List[str]] = None,
 ) -> None:
     """Import from a CSV file."""
     import csv
@@ -475,7 +498,7 @@ def _import_csv(
         return
 
     # Import
-    _batch_import(items, k, skip_duplicates)
+    _batch_import(items, k, skip_duplicates, derived_from=derived_from)
 
 
 # ============================================================================
@@ -764,7 +787,11 @@ def _preview_item(index: int, item: Dict[str, Any]) -> None:
         print(f"   Status: {item['status']}")
 
 
-def _interactive_import(items: List[Dict[str, Any]], k: "Kernle") -> List[Dict[str, Any]]:
+def _interactive_import(
+    items: List[Dict[str, Any]],
+    k: "Kernle",
+    derived_from: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
     """Interactive import with user confirmation for each item."""
     imported = []
 
@@ -774,7 +801,7 @@ def _interactive_import(items: List[Dict[str, Any]], k: "Kernle") -> List[Dict[s
 
     for i, item in enumerate(items, 1):
         if accept_all:
-            _import_item(item, k)
+            _import_item(item, k, derived_from)
             imported.append(item)
             continue
 
@@ -788,17 +815,17 @@ def _interactive_import(items: List[Dict[str, Any]], k: "Kernle") -> List[Dict[s
 
         if choice == "a":
             accept_all = True
-            _import_item(item, k)
+            _import_item(item, k, derived_from)
             imported.append(item)
         elif choice == "y":
-            _import_item(item, k)
+            _import_item(item, k, derived_from)
             imported.append(item)
         elif choice == "s":
             print(f"Skipping remaining {len(items) - i + 1} items")
             break
         elif choice == "e":
             item = _edit_item(item)
-            _import_item(item, k)
+            _import_item(item, k, derived_from)
             imported.append(item)
         else:
             print("  Skipped")
@@ -864,7 +891,12 @@ def _edit_item(item: Dict[str, Any]) -> Dict[str, Any]:
     return item
 
 
-def _batch_import(items: List[Dict[str, Any]], k: "Kernle", skip_duplicates: bool = False) -> None:
+def _batch_import(
+    items: List[Dict[str, Any]],
+    k: "Kernle",
+    skip_duplicates: bool = False,
+    derived_from: Optional[List[str]] = None,
+) -> None:
     """Batch import all items."""
     success = 0
     skipped = 0
@@ -879,7 +911,7 @@ def _batch_import(items: List[Dict[str, Any]], k: "Kernle", skip_duplicates: boo
                     skipped += 1
                     continue
 
-            _import_item(item, k)
+            _import_item(item, k, derived_from)
             success += 1
         except Exception as e:
             errors.append(f"{item['type']}: {str(e)[:50]}")
@@ -934,7 +966,11 @@ def _check_duplicate(item: Dict[str, Any], k: "Kernle") -> bool:
     return False
 
 
-def _import_item(item: Dict[str, Any], k: "Kernle") -> None:
+def _import_item(
+    item: Dict[str, Any],
+    k: "Kernle",
+    derived_from: Optional[List[str]] = None,
+) -> None:
     """Import a single item into Kernle."""
     t = item["type"]
 
@@ -945,6 +981,7 @@ def _import_item(item: Dict[str, Any], k: "Kernle") -> None:
             outcome=item.get("outcome", item["objective"]),
             lessons=lessons,
             tags=item.get("tags"),
+            derived_from=derived_from,
         )
     elif t == "note":
         k.note(
@@ -953,18 +990,21 @@ def _import_item(item: Dict[str, Any], k: "Kernle") -> None:
             speaker=item.get("speaker"),
             reason=item.get("reason"),
             tags=item.get("tags"),
+            derived_from=derived_from,
         )
     elif t == "belief":
         k.belief(
             statement=item["statement"],
             confidence=item.get("confidence", 0.7),
             type=item.get("belief_type", "fact"),
+            derived_from=derived_from,
         )
     elif t == "value":
         k.value(
             name=item["name"],
             description=item.get("description", item["name"]),
             priority=item.get("priority", 50),
+            derived_from=derived_from,
         )
     elif t == "goal":
         k.goal(
@@ -972,6 +1012,7 @@ def _import_item(item: Dict[str, Any], k: "Kernle") -> None:
             title=item.get("title"),
             status=item.get("status", "active"),
             priority=item.get("priority", "medium"),
+            derived_from=derived_from,
         )
     elif t == "raw":
         k.raw(content=item["content"], source=item.get("source", "import"), tags=item.get("tags"))
