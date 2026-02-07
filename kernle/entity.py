@@ -967,6 +967,28 @@ class Entity:
             )
         return success
 
+    def get_ungrounded_memories(self) -> list[tuple]:
+        """Find memories where all source refs have strength 0.0 or don't exist.
+
+        Returns:
+            List of (memory_type, memory_id, [source_refs]) tuples
+        """
+        stack = self._require_active_stack()
+        return stack.get_ungrounded_memories()
+
+    def get_memories_derived_from(self, memory_type: str, memory_id: str) -> list[tuple]:
+        """Find all memories that cite 'type:id' in their derived_from.
+
+        Args:
+            memory_type: Type of the source memory
+            memory_id: ID of the source memory
+
+        Returns:
+            List of (child_memory_type, child_memory_id) tuples
+        """
+        stack = self._require_active_stack()
+        return stack.get_memories_derived_from(memory_type, memory_id)
+
     def protect(
         self,
         memory_type: str,
