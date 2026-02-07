@@ -742,6 +742,254 @@ class TestKnowledgeComponent:
 
 
 # ============================================================================
+# EmotionalTaggingComponent Inference Tests
+# ============================================================================
+
+
+class TestEmotionalTaggingInference:
+    """Test inference wiring and fallback in EmotionalTaggingComponent."""
+
+    def test_with_inference_valid_json(self):
+        """When inference returns valid JSON, uses inference result."""
+        c = EmotionalTaggingComponent()
+        inference = _make_mock_inference()
+        inference.infer.return_value = (
+            '{"valence": 0.6, "arousal": 0.4, "emotions": ["joy", "pride"]}'
+        )
+        c.set_inference(inference)
+
+        result = c.detect_emotion("I completed the project successfully!")
+        assert result["valence"] == 0.6
+        assert result["arousal"] == 0.4
+        assert result["tags"] == ["joy", "pride"]
+        assert result["confidence"] == 0.9
+        inference.infer.assert_called_once()
+
+    def test_without_inference_falls_back_to_keywords(self):
+        """Without inference, uses keyword-based detection."""
+        c = EmotionalTaggingComponent()
+        # No inference set
+        result = c.detect_emotion("I'm so happy and excited!")
+        assert result["valence"] > 0
+        assert "joy" in result["tags"] or "excitement" in result["tags"]
+
+    def test_inference_returns_bad_json_falls_back(self):
+        """When inference returns invalid JSON, falls back to keywords."""
+        c = EmotionalTaggingComponent()
+        inference = _make_mock_inference()
+        inference.infer.return_value = "not valid json at all"
+        c.set_inference(inference)
+
+        result = c.detect_emotion("I'm so happy and excited!")
+        # Should still get a result from keyword fallback
+        assert result["valence"] > 0
+        assert len(result["tags"]) > 0
+        inference.infer.assert_called_once()
+
+    def test_inference_raises_exception_falls_back(self):
+        """When inference raises, falls back to keywords gracefully."""
+        c = EmotionalTaggingComponent()
+        inference = _make_mock_inference()
+        inference.infer.side_effect = RuntimeError("model unavailable")
+        c.set_inference(inference)
+
+        result = c.detect_emotion("I'm frustrated and angry")
+        assert result["valence"] < 0
+        assert len(result["tags"]) > 0
+
+    def test_inference_missing_fields_falls_back(self):
+        """When inference JSON lacks required fields, falls back."""
+        c = EmotionalTaggingComponent()
+        inference = _make_mock_inference()
+        inference.infer.return_value = '{"valence": 0.5}'  # missing arousal and emotions
+        c.set_inference(inference)
+
+        result = c.detect_emotion("I'm so happy and excited!")
+        # Should fall back to keywords since 'arousal' key missing
+        assert result["valence"] > 0
+
+    def test_inference_clamps_values(self):
+        """Inference values are clamped to valid ranges."""
+        c = EmotionalTaggingComponent()
+        inference = _make_mock_inference()
+        inference.infer.return_value = '{"valence": 5.0, "arousal": -3.0, "emotions": ["joy"]}'
+        c.set_inference(inference)
+
+        result = c.detect_emotion("extreme text")
+        assert result["valence"] == 1.0  # clamped from 5.0
+        assert result["arousal"] == 0.0  # clamped from -3.0
+
+    def test_on_save_uses_inference_when_available(self):
+        """on_save() uses inference path for emotion detection."""
+        c = EmotionalTaggingComponent()
+        inference = _make_mock_inference()
+        inference.infer.return_value = '{"valence": -0.3, "arousal": 0.7, "emotions": ["anxiety"]}'
+        c.set_inference(inference)
+
+        memory = MagicMock()
+        memory.objective = "Deploy to production"
+        memory.outcome = "Deployment failed with errors"
+
+        result = c.on_save("episode", "ep-1", memory)
+        assert result is not None
+        assert result["emotional_valence"] == -0.3
+        assert result["emotional_arousal"] == 0.7
+        assert result["emotional_tags"] == ["anxiety"]
+
+
+# ============================================================================
+# ConsolidationComponent Inference Tests
+# ============================================================================
+
+
+class TestConsolidationInference:
+    """Test inference wiring and fallback in ConsolidationComponent."""
+
+    def test_with_inference_returns_themes(self):
+        """When inference returns valid themes, includes them in result."""
+        c = ConsolidationComponent()
+        inference = _make_mock_inference()
+        inference.infer.return_value = (
+            '{"themes": ["testing is important", "documentation prevents bugs"]}'
+        )
+        c.set_inference(inference)
+
+        storage = _make_mock_storage()
+        storage.get_episodes.return_value = [
+            _make_mock_episode(id=f"ep-{i}", lessons=["always test first"]) for i in range(5)
+        ]
+        c.set_storage(storage)
+
+        result = c.on_maintenance()
+        assert result["inference_available"] is True
+        assert "synthesized_themes" in result
+        assert "testing is important" in result["synthesized_themes"]
+        inference.infer.assert_called_once()
+
+    def test_without_inference_still_finds_lessons(self):
+        """Without inference, still finds common lessons via keyword counting."""
+        c = ConsolidationComponent()
+        storage = _make_mock_storage()
+        storage.get_episodes.return_value = [
+            _make_mock_episode(id="ep-1", lessons=["always test first"]),
+            _make_mock_episode(id="ep-2", lessons=["always test first"]),
+            _make_mock_episode(id="ep-3", lessons=["review before merge"]),
+        ]
+        c.set_storage(storage)
+        # No inference set
+
+        result = c.on_maintenance()
+        assert result["inference_available"] is False
+        assert result["lessons_found"] == 1
+        assert "synthesized_themes" not in result
+
+    def test_inference_bad_json_falls_back(self):
+        """When inference returns bad JSON, still produces result without themes."""
+        c = ConsolidationComponent()
+        inference = _make_mock_inference()
+        inference.infer.return_value = "not json"
+        c.set_inference(inference)
+
+        storage = _make_mock_storage()
+        storage.get_episodes.return_value = [
+            _make_mock_episode(id=f"ep-{i}", lessons=["shared lesson"]) for i in range(5)
+        ]
+        c.set_storage(storage)
+
+        result = c.on_maintenance()
+        # Should still have keyword-based results
+        assert result["lessons_found"] >= 1
+        # inference is available but synthesis failed, so no themes
+        assert result["inference_available"] is True
+        assert "synthesized_themes" not in result
+
+    def test_inference_raises_exception_falls_back(self):
+        """When inference raises, still produces keyword-based result."""
+        c = ConsolidationComponent()
+        inference = _make_mock_inference()
+        inference.infer.side_effect = RuntimeError("model crashed")
+        c.set_inference(inference)
+
+        storage = _make_mock_storage()
+        storage.get_episodes.return_value = [
+            _make_mock_episode(id=f"ep-{i}", lessons=["shared lesson"]) for i in range(5)
+        ]
+        c.set_storage(storage)
+
+        result = c.on_maintenance()
+        assert result["consolidated"] == 5
+        assert result["lessons_found"] >= 1
+
+
+# ============================================================================
+# Belief.processed Tests
+# ============================================================================
+
+
+class TestBeliefProcessed:
+    """Test Belief.processed field and mark_belief_processed method."""
+
+    def test_belief_processed_default_false(self):
+        from kernle.types import Belief
+
+        b = Belief(id="b-1", stack_id="s-1", statement="test")
+        assert b.processed is False
+
+    def test_belief_processed_can_be_set(self):
+        from kernle.types import Belief
+
+        b = Belief(id="b-1", stack_id="s-1", statement="test", processed=True)
+        assert b.processed is True
+
+    def test_mark_belief_processed_roundtrip(self, tmp_path):
+        """Test save → mark processed → get roundtrip through DB."""
+        from kernle.storage.sqlite import SQLiteStorage
+        from kernle.types import Belief
+
+        storage = SQLiteStorage(db_path=tmp_path / "test.db", stack_id="test-stack")
+
+        b = Belief(id="b-1", stack_id="test-stack", statement="Test belief")
+        storage.save_belief(b)
+
+        # Verify starts unprocessed
+        fetched = storage.get_belief("b-1")
+        assert fetched is not None
+        assert fetched.processed is False
+
+        # Mark processed
+        result = storage.mark_belief_processed("b-1")
+        assert result is True
+
+        # Verify now processed
+        fetched2 = storage.get_belief("b-1")
+        assert fetched2 is not None
+        assert fetched2.processed is True
+
+    def test_mark_belief_processed_nonexistent(self, tmp_path):
+        """Marking a nonexistent belief returns False."""
+        from kernle.storage.sqlite import SQLiteStorage
+
+        storage = SQLiteStorage(db_path=tmp_path / "test.db", stack_id="test-stack")
+
+        result = storage.mark_belief_processed("nonexistent")
+        assert result is False
+
+    def test_belief_processed_saved_to_db(self, tmp_path):
+        """Test that processed=True is persisted when saving a belief."""
+        from kernle.storage.sqlite import SQLiteStorage
+        from kernle.types import Belief
+
+        storage = SQLiteStorage(db_path=tmp_path / "test.db", stack_id="test-stack")
+
+        b = Belief(id="b-2", stack_id="test-stack", statement="Processed belief", processed=True)
+        storage.save_belief(b)
+
+        fetched = storage.get_belief("b-2")
+        assert fetched is not None
+        assert fetched.processed is True
+
+
+# ============================================================================
 # Integration-style: Component with SQLiteStack lifecycle
 # ============================================================================
 

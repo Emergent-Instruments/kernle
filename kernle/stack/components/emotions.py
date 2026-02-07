@@ -2,10 +2,13 @@
 
 Provides automatic emotion detection from text and emotional pattern
 analysis. Can enhance memories with emotional metadata on save.
+When inference is available, uses the model for richer detection;
+falls back to keyword-based detection otherwise.
 """
 
 from __future__ import annotations
 
+import json
 import logging
 from collections import Counter
 from typing import Any, Dict, List, Optional
@@ -108,7 +111,9 @@ class EmotionalTaggingComponent:
 
     Detects emotions in text using keyword patterns. During on_save,
     can annotate episodes with detected emotional valence/arousal.
-    When inference is available, can use the model for richer detection.
+    When inference is available, uses the model for richer detection;
+    falls back to keyword-based detection when inference is unavailable
+    or returns invalid data.
     """
 
     name = "emotions"
@@ -202,14 +207,68 @@ class EmotionalTaggingComponent:
 
     # ---- Core Logic ----
 
-    def detect_emotion(self, text: str) -> Dict[str, Any]:
-        """Detect emotional signals in text using keyword patterns.
+    def _detect_emotion_via_inference(self, text: str) -> Optional[Dict[str, Any]]:
+        """Attempt emotion detection using inference model.
 
+        Returns a detection dict on success, or None if inference is
+        unavailable or returns invalid data.
+        """
+        if self._inference is None:
+            return None
+
+        try:
+            response = self._inference.infer(
+                prompt=(
+                    "Analyze the emotional content of this experience and return JSON:\n\n"
+                    f"{text}\n\n"
+                    'Return: {"valence": float (-1.0 to 1.0), '
+                    '"arousal": float (0.0 to 1.0), '
+                    '"emotions": [list of emotion strings]}'
+                ),
+                system="You are an emotion analysis system. Return only valid JSON.",
+            )
+            data = json.loads(response)
+
+            valence = float(data["valence"])
+            arousal = float(data["arousal"])
+            emotions = data["emotions"]
+
+            if not isinstance(emotions, list):
+                return None
+
+            valence = max(-1.0, min(1.0, valence))
+            arousal = max(0.0, min(1.0, arousal))
+            emotions = [str(e) for e in emotions if isinstance(e, str)]
+
+            return {
+                "valence": valence,
+                "arousal": arousal,
+                "tags": emotions,
+                "confidence": 0.9,
+            }
+        except Exception:
+            logger.debug("EmotionalTaggingComponent: inference failed, falling back to keywords")
+            return None
+
+    def detect_emotion(self, text: str) -> Dict[str, Any]:
+        """Detect emotional signals in text.
+
+        Uses inference when available; falls back to keyword patterns.
         Returns dict with valence, arousal, tags, and confidence.
         """
         if not text:
             return {"valence": 0.0, "arousal": 0.0, "tags": [], "confidence": 0.0}
 
+        # Try inference first
+        inference_result = self._detect_emotion_via_inference(text)
+        if inference_result is not None:
+            return inference_result
+
+        # Fall back to keyword-based detection
+        return self._detect_emotion_keywords(text)
+
+    def _detect_emotion_keywords(self, text: str) -> Dict[str, Any]:
+        """Detect emotional signals using keyword patterns."""
         text_lower = text.lower()
         detected_emotions = []
         valence_sum = 0.0

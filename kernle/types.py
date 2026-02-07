@@ -301,6 +301,8 @@ class Belief:
     subject_ids: Optional[List[str]] = None  # Who/what is this about
     access_grants: Optional[List[str]] = None  # Who can see this (empty = private to self)
     consent_grants: Optional[List[str]] = None  # Who authorized sharing
+    # Processing state
+    processed: bool = False  # Whether this belief has been processed for promotion
     # Belief scope and domain metadata (KEP v3)
     belief_scope: str = "world"  # 'self' | 'world' | 'relational'
     source_domain: Optional[str] = None  # "coding", "communication", etc.
