@@ -97,6 +97,16 @@ def unregister_plugin_tools(plugin_name: str) -> None:
 # Note: sanitize_string, sanitize_array, validate_enum, validate_number
 # are imported from kernle.mcp.sanitize to avoid duplication
 
+VALID_SOURCE_TYPES = [
+    "direct_experience",
+    "inference",
+    "consolidation",
+    "external",
+    "seed",
+    "observation",
+    "unknown",
+]
+
 
 def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     """Validate and sanitize MCP tool inputs."""
@@ -150,6 +160,11 @@ def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
             sanitized["derived_from"] = (
                 sanitize_array(arguments.get("derived_from"), "derived_from", 200, 20) or None
             )
+            sanitized["source_type"] = (
+                validate_enum(arguments.get("source_type"), "source_type", VALID_SOURCE_TYPES, None)
+                if arguments.get("source_type")
+                else None
+            )
 
         elif name == "memory_note":
             sanitized["content"] = sanitize_string(
@@ -176,6 +191,11 @@ def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
             )
             sanitized["derived_from"] = (
                 sanitize_array(arguments.get("derived_from"), "derived_from", 200, 20) or None
+            )
+            sanitized["source_type"] = (
+                validate_enum(arguments.get("source_type"), "source_type", VALID_SOURCE_TYPES, None)
+                if arguments.get("source_type")
+                else None
             )
 
         elif name == "memory_search":
@@ -209,6 +229,11 @@ def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
             sanitized["derived_from"] = (
                 sanitize_array(arguments.get("derived_from"), "derived_from", 200, 20) or None
             )
+            sanitized["source_type"] = (
+                validate_enum(arguments.get("source_type"), "source_type", VALID_SOURCE_TYPES, None)
+                if arguments.get("source_type")
+                else None
+            )
 
         elif name == "memory_value":
             sanitized["name"] = sanitize_string(arguments.get("name"), "name", 100, required=True)
@@ -223,6 +248,17 @@ def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
             )
             sanitized["context_tags"] = (
                 sanitize_array(arguments.get("context_tags"), "context_tags", 100, 20) or None
+            )
+            sanitized["source"] = (
+                sanitize_string(arguments.get("source"), "source", 500, required=False) or None
+            )
+            sanitized["derived_from"] = (
+                sanitize_array(arguments.get("derived_from"), "derived_from", 200, 20) or None
+            )
+            sanitized["source_type"] = (
+                validate_enum(arguments.get("source_type"), "source_type", VALID_SOURCE_TYPES, None)
+                if arguments.get("source_type")
+                else None
             )
 
         elif name == "memory_goal":
@@ -241,6 +277,17 @@ def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
             sanitized["context_tags"] = (
                 sanitize_array(arguments.get("context_tags"), "context_tags", 100, 20) or None
             )
+            sanitized["source"] = (
+                sanitize_string(arguments.get("source"), "source", 500, required=False) or None
+            )
+            sanitized["derived_from"] = (
+                sanitize_array(arguments.get("derived_from"), "derived_from", 200, 20) or None
+            )
+            sanitized["source_type"] = (
+                validate_enum(arguments.get("source_type"), "source_type", VALID_SOURCE_TYPES, None)
+                if arguments.get("source_type")
+                else None
+            )
 
         elif name == "memory_drive":
             sanitized["drive_type"] = validate_enum(
@@ -255,6 +302,23 @@ def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
             )
             sanitized["focus_areas"] = sanitize_array(
                 arguments.get("focus_areas"), "focus_areas", 200, 10
+            )
+            sanitized["context"] = (
+                sanitize_string(arguments.get("context"), "context", 500, required=False) or None
+            )
+            sanitized["context_tags"] = (
+                sanitize_array(arguments.get("context_tags"), "context_tags", 100, 20) or None
+            )
+            sanitized["source"] = (
+                sanitize_string(arguments.get("source"), "source", 500, required=False) or None
+            )
+            sanitized["derived_from"] = (
+                sanitize_array(arguments.get("derived_from"), "derived_from", 200, 20) or None
+            )
+            sanitized["source_type"] = (
+                validate_enum(arguments.get("source_type"), "source_type", VALID_SOURCE_TYPES, None)
+                if arguments.get("source_type")
+                else None
             )
 
         elif name == "memory_when":
@@ -595,6 +659,19 @@ TOOLS = [
                     "items": {"type": "string"},
                     "description": "Memory IDs this was derived from (format: type:id, e.g., 'raw:abc123')",
                 },
+                "source_type": {
+                    "type": "string",
+                    "enum": [
+                        "direct_experience",
+                        "inference",
+                        "consolidation",
+                        "external",
+                        "seed",
+                        "observation",
+                        "unknown",
+                    ],
+                    "description": "How this memory was acquired (default: auto-derived from source)",
+                },
             },
             "required": ["objective", "outcome"],
         },
@@ -645,6 +722,19 @@ TOOLS = [
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "Memory IDs this was derived from (format: type:id, e.g., 'raw:abc123')",
+                },
+                "source_type": {
+                    "type": "string",
+                    "enum": [
+                        "direct_experience",
+                        "inference",
+                        "consolidation",
+                        "external",
+                        "seed",
+                        "observation",
+                        "unknown",
+                    ],
+                    "description": "How this memory was acquired (default: auto-derived from source)",
                 },
             },
             "required": ["content"],
@@ -708,6 +798,19 @@ TOOLS = [
                     "items": {"type": "string"},
                     "description": "Memory IDs this was derived from (format: type:id, e.g., 'raw:abc123')",
                 },
+                "source_type": {
+                    "type": "string",
+                    "enum": [
+                        "direct_experience",
+                        "inference",
+                        "consolidation",
+                        "external",
+                        "seed",
+                        "observation",
+                        "unknown",
+                    ],
+                    "description": "How this memory was acquired (default: auto-derived from source)",
+                },
             },
             "required": ["statement"],
         },
@@ -739,6 +842,28 @@ TOOLS = [
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "Additional context tags for filtering",
+                },
+                "source": {
+                    "type": "string",
+                    "description": "Source context (e.g., 'consolidation', 'told by X', 'raw-processing')",
+                },
+                "derived_from": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Memory IDs this was derived from (format: type:id, e.g., 'raw:abc123')",
+                },
+                "source_type": {
+                    "type": "string",
+                    "enum": [
+                        "direct_experience",
+                        "inference",
+                        "consolidation",
+                        "external",
+                        "seed",
+                        "observation",
+                        "unknown",
+                    ],
+                    "description": "How this memory was acquired (default: auto-derived from source)",
                 },
             },
             "required": ["name", "statement"],
@@ -773,6 +898,28 @@ TOOLS = [
                     "items": {"type": "string"},
                     "description": "Additional context tags for filtering",
                 },
+                "source": {
+                    "type": "string",
+                    "description": "Source context (e.g., 'consolidation', 'told by X', 'raw-processing')",
+                },
+                "derived_from": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Memory IDs this was derived from (format: type:id, e.g., 'raw:abc123')",
+                },
+                "source_type": {
+                    "type": "string",
+                    "enum": [
+                        "direct_experience",
+                        "inference",
+                        "consolidation",
+                        "external",
+                        "seed",
+                        "observation",
+                        "unknown",
+                    ],
+                    "description": "How this memory was acquired (default: auto-derived from source)",
+                },
             },
             "required": ["title"],
         },
@@ -797,6 +944,37 @@ TOOLS = [
                     "type": "array",
                     "items": {"type": "string"},
                     "description": "Areas of focus for this drive",
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Project/scope context (e.g., 'project:api-service', 'repo:myorg/myrepo')",
+                },
+                "context_tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Additional context tags for filtering",
+                },
+                "source": {
+                    "type": "string",
+                    "description": "Source context (e.g., 'consolidation', 'told by X', 'raw-processing')",
+                },
+                "derived_from": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Memory IDs this was derived from (format: type:id, e.g., 'raw:abc123')",
+                },
+                "source_type": {
+                    "type": "string",
+                    "enum": [
+                        "direct_experience",
+                        "inference",
+                        "consolidation",
+                        "external",
+                        "seed",
+                        "observation",
+                        "unknown",
+                    ],
+                    "description": "How this memory was acquired (default: auto-derived from source)",
                 },
             },
             "required": ["drive_type"],
@@ -1257,6 +1435,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 context_tags=sanitized_args.get("context_tags"),
                 source=sanitized_args.get("source"),
                 derived_from=sanitized_args.get("derived_from"),
+                source_type=sanitized_args.get("source_type"),
             )
             result = f"Episode saved: {episode_id[:8]}..."
 
@@ -1271,6 +1450,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 context_tags=sanitized_args.get("context_tags"),
                 source=sanitized_args.get("source"),
                 derived_from=sanitized_args.get("derived_from"),
+                source_type=sanitized_args.get("source_type"),
             )
             result = f"Note saved: {sanitized_args['content'][:50]}..."
 
@@ -1299,6 +1479,7 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 context_tags=sanitized_args.get("context_tags"),
                 source=sanitized_args.get("source"),
                 derived_from=sanitized_args.get("derived_from"),
+                source_type=sanitized_args.get("source_type"),
             )
             result = f"Belief saved: {belief_id[:8]}..."
 
@@ -1309,6 +1490,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 priority=sanitized_args.get("priority", 50),
                 context=sanitized_args.get("context"),
                 context_tags=sanitized_args.get("context_tags"),
+                source=sanitized_args.get("source"),
+                derived_from=sanitized_args.get("derived_from"),
+                source_type=sanitized_args.get("source_type"),
             )
             result = f"Value saved: {sanitized_args['name']}"
 
@@ -1319,6 +1503,9 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 priority=sanitized_args.get("priority", "medium"),
                 context=sanitized_args.get("context"),
                 context_tags=sanitized_args.get("context_tags"),
+                source=sanitized_args.get("source"),
+                derived_from=sanitized_args.get("derived_from"),
+                source_type=sanitized_args.get("source_type"),
             )
             result = f"Goal saved: {sanitized_args['title']}"
 
@@ -1327,6 +1514,11 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
                 drive_type=sanitized_args["drive_type"],
                 intensity=sanitized_args.get("intensity", 0.5),
                 focus_areas=sanitized_args.get("focus_areas"),
+                context=sanitized_args.get("context"),
+                context_tags=sanitized_args.get("context_tags"),
+                source=sanitized_args.get("source"),
+                derived_from=sanitized_args.get("derived_from"),
+                source_type=sanitized_args.get("source_type"),
             )
             result = f"Drive '{sanitized_args['drive_type']}' set to {sanitized_args.get('intensity', 0.5):.0%}"
 

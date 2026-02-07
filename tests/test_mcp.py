@@ -367,6 +367,7 @@ class TestMCPToolCalls:
             context_tags=None,
             source=None,
             derived_from=None,
+            source_type=None,
         )
 
     @pytest.mark.asyncio
@@ -422,6 +423,7 @@ class TestMCPToolCalls:
             context_tags=None,
             source=None,
             derived_from=None,
+            source_type=None,
         )
 
     @pytest.mark.asyncio
@@ -442,6 +444,7 @@ class TestMCPToolCalls:
             context_tags=None,
             source=None,
             derived_from=None,
+            source_type=None,
         )
 
     @pytest.mark.asyncio
@@ -496,6 +499,7 @@ class TestMCPToolCalls:
             context_tags=None,
             source=None,
             derived_from=None,
+            source_type=None,
         )
 
     @pytest.mark.asyncio
@@ -511,6 +515,7 @@ class TestMCPToolCalls:
             context_tags=None,
             source=None,
             derived_from=None,
+            source_type=None,
         )
 
     @pytest.mark.asyncio
@@ -533,6 +538,9 @@ class TestMCPToolCalls:
             priority=90,
             context=None,
             context_tags=None,
+            source=None,
+            derived_from=None,
+            source_type=None,
         )
 
     @pytest.mark.asyncio
@@ -555,6 +563,9 @@ class TestMCPToolCalls:
             priority="high",
             context=None,
             context_tags=None,
+            source=None,
+            derived_from=None,
+            source_type=None,
         )
 
     @pytest.mark.asyncio
@@ -563,7 +574,14 @@ class TestMCPToolCalls:
         await call_tool("memory_goal", {"title": "Simple goal"})
 
         patched_get_kernle.goal.assert_called_once_with(
-            title="Simple goal", description="", priority="medium", context=None, context_tags=None
+            title="Simple goal",
+            description="",
+            priority="medium",
+            context=None,
+            context_tags=None,
+            source=None,
+            derived_from=None,
+            source_type=None,
         )
 
     @pytest.mark.asyncio
@@ -583,7 +601,14 @@ class TestMCPToolCalls:
         assert "80%" in result[0].text
 
         patched_get_kernle.drive.assert_called_once_with(
-            drive_type="growth", intensity=0.8, focus_areas=["learning", "improvement", "mastery"]
+            drive_type="growth",
+            intensity=0.8,
+            focus_areas=["learning", "improvement", "mastery"],
+            context=None,
+            context_tags=None,
+            source=None,
+            derived_from=None,
+            source_type=None,
         )
 
     @pytest.mark.asyncio
@@ -597,7 +622,14 @@ class TestMCPToolCalls:
         assert "50%" in result[0].text
 
         patched_get_kernle.drive.assert_called_once_with(
-            drive_type="curiosity", intensity=0.5, focus_areas=[]
+            drive_type="curiosity",
+            intensity=0.5,
+            focus_areas=[],
+            context=None,
+            context_tags=None,
+            source=None,
+            derived_from=None,
+            source_type=None,
         )
 
     # NOTE: The no-op test_memory_drive_validation_bug_documentation was removed.
@@ -1053,6 +1085,7 @@ class TestMultiToolWorkflows:
             context_tags=None,
             source=None,
             derived_from=None,
+            source_type=None,
         )
         patched_get_kernle.checkpoint.assert_called_once_with(
             task="Testing complete", pending=[], context=""
@@ -1085,6 +1118,7 @@ class TestMultiToolWorkflows:
             context_tags=None,
             source=None,
             derived_from=None,
+            source_type=None,
         )
         patched_get_kernle.value.assert_called_once_with(
             name="reliability",
@@ -1092,6 +1126,9 @@ class TestMultiToolWorkflows:
             priority=85,
             context=None,
             context_tags=None,
+            source=None,
+            derived_from=None,
+            source_type=None,
         )
         patched_get_kernle.goal.assert_called_once_with(
             title="Achieve zero critical bugs",
@@ -1099,6 +1136,9 @@ class TestMultiToolWorkflows:
             priority="high",
             context=None,
             context_tags=None,
+            source=None,
+            derived_from=None,
+            source_type=None,
         )
 
     @pytest.mark.asyncio
@@ -1586,3 +1626,188 @@ class TestToolDefinitionsComplete:
                     tool.inputSchema.get("type") == "object"
                 ), f"{tool.name} should have object schema"
                 assert "properties" in tool.inputSchema, f"{tool.name} missing properties"
+
+
+class TestMCPProvenanceParams:
+    """Test provenance params (derived_from, source, source_type) on MCP tools."""
+
+    def test_source_type_enum_in_all_creation_schemas(self):
+        """All 6 memory creation tools should expose source_type with valid enum values."""
+        creation_tools = {
+            "memory_episode",
+            "memory_note",
+            "memory_belief",
+            "memory_value",
+            "memory_goal",
+            "memory_drive",
+        }
+        expected_enum = [
+            "direct_experience",
+            "inference",
+            "consolidation",
+            "external",
+            "seed",
+            "observation",
+            "unknown",
+        ]
+        for tool in TOOLS:
+            if tool.name in creation_tools:
+                props = tool.inputSchema["properties"]
+                assert "source_type" in props, f"{tool.name} missing source_type"
+                assert (
+                    props["source_type"]["enum"] == expected_enum
+                ), f"{tool.name} source_type enum mismatch"
+
+    def test_derived_from_in_all_creation_schemas(self):
+        """All 6 memory creation tools should expose derived_from."""
+        creation_tools = {
+            "memory_episode",
+            "memory_note",
+            "memory_belief",
+            "memory_value",
+            "memory_goal",
+            "memory_drive",
+        }
+        for tool in TOOLS:
+            if tool.name in creation_tools:
+                props = tool.inputSchema["properties"]
+                assert "derived_from" in props, f"{tool.name} missing derived_from"
+                assert (
+                    props["derived_from"]["type"] == "array"
+                ), f"{tool.name} derived_from should be array"
+
+    def test_source_in_all_creation_schemas(self):
+        """All 6 memory creation tools should expose source."""
+        creation_tools = {
+            "memory_episode",
+            "memory_note",
+            "memory_belief",
+            "memory_value",
+            "memory_goal",
+            "memory_drive",
+        }
+        for tool in TOOLS:
+            if tool.name in creation_tools:
+                props = tool.inputSchema["properties"]
+                assert "source" in props, f"{tool.name} missing source"
+                assert props["source"]["type"] == "string", f"{tool.name} source should be string"
+
+    def test_drive_has_context_and_context_tags(self):
+        """memory_drive should now expose context and context_tags."""
+        tool = next(t for t in TOOLS if t.name == "memory_drive")
+        props = tool.inputSchema["properties"]
+        assert "context" in props, "memory_drive missing context"
+        assert "context_tags" in props, "memory_drive missing context_tags"
+
+    @pytest.mark.asyncio
+    async def test_episode_with_source_type(self, patched_get_kernle):
+        """Test memory_episode passes source_type through to core."""
+        args = {
+            "objective": "Test provenance",
+            "outcome": "success",
+            "source": "consolidation run",
+            "derived_from": ["raw:abc123"],
+            "source_type": "consolidation",
+        }
+        result = await call_tool("memory_episode", args)
+        assert "Episode saved:" in result[0].text
+        patched_get_kernle.episode.assert_called_once_with(
+            objective="Test provenance",
+            outcome="success",
+            lessons=[],
+            tags=[],
+            context=None,
+            context_tags=None,
+            source="consolidation run",
+            derived_from=["raw:abc123"],
+            source_type="consolidation",
+        )
+
+    @pytest.mark.asyncio
+    async def test_value_with_provenance(self, patched_get_kernle):
+        """Test memory_value passes source, derived_from, source_type through to core."""
+        args = {
+            "name": "transparency",
+            "statement": "Be open about decisions",
+            "source": "told by mentor",
+            "derived_from": ["note:xyz789"],
+            "source_type": "external",
+        }
+        result = await call_tool("memory_value", args)
+        assert "Value saved: transparency" in result[0].text
+        patched_get_kernle.value.assert_called_once_with(
+            name="transparency",
+            statement="Be open about decisions",
+            priority=50,
+            context=None,
+            context_tags=None,
+            source="told by mentor",
+            derived_from=["note:xyz789"],
+            source_type="external",
+        )
+
+    @pytest.mark.asyncio
+    async def test_goal_with_provenance(self, patched_get_kernle):
+        """Test memory_goal passes source, derived_from, source_type through to core."""
+        args = {
+            "title": "Learn Rust",
+            "source": "inferred from patterns",
+            "derived_from": ["episode:e1"],
+            "source_type": "inference",
+        }
+        result = await call_tool("memory_goal", args)
+        assert "Goal saved: Learn Rust" in result[0].text
+        patched_get_kernle.goal.assert_called_once_with(
+            title="Learn Rust",
+            description="",
+            priority="medium",
+            context=None,
+            context_tags=None,
+            source="inferred from patterns",
+            derived_from=["episode:e1"],
+            source_type="inference",
+        )
+
+    @pytest.mark.asyncio
+    async def test_drive_with_provenance(self, patched_get_kernle):
+        """Test memory_drive passes all new params through to core."""
+        args = {
+            "drive_type": "curiosity",
+            "intensity": 0.9,
+            "focus_areas": ["AI"],
+            "context": "project:kernle",
+            "context_tags": ["dev"],
+            "source": "seed data",
+            "derived_from": ["belief:b1"],
+            "source_type": "seed",
+        }
+        result = await call_tool("memory_drive", args)
+        assert "curiosity" in result[0].text
+        patched_get_kernle.drive.assert_called_once_with(
+            drive_type="curiosity",
+            intensity=0.9,
+            focus_areas=["AI"],
+            context="project:kernle",
+            context_tags=["dev"],
+            source="seed data",
+            derived_from=["belief:b1"],
+            source_type="seed",
+        )
+
+    @pytest.mark.asyncio
+    async def test_invalid_source_type_rejected(self, patched_get_kernle):
+        """Test that invalid source_type values are rejected by validation."""
+        args = {
+            "objective": "Test",
+            "outcome": "fail",
+            "source_type": "invalid_type",
+        }
+        result = await call_tool("memory_episode", args)
+        assert "Invalid input" in result[0].text
+
+    @pytest.mark.asyncio
+    async def test_source_type_none_when_omitted(self, patched_get_kernle):
+        """Test that source_type is None when not provided."""
+        await call_tool("memory_belief", {"statement": "Test belief"})
+        call_args = patched_get_kernle.belief.call_args
+        assert call_args.kwargs["source_type"] is None

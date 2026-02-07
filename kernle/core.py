@@ -1398,6 +1398,7 @@ class Kernle(
         source: Optional[str] = None,
         context: Optional[str] = None,
         context_tags: Optional[List[str]] = None,
+        source_type: Optional[str] = None,
     ) -> str:
         """Record an episodic experience.
 
@@ -1406,6 +1407,7 @@ class Kernle(
             source: Source context (e.g., 'session with Sean', 'heartbeat check')
             context: Project/scope context (e.g., 'project:api-service', 'repo:myorg/myrepo')
             context_tags: Additional context tags for filtering
+            source_type: Explicit source type override (auto-derived from source if not set)
         """
         # Validate inputs
         objective = self._validate_string_input(objective, "objective", 1000)
@@ -1443,14 +1445,17 @@ class Kernle(
         if avoid:
             all_lessons.extend([f"Avoid: {a}" for a in avoid])
 
-        # Determine source_type from source context
-        source_type = "direct_experience"
-        if source:
-            source_lower = source.lower()
-            if any(x in source_lower for x in ["told", "said", "heard", "learned from"]):
-                source_type = "external"
-            elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
-                source_type = "inference"
+        # Determine source_type from explicit param or source context
+        if source_type is None:
+            source_type_val = "direct_experience"
+            if source:
+                source_lower = source.lower()
+                if any(x in source_lower for x in ["told", "said", "heard", "learned from"]):
+                    source_type_val = "external"
+                elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
+                    source_type_val = "inference"
+        else:
+            source_type_val = source_type
 
         # Build derived_from: explicit lineage + source context marker
         derived_from_value = list(derived_from) if derived_from else []
@@ -1467,7 +1472,7 @@ class Kernle(
             tags=tags or ["manual"],
             created_at=datetime.now(timezone.utc),
             confidence=0.8,
-            source_type=source_type,
+            source_type=source_type_val,
             source_episodes=None,  # Reserved for supporting evidence (episode IDs)
             derived_from=derived_from_value if derived_from_value else None,
             # Context/scope fields
@@ -1555,6 +1560,7 @@ class Kernle(
         source: Optional[str] = None,
         context: Optional[str] = None,
         context_tags: Optional[List[str]] = None,
+        source_type: Optional[str] = None,
     ) -> str:
         """Capture a quick note (decision, insight, quote).
 
@@ -1563,6 +1569,7 @@ class Kernle(
             source: Source context (e.g., 'conversation with X', 'reading Y')
             context: Project/scope context (e.g., 'project:api-service', 'repo:myorg/myrepo')
             context_tags: Additional context tags for filtering
+            source_type: Explicit source type override (auto-derived from source if not set)
         """
         # Validate inputs
         content = self._validate_string_input(content, "content", 2000)
@@ -1592,16 +1599,19 @@ class Kernle(
         else:
             formatted = content
 
-        # Determine source_type from source context
-        source_type = "direct_experience"
-        if source:
-            source_lower = source.lower()
-            if any(x in source_lower for x in ["told", "said", "heard", "learned from"]):
-                source_type = "external"
-            elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
-                source_type = "inference"
-            elif type == "quote":
-                source_type = "external"
+        # Determine source_type from explicit param or source context
+        if source_type is None:
+            source_type_val = "direct_experience"
+            if source:
+                source_lower = source.lower()
+                if any(x in source_lower for x in ["told", "said", "heard", "learned from"]):
+                    source_type_val = "external"
+                elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
+                    source_type_val = "inference"
+                elif type == "quote":
+                    source_type_val = "external"
+        else:
+            source_type_val = source_type
 
         # Build derived_from: explicit lineage + source context marker
         derived_from_value = list(derived_from) if derived_from else []
@@ -1617,7 +1627,7 @@ class Kernle(
             reason=reason,
             tags=tags or [],
             created_at=datetime.now(timezone.utc),
-            source_type=source_type,
+            source_type=source_type_val,
             source_episodes=None,  # Reserved for supporting evidence (episode IDs)
             derived_from=derived_from_value if derived_from_value else None,
             is_protected=protect,
@@ -2897,6 +2907,7 @@ class Kernle(
         context_tags: Optional[List[str]] = None,
         source: Optional[str] = None,
         derived_from: Optional[List[str]] = None,
+        source_type: Optional[str] = None,
     ) -> str:
         """Add or update a belief.
 
@@ -2905,22 +2916,26 @@ class Kernle(
             context_tags: Additional context tags for filtering
             source: Source context (e.g., 'raw-processing', 'consolidation', 'told by Claire')
             derived_from: List of memory refs this was derived from (format: type:id)
+            source_type: Explicit source type override (auto-derived from source if not set)
         """
         confidence = max(0.0, min(1.0, confidence))  # Clamp to valid range
         belief_id = str(uuid.uuid4())
 
-        # Determine source_type from source context
-        source_type = "direct_experience"
-        if source:
-            source_lower = source.lower()
-            if any(x in source_lower for x in ["told", "said", "heard", "learned from"]):
-                source_type = "external"
-            elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
-                source_type = "inference"
-            elif "consolidat" in source_lower or "promot" in source_lower:
-                source_type = "consolidation"
-            elif "seed" in source_lower:
-                source_type = "seed"
+        # Determine source_type from explicit param or source context
+        if source_type is None:
+            source_type_val = "direct_experience"
+            if source:
+                source_lower = source.lower()
+                if any(x in source_lower for x in ["told", "said", "heard", "learned from"]):
+                    source_type_val = "external"
+                elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
+                    source_type_val = "inference"
+                elif "consolidat" in source_lower or "promot" in source_lower:
+                    source_type_val = "consolidation"
+                elif "seed" in source_lower:
+                    source_type_val = "seed"
+        else:
+            source_type_val = source_type
 
         # Build derived_from: explicit lineage + source context marker
         derived_from_value = list(derived_from) if derived_from else []
@@ -2935,7 +2950,7 @@ class Kernle(
             belief_type=type,
             confidence=confidence,
             created_at=datetime.now(timezone.utc),
-            source_type=source_type,
+            source_type=source_type_val,
             derived_from=derived_from_value,
             context=context,
             context_tags=context_tags,
@@ -2953,16 +2968,42 @@ class Kernle(
         foundational: bool = False,
         context: Optional[str] = None,
         context_tags: Optional[List[str]] = None,
+        source: Optional[str] = None,
         derived_from: Optional[List[str]] = None,
+        source_type: Optional[str] = None,
     ) -> str:
         """Add or affirm a value.
 
         Args:
             context: Project/scope context (e.g., 'project:api-service', 'repo:myorg/myrepo')
             context_tags: Additional context tags for filtering
+            source: Source context (e.g., 'consolidation', 'told by X', 'raw-processing')
             derived_from: List of memory refs this was derived from (format: type:id)
+            source_type: Explicit source type override (auto-derived from source if not set)
         """
         value_id = str(uuid.uuid4())
+
+        # Determine source_type from explicit param or source context
+        if source_type is None:
+            source_type_val = "direct_experience"
+            if source:
+                source_lower = source.lower()
+                if any(x in source_lower for x in ["told", "said", "heard", "learned from"]):
+                    source_type_val = "external"
+                elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
+                    source_type_val = "inference"
+                elif "consolidat" in source_lower or "promot" in source_lower:
+                    source_type_val = "consolidation"
+                elif "seed" in source_lower:
+                    source_type_val = "seed"
+        else:
+            source_type_val = source_type
+
+        # Build derived_from: explicit lineage + source context marker
+        derived_from_value = list(derived_from) if derived_from else []
+        if source:
+            derived_from_value.append(f"context:{source}")
+        derived_from_value = self._validate_derived_from(derived_from_value)
 
         value = Value(
             id=value_id,
@@ -2971,9 +3012,10 @@ class Kernle(
             statement=statement,
             priority=priority,
             created_at=datetime.now(timezone.utc),
+            source_type=source_type_val,
+            derived_from=derived_from_value if derived_from_value else None,
             context=context,
             context_tags=context_tags,
-            derived_from=derived_from,
         )
 
         self._write_backend.save_value(value)
@@ -2987,7 +3029,9 @@ class Kernle(
         priority: str = "medium",
         context: Optional[str] = None,
         context_tags: Optional[List[str]] = None,
+        source: Optional[str] = None,
         derived_from: Optional[List[str]] = None,
+        source_type: Optional[str] = None,
     ) -> str:
         """Add a goal.
 
@@ -2995,7 +3039,9 @@ class Kernle(
             goal_type: Type of goal (task, aspiration, commitment, exploration)
             context: Project/scope context (e.g., 'project:api-service', 'repo:myorg/myrepo')
             context_tags: Additional context tags for filtering
+            source: Source context (e.g., 'consolidation', 'told by X', 'raw-processing')
             derived_from: List of memory refs this was derived from (format: type:id)
+            source_type: Explicit source type override (auto-derived from source if not set)
         """
         valid_goal_types = ("task", "aspiration", "commitment", "exploration")
         if goal_type not in valid_goal_types:
@@ -3005,6 +3051,28 @@ class Kernle(
 
         # Set protection based on goal_type
         is_protected = goal_type in ("aspiration", "commitment")
+
+        # Determine source_type from explicit param or source context
+        if source_type is None:
+            source_type_val = "direct_experience"
+            if source:
+                source_lower = source.lower()
+                if any(x in source_lower for x in ["told", "said", "heard", "learned from"]):
+                    source_type_val = "external"
+                elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
+                    source_type_val = "inference"
+                elif "consolidat" in source_lower or "promot" in source_lower:
+                    source_type_val = "consolidation"
+                elif "seed" in source_lower:
+                    source_type_val = "seed"
+        else:
+            source_type_val = source_type
+
+        # Build derived_from: explicit lineage + source context marker
+        derived_from_value = list(derived_from) if derived_from else []
+        if source:
+            derived_from_value.append(f"context:{source}")
+        derived_from_value = self._validate_derived_from(derived_from_value)
 
         goal = Goal(
             id=goal_id,
@@ -3016,9 +3084,10 @@ class Kernle(
             status="active",
             created_at=datetime.now(timezone.utc),
             is_protected=is_protected,
+            source_type=source_type_val,
+            derived_from=derived_from_value if derived_from_value else None,
             context=context,
             context_tags=context_tags,
-            derived_from=derived_from,
         )
 
         self._write_backend.save_goal(goal)
@@ -4749,15 +4818,43 @@ class Kernle(
         decay_hours: int = 24,
         context: Optional[str] = None,
         context_tags: Optional[List[str]] = None,
+        source: Optional[str] = None,
+        derived_from: Optional[List[str]] = None,
+        source_type: Optional[str] = None,
     ) -> str:
         """Set or update a drive.
 
         Args:
             context: Project/scope context (e.g., 'project:api-service', 'repo:myorg/myrepo')
             context_tags: Additional context tags for filtering
+            source: Source context (e.g., 'consolidation', 'told by X', 'raw-processing')
+            derived_from: List of memory refs this was derived from (format: type:id)
+            source_type: Explicit source type override (auto-derived from source if not set)
         """
         if drive_type not in self.DRIVE_TYPES:
             raise ValueError(f"Invalid drive type. Must be one of: {self.DRIVE_TYPES}")
+
+        # Determine source_type from explicit param or source context
+        if source_type is None:
+            source_type_val = "direct_experience"
+            if source:
+                source_lower = source.lower()
+                if any(x in source_lower for x in ["told", "said", "heard", "learned from"]):
+                    source_type_val = "external"
+                elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
+                    source_type_val = "inference"
+                elif "consolidat" in source_lower or "promot" in source_lower:
+                    source_type_val = "consolidation"
+                elif "seed" in source_lower:
+                    source_type_val = "seed"
+        else:
+            source_type_val = source_type
+
+        # Build derived_from: explicit lineage + source context marker
+        derived_from_value = list(derived_from) if derived_from else []
+        if source:
+            derived_from_value.append(f"context:{source}")
+        derived_from_value = self._validate_derived_from(derived_from_value)
 
         # Check if drive exists
         existing = self._storage.get_drive(drive_type)
@@ -4774,6 +4871,9 @@ class Kernle(
                 existing.context = context
             if context_tags is not None:
                 existing.context_tags = context_tags
+            existing.source_type = source_type_val
+            if derived_from_value:
+                existing.derived_from = derived_from_value
             self._write_backend.save_drive(existing)
             return existing.id
         else:
@@ -4786,6 +4886,8 @@ class Kernle(
                 focus_areas=focus_areas or [],
                 created_at=now,
                 updated_at=now,
+                source_type=source_type_val,
+                derived_from=derived_from_value if derived_from_value else None,
                 context=context,
                 context_tags=context_tags,
             )
