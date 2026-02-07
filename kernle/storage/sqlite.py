@@ -6149,6 +6149,138 @@ class SQLiteStorage:
                 return True
         return False
 
+    def mark_episode_processed(self, episode_id: str) -> bool:
+        """Mark an episode as processed for promotion."""
+        now = self._now()
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE episodes SET
+                    processed = 1,
+                    local_updated_at = ?,
+                    version = version + 1
+                WHERE id = ? AND stack_id = ? AND deleted = 0
+            """,
+                (now, episode_id, self.stack_id),
+            )
+            if cursor.rowcount > 0:
+                self._queue_sync(conn, "episodes", episode_id, "upsert")
+                conn.commit()
+                return True
+        return False
+
+    def mark_note_processed(self, note_id: str) -> bool:
+        """Mark a note as processed for promotion."""
+        now = self._now()
+        with self._connect() as conn:
+            cursor = conn.execute(
+                """
+                UPDATE notes SET
+                    processed = 1,
+                    local_updated_at = ?,
+                    version = version + 1
+                WHERE id = ? AND stack_id = ? AND deleted = 0
+            """,
+                (now, note_id, self.stack_id),
+            )
+            if cursor.rowcount > 0:
+                self._queue_sync(conn, "notes", note_id, "upsert")
+                conn.commit()
+                return True
+        return False
+
+    def get_processing_config(self) -> List[Dict[str, Any]]:
+        """Get all processing configuration entries."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM processing_config ORDER BY layer_transition"
+            ).fetchall()
+        result = []
+        for row in rows:
+            result.append(
+                {
+                    "layer_transition": row["layer_transition"],
+                    "enabled": bool(row["enabled"]),
+                    "model_id": row["model_id"],
+                    "quantity_threshold": row["quantity_threshold"],
+                    "valence_threshold": row["valence_threshold"],
+                    "time_threshold_hours": row["time_threshold_hours"],
+                    "batch_size": row["batch_size"],
+                    "max_sessions_per_day": row["max_sessions_per_day"],
+                    "updated_at": row["updated_at"],
+                }
+            )
+        return result
+
+    def set_processing_config(
+        self,
+        layer_transition: str,
+        *,
+        enabled: Optional[bool] = None,
+        model_id: Optional[str] = None,
+        quantity_threshold: Optional[int] = None,
+        valence_threshold: Optional[float] = None,
+        time_threshold_hours: Optional[int] = None,
+        batch_size: Optional[int] = None,
+        max_sessions_per_day: Optional[int] = None,
+    ) -> bool:
+        """Upsert a processing configuration entry."""
+        now = self._now()
+        with self._connect() as conn:
+            # Check if exists
+            existing = conn.execute(
+                "SELECT * FROM processing_config WHERE layer_transition = ?",
+                (layer_transition,),
+            ).fetchone()
+
+            if existing:
+                # Build SET clause from non-None values
+                updates = {"updated_at": now}
+                if enabled is not None:
+                    updates["enabled"] = 1 if enabled else 0
+                if model_id is not None:
+                    updates["model_id"] = model_id
+                if quantity_threshold is not None:
+                    updates["quantity_threshold"] = quantity_threshold
+                if valence_threshold is not None:
+                    updates["valence_threshold"] = valence_threshold
+                if time_threshold_hours is not None:
+                    updates["time_threshold_hours"] = time_threshold_hours
+                if batch_size is not None:
+                    updates["batch_size"] = batch_size
+                if max_sessions_per_day is not None:
+                    updates["max_sessions_per_day"] = max_sessions_per_day
+
+                set_clause = ", ".join(f"{k} = ?" for k in updates)
+                values = list(updates.values()) + [layer_transition]
+                conn.execute(
+                    f"UPDATE processing_config SET {set_clause} WHERE layer_transition = ?",
+                    values,
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO processing_config
+                        (layer_transition, enabled, model_id, quantity_threshold,
+                         valence_threshold, time_threshold_hours, batch_size,
+                         max_sessions_per_day, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        layer_transition,
+                        1 if (enabled is None or enabled) else 0,
+                        model_id,
+                        quantity_threshold,
+                        valence_threshold,
+                        time_threshold_hours,
+                        batch_size or 10,
+                        max_sessions_per_day,
+                        now,
+                    ),
+                )
+            conn.commit()
+        return True
+
     def delete_raw(self, raw_id: str) -> bool:
         """Delete a raw entry (soft delete by marking deleted=1)."""
         now = self._now()

@@ -877,6 +877,28 @@ class StackProtocol(Protocol):
         """Get audit log entries."""
         ...
 
+    # ---- Processing ----
+
+    def get_processing_config(self) -> list[dict[str, Any]]:
+        """Get all processing configuration entries."""
+        ...
+
+    def set_processing_config(
+        self,
+        layer_transition: str,
+        **kwargs: Any,
+    ) -> bool:
+        """Update processing configuration."""
+        ...
+
+    def mark_episode_processed(self, episode_id: str) -> bool:
+        """Mark an episode as processed."""
+        ...
+
+    def mark_note_processed(self, note_id: str) -> bool:
+        """Mark a note as processed."""
+        ...
+
     # ---- Trust Layer ----
 
     def save_trust_assessment(self, assessment: TrustAssessment) -> str: ...
@@ -1666,6 +1688,19 @@ class CoreProtocol(Protocol):
         protected: bool = True,
     ) -> bool:
         """Protect or unprotect a memory from forgetting/decay."""
+        ...
+
+    def process(
+        self,
+        transition: Optional[str] = None,
+        *,
+        force: bool = False,
+    ) -> list:
+        """Run memory processing sessions.
+
+        Promotes memories up the hierarchy using the bound model.
+        Returns list of ProcessingResult for each transition that ran.
+        """
         ...
 
     # ---- Routed Sync ----

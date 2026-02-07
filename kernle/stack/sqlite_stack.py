@@ -884,6 +884,28 @@ class SQLiteStack(
             limit=limit,
         )
 
+    # ---- Processing ----
+
+    def get_processing_config(self) -> List[Dict[str, Any]]:
+        """Get all processing configuration entries."""
+        return self._backend.get_processing_config()
+
+    def set_processing_config(
+        self,
+        layer_transition: str,
+        **kwargs: Any,
+    ) -> bool:
+        """Update processing configuration for a layer transition."""
+        return self._backend.set_processing_config(layer_transition, **kwargs)
+
+    def mark_episode_processed(self, episode_id: str) -> bool:
+        """Mark an episode as processed."""
+        return self._backend.mark_episode_processed(episode_id)
+
+    def mark_note_processed(self, note_id: str) -> bool:
+        """Mark a note as processed."""
+        return self._backend.mark_note_processed(note_id)
+
     # ---- Trust Layer ----
 
     def save_trust_assessment(self, assessment: TrustAssessment) -> str:

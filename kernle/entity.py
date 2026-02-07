@@ -953,6 +953,62 @@ class Entity:
         stack = self._require_active_stack()
         return stack.protect_memory(memory_type, memory_id, protected)
 
+    # ---- Memory Processing ----
+
+    def process(
+        self,
+        transition: Optional[str] = None,
+        *,
+        force: bool = False,
+    ) -> list:
+        """Run memory processing sessions.
+
+        Promotes memories up the hierarchy using the bound model:
+        raw → episode/note, episode → belief/goal/relationship/drive,
+        belief → value.
+
+        Args:
+            transition: Specific layer transition to process (None = check all)
+            force: Process even if triggers aren't met
+
+        Returns:
+            List of ProcessingResult for each transition that ran
+        """
+        stack = self._require_active_stack()
+        inference = self._get_inference_service()
+        if inference is None:
+            raise RuntimeError("No model bound — processing requires inference")
+
+        from kernle.processing import MemoryProcessor
+
+        processor = MemoryProcessor(
+            stack=stack,
+            inference=inference,
+            core_id=self._core_id,
+        )
+
+        # Load any saved config from the stack
+        try:
+            saved_configs = stack.get_processing_config()
+            for cfg_dict in saved_configs:
+                from kernle.processing import LayerConfig
+
+                lc = LayerConfig(
+                    layer_transition=cfg_dict["layer_transition"],
+                    enabled=cfg_dict.get("enabled", True),
+                    model_id=cfg_dict.get("model_id"),
+                    quantity_threshold=cfg_dict.get("quantity_threshold") or 10,
+                    valence_threshold=cfg_dict.get("valence_threshold") or 3.0,
+                    time_threshold_hours=cfg_dict.get("time_threshold_hours") or 24,
+                    batch_size=cfg_dict.get("batch_size") or 10,
+                    max_sessions_per_day=cfg_dict.get("max_sessions_per_day") or 10,
+                )
+                processor.update_config(lc.layer_transition, lc)
+        except Exception:
+            pass  # Use defaults if config loading fails
+
+        return processor.process(transition, force=force)
+
     # ---- Routed Sync ----
 
     def sync(self) -> SyncResult:
