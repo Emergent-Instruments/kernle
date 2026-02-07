@@ -893,9 +893,11 @@ CREATE TABLE IF NOT EXISTS processing_config (
 
 -- Stack settings (per-stack feature flags)
 CREATE TABLE IF NOT EXISTS stack_settings (
-    key TEXT PRIMARY KEY,
+    stack_id TEXT NOT NULL,
+    key TEXT NOT NULL,
     value TEXT NOT NULL,
-    updated_at TEXT NOT NULL
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (stack_id, key)
 );
 """
 
@@ -2421,12 +2423,37 @@ class SQLiteStorage:
         if "stack_settings" not in table_names:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS stack_settings (
-                    key TEXT PRIMARY KEY,
+                    stack_id TEXT NOT NULL,
+                    key TEXT NOT NULL,
                     value TEXT NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (stack_id, key)
                 )
             """)
             logger.info("Created stack_settings table")
+        else:
+            # Migrate existing table: add stack_id if missing
+            cols = {row[1] for row in conn.execute("PRAGMA table_info(stack_settings)").fetchall()}
+            if "stack_id" not in cols:
+                conn.execute("ALTER TABLE stack_settings RENAME TO stack_settings_old")
+                conn.execute("""
+                    CREATE TABLE stack_settings (
+                        stack_id TEXT NOT NULL,
+                        key TEXT NOT NULL,
+                        value TEXT NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY (stack_id, key)
+                    )
+                """)
+                conn.execute(
+                    """
+                    INSERT INTO stack_settings (stack_id, key, value, updated_at)
+                    SELECT ?, key, value, updated_at FROM stack_settings_old
+                """,
+                    (self.stack_id,),
+                )
+                conn.execute("DROP TABLE stack_settings_old")
+                logger.info("Migrated stack_settings table to include stack_id")
 
         conn.commit()
 
@@ -6301,32 +6328,35 @@ class SQLiteStorage:
         return True
 
     def get_stack_setting(self, key: str) -> Optional[str]:
-        """Get a stack setting value by key."""
+        """Get a stack setting value by key (scoped to this stack)."""
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT value FROM stack_settings WHERE key = ?",
-                (key,),
+                "SELECT value FROM stack_settings WHERE stack_id = ? AND key = ?",
+                (self.stack_id, key),
             ).fetchone()
         return row["value"] if row else None
 
     def set_stack_setting(self, key: str, value: str) -> None:
-        """Set a stack setting (upsert)."""
+        """Set a stack setting (upsert, scoped to this stack)."""
         now = self._now()
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO stack_settings (key, value, updated_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT(key) DO UPDATE SET value = ?, updated_at = ?
+                INSERT INTO stack_settings (stack_id, key, value, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(stack_id, key) DO UPDATE SET value = ?, updated_at = ?
                 """,
-                (key, value, now, value, now),
+                (self.stack_id, key, value, now, value, now),
             )
             conn.commit()
 
     def get_all_stack_settings(self) -> Dict[str, str]:
-        """Get all stack settings as a dict."""
+        """Get all stack settings as a dict (scoped to this stack)."""
         with self._connect() as conn:
-            rows = conn.execute("SELECT key, value FROM stack_settings ORDER BY key").fetchall()
+            rows = conn.execute(
+                "SELECT key, value FROM stack_settings WHERE stack_id = ? ORDER BY key",
+                (self.stack_id,),
+            ).fetchall()
         return {row["key"]: row["value"] for row in rows}
 
     def delete_raw(self, raw_id: str) -> bool:

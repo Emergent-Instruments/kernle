@@ -314,9 +314,9 @@ class SQLiteStack(
         """Validate provenance for a memory write.
 
         Only enforced when stack is ACTIVE. INITIALIZING allows any write
-        (for seed data). MAINTENANCE rejects non-admin writes.
-        Plugin-sourced writes (source_entity starting with "plugin:") have
-        relaxed provenance requirements.
+        (for seed data). MAINTENANCE always rejects writes (independent of
+        provenance flag). Plugin-sourced writes have relaxed provenance
+        requirements but are still blocked in maintenance mode.
 
         Raises:
             ProvenanceError: If provenance is missing or invalid
@@ -325,17 +325,18 @@ class SQLiteStack(
         if self._state == StackState.INITIALIZING:
             return  # Seed writes don't need provenance
 
+        # Maintenance mode always blocks writes, regardless of provenance flag
+        if self._state == StackState.MAINTENANCE:
+            raise MaintenanceModeError(
+                f"Cannot save {memory_type} in maintenance mode. " "Use exit_maintenance() first."
+            )
+
         if not self._enforce_provenance:
             return  # Provenance enforcement disabled
 
         # Plugin-sourced writes have relaxed provenance requirements
         if source_entity and source_entity.startswith("plugin:"):
             return
-
-        if self._state == StackState.MAINTENANCE:
-            raise MaintenanceModeError(
-                f"Cannot save {memory_type} in maintenance mode. " "Use exit_maintenance() first."
-            )
 
         # Raw entries don't need provenance
         if memory_type not in PROVENANCE_RULES:
@@ -469,18 +470,30 @@ class SQLiteStack(
     # ---- Batch Write ----
 
     def save_episodes_batch(self, episodes: List[Episode]) -> List[str]:
+        for ep in episodes:
+            self._validate_provenance(
+                "episode", ep.derived_from, getattr(ep, "source_entity", None)
+            )
         ids = self._backend.save_episodes_batch(episodes)
         for ep, eid in zip(episodes, ids):
             self._dispatch_on_save("episode", eid, ep)
         return ids
 
     def save_beliefs_batch(self, beliefs: List[Belief]) -> List[str]:
+        for belief in beliefs:
+            self._validate_provenance(
+                "belief", belief.derived_from, getattr(belief, "source_entity", None)
+            )
         ids = self._backend.save_beliefs_batch(beliefs)
         for belief, bid in zip(beliefs, ids):
             self._dispatch_on_save("belief", bid, belief)
         return ids
 
     def save_notes_batch(self, notes: List[Note]) -> List[str]:
+        for note in notes:
+            self._validate_provenance(
+                "note", note.derived_from, getattr(note, "source_entity", None)
+            )
         ids = self._backend.save_notes_batch(notes)
         for note, nid in zip(notes, ids):
             self._dispatch_on_save("note", nid, note)

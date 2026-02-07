@@ -948,3 +948,393 @@ class TestPluginProvenanceBypass:
         goal.source_entity = "plugin:fatline"
         gid = active_enforced_stack.save_goal(goal)
         assert gid
+
+    def test_plugin_blocked_in_maintenance(self, active_enforced_stack):
+        """Plugin writes are still blocked in maintenance mode."""
+        active_enforced_stack.enter_maintenance()
+        belief = Belief(
+            id=_uid(),
+            stack_id="test",
+            statement="Plugin belief in maintenance",
+            source_type="inferred",
+            derived_from=None,
+            created_at=_now(),
+        )
+        belief.source_entity = "plugin:chainbased"
+        with pytest.raises(MaintenanceModeError):
+            active_enforced_stack.save_belief(belief)
+
+
+# ==============================================================================
+# Maintenance mode independence from provenance flag
+# ==============================================================================
+
+
+class TestMaintenanceModeIndependence:
+    """Maintenance mode blocks writes regardless of enforce_provenance."""
+
+    def test_maintenance_blocks_when_provenance_off(self, tmp_path):
+        """Maintenance blocks writes even when enforce_provenance=False."""
+        stack = SQLiteStack(
+            "test",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=False,
+        )
+        stack.on_attach(core_id="core-1", inference=None)
+        stack.enter_maintenance()
+        belief = Belief(
+            id=_uid(),
+            stack_id="test",
+            statement="Should be blocked",
+            source_type="inferred",
+            created_at=_now(),
+        )
+        with pytest.raises(MaintenanceModeError):
+            stack.save_belief(belief)
+
+    def test_maintenance_blocks_raw_when_provenance_off(self, tmp_path):
+        """Even raw writes blocked in maintenance mode."""
+        stack = SQLiteStack(
+            "test",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=False,
+        )
+        stack.on_attach(core_id="core-1", inference=None)
+        stack.enter_maintenance()
+        raw = RawEntry(id=_uid(), stack_id="test", blob="test", source="test")
+        with pytest.raises(MaintenanceModeError):
+            stack.save_raw(raw)
+
+    def test_exit_maintenance_allows_writes_again(self, tmp_path):
+        stack = SQLiteStack(
+            "test",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=False,
+        )
+        stack.on_attach(core_id="core-1", inference=None)
+        stack.enter_maintenance()
+        stack.exit_maintenance()
+        raw = RawEntry(id=_uid(), stack_id="test", blob="test", source="test")
+        rid = stack.save_raw(raw)
+        assert rid
+
+
+# ==============================================================================
+# Batch write provenance enforcement
+# ==============================================================================
+
+
+class TestBatchWriteProvenance:
+    """Batch writes must validate provenance same as single writes."""
+
+    @pytest.fixture
+    def active_enforced_stack(self, tmp_path):
+        stack = SQLiteStack(
+            "test",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=True,
+        )
+        raw = RawEntry(id=_uid(), stack_id="test", blob="raw", source="test")
+        raw_id = stack.save_raw(raw)
+        ep = Episode(
+            id=_uid(),
+            stack_id="test",
+            objective="Ep",
+            outcome="Done",
+            source_type="seed",
+            derived_from=[f"raw:{raw_id}"],
+            created_at=_now(),
+        )
+        ep_id = stack.save_episode(ep)
+        stack.on_attach(core_id="core-1", inference=None)
+        stack._test_raw_id = raw_id
+        stack._test_ep_id = ep_id
+        return stack
+
+    def test_batch_beliefs_without_provenance_rejected(self, active_enforced_stack):
+        """Batch belief save with no derived_from should raise ProvenanceError."""
+        beliefs = [
+            Belief(
+                id=_uid(),
+                stack_id="test",
+                statement="No provenance",
+                source_type="inferred",
+                derived_from=None,
+                created_at=_now(),
+            )
+        ]
+        with pytest.raises(ProvenanceError):
+            active_enforced_stack.save_beliefs_batch(beliefs)
+
+    def test_batch_beliefs_with_provenance_accepted(self, active_enforced_stack):
+        """Batch belief save with valid provenance should succeed."""
+        beliefs = [
+            Belief(
+                id=_uid(),
+                stack_id="test",
+                statement="Valid provenance",
+                source_type="inferred",
+                derived_from=[f"episode:{active_enforced_stack._test_ep_id}"],
+                created_at=_now(),
+            )
+        ]
+        ids = active_enforced_stack.save_beliefs_batch(beliefs)
+        assert len(ids) == 1
+
+    def test_batch_episodes_without_provenance_rejected(self, active_enforced_stack):
+        episodes = [
+            Episode(
+                id=_uid(),
+                stack_id="test",
+                objective="No provenance",
+                outcome="Done",
+                source_type="processed",
+                derived_from=None,
+                created_at=_now(),
+            )
+        ]
+        with pytest.raises(ProvenanceError):
+            active_enforced_stack.save_episodes_batch(episodes)
+
+    def test_batch_notes_without_provenance_rejected(self, active_enforced_stack):
+        notes = [
+            Note(
+                id=_uid(),
+                stack_id="test",
+                content="No provenance",
+                note_type="note",
+                source_type="processed",
+                derived_from=None,
+                created_at=_now(),
+            )
+        ]
+        with pytest.raises(ProvenanceError):
+            active_enforced_stack.save_notes_batch(notes)
+
+    def test_batch_blocked_in_maintenance(self, active_enforced_stack):
+        """Batch writes blocked in maintenance mode."""
+        active_enforced_stack.enter_maintenance()
+        beliefs = [
+            Belief(
+                id=_uid(),
+                stack_id="test",
+                statement="Maintenance",
+                source_type="inferred",
+                derived_from=[f"episode:{active_enforced_stack._test_ep_id}"],
+                created_at=_now(),
+            )
+        ]
+        with pytest.raises(MaintenanceModeError):
+            active_enforced_stack.save_beliefs_batch(beliefs)
+
+
+# ==============================================================================
+# Stack-scoped settings
+# ==============================================================================
+
+
+class TestStackScopedSettings:
+    """Settings are scoped per stack_id, not global to the DB."""
+
+    def test_different_stacks_isolated(self, tmp_path):
+        """Two stacks sharing a DB have independent settings."""
+        db_path = tmp_path / "shared.db"
+        stack_a = SQLiteStack("stack-a", db_path=db_path, components=[])
+        stack_b = SQLiteStack("stack-b", db_path=db_path, components=[])
+
+        stack_a.set_stack_setting("enforce_provenance", "true")
+
+        assert stack_a.get_stack_setting("enforce_provenance") == "true"
+        assert stack_b.get_stack_setting("enforce_provenance") is None
+
+    def test_get_all_scoped(self, tmp_path):
+        db_path = tmp_path / "shared.db"
+        stack_a = SQLiteStack("stack-a", db_path=db_path, components=[])
+        stack_b = SQLiteStack("stack-b", db_path=db_path, components=[])
+
+        stack_a.set_stack_setting("a", "1")
+        stack_b.set_stack_setting("b", "2")
+
+        assert stack_a.get_all_stack_settings() == {"a": "1"}
+        assert stack_b.get_all_stack_settings() == {"b": "2"}
+
+
+# ==============================================================================
+# Kernle strict-mode tests
+# ==============================================================================
+
+
+class TestKernleStrictMode:
+    """Kernle(strict=True) routes writes through stack enforcement."""
+
+    @pytest.fixture
+    def strict_kernle(self, tmp_path):
+        from kernle.core import Kernle
+        from kernle.storage import SQLiteStorage
+
+        db = tmp_path / "strict.db"
+        storage = SQLiteStorage(stack_id="strict_agent", db_path=db)
+        k = Kernle(
+            stack_id="strict_agent",
+            storage=storage,
+            checkpoint_dir=tmp_path / "cp",
+            strict=True,
+        )
+        yield k
+        storage.close()
+
+    @pytest.fixture
+    def legacy_kernle(self, tmp_path):
+        from kernle.core import Kernle
+        from kernle.storage import SQLiteStorage
+
+        db = tmp_path / "legacy.db"
+        storage = SQLiteStorage(stack_id="legacy_agent", db_path=db)
+        k = Kernle(
+            stack_id="legacy_agent",
+            storage=storage,
+            checkpoint_dir=tmp_path / "cp",
+        )
+        yield k
+        storage.close()
+
+    def test_strict_flag_stored(self, strict_kernle, legacy_kernle):
+        assert strict_kernle._strict is True
+        assert legacy_kernle._strict is False
+
+    def test_write_backend_returns_stack_when_strict(self, strict_kernle):
+        backend = strict_kernle._write_backend
+        assert backend is strict_kernle.stack
+
+    def test_write_backend_returns_storage_when_legacy(self, legacy_kernle):
+        backend = legacy_kernle._write_backend
+        assert backend is legacy_kernle._storage
+
+    def test_strict_maintenance_blocks_episode(self, strict_kernle):
+        """In strict mode, maintenance state blocks writes."""
+        stack = strict_kernle.stack
+        stack.on_attach("strict_agent")
+        stack.enter_maintenance()
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.episode(
+                objective="Test",
+                outcome="Should fail",
+            )
+
+    def test_strict_maintenance_blocks_belief(self, strict_kernle):
+        stack = strict_kernle.stack
+        stack.on_attach("strict_agent")
+        stack.enter_maintenance()
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.belief(statement="Test belief")
+
+    def test_strict_maintenance_blocks_value(self, strict_kernle):
+        stack = strict_kernle.stack
+        stack.on_attach("strict_agent")
+        stack.enter_maintenance()
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.value(name="Test", statement="Test value")
+
+    def test_strict_maintenance_blocks_goal(self, strict_kernle):
+        stack = strict_kernle.stack
+        stack.on_attach("strict_agent")
+        stack.enter_maintenance()
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.goal(title="Test goal")
+
+    def test_strict_maintenance_blocks_raw(self, strict_kernle):
+        stack = strict_kernle.stack
+        stack.on_attach("strict_agent")
+        stack.enter_maintenance()
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.raw(blob="Test blob")
+
+    def test_strict_maintenance_blocks_note(self, strict_kernle):
+        stack = strict_kernle.stack
+        stack.on_attach("strict_agent")
+        stack.enter_maintenance()
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.note(content="Test note")
+
+    def test_strict_maintenance_blocks_drive(self, strict_kernle):
+        stack = strict_kernle.stack
+        stack.on_attach("strict_agent")
+        stack.enter_maintenance()
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.drive(drive_type="curiosity")
+
+    def test_strict_maintenance_blocks_relationship(self, strict_kernle):
+        stack = strict_kernle.stack
+        stack.on_attach("strict_agent")
+        stack.enter_maintenance()
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.relationship(other_stack_id="other")
+
+    def test_strict_maintenance_blocks_batches(self, strict_kernle):
+        stack = strict_kernle.stack
+        stack.on_attach("strict_agent")
+        stack.enter_maintenance()
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.episodes_batch([{"objective": "X", "outcome": "Y"}])
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.beliefs_batch([{"statement": "X"}])
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.notes_batch([{"content": "X"}])
+
+    def test_legacy_mode_ignores_maintenance(self, legacy_kernle):
+        """In legacy mode, writes go to storage directly — no enforcement."""
+        # Force the stack into maintenance, but legacy mode bypasses it
+        stack = legacy_kernle.stack
+        stack.on_attach("legacy_agent")
+        stack.enter_maintenance()
+
+        # Legacy write goes directly to storage — no error
+        raw_id = legacy_kernle.raw(blob="Should succeed in legacy mode")
+        assert raw_id is not None
+
+    def test_strict_active_allows_writes(self, strict_kernle):
+        """In strict mode with active stack, writes succeed."""
+        # Stack starts in INITIALIZING — writes should work (seed allowed)
+        raw_id = strict_kernle.raw(blob="Test raw in strict mode")
+        assert raw_id is not None
+
+        ep_id = strict_kernle.episode(
+            objective="Test episode",
+            outcome="Success",
+        )
+        assert ep_id is not None
+
+    def test_strict_requires_sqlite(self, tmp_path):
+        """strict=True with non-SQLite storage raises ValueError."""
+        from unittest.mock import MagicMock
+
+        from kernle.core import Kernle
+
+        mock_storage = MagicMock()
+        mock_storage.is_online.return_value = False
+        mock_storage.get_pending_sync_count.return_value = 0
+
+        k = Kernle(
+            stack_id="test",
+            storage=mock_storage,
+            checkpoint_dir=tmp_path / "cp",
+            strict=True,
+        )
+        # stack property returns None for non-SQLite
+        with pytest.raises(ValueError, match="strict=True requires SQLite"):
+            k._write_backend
