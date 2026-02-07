@@ -418,6 +418,10 @@ class Entity:
         stack.on_attach(self._core_id, self._get_inference_service())
         if set_active:
             self._active_stack_alias = resolved_alias
+        # Register already-loaded plugins with the new stack
+        if hasattr(stack, "register_plugin"):
+            for plugin_name in self._plugins:
+                stack.register_plugin(plugin_name)
         return resolved_alias
 
     def detach_stack(self, alias: str) -> None:
@@ -454,6 +458,9 @@ class Entity:
         plugin.activate(context)
         self._plugins[plugin.name] = plugin
         self._plugin_contexts[plugin.name] = context
+        # Register plugin with active stack for provenance bypass trust
+        if self.active_stack and hasattr(self.active_stack, "register_plugin"):
+            self.active_stack.register_plugin(plugin.name)
         # Register tools
         try:
             tools = plugin.register_tools()
@@ -474,6 +481,9 @@ class Entity:
             plugin.deactivate()
         self._plugin_contexts.pop(name, None)
         self._plugin_tools.pop(name, None)
+        # Unregister plugin from active stack
+        if self.active_stack and hasattr(self.active_stack, "unregister_plugin"):
+            self.active_stack.unregister_plugin(name)
 
     def discover_plugins(self) -> list[PluginInfo]:
         discovered = discover_plugins()

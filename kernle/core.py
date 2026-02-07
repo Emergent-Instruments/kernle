@@ -532,6 +532,10 @@ class Kernle(
             )
             if hasattr(self, "_entity"):
                 self._entity.attach_stack(self._stack, alias="default", set_active=True)
+            elif self._strict:
+                # Strict mode: auto-attach so stack transitions to ACTIVE
+                # (without Entity, on_attach is the only way to leave INITIALIZING)
+                self._stack.on_attach(self.stack_id)
         return self._stack
 
     @property
