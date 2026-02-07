@@ -794,6 +794,19 @@ class Storage(Protocol):
         ...
 
     @abstractmethod
+    def memory_exists(self, memory_type: str, memory_id: str) -> bool:
+        """Check if a memory exists in the stack.
+
+        Args:
+            memory_type: Type of memory (episode, belief, value, goal, note, drive, relationship, raw)
+            memory_id: ID of the memory
+
+        Returns:
+            True if the memory exists and is not deleted
+        """
+        ...
+
+    @abstractmethod
     def update_memory_meta(
         self,
         memory_type: str,

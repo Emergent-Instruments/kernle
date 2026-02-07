@@ -1297,6 +1297,34 @@ class SupabaseStorage:
 
         return None
 
+    def memory_exists(self, memory_type: str, memory_id: str) -> bool:
+        """Check if a memory exists in the stack."""
+        table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+            "raw": "raw_entries",
+        }
+        table = table_map.get(memory_type)
+        if not table:
+            return False
+        try:
+            result = (
+                self.client.table(table)
+                .select("id")
+                .eq("id", memory_id)
+                .eq("stack_id", self.stack_id)
+                .execute()
+            )
+            return bool(result.data)
+        except Exception as e:
+            logger.warning(f"Could not check existence of {memory_type}:{memory_id}: {e}")
+            return False
+
     def update_memory_meta(
         self,
         memory_type: str,
