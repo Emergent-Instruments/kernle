@@ -1001,6 +1001,7 @@ class PluginContext(Protocol):
         repeat: Optional[list[str]] = None,
         avoid: Optional[list[str]] = None,
         tags: Optional[list[str]] = None,
+        derived_from: Optional[list[str]] = None,
         context: Optional[str] = None,
     ) -> Optional[str]:
         """Write an episode. Returns memory ID or None if no active stack."""
@@ -1012,6 +1013,7 @@ class PluginContext(Protocol):
         *,
         belief_type: str = "fact",
         confidence: float = 0.8,
+        derived_from: Optional[list[str]] = None,
         context: Optional[str] = None,
     ) -> Optional[str]:
         """Write a belief."""
@@ -1023,6 +1025,7 @@ class PluginContext(Protocol):
         statement: str,
         *,
         priority: int = 50,
+        derived_from: Optional[list[str]] = None,
         context: Optional[str] = None,
     ) -> Optional[str]:
         """Write a value."""
@@ -1035,6 +1038,7 @@ class PluginContext(Protocol):
         description: Optional[str] = None,
         goal_type: str = "task",
         priority: str = "medium",
+        derived_from: Optional[list[str]] = None,
         context: Optional[str] = None,
     ) -> Optional[str]:
         """Write a goal."""
@@ -1046,6 +1050,7 @@ class PluginContext(Protocol):
         *,
         note_type: str = "note",
         tags: Optional[list[str]] = None,
+        derived_from: Optional[list[str]] = None,
         context: Optional[str] = None,
     ) -> Optional[str]:
         """Write a note."""
@@ -1059,6 +1064,7 @@ class PluginContext(Protocol):
         interaction_type: Optional[str] = None,
         notes: Optional[str] = None,
         entity_type: Optional[str] = None,
+        derived_from: Optional[list[str]] = None,
     ) -> Optional[str]:
         """Write or update a relationship."""
         ...
@@ -1449,6 +1455,8 @@ class CoreProtocol(Protocol):
         priority: int = 50,
         type: str = "core_value",
         foundational: bool = False,
+        derived_from: Optional[list[str]] = None,
+        source: Optional[str] = None,
         context: Optional[str] = None,
         context_tags: Optional[list[str]] = None,
     ) -> str: ...
@@ -1460,6 +1468,8 @@ class CoreProtocol(Protocol):
         description: Optional[str] = None,
         goal_type: str = "task",
         priority: str = "medium",
+        derived_from: Optional[list[str]] = None,
+        source: Optional[str] = None,
         context: Optional[str] = None,
         context_tags: Optional[list[str]] = None,
     ) -> str: ...
@@ -1486,6 +1496,8 @@ class CoreProtocol(Protocol):
         intensity: float = 0.5,
         focus_areas: Optional[list[str]] = None,
         decay_hours: int = 24,
+        derived_from: Optional[list[str]] = None,
+        source: Optional[str] = None,
         context: Optional[str] = None,
         context_tags: Optional[list[str]] = None,
     ) -> str: ...
@@ -1498,6 +1510,8 @@ class CoreProtocol(Protocol):
         notes: Optional[str] = None,
         interaction_type: Optional[str] = None,
         entity_type: Optional[str] = None,
+        derived_from: Optional[list[str]] = None,
+        source: Optional[str] = None,
     ) -> str: ...
 
     def raw(
