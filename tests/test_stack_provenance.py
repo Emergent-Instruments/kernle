@@ -948,3 +948,216 @@ class TestPluginProvenanceBypass:
         goal.source_entity = "plugin:fatline"
         gid = active_enforced_stack.save_goal(goal)
         assert gid
+
+    def test_plugin_blocked_in_maintenance(self, active_enforced_stack):
+        """Plugin writes are still blocked in maintenance mode."""
+        active_enforced_stack.enter_maintenance()
+        belief = Belief(
+            id=_uid(),
+            stack_id="test",
+            statement="Plugin belief in maintenance",
+            source_type="inferred",
+            derived_from=None,
+            created_at=_now(),
+        )
+        belief.source_entity = "plugin:chainbased"
+        with pytest.raises(MaintenanceModeError):
+            active_enforced_stack.save_belief(belief)
+
+
+# ==============================================================================
+# Maintenance mode independence from provenance flag
+# ==============================================================================
+
+
+class TestMaintenanceModeIndependence:
+    """Maintenance mode blocks writes regardless of enforce_provenance."""
+
+    def test_maintenance_blocks_when_provenance_off(self, tmp_path):
+        """Maintenance blocks writes even when enforce_provenance=False."""
+        stack = SQLiteStack(
+            "test",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=False,
+        )
+        stack.on_attach(core_id="core-1", inference=None)
+        stack.enter_maintenance()
+        belief = Belief(
+            id=_uid(),
+            stack_id="test",
+            statement="Should be blocked",
+            source_type="inferred",
+            created_at=_now(),
+        )
+        with pytest.raises(MaintenanceModeError):
+            stack.save_belief(belief)
+
+    def test_maintenance_blocks_raw_when_provenance_off(self, tmp_path):
+        """Even raw writes blocked in maintenance mode."""
+        stack = SQLiteStack(
+            "test",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=False,
+        )
+        stack.on_attach(core_id="core-1", inference=None)
+        stack.enter_maintenance()
+        raw = RawEntry(id=_uid(), stack_id="test", blob="test", source="test")
+        with pytest.raises(MaintenanceModeError):
+            stack.save_raw(raw)
+
+    def test_exit_maintenance_allows_writes_again(self, tmp_path):
+        stack = SQLiteStack(
+            "test",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=False,
+        )
+        stack.on_attach(core_id="core-1", inference=None)
+        stack.enter_maintenance()
+        stack.exit_maintenance()
+        raw = RawEntry(id=_uid(), stack_id="test", blob="test", source="test")
+        rid = stack.save_raw(raw)
+        assert rid
+
+
+# ==============================================================================
+# Batch write provenance enforcement
+# ==============================================================================
+
+
+class TestBatchWriteProvenance:
+    """Batch writes must validate provenance same as single writes."""
+
+    @pytest.fixture
+    def active_enforced_stack(self, tmp_path):
+        stack = SQLiteStack(
+            "test",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=True,
+        )
+        raw = RawEntry(id=_uid(), stack_id="test", blob="raw", source="test")
+        raw_id = stack.save_raw(raw)
+        ep = Episode(
+            id=_uid(),
+            stack_id="test",
+            objective="Ep",
+            outcome="Done",
+            source_type="seed",
+            derived_from=[f"raw:{raw_id}"],
+            created_at=_now(),
+        )
+        ep_id = stack.save_episode(ep)
+        stack.on_attach(core_id="core-1", inference=None)
+        stack._test_raw_id = raw_id
+        stack._test_ep_id = ep_id
+        return stack
+
+    def test_batch_beliefs_without_provenance_rejected(self, active_enforced_stack):
+        """Batch belief save with no derived_from should raise ProvenanceError."""
+        beliefs = [
+            Belief(
+                id=_uid(),
+                stack_id="test",
+                statement="No provenance",
+                source_type="inferred",
+                derived_from=None,
+                created_at=_now(),
+            )
+        ]
+        with pytest.raises(ProvenanceError):
+            active_enforced_stack.save_beliefs_batch(beliefs)
+
+    def test_batch_beliefs_with_provenance_accepted(self, active_enforced_stack):
+        """Batch belief save with valid provenance should succeed."""
+        beliefs = [
+            Belief(
+                id=_uid(),
+                stack_id="test",
+                statement="Valid provenance",
+                source_type="inferred",
+                derived_from=[f"episode:{active_enforced_stack._test_ep_id}"],
+                created_at=_now(),
+            )
+        ]
+        ids = active_enforced_stack.save_beliefs_batch(beliefs)
+        assert len(ids) == 1
+
+    def test_batch_episodes_without_provenance_rejected(self, active_enforced_stack):
+        episodes = [
+            Episode(
+                id=_uid(),
+                stack_id="test",
+                objective="No provenance",
+                outcome="Done",
+                source_type="processed",
+                derived_from=None,
+                created_at=_now(),
+            )
+        ]
+        with pytest.raises(ProvenanceError):
+            active_enforced_stack.save_episodes_batch(episodes)
+
+    def test_batch_notes_without_provenance_rejected(self, active_enforced_stack):
+        notes = [
+            Note(
+                id=_uid(),
+                stack_id="test",
+                content="No provenance",
+                note_type="note",
+                source_type="processed",
+                derived_from=None,
+                created_at=_now(),
+            )
+        ]
+        with pytest.raises(ProvenanceError):
+            active_enforced_stack.save_notes_batch(notes)
+
+    def test_batch_blocked_in_maintenance(self, active_enforced_stack):
+        """Batch writes blocked in maintenance mode."""
+        active_enforced_stack.enter_maintenance()
+        beliefs = [
+            Belief(
+                id=_uid(),
+                stack_id="test",
+                statement="Maintenance",
+                source_type="inferred",
+                derived_from=[f"episode:{active_enforced_stack._test_ep_id}"],
+                created_at=_now(),
+            )
+        ]
+        with pytest.raises(MaintenanceModeError):
+            active_enforced_stack.save_beliefs_batch(beliefs)
+
+
+# ==============================================================================
+# Stack-scoped settings
+# ==============================================================================
+
+
+class TestStackScopedSettings:
+    """Settings are scoped per stack_id, not global to the DB."""
+
+    def test_different_stacks_isolated(self, tmp_path):
+        """Two stacks sharing a DB have independent settings."""
+        db_path = tmp_path / "shared.db"
+        stack_a = SQLiteStack("stack-a", db_path=db_path, components=[])
+        stack_b = SQLiteStack("stack-b", db_path=db_path, components=[])
+
+        stack_a.set_stack_setting("enforce_provenance", "true")
+
+        assert stack_a.get_stack_setting("enforce_provenance") == "true"
+        assert stack_b.get_stack_setting("enforce_provenance") is None
+
+    def test_get_all_scoped(self, tmp_path):
+        db_path = tmp_path / "shared.db"
+        stack_a = SQLiteStack("stack-a", db_path=db_path, components=[])
+        stack_b = SQLiteStack("stack-b", db_path=db_path, components=[])
+
+        stack_a.set_stack_setting("a", "1")
+        stack_b.set_stack_setting("b", "2")
+
+        assert stack_a.get_all_stack_settings() == {"a": "1"}
+        assert stack_b.get_all_stack_settings() == {"b": "2"}
