@@ -810,3 +810,158 @@ class TestRawEntries:
 
         entries = stack.get_raw()
         assert len(entries) >= 1
+
+
+# ===========================================================================
+# Component Hooks
+# ===========================================================================
+
+
+class TestComponentHooks:
+    """Test that save/search/load dispatch to component hooks."""
+
+    def _make_tracking_component(self, name="tracker"):
+        """Create a mock component that tracks hook calls."""
+        comp = MagicMock(spec=StackComponentProtocol)
+        comp.name = name
+        comp.required = False
+        comp.needs_inference = False
+        comp.on_save = MagicMock()
+        comp.on_search = MagicMock(return_value=None)  # None = don't modify
+        comp.on_load = MagicMock()
+        comp.on_maintenance = MagicMock(return_value=None)
+        comp.on_model_changed = MagicMock()
+        comp.attach = MagicMock()
+        comp.detach = MagicMock()
+        return comp
+
+    def test_save_episode_calls_on_save(self, stack):
+        comp = self._make_tracking_component()
+        stack.add_component(comp)
+        ep = Episode(
+            id=str(uuid.uuid4()),
+            stack_id=stack.stack_id,
+            objective="test",
+            outcome="done",
+        )
+        result_id = stack.save_episode(ep)
+        comp.on_save.assert_called_once_with("episode", result_id, ep)
+
+    def test_save_belief_calls_on_save(self, stack):
+        comp = self._make_tracking_component()
+        stack.add_component(comp)
+        b = Belief(
+            id=str(uuid.uuid4()),
+            stack_id=stack.stack_id,
+            statement="test belief",
+        )
+        result_id = stack.save_belief(b)
+        comp.on_save.assert_called_once_with("belief", result_id, b)
+
+    def test_save_note_calls_on_save(self, stack):
+        comp = self._make_tracking_component()
+        stack.add_component(comp)
+        n = Note(
+            id=str(uuid.uuid4()),
+            stack_id=stack.stack_id,
+            content="test note",
+        )
+        result_id = stack.save_note(n)
+        comp.on_save.assert_called_once_with("note", result_id, n)
+
+    def test_search_calls_on_search(self, stack):
+        comp = self._make_tracking_component()
+        stack.add_component(comp)
+        # Save something first so search has data
+        stack.save_episode(
+            Episode(
+                id=str(uuid.uuid4()),
+                stack_id=stack.stack_id,
+                objective="searchable objective",
+                outcome="found",
+            )
+        )
+        stack.search("searchable")
+        comp.on_search.assert_called_once()
+        args = comp.on_search.call_args
+        assert args[0][0] == "searchable"
+
+    def test_search_on_search_modifies_results(self, stack):
+        modified_result = ProtocolSearchResult(
+            memory_type="episode",
+            memory_id="modified-id",
+            content="modified",
+            score=1.0,
+        )
+        comp = self._make_tracking_component()
+        comp.on_search = MagicMock(return_value=[modified_result])
+        stack.add_component(comp)
+        stack.save_episode(
+            Episode(
+                id=str(uuid.uuid4()),
+                stack_id=stack.stack_id,
+                objective="something",
+                outcome="done",
+            )
+        )
+        results = stack.search("something")
+        assert len(results) == 1
+        assert results[0].memory_id == "modified-id"
+
+    def test_load_calls_on_load(self, stack):
+        comp = self._make_tracking_component()
+        stack.add_component(comp)
+        stack.load()
+        comp.on_load.assert_called_once()
+        context = comp.on_load.call_args[0][0]
+        assert isinstance(context, dict)
+        assert "_meta" in context
+
+    def test_on_save_error_isolated(self, stack):
+        comp = self._make_tracking_component()
+        comp.on_save.side_effect = RuntimeError("boom")
+        stack.add_component(comp)
+        ep = Episode(
+            id=str(uuid.uuid4()),
+            stack_id=stack.stack_id,
+            objective="test",
+            outcome="done",
+        )
+        # Should not raise
+        result_id = stack.save_episode(ep)
+        assert isinstance(result_id, str)
+
+    def test_on_search_error_isolated(self, stack):
+        comp = self._make_tracking_component()
+        comp.on_search.side_effect = RuntimeError("boom")
+        stack.add_component(comp)
+        stack.save_episode(
+            Episode(
+                id=str(uuid.uuid4()),
+                stack_id=stack.stack_id,
+                objective="test error",
+                outcome="done",
+            )
+        )
+        # Should not raise
+        results = stack.search("test error")
+        assert isinstance(results, list)
+
+    def test_batch_dispatches_per_item(self, stack):
+        comp = self._make_tracking_component()
+        stack.add_component(comp)
+        episodes = [
+            Episode(
+                id=str(uuid.uuid4()),
+                stack_id=stack.stack_id,
+                objective=f"batch {i}",
+                outcome="done",
+            )
+            for i in range(3)
+        ]
+        ids = stack.save_episodes_batch(episodes)
+        assert comp.on_save.call_count == 3
+        for i, call in enumerate(comp.on_save.call_args_list):
+            assert call[0][0] == "episode"
+            assert call[0][1] == ids[i]
+            assert call[0][2] == episodes[i]
