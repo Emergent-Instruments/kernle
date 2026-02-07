@@ -178,6 +178,7 @@ class SQLiteStack(
         self._attached_core_id: Optional[str] = None
         self._inference: Optional[InferenceService] = None
         self._enforce_provenance = enforce_provenance
+        self._registered_plugins: set = set()
 
         # Load persisted state or default to INITIALIZING
         persisted_state = self._backend.get_stack_setting("stack_state")
@@ -240,6 +241,16 @@ class SQLiteStack(
 
     def get_component(self, name: str) -> Optional[StackComponentProtocol]:
         return self._components.get(name)
+
+    # ---- Plugin Registration ----
+
+    def register_plugin(self, plugin_name: str) -> None:
+        """Register a plugin name as trusted for provenance bypass."""
+        self._registered_plugins.add(plugin_name)
+
+    def unregister_plugin(self, plugin_name: str) -> None:
+        """Remove a plugin from the trusted set."""
+        self._registered_plugins.discard(plugin_name)
 
     def maintenance(self) -> Dict[str, Any]:
         """Run maintenance on all components."""
@@ -334,9 +345,12 @@ class SQLiteStack(
         if not self._enforce_provenance:
             return  # Provenance enforcement disabled
 
-        # Plugin-sourced writes have relaxed provenance requirements
+        # Plugin-sourced writes have relaxed provenance requirements,
+        # but only for plugins actually registered with this stack
         if source_entity and source_entity.startswith("plugin:"):
-            return
+            plugin_name = source_entity[len("plugin:") :]
+            if plugin_name in self._registered_plugins:
+                return
 
         # Raw entries don't need provenance
         if memory_type not in PROVENANCE_RULES:

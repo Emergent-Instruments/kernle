@@ -876,7 +876,10 @@ class TestStackStatePersistence:
 
 
 class TestPluginProvenanceBypass:
-    """Test that plugin-sourced writes bypass provenance validation."""
+    """Test that plugin-sourced writes bypass provenance validation.
+
+    Only plugins registered via register_plugin() are trusted.
+    """
 
     @pytest.fixture
     def active_enforced_stack(self, tmp_path):
@@ -899,14 +902,16 @@ class TestPluginProvenanceBypass:
             created_at=_now(),
         )
         ep_id = stack.save_episode(ep)
-        # Transition to ACTIVE
+        # Register known plugins and transition to ACTIVE
+        stack.register_plugin("chainbased")
+        stack.register_plugin("fatline")
         stack.on_attach(core_id="core-1", inference=None)
         stack._test_raw_id = raw_id
         stack._test_ep_id = ep_id
         return stack
 
-    def test_plugin_sourced_belief_bypasses_provenance(self, active_enforced_stack):
-        """A belief with source_entity='plugin:foo' should bypass provenance."""
+    def test_registered_plugin_bypasses_provenance(self, active_enforced_stack):
+        """A belief from a registered plugin bypasses provenance."""
         belief = Belief(
             id=_uid(),
             stack_id="test",
@@ -918,6 +923,20 @@ class TestPluginProvenanceBypass:
         belief.source_entity = "plugin:chainbased"
         bid = active_enforced_stack.save_belief(belief)
         assert bid
+
+    def test_unregistered_plugin_rejected(self, active_enforced_stack):
+        """A belief claiming plugin:unknown (not registered) is rejected."""
+        belief = Belief(
+            id=_uid(),
+            stack_id="test",
+            statement="Spoofed plugin belief",
+            source_type="inferred",
+            derived_from=None,
+            created_at=_now(),
+        )
+        belief.source_entity = "plugin:unknown_plugin"
+        with pytest.raises(ProvenanceError):
+            active_enforced_stack.save_belief(belief)
 
     def test_core_sourced_belief_requires_provenance(self, active_enforced_stack):
         """A belief with source_entity='core:...' still requires provenance."""
@@ -933,8 +952,8 @@ class TestPluginProvenanceBypass:
         with pytest.raises(ProvenanceError):
             active_enforced_stack.save_belief(belief)
 
-    def test_plugin_sourced_goal_bypasses(self, active_enforced_stack):
-        """Plugin goals bypass provenance."""
+    def test_registered_plugin_goal_bypasses(self, active_enforced_stack):
+        """Registered plugin goals bypass provenance."""
         goal = Goal(
             id=_uid(),
             stack_id="test",
@@ -948,6 +967,21 @@ class TestPluginProvenanceBypass:
         goal.source_entity = "plugin:fatline"
         gid = active_enforced_stack.save_goal(goal)
         assert gid
+
+    def test_unregister_plugin_revokes_bypass(self, active_enforced_stack):
+        """After unregister_plugin(), that plugin's writes are rejected."""
+        active_enforced_stack.unregister_plugin("chainbased")
+        belief = Belief(
+            id=_uid(),
+            stack_id="test",
+            statement="Revoked plugin",
+            source_type="inferred",
+            derived_from=None,
+            created_at=_now(),
+        )
+        belief.source_entity = "plugin:chainbased"
+        with pytest.raises(ProvenanceError):
+            active_enforced_stack.save_belief(belief)
 
     def test_plugin_blocked_in_maintenance(self, active_enforced_stack):
         """Plugin writes are still blocked in maintenance mode."""
@@ -1307,17 +1341,47 @@ class TestKernleStrictMode:
         raw_id = legacy_kernle.raw(blob="Should succeed in legacy mode")
         assert raw_id is not None
 
-    def test_strict_active_allows_writes(self, strict_kernle):
-        """In strict mode with active stack, writes succeed."""
-        # Stack starts in INITIALIZING — writes should work (seed allowed)
+    def test_strict_auto_attaches_to_active(self, strict_kernle):
+        """Strict mode auto-attaches the stack, transitioning to ACTIVE."""
+        from kernle.protocols import StackState
+
+        stack = strict_kernle.stack
+        assert stack._state == StackState.ACTIVE
+
+    def test_strict_active_allows_raw(self, strict_kernle):
+        """In strict mode, raw writes succeed (raws need no provenance)."""
         raw_id = strict_kernle.raw(blob="Test raw in strict mode")
         assert raw_id is not None
 
+    def test_strict_active_allows_episode_without_provenance(self, strict_kernle):
+        """Episodes without provenance succeed when provenance not enforced."""
+        # Default enforce_provenance=False, so provenance not required
         ep_id = strict_kernle.episode(
             objective="Test episode",
             outcome="Success",
         )
         assert ep_id is not None
+
+    def test_strict_enforced_rejects_belief_without_provenance(self, tmp_path):
+        """strict + enforce_provenance rejects beliefs without derived_from."""
+        from kernle.core import Kernle
+        from kernle.storage import SQLiteStorage
+
+        db = tmp_path / "strict_enforced.db"
+        storage = SQLiteStorage(stack_id="strict_enf", db_path=db)
+        k = Kernle(
+            stack_id="strict_enf",
+            storage=storage,
+            checkpoint_dir=tmp_path / "cp",
+            strict=True,
+        )
+        # Enable provenance enforcement
+        k.stack.set_stack_setting("enforce_provenance", "true")
+        k.stack._enforce_provenance = True
+
+        with pytest.raises(ProvenanceError):
+            k.belief(statement="No provenance belief")
+        storage.close()
 
     def test_strict_requires_sqlite(self, tmp_path):
         """strict=True with non-SQLite storage raises ValueError."""
