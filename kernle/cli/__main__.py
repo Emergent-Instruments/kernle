@@ -1238,6 +1238,27 @@ def cmd_export_cache(args, k: Kernle):
         print(content)
 
 
+def cmd_export_full(args, k: Kernle):
+    """Export complete agent context to a single file."""
+    path = getattr(args, "path", None)
+    format_type = getattr(args, "format", None)
+    include_raw = getattr(args, "include_raw", True)
+
+    # Auto-detect format from extension if not specified
+    if not format_type:
+        if path and path.endswith(".json"):
+            format_type = "json"
+        else:
+            format_type = "markdown"
+
+    content = k.export_full(path=path, format=format_type, include_raw=include_raw)
+
+    if path:
+        print(f"Exported full agent context to {path}")
+    else:
+        print(content)
+
+
 def cmd_sync(args, k: Kernle):
     """Handle sync subcommands for local-to-cloud synchronization."""
     import os
@@ -3727,6 +3748,46 @@ Typical usage in a memoryFlush hook:
         help="Exclude checkpoint from cache",
     )
 
+    # export-full (complete agent context)
+    p_export_full = subparsers.add_parser(
+        "export-full",
+        help="Export complete agent context (all memory layers) to a single file",
+        description="""
+Export complete agent context to a single file.
+
+Unlike 'export' (full memory dump) or 'export-cache' (curated bootstrap),
+export-full assembles ALL memory layers — boot config, values, beliefs,
+goals, episodes, notes, drives, relationships, self-narratives, trust
+assessments, playbooks, and checkpoint — into one comprehensive file.
+
+Typical usage:
+  kernle -s <agent> export-full context.md
+  kernle -s <agent> export-full context.json --format json
+""",
+    )
+    p_export_full.add_argument(
+        "path",
+        nargs="?",
+        default=None,
+        help="Output file path (default: stdout)",
+    )
+    p_export_full.add_argument(
+        "--format",
+        "-f",
+        choices=["markdown", "json"],
+        help="Output format (auto-detected from extension if not specified, default: markdown)",
+    )
+    p_export_full.add_argument(
+        "--include-raw",
+        "-r",
+        action="store_true",
+        default=True,
+        help="Include raw entries (default: true)",
+    )
+    p_export_full.add_argument(
+        "--no-raw", dest="include_raw", action="store_false", help="Exclude raw entries"
+    )
+
     # playbook (procedural memory)
     p_playbook = subparsers.add_parser("playbook", help="Playbook (procedural memory) operations")
     playbook_sub = p_playbook.add_subparsers(dest="playbook_action", required=True)
@@ -4479,6 +4540,8 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_export(args, k)
         elif args.command == "export-cache":
             cmd_export_cache(args, k)
+        elif args.command == "export-full":
+            cmd_export_full(args, k)
         elif args.command == "boot":
             cmd_boot(args, k)
         elif args.command == "sync":
