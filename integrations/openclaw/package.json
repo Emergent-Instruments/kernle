@@ -1,0 +1,27 @@
+{
+  "name": "kernle-openclaw",
+  "version": "0.1.0",
+  "description": "OpenClaw plugin for Kernle — automatic memory loading, checkpointing, and native write interception",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "eslint src/"
+  },
+  "keywords": ["kernle", "openclaw", "memory", "plugin"],
+  "license": "MIT",
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0",
+    "@types/node": "^20.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "files": [
+    "dist/",
+    "openclaw.plugin.json"
+  ]
+}
