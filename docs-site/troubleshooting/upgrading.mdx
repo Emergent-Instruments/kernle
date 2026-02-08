@@ -45,6 +45,24 @@ kernle --version
 
 Kernle automatically migrates your local SQLite database when you run any command after upgrading. Migrations are non-destructive and preserve all existing data.
 
+### 0.2.x → 0.9.0 Migration
+
+The 0.9.0 release introduces continuous strength and removes binary forgetting fields:
+
+| Change | Details |
+|--------|---------|
+| `strength` column added | All memory tables gain a `strength REAL DEFAULT 1.0` column. Existing memories are backfilled to 1.0. |
+| `is_forgotten` removed | Replaced by `strength = 0.0`. |
+| `forgotten_at` removed | Forgetting timestamp is now tracked in `memory_audit`. |
+| `forgotten_reason` removed | Forgetting reason is now tracked in `memory_audit`. |
+| `memory_audit` table | New table tracking all strength changes with timestamps and reasons. |
+| `stack_settings` table | New table for per-stack configuration (e.g., `enforce_provenance`). |
+
+**What happens automatically:**
+1. The `strength` column is added to all memory tables with default 1.0
+2. Memories previously marked `is_forgotten=1` are migrated to `strength = 0.0`
+3. The `memory_audit` and `stack_settings` tables are created
+
 ### 0.1.x → 0.2.0 Migration
 
 The 0.2.0 release includes a significant raw layer refactor that changes how raw entries are stored:
@@ -146,5 +164,7 @@ Rollback is safe for data but new features won't be available. The database sche
 
 | Version | Key Migration Changes |
 |---------|----------------------|
+| 0.10.0 | Strength cascade, memory processing, export-full, provenance on MCP tools |
+| 0.9.0 | Continuous strength field, `memory_audit` table, `stack_settings` table, provenance enforcement, strict mode |
 | 0.2.0 | Raw layer blob refactor, FTS5 search, budget-aware loading |
 | 0.1.0 | Initial release |

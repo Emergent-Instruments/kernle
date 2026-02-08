@@ -23,7 +23,7 @@ Kernle uses a **reflection scaffold** approach to consolidation:
 The `promote` command (formerly `consolidate`) outputs a **structured prompt** that helps you reflect on your experiences. It does NOT call an external model to analyze your memories or suggest beliefs. The output is designed to guide *your* reasoning process.
 
 <Warning>
-**Renamed Command**: `kernle consolidate` has been renamed to `kernle promote`. The old `consolidate` command still works as a deprecated alias but will emit a warning. Please update your workflows to use `kernle promote`.
+**Removed Command**: The `consolidate` command has been removed. Use `kernle promote` instead.
 </Warning>
 
 ```
@@ -157,7 +157,7 @@ Here's a real workflow showing the scaffold approach:
 
 ```bash
 # Step 1: Run promote to get the reflection scaffold
-$ kernle -s claire promote
+$ kernle -s my-project promote
 
 # Kernle outputs something like:
 # ═══════════════════════════════════════════════════════════════
@@ -195,9 +195,9 @@ $ kernle -s claire promote
 #  add something about code review."
 
 # Step 3: YOU add beliefs based on YOUR reasoning
-$ kernle -s claire belief add "Skipping process steps creates more work than it saves" --confidence 0.85
+$ kernle -s my-project belief add "Skipping process steps creates more work than it saves" --confidence 0.85
 
-$ kernle -s claire belief reinforce <existing-testing-belief-id>
+$ kernle -s my-project belief reinforce <existing-testing-belief-id>
 
 # Done. The beliefs came from YOUR reasoning, not an AI analyzing your memories.
 ```

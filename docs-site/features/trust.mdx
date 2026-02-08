@@ -118,7 +118,7 @@ The `context-injection` entity has zero trust by default. This prevents prompt i
 Initialize the default trust assessments:
 
 ```bash
-kernle -s claire trust seed
+kernle -s my-project trust seed
 ```
 
 ```
@@ -134,7 +134,7 @@ Current trust (4):
 ### List Trust Assessments
 
 ```bash
-kernle -s claire trust list
+kernle -s my-project trust list
 ```
 
 ```
@@ -157,17 +157,17 @@ Trust assessments (4):
 ### Show Trust for an Entity
 
 ```bash
-kernle -s claire trust show stack-owner
+kernle -s my-project trust show stack-owner
 ```
 
 ### Set Trust Score
 
 ```bash
 # Set general trust
-kernle -s claire trust set collaborator-agent 0.7
+kernle -s my-project trust set collaborator-agent 0.7
 
 # Set domain-specific trust
-kernle -s claire trust set collaborator-agent 0.9 --domain coding
+kernle -s my-project trust set collaborator-agent 0.9 --domain coding
 ```
 
 ### Gate a Memory Operation
@@ -175,7 +175,7 @@ kernle -s claire trust set collaborator-agent 0.9 --domain coding
 Check if a source entity is allowed to perform an action:
 
 ```bash
-kernle -s claire trust gate web-search suggest_belief
+kernle -s my-project trust gate web-search suggest_belief
 ```
 
 ```
@@ -185,7 +185,7 @@ ALLOWED: Trust level sufficient for suggest_belief
 ```
 
 ```bash
-kernle -s claire trust gate web-search suggest_value_change
+kernle -s my-project trust gate web-search suggest_value_change
 ```
 
 ```
@@ -199,7 +199,7 @@ DENIED: Trust level insufficient for suggest_value_change
 Derive a trust score from interaction history:
 
 ```bash
-kernle -s claire trust compute collaborator-agent
+kernle -s my-project trust compute collaborator-agent
 ```
 
 ```
@@ -211,7 +211,7 @@ Computed trust for: collaborator-agent
 Apply the computed score:
 
 ```bash
-kernle -s claire trust compute collaborator-agent --apply
+kernle -s my-project trust compute collaborator-agent --apply
 ```
 
 ### Transitive Trust Chains
@@ -219,7 +219,7 @@ kernle -s claire trust compute collaborator-agent --apply
 Compute trust through intermediaries:
 
 ```bash
-kernle -s claire trust chain unknown-agent stack-owner collaborator-agent
+kernle -s my-project trust chain unknown-agent stack-owner collaborator-agent
 ```
 
 ```
@@ -239,7 +239,7 @@ Transitive trust to: unknown-agent
 Simulate trust decay over time without interaction:
 
 ```bash
-kernle -s claire trust decay collaborator-agent 30
+kernle -s my-project trust decay collaborator-agent 30
 ```
 
 ```

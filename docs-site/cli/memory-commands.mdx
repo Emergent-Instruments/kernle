@@ -29,19 +29,19 @@ kernle -s <stack> episode OBJECTIVE OUTCOME [options]
 <Tabs>
   <Tab title="Basic">
     ```bash
-    kernle -s claire episode "Implemented OAuth login" "success"
+    kernle -s my-project episode "Implemented OAuth login" "success"
     ```
   </Tab>
   <Tab title="With Lessons">
     ```bash
-    kernle -s claire episode "Debugged race condition" "success" \
+    kernle -s my-project episode "Debugged race condition" "success" \
       --lesson "Always check for concurrent access" \
       --lesson "Add mutex locks early"
     ```
   </Tab>
   <Tab title="With Emotions">
     ```bash
-    kernle -s claire episode "Failed deployment" "failure" \
+    kernle -s my-project episode "Failed deployment" "failure" \
       --lesson "Test on staging first" \
       --tag "deployment" \
       --valence -0.5 \
@@ -51,7 +51,7 @@ kernle -s <stack> episode OBJECTIVE OUTCOME [options]
   <Tab title="Derived From Raw">
     ```bash
     # Process a raw entry into an episode with provenance
-    kernle -s claire episode "Investigated performance issue" "success" \
+    kernle -s my-project episode "Investigated performance issue" "success" \
       --lesson "Check database indexes first" \
       --derived-from raw:abc123
     ```
@@ -80,26 +80,26 @@ kernle -s <stack> note CONTENT [options]
 <Tabs>
   <Tab title="Simple Note">
     ```bash
-    kernle -s claire note "API rate limit is 1000 req/min"
+    kernle -s my-project note "API rate limit is 1000 req/min"
     ```
   </Tab>
   <Tab title="Decision">
     ```bash
-    kernle -s claire note "Using PostgreSQL over MySQL" \
+    kernle -s my-project note "Using PostgreSQL over MySQL" \
       --type decision \
       --reason "Better JSON support and performance"
     ```
   </Tab>
   <Tab title="Quote">
     ```bash
-    kernle -s claire note "Simple is better than complex" \
+    kernle -s my-project note "Simple is better than complex" \
       --type quote \
       --speaker "Tim Peters"
     ```
   </Tab>
   <Tab title="Protected Insight">
     ```bash
-    kernle -s claire note "Memory is identity" \
+    kernle -s my-project note "Memory is identity" \
       --type insight \
       --protect
     ```
@@ -120,10 +120,10 @@ kernle -s <stack> raw "content" [--tags TAGS]
 
 ```bash
 # Quick capture
-kernle -s claire raw "Need to look into caching strategy"
+kernle -s my-project raw "Need to look into caching strategy"
 
 # With tags
-kernle -s claire raw "API response time is 200ms avg" --tags "performance,api"
+kernle -s my-project raw "API response time is 200ms avg" --tags "performance,api"
 ```
 
 ### List
@@ -154,10 +154,10 @@ kernle -s <stack> raw process ID --type {episode,note,belief} [options]
 
 ```bash
 # Process into a note
-kernle -s claire raw process abc123 --type note
+kernle -s my-project raw process abc123 --type note
 
 # Process into episode with details
-kernle -s claire raw process abc123 --type episode \
+kernle -s my-project raw process abc123 --type episode \
   --objective "Investigated performance issue" \
   --outcome "success"
 ```
@@ -186,7 +186,7 @@ kernle -s <stack> belief "statement" [--confidence C] [--type TYPE]
 ```
 
 ```bash
-kernle -s claire belief "Testing before deployment prevents outages" --confidence 0.85
+kernle -s my-project belief "Testing before deployment prevents outages" --confidence 0.85
 ```
 
 ### Revise from Episode
@@ -228,7 +228,7 @@ kernle -s <stack> belief supersede OLD_ID NEW_STATEMENT [--confidence C] [--reas
 ```
 
 ```bash
-kernle -s claire belief supersede abc123 "Testing is essential, not optional" \
+kernle -s my-project belief supersede abc123 "Testing is essential, not optional" \
   --confidence 0.95 \
   --reason "Multiple deployment failures without tests"
 ```
@@ -244,8 +244,8 @@ kernle -s <stack> value NAME STATEMENT [--priority P]
 ```
 
 ```bash
-kernle -s claire value "integrity" "Be honest and transparent" --priority 95
-kernle -s claire value "curiosity" "Always seek to understand" --priority 85
+kernle -s my-project value "integrity" "Be honest and transparent" --priority 95
+kernle -s my-project value "curiosity" "Always seek to understand" --priority 85
 ```
 
 <Note>
@@ -270,8 +270,8 @@ kernle -s <stack> goal complete GOAL_ID
 ```
 
 ```bash
-kernle -s claire goal "Master Kubernetes" --priority high
-kernle -s claire goal "Improve test coverage" --priority medium
+kernle -s my-project goal "Master Kubernetes" --priority high
+kernle -s my-project goal "Improve test coverage" --priority medium
 ```
 
 ---
@@ -301,8 +301,8 @@ kernle -s <stack> drive set TYPE INTENSITY [--focus FOCUS]...
 | `reproduction` | Creating, teaching, legacy |
 
 ```bash
-kernle -s claire drive set curiosity 0.8 --focus "AI" --focus "memory systems"
-kernle -s claire drive set growth 0.7 --focus "communication"
+kernle -s my-project drive set curiosity 0.8 --focus "AI" --focus "memory systems"
+kernle -s my-project drive set growth 0.7 --focus "communication"
 ```
 
 ### Satisfy Drive
@@ -314,7 +314,7 @@ kernle -s <stack> drive satisfy TYPE [--amount AMOUNT]
 ```
 
 ```bash
-kernle -s claire drive satisfy curiosity --amount 0.2
+kernle -s my-project drive satisfy curiosity --amount 0.2
 ```
 
 ---
@@ -334,8 +334,8 @@ kernle -s <stack> relationship NAME [--trust T] [--type TYPE] [--notes NOTES]
 | `--notes NOTES` | Relationship observations |
 
 ```bash
-kernle -s claire relationship "Alice" --trust 0.9 --notes "Great debugging partner"
-kernle -s claire relationship "DevOps" --type organization --notes "Manages infrastructure"
+kernle -s my-project relationship "Alice" --trust 0.9 --notes "Great debugging partner"
+kernle -s my-project relationship "DevOps" --type organization --notes "Manages infrastructure"
 ```
 
 ---
@@ -362,7 +362,7 @@ kernle -s <stack> playbook create NAME [options]
 | `-t, --tag TAG` | Add a tag (repeatable) |
 
 ```bash
-kernle -s claire playbook create "Debug API Issues" \
+kernle -s my-project playbook create "Debug API Issues" \
   --description "How to debug production API problems" \
   --step "Check error logs" \
   --step "Verify request payload" \
@@ -394,7 +394,7 @@ kernle -s <stack> playbook search QUERY [--limit LIMIT] [--json]
 ```
 
 ```bash
-kernle -s claire playbook search "debugging production issues"
+kernle -s my-project playbook search "debugging production issues"
 ```
 
 ### Find
@@ -406,7 +406,7 @@ kernle -s <stack> playbook find SITUATION [--json]
 ```
 
 ```bash
-kernle -s claire playbook find "API returning 500 errors"
+kernle -s my-project playbook find "API returning 500 errors"
 ```
 
 ### Show
@@ -457,19 +457,19 @@ kernle -s <stack> promote [options]
   <Tab title="Reflection Scaffold">
     ```bash
     # Get a reflection scaffold (default mode)
-    kernle -s claire promote
+    kernle -s my-project promote
     ```
   </Tab>
   <Tab title="Auto-Create Beliefs">
     ```bash
     # Automatically create beliefs from recurring patterns
-    kernle -s claire promote --auto --confidence 0.8
+    kernle -s my-project promote --auto --confidence 0.8
     ```
   </Tab>
   <Tab title="Custom Thresholds">
     ```bash
     # Require 3 occurrences across at least 5 episodes
-    kernle -s claire promote --min-occurrences 3 --min-episodes 5
+    kernle -s my-project promote --min-occurrences 3 --min-episodes 5
     ```
   </Tab>
 </Tabs>
@@ -495,7 +495,7 @@ kernle -s <stack> epoch create NAME [options]
 | `--json` | Output as JSON |
 
 ```bash
-kernle -s claire epoch create "Production Operations Phase" \
+kernle -s my-project epoch create "Production Operations Phase" \
   --trigger declared \
   --trigger-description "Completed learning phase, now building"
 ```
@@ -515,7 +515,7 @@ kernle -s <stack> epoch close [options]
 | `--json` | Output as JSON |
 
 ```bash
-kernle -s claire epoch close --summary "Transitioned from learning to building"
+kernle -s my-project epoch close --summary "Transitioned from learning to building"
 ```
 
 ### List
@@ -578,7 +578,7 @@ kernle -s <stack> trust set ENTITY SCORE [--domain DOMAIN]
 | `--domain DOMAIN` | Trust domain (default: `general`) |
 
 ```bash
-kernle -s claire trust set alice 0.85 --domain technical
+kernle -s my-project trust set alice 0.85 --domain technical
 ```
 
 ### Seed
@@ -645,7 +645,7 @@ kernle -s <stack> narrative show [--type TYPE] [--json]
 | `--type TYPE` | Narrative type: `identity`, `capability`, `aspiration`, `reflection` (default: identity) |
 
 ```bash
-kernle -s claire narrative show --type identity
+kernle -s my-project narrative show --type identity
 ```
 
 ### Update
@@ -666,7 +666,7 @@ kernle -s <stack> narrative update --content TEXT [options]
 | `--json` | Output as JSON |
 
 ```bash
-kernle -s claire narrative update \
+kernle -s my-project narrative update \
   --content "I am an SI focused on reliability and deep understanding..." \
   --type identity \
   --theme "reliability" --theme "learning" \
@@ -707,7 +707,7 @@ kernle -s <stack> summary write --scope SCOPE --content TEXT \
 | `--json` | Output as JSON |
 
 ```bash
-kernle -s claire summary write --scope month \
+kernle -s my-project summary write --scope month \
   --content "January focused on API reliability and testing infrastructure" \
   --period-start 2026-01-01 --period-end 2026-01-31 \
   --theme "reliability" --theme "testing"

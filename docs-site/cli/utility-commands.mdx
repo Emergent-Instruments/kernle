@@ -72,16 +72,16 @@ Loading memories automatically records access for salience-based forgetting. Fre
 
 ```bash
 # Standard load
-kernle -s claire load
+kernle -s my-project load
 
 # Force sync from cloud first
-kernle -s claire load --sync
+kernle -s my-project load --sync
 
 # Load with token budget (recommended)
-kernle -s claire load --budget 6000
+kernle -s my-project load --budget 6000
 
 # Get JSON with budget metrics
-kernle -s claire load --json --budget 8000
+kernle -s my-project load --json --budget 8000
 ```
 
 ---
@@ -113,19 +113,19 @@ Use `--progress`, `--next`, and `--blocker` for better context recovery. These s
 <Tabs>
   <Tab title="Basic">
     ```bash
-    kernle -s claire checkpoint save "Working on user authentication"
+    kernle -s my-project checkpoint save "Working on user authentication"
     ```
   </Tab>
   <Tab title="With Pending Items">
     ```bash
-    kernle -s claire checkpoint save "Refactoring database layer" \
+    kernle -s my-project checkpoint save "Refactoring database layer" \
       --pending "finish migration script" \
       --pending "update tests"
     ```
   </Tab>
   <Tab title="With Context">
     ```bash
-    kernle -s claire checkpoint save "Debugging API issue" \
+    kernle -s my-project checkpoint save "Debugging API issue" \
       --context "Error occurs when token expires after 1 hour"
     ```
   </Tab>
@@ -158,8 +158,8 @@ kernle -s <stack> search QUERY [--limit LIMIT]
 | `-l, --limit LIMIT` | Maximum results (default: 10) |
 
 ```bash
-kernle -s claire search "authentication"
-kernle -s claire search "database performance" --limit 5
+kernle -s my-project search "authentication"
+kernle -s my-project search "database performance" --limit 5
 ```
 
 ---
@@ -174,7 +174,7 @@ kernle -s <stack> status
 
 **Example output:**
 ```
-Memory Status for claire
+Memory Status for my-project
 ========================================
 Values:     3
 Beliefs:    12
@@ -203,8 +203,8 @@ kernle -s <stack> when [PERIOD]
 | `last hour` | Last hour's memories |
 
 ```bash
-kernle -s claire when yesterday
-kernle -s claire when "this week"
+kernle -s my-project when yesterday
+kernle -s my-project when "this week"
 ```
 
 ---
@@ -231,45 +231,26 @@ kernle -s <stack> anxiety [options]
 <Tabs>
   <Tab title="Quick Check">
     ```bash
-    kernle -s claire anxiety
+    kernle -s my-project anxiety
     # Output: Memory Anxiety: 45/100 (Aware)
     ```
   </Tab>
   <Tab title="Detailed">
     ```bash
-    kernle -s claire anxiety --detailed --actions
+    kernle -s my-project anxiety --detailed --actions
     ```
   </Tab>
   <Tab title="Auto-Fix">
     ```bash
-    kernle -s claire anxiety --auto
+    kernle -s my-project anxiety --auto
     ```
   </Tab>
   <Tab title="Emergency">
     ```bash
-    kernle -s claire anxiety --emergency --summary "Context compaction triggered"
+    kernle -s my-project anxiety --emergency --summary "Context compaction triggered"
     ```
   </Tab>
 </Tabs>
-
----
-
-## consolidate
-
-Run memory consolidation (episodes → beliefs).
-
-```bash
-kernle -s <stack> consolidate [--min-episodes MIN]
-```
-
-| Option | Description |
-|--------|-------------|
-| `-m, --min-episodes MIN` | Minimum episodes to consolidate (default: 3) |
-
-```bash
-kernle -s claire consolidate
-kernle -s claire consolidate --min-episodes 5
-```
 
 ---
 
@@ -337,8 +318,8 @@ kernle -s <stack> emotion search [options]
 | `-l, --limit LIMIT` | Maximum results (default: 10) |
 
 ```bash
-kernle -s claire emotion search --positive --limit 5
-kernle -s claire emotion search --negative --intense
+kernle -s my-project emotion search --positive --limit 5
+kernle -s my-project emotion search --negative --intense
 ```
 
 ### emotion tag
@@ -474,10 +455,10 @@ kernle -s <stack> forget run [--dry-run] [--threshold T] [--limit L]
 
 ```bash
 # Preview what would be forgotten
-kernle -s claire forget run --dry-run
+kernle -s my-project forget run --dry-run
 
 # Actually forget low-salience memories
-kernle -s claire forget run --threshold 0.2 --limit 5
+kernle -s my-project forget run --threshold 0.2 --limit 5
 ```
 
 <Warning>
@@ -534,7 +515,7 @@ Shows:
 - Status interpretation (critical/low/moderate/high salience)
 
 ```bash
-kernle -s claire forget salience episode abc12345
+kernle -s my-project forget salience episode abc12345
 ```
 
 ---
@@ -554,8 +535,8 @@ kernle -s <stack> dump [--format {markdown,json}] [--include-raw] [--no-raw]
 | `--no-raw` | Exclude raw entries |
 
 ```bash
-kernle -s claire dump | less
-kernle -s claire dump --format json
+kernle -s my-project dump | less
+kernle -s my-project dump --format json
 ```
 
 ---
@@ -571,8 +552,124 @@ kernle -s <stack> export PATH [--format {markdown,json}]
 Format is auto-detected from file extension if not specified.
 
 ```bash
-kernle -s claire export backup.md
-kernle -s claire export memory-snapshot.json --format json
+kernle -s my-project export backup.md
+kernle -s my-project export memory-snapshot.json --format json
+```
+
+---
+
+## export-full
+
+Export complete agent context (all memory layers) to a single file. Unlike `export` (full memory dump), `export-full` assembles all memory layers -- boot config, values, beliefs, goals, episodes, notes, drives, relationships, self-narratives, trust assessments, playbooks, and checkpoint -- into one comprehensive file.
+
+```bash
+kernle -s <stack> export-full [PATH] [--format {markdown,json}] [--include-raw] [--no-raw]
+```
+
+| Option | Description |
+|--------|-------------|
+| `PATH` | Output file path (default: stdout) |
+| `-f, --format` | Output format (auto-detected from extension if not specified, default: markdown) |
+| `-r, --include-raw` | Include raw entries (default: true) |
+| `--no-raw` | Exclude raw entries |
+
+```bash
+# Export to file
+kernle -s my-project export-full context.md
+
+# Export as JSON
+kernle -s my-project export-full context.json --format json
+
+# Print to stdout
+kernle -s my-project export-full
+```
+
+---
+
+## process
+
+Run or check automated memory processing (model-driven layer promotion). Processing uses a bound model to automatically promote memories across layers (e.g., raw entries to episodes, episodes to beliefs).
+
+### process run
+
+Run memory processing transitions.
+
+```bash
+kernle -s <stack> process run [--transition TRANSITION] [--force] [--json]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-t, --transition TRANSITION` | Specific transition to process (omit to check all) |
+| `-f, --force` | Process even if quantity thresholds are not met |
+| `-j, --json` | Output as JSON |
+
+Available transitions:
+
+| Transition | Description |
+|------------|-------------|
+| `raw_to_episode` | Promote raw entries to episodes |
+| `raw_to_note` | Promote raw entries to notes |
+| `episode_to_belief` | Extract beliefs from episodes |
+| `episode_to_goal` | Derive goals from episodes |
+| `episode_to_relationship` | Detect relationships from episodes |
+| `episode_to_drive` | Identify drives from episodes |
+| `belief_to_value` | Promote beliefs to values |
+
+<Tabs>
+  <Tab title="Run All">
+    ```bash
+    kernle -s my-project process run
+    ```
+  </Tab>
+  <Tab title="Specific Transition">
+    ```bash
+    kernle -s my-project process run --transition episode_to_belief
+    ```
+  </Tab>
+  <Tab title="Force">
+    ```bash
+    kernle -s my-project process run --force
+    ```
+  </Tab>
+</Tabs>
+
+<Warning>
+Memory processing requires a bound model (via `entity.set_model()`). Without a model, the command will return an error.
+</Warning>
+
+### process status
+
+Show unprocessed memory counts and whether each transition's quantity threshold has been met.
+
+```bash
+kernle -s <stack> process status [--json]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-j, --json` | Output as JSON |
+
+```bash
+kernle -s my-project process status
+```
+
+**Example output:**
+```
+Memory Processing Status
+========================================
+Unprocessed raw entries:  12
+Unprocessed episodes:    8
+Unprocessed beliefs:     3
+
+Trigger Status:
+  raw_to_episode: 12/5 (READY)
+  raw_to_note: 12/5 (READY)
+  episode_to_belief: 8/3 (READY)
+  episode_to_goal: 8/10 (waiting)
+  episode_to_relationship: 8/5 (READY)
+  episode_to_drive: 8/10 (waiting)
+  belief_to_value: 3/5 (waiting)
 ```
 
 ---

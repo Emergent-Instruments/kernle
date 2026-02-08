@@ -24,7 +24,7 @@ kernle -s <stack> sync status [--json]
 Sync Status
 ===========
 Backend: https://api.kernle.ai
-Stack: claire
+Stack: my-project
 User: user_abc123
 
 Pending: 3 operations
@@ -47,10 +47,10 @@ kernle -s <stack> sync push [--limit L] [--json]
 
 ```bash
 # Push all pending changes
-kernle -s claire sync push
+kernle -s my-project sync push
 
 # Push up to 10 changes
-kernle -s claire sync push --limit 10
+kernle -s my-project sync push --limit 10
 ```
 
 ### sync pull
@@ -67,10 +67,10 @@ kernle -s <stack> sync pull [--full] [--json]
 
 ```bash
 # Pull recent changes
-kernle -s claire sync pull
+kernle -s my-project sync pull
 
 # Full sync from cloud
-kernle -s claire sync pull --full
+kernle -s my-project sync pull --full
 ```
 
 ### sync full
@@ -82,7 +82,7 @@ kernle -s <stack> sync full [--json]
 ```
 
 ```bash
-kernle -s claire sync full
+kernle -s my-project sync full
 ```
 
 ---
@@ -100,7 +100,7 @@ kernle -s <stack> auth register [--email EMAIL] [--backend-url URL] [--json]
 ```
 
 ```bash
-kernle -s claire auth register --email user@example.com
+kernle -s my-project auth register --email user@example.com
 ```
 
 This will:
@@ -118,10 +118,10 @@ kernle -s <stack> auth login [--api-key KEY] [--backend-url URL] [--json]
 
 ```bash
 # Interactive login
-kernle -s claire auth login
+kernle -s my-project auth login
 
 # With API key
-kernle -s claire auth login --api-key knl_sk_xxxxx
+kernle -s my-project auth login --api-key knl_sk_xxxxx
 ```
 
 ### auth status
@@ -139,7 +139,7 @@ Authentication Status
 Backend: https://api.kernle.ai
 Authenticated: Yes
 User ID: user_abc123
-Stack: claire
+Stack: my-project
 API Keys: 2 active
 ```
 
@@ -201,16 +201,16 @@ Auto-sync is enabled by default when credentials are configured. Control it with
 
 ```bash
 # Force sync on load
-kernle -s claire load --sync
+kernle -s my-project load --sync
 
 # Skip sync on load
-kernle -s claire load --no-sync
+kernle -s my-project load --no-sync
 
 # Force sync after checkpoint
-kernle -s claire checkpoint save "task" --sync
+kernle -s my-project checkpoint save "task" --sync
 
 # Skip sync after checkpoint
-kernle -s claire checkpoint save "task" --no-sync
+kernle -s my-project checkpoint save "task" --no-sync
 ```
 
 ### Sync Architecture
@@ -268,8 +268,8 @@ Kernle works fully offline. Changes are queued and synced when connectivity retu
 
 ```bash
 # Check pending operations
-kernle -s claire sync status
+kernle -s my-project sync status
 
 # Push when back online
-kernle -s claire sync push
+kernle -s my-project sync push
 ```

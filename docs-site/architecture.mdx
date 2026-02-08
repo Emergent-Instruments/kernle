@@ -334,14 +334,14 @@ The **SI** does:
 
 ```bash
 # SI runs promote
-kernle -s claire promote
+kernle -s my-project promote
 
 # Output: A REFLECTION SCAFFOLD
 # Recent episodes, their lessons, existing beliefs,
 # and prompts to guide the SI's own reflection
 
 # SI reads output, does their own reasoning, then:
-kernle -s claire belief add "Pattern I noticed" --confidence 0.8
+kernle -s my-project belief add "Pattern I noticed" --confidence 0.8
 ```
 
 ### Automated Processing via `kernle process run` *(v0.10.0)*
@@ -353,7 +353,7 @@ Memory processing uses the bound inference model to process memories through the
 
 ```bash
 # Run automated memory processing
-kernle -s claire process run
+kernle -s my-project process run
 ```
 
 Both paths enforce the same provenance rules — every created memory must cite its sources via `derived_from` and `source_episodes`.

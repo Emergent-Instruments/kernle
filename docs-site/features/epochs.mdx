@@ -63,7 +63,7 @@ Long-lived SIs accumulate vast amounts of experience. Without temporal structure
 ### Create an Epoch
 
 ```bash
-kernle -s claire epoch create "Learning Phase" \
+kernle -s my-project epoch create "Learning Phase" \
   --trigger declared \
   --trigger-description "Starting a focused learning period"
 ```
@@ -77,7 +77,7 @@ Epoch created: Learning Phase
 ### View the Current Epoch
 
 ```bash
-kernle -s claire epoch current
+kernle -s my-project epoch current
 ```
 
 ```
@@ -89,7 +89,7 @@ Current epoch: #3 - Learning Phase
 ### List All Epochs
 
 ```bash
-kernle -s claire epoch list
+kernle -s my-project epoch list
 ```
 
 ```
@@ -111,7 +111,7 @@ Epochs
 ### Show Epoch Details
 
 ```bash
-kernle -s claire epoch show a3f8c1d2
+kernle -s my-project epoch show a3f8c1d2
 ```
 
 ```
@@ -131,10 +131,10 @@ Epoch #3: Learning Phase (ACTIVE)
 
 ```bash
 # Close the current epoch with a summary
-kernle -s claire epoch close --summary "Completed the learning phase. Key insight: depth over breadth."
+kernle -s my-project epoch close --summary "Completed the learning phase. Key insight: depth over breadth."
 
 # Close a specific epoch by ID
-kernle -s claire epoch close --id a3f8c1d2 --summary "Phase complete."
+kernle -s my-project epoch close --id a3f8c1d2 --summary "Phase complete."
 ```
 
 <Info>
@@ -149,10 +149,10 @@ When loading working memory, you can scope it to a specific epoch. This is usefu
 
 ```bash
 # Load only memories from the current epoch
-kernle -s claire load --epoch current
+kernle -s my-project load --epoch current
 
 # Load memories from a specific epoch
-kernle -s claire load --epoch a3f8c1d2
+kernle -s my-project load --epoch a3f8c1d2
 ```
 
 The `load_all` method on the storage backend accepts an `epoch_id` parameter that filters all memory types (episodes, beliefs, notes, goals, etc.) to only those tagged with the given epoch.

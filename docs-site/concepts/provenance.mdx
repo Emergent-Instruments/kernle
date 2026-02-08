@@ -21,7 +21,7 @@ Every memory type (episode, belief, note, value, etc.) carries these provenance 
 | Field | Type | Purpose | Example |
 |-------|------|---------|---------|
 | `source_type` | string | How this memory was created | `direct_experience`, `inference`, `external` |
-| `source_entity` | string | Who provided it (optional) | `claire`, `sean@emergent.ai` |
+| `source_entity` | string | Who provided it (optional) | `my-project`, `sean@emergent.ai` |
 | `source_episodes` | array | Supporting evidence | `["ep:abc123", "ep:def456"]` |
 | `derived_from` | array | Direct lineage chain | `["raw:f70c", "belief:old1"]` |
 | `confidence_history` | array | Timestamped confidence changes | See below |

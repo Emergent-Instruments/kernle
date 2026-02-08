@@ -7,7 +7,7 @@ This roadmap outlines planned features that extend Kernle's cognitive infrastruc
 
 ## What's Been Built
 
-The core cognitive infrastructure is in place, built across six versioned milestones:
+The core cognitive infrastructure is in place, built across eight versioned milestones:
 
 <CardGroup cols={3}>
   <Card title="Protocol System" icon="diagram-project">
@@ -66,15 +66,28 @@ Moved commerce and communications into independent packages that implement Plugi
 - **fatline** — AgentRegistry + Ed25519 crypto identity, own SQLite DB in plugin data dir
 - Both registered as `kernle.plugins` entry points
 
-#### v0.8.0 — Audit Fixes
+#### v0.9.0 — Memory Integrity
 
-Hardened the protocol system and fixed issues surfaced during architecture audits.
+Introduced provenance enforcement, continuous memory strength replacing binary forgetting, and controlled access with audit trails.
 
-- **Stack component hooks** — on_save, on_search, on_load dispatch
-- **Protocol version enforcement** — runtime version compatibility checks
-- **Episode repeat/avoid fields** — previously silently dropped
-- **Public API conformance** — source_entity fields, tags handling
-- **sqlite-vec test robustness** — fixed flaky vector search tests
+- **Provenance hierarchy enforcement** — `derived_from` required on all memory types except raw, hierarchy rules enforced (Raw->Episode/Note->Belief->Value etc.), ProvenanceError exception for violations
+- **Stack lifecycle states** — INITIALIZING/ACTIVE/MAINTENANCE, seed writes only permitted in INITIALIZING
+- **Continuous strength** (0.0-1.0) replacing binary `is_forgotten` — 5 tiers: Strong (0.8-1.0), Fading (0.5-0.8), Weak (0.2-0.5), Dormant (0.0-0.2), Forgotten (0.0)
+- **Controlled access + audit trail** — named operations (weaken, forget, recover, verify, protect) with `memory_audit` table
+- **Strict mode** (`strict=True` default) — enforces provenance and source_type requirements
+- **Plugin registration** — live settings sync between stack settings and stack components
+
+#### v0.10.0 — Provenance Wiring + Strength Cascade
+
+Wired provenance through all interfaces (CLI, MCP, core methods), added strength cascade across memory lineage, and enabled component inference.
+
+- **Strength cascade** — reverse-lineage lookup, forget/weaken cascade flags, verify boost to sources, `get_ungrounded_memories`
+- **Component inference** — EmotionalTagging + Consolidation call inference when available with keyword fallback
+- **CLI provenance** — `derived_from` on relationship add/update, all import commands, value/goal/relationship core methods
+- **MCP provenance** — `derived_from`/`source`/`source_type` on all 6 memory creation tools, validation
+- **`export-full` command** — complete agent context export as markdown/JSON
+- **Memory processing** — MCP tools + CLI (`memory_process`, `memory_process_status`, `kernle process run/status`)
+- **Audit fixes** — enforce_provenance=True default, strict=True default, strength-tier gating, on_save mutation persistence
 
 ---
 
@@ -83,6 +96,8 @@ Hardened the protocol system and fixed issues surfaced during architecture audit
 These features extend the existing protocol system with no breaking changes. New capabilities are delivered as StackComponentProtocol implementations or protocol extensions.
 
 ### Memory Echoes
+
+<Note>Partially addressed in v0.9.0/v0.10.0. Strength-tier filtering now excludes weak and dormant memories from `load()` while keeping them searchable — providing a form of peripheral awareness. The explicit echoes metadata below remains future work for richer hints.</Note>
 
 When `load()` excludes memories because of budget limits, those memories are invisible. Memory echoes provide peripheral awareness — lightweight hints about excluded memories:
 

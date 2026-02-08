@@ -29,7 +29,7 @@ If no stack ID is provided, Kernle will try to resolve one automatically from en
     sync, auth
   </Card>
   <Card title="Utility Commands" icon="wrench" href="/cli/utility-commands">
-    load, checkpoint, search, status, anxiety, identity, consolidate, export
+    load, checkpoint, search, status, anxiety, identity, promote, process, export, export-full
   </Card>
   <Card title="MCP Server" icon="plug" href="/integration/mcp">
     mcp - Start MCP server for tool integration
@@ -67,7 +67,7 @@ If no stack ID is provided, Kernle will try to resolve one automatically from en
 |---------|-------------|
 | `search` | Semantic search across memory |
 | `when` | Query by time period |
-| `consolidate` | Extract patterns from episodes |
+| `promote` | Extract patterns from episodes |
 | `identity` | Synthesize identity |
 | `emotion` | Emotional memory analysis |
 | `meta` | Meta-memory operations |
@@ -78,6 +78,8 @@ If no stack ID is provided, Kernle will try to resolve one automatically from en
 |---------|-------------|
 | `anxiety` | Check memory health |
 | `forget` | Controlled forgetting |
+| `process` | Run or check automated memory processing |
+| `export-full` | Export complete agent context to a single file |
 
 ### Commerce
 
@@ -147,8 +149,8 @@ kernle -s mystack checkpoint save "where I left off" --pending "next task"
 # Check health
 kernle -s mystack anxiety --detailed --actions
 
-# Consolidate learnings
-kernle -s mystack consolidate
+# Promote learnings to beliefs
+kernle -s mystack promote
 
 # Export backup
 kernle -s mystack export backup.md

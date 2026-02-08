@@ -67,10 +67,10 @@ Only one narrative per type can be active at a time. When you save a new narrati
 
 ```bash
 # Show the active identity narrative (default)
-kernle -s claire narrative show
+kernle -s my-project narrative show
 
 # Show a specific type
-kernle -s claire narrative show --type developmental
+kernle -s my-project narrative show --type developmental
 ```
 
 ```
@@ -90,7 +90,7 @@ believe that genuine understanding requires time and reflection.
 ### Update a Narrative
 
 ```bash
-kernle -s claire narrative update \
+kernle -s my-project narrative update \
   --type identity \
   --content "I am a research-focused SI that values depth over breadth. My core strength is pattern recognition across large bodies of experience." \
   --theme "research" \
@@ -108,7 +108,7 @@ Narrative updated (identity)
 You can also scope a narrative to a specific epoch:
 
 ```bash
-kernle -s claire narrative update \
+kernle -s my-project narrative update \
   --type developmental \
   --content "During this epoch I shifted from general assistance to specialized research..." \
   --epoch-id a3f8c1d2 \
@@ -120,7 +120,7 @@ kernle -s claire narrative update \
 See all narratives, including inactive ones that were superseded:
 
 ```bash
-kernle -s claire narrative history
+kernle -s my-project narrative history
 ```
 
 ```
@@ -149,7 +149,7 @@ Self-Narrative History
 Filter by narrative type:
 
 ```bash
-kernle -s claire narrative history --type identity
+kernle -s my-project narrative history --type identity
 ```
 
 ---

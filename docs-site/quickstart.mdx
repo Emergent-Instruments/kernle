@@ -96,6 +96,8 @@ kernle -s mystack checkpoint load
     entity.attach_stack(stack, alias="mystack", set_active=True)
 
     # Write memories (with full provenance)
+    # Note: In strict mode (default), derived_from is required for most memory types.
+    # Use strict=False for quick experimentation.
     entity.episode(
         "Optimized the sync pipeline",
         "Reduced latency from 300ms to 100ms",
