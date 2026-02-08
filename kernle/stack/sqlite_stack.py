@@ -232,7 +232,10 @@ class SQLiteStack(
         return dict(self._components)
 
     def add_component(self, component: StackComponentProtocol) -> None:
-        """Add a component to this stack."""
+        """Add a component to this stack.
+
+        Components are maintained in priority order (lower priority runs first).
+        """
         name = component.name
         if name in self._components:
             raise ValueError(f"Component '{name}' already registered")
@@ -240,6 +243,7 @@ class SQLiteStack(
         if hasattr(component, "set_storage"):
             component.set_storage(self._storage)
         self._components[name] = component
+        self._sort_components()
 
     def remove_component(self, name: str) -> None:
         """Remove a component by name."""
@@ -253,6 +257,14 @@ class SQLiteStack(
 
     def get_component(self, name: str) -> Optional[StackComponentProtocol]:
         return self._components.get(name)
+
+    def _sort_components(self) -> None:
+        """Re-sort _components dict by priority (lower = runs first)."""
+        sorted_items = sorted(
+            self._components.items(),
+            key=lambda item: getattr(item[1], "priority", 200),
+        )
+        self._components = dict(sorted_items)
 
     # ---- Plugin Registration ----
 

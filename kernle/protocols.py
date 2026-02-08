@@ -468,6 +468,42 @@ class StackComponentProtocol(Protocol):
         """
         ...
 
+    @property
+    def inference_scope(self) -> str:
+        """Hint about what kind of inference this component needs.
+
+        Values:
+          'fast'      — tagging, classification (cheap/fast model)
+          'capable'   — synthesis, reasoning (capable model)
+          'embedding' — vector generation (embedding model)
+          'none'      — no inference needed
+
+        Default: 'capable'
+
+        This is a declaration only — scope-based routing to different
+        models is future work. Components declare their needs so a
+        future core can route infer() calls to appropriate models.
+        """
+        ...
+
+    @property
+    def priority(self) -> int:
+        """Ordering priority for hook dispatch. Lower runs first.
+
+        Priority ranges:
+          0-99    infrastructure (embedding, indexing)
+          100-199 enrichment (emotional tagging, meta-memory)
+          200-299 analysis (consolidation, suggestions, knowledge)
+          300+    maintenance (forgetting, cleanup)
+
+        Default: 200.
+
+        Components are sorted by priority in the stack's component
+        registry. on_save, on_search, on_load, and on_maintenance
+        hooks fire in priority order.
+        """
+        ...
+
     def attach(
         self,
         stack_id: str,

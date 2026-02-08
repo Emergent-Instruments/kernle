@@ -38,6 +38,8 @@ class ForgettingComponent:
     version = "1.0.0"
     required = False
     needs_inference = False
+    inference_scope = "none"
+    priority = 300
 
     def __init__(self) -> None:
         self._stack_id: Optional[str] = None
