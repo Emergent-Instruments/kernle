@@ -174,7 +174,7 @@ class TestSQLiteStackComponents:
     def test_constructor_loads_defaults(self, tmp_path):
         from kernle.stack.sqlite_stack import SQLiteStack
 
-        stack = SQLiteStack("test-stack", db_path=tmp_path / "test.db")
+        stack = SQLiteStack("test-stack", db_path=tmp_path / "test.db", enforce_provenance=False)
         assert len(stack.components) == 8
         # Verify embedding is present
         names = set(stack.components.keys())
@@ -249,7 +249,7 @@ class TestSQLiteStackComponents:
         """All default components with set_storage get storage assigned."""
         from kernle.stack.sqlite_stack import SQLiteStack
 
-        stack = SQLiteStack("test-stack", db_path=tmp_path / "test.db")
+        stack = SQLiteStack("test-stack", db_path=tmp_path / "test.db", enforce_provenance=False)
         for name, component in stack.components.items():
             if hasattr(component, "_storage") and hasattr(component, "set_storage"):
                 assert (
@@ -259,14 +259,14 @@ class TestSQLiteStackComponents:
     def test_remove_component_raises_for_required(self, tmp_path):
         from kernle.stack.sqlite_stack import SQLiteStack
 
-        stack = SQLiteStack("test-stack", db_path=tmp_path / "test.db")
+        stack = SQLiteStack("test-stack", db_path=tmp_path / "test.db", enforce_provenance=False)
         with pytest.raises(ValueError, match="Cannot remove required"):
             stack.remove_component("embedding-ngram")
 
     def test_remove_optional_component(self, tmp_path):
         from kernle.stack.sqlite_stack import SQLiteStack
 
-        stack = SQLiteStack("test-stack", db_path=tmp_path / "test.db")
+        stack = SQLiteStack("test-stack", db_path=tmp_path / "test.db", enforce_provenance=False)
         assert "anxiety" in stack.components
         stack.remove_component("anxiety")
         assert "anxiety" not in stack.components
@@ -282,7 +282,9 @@ class TestComponentLifecycle:
         """Create stack -> components auto-loaded -> maintenance -> model change."""
         from kernle.stack.sqlite_stack import SQLiteStack
 
-        stack = SQLiteStack("lifecycle-test", db_path=tmp_path / "test.db")
+        stack = SQLiteStack(
+            "lifecycle-test", db_path=tmp_path / "test.db", enforce_provenance=False
+        )
 
         # Components auto-loaded
         assert len(stack.components) == 8

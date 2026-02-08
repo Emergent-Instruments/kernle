@@ -99,11 +99,13 @@ def stack(tmp_path):
 @pytest.fixture
 def entity_with_stack(tmp_path):
     """Create an Entity with an attached SQLiteStack."""
+
     entity = Entity(core_id="test-entity", data_dir=tmp_path)
     stack = SQLiteStack(
         stack_id="test-cascade",
         db_path=tmp_path / "test.db",
         components=[],
+        enforce_provenance=False,
     )
     entity.attach_stack(stack, alias="default")
     return entity, stack

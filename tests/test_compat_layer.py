@@ -22,7 +22,9 @@ def kernle_sqlite(tmp_path):
     """Kernle instance backed by SQLite for compat-layer tests."""
     db_path = tmp_path / "compat_test.db"
     storage = SQLiteStorage(stack_id="compat_agent", db_path=db_path)
-    k = Kernle(stack_id="compat_agent", storage=storage, checkpoint_dir=tmp_path / "cp")
+    k = Kernle(
+        stack_id="compat_agent", storage=storage, checkpoint_dir=tmp_path / "cp", strict=False
+    )
     yield k
     storage.close()
 
@@ -78,7 +80,12 @@ class TestStackProperty:
         mock_storage.is_online.return_value = False
         mock_storage.get_pending_sync_count.return_value = 0
 
-        k = Kernle(stack_id="mock_agent", storage=mock_storage, checkpoint_dir=tmp_path / "cp")
+        k = Kernle(
+            stack_id="mock_agent",
+            storage=mock_storage,
+            checkpoint_dir=tmp_path / "cp",
+            strict=False,
+        )
         assert k.stack is None
 
 

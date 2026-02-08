@@ -28,13 +28,17 @@ def storage(tmp_path):
 
 @pytest.fixture
 def stack(tmp_path):
-    return SQLiteStack(STACK_ID, db_path=tmp_path / "test.db", components=[])
+    return SQLiteStack(
+        STACK_ID, db_path=tmp_path / "test.db", components=[], enforce_provenance=False
+    )
 
 
 @pytest.fixture
 def entity(tmp_path):
     ent = Entity(core_id="test-core", data_dir=tmp_path / "entity")
-    st = SQLiteStack(STACK_ID, db_path=tmp_path / "test.db", components=[])
+    st = SQLiteStack(
+        STACK_ID, db_path=tmp_path / "test.db", components=[], enforce_provenance=False
+    )
     ent.attach_stack(st)
     return ent
 
@@ -310,7 +314,7 @@ class TestEntityRecover:
         entity.forget("episode", eid, "forgot")
         assert entity.recover("episode", eid)
         stack = entity.active_stack
-        episodes = stack.get_episodes()
+        episodes = stack.get_episodes(include_weak=True)
         assert len(episodes) == 1
         assert episodes[0].strength == pytest.approx(0.2)
 

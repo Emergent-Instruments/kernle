@@ -17,7 +17,9 @@ def k(tmp_path):
     checkpoint_dir.mkdir()
 
     storage = SQLiteStorage(stack_id="test-export-full", db_path=db_path)
-    instance = Kernle(stack_id="test-export-full", storage=storage, checkpoint_dir=checkpoint_dir)
+    instance = Kernle(
+        stack_id="test-export-full", storage=storage, checkpoint_dir=checkpoint_dir, strict=False
+    )
     yield instance
     storage.close()
 

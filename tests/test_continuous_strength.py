@@ -38,7 +38,7 @@ def storage(tmp_path):
 def stack(tmp_path):
     """Create a bare SQLiteStack (no components) for testing."""
     db_path = tmp_path / "test.db"
-    return SQLiteStack(STACK_ID, db_path=db_path, components=[])
+    return SQLiteStack(STACK_ID, db_path=db_path, components=[], enforce_provenance=False)
 
 
 # ---- Helpers ----
@@ -389,12 +389,12 @@ class TestStackStrengthFiltering:
         assert len(notes) == 0
 
     def test_low_strength_still_included(self, stack):
-        """Memories with low (but non-zero) strength should still appear."""
+        """Memories with low (but non-zero) strength should still appear with include_forgotten."""
         ep = _ep()
         eid = stack.save_episode(ep)
         stack._backend.update_strength("episode", eid, 0.01)
 
-        episodes = stack.get_episodes()
+        episodes = stack.get_episodes(include_forgotten=True)
         assert len(episodes) == 1
 
 
@@ -418,7 +418,7 @@ class TestSearchStrengthFiltering:
     def test_search_includes_positive_strength(self, stack):
         ep = _ep(objective="unique searchtest phrase")
         eid = stack.save_episode(ep)
-        stack._backend.update_strength("episode", eid, 0.1)
+        stack._backend.update_strength("episode", eid, 0.5)
 
         results = stack.search("unique searchtest phrase")
         ids_found = {r.memory_id for r in results}

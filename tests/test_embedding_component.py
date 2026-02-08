@@ -311,7 +311,12 @@ class TestStackIntegration:
     def test_add_component_to_stack(self, tmp_path):
         from kernle.stack.sqlite_stack import SQLiteStack
 
-        stack = SQLiteStack(stack_id="test-stack", db_path=tmp_path / "test.db", components=[])
+        stack = SQLiteStack(
+            stack_id="test-stack",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=False,
+        )
         comp = EmbeddingComponent()
         stack.add_component(comp)
         assert "embedding-ngram" in stack.components
@@ -320,7 +325,12 @@ class TestStackIntegration:
     def test_cannot_remove_required_component(self, tmp_path):
         from kernle.stack.sqlite_stack import SQLiteStack
 
-        stack = SQLiteStack(stack_id="test-stack", db_path=tmp_path / "test.db", components=[])
+        stack = SQLiteStack(
+            stack_id="test-stack",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=False,
+        )
         comp = EmbeddingComponent()
         stack.add_component(comp)
         with pytest.raises(ValueError, match="Cannot remove required"):
@@ -329,7 +339,12 @@ class TestStackIntegration:
     def test_maintenance_includes_component(self, tmp_path):
         from kernle.stack.sqlite_stack import SQLiteStack
 
-        stack = SQLiteStack(stack_id="test-stack", db_path=tmp_path / "test.db", components=[])
+        stack = SQLiteStack(
+            stack_id="test-stack",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=False,
+        )
         comp = EmbeddingComponent()
         stack.add_component(comp)
         results = stack.maintenance()
@@ -339,7 +354,12 @@ class TestStackIntegration:
     def test_on_attach_propagates_inference(self, tmp_path):
         from kernle.stack.sqlite_stack import SQLiteStack
 
-        stack = SQLiteStack(stack_id="test-stack", db_path=tmp_path / "test.db", components=[])
+        stack = SQLiteStack(
+            stack_id="test-stack",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=False,
+        )
         comp = EmbeddingComponent()
         stack.add_component(comp)
 
@@ -350,7 +370,12 @@ class TestStackIntegration:
     def test_on_model_changed_propagates(self, tmp_path):
         from kernle.stack.sqlite_stack import SQLiteStack
 
-        stack = SQLiteStack(stack_id="test-stack", db_path=tmp_path / "test.db", components=[])
+        stack = SQLiteStack(
+            stack_id="test-stack",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=False,
+        )
         comp = EmbeddingComponent()
         stack.add_component(comp)
 
@@ -365,7 +390,12 @@ class TestStackIntegration:
     def test_on_detach_clears_inference(self, tmp_path):
         from kernle.stack.sqlite_stack import SQLiteStack
 
-        stack = SQLiteStack(stack_id="test-stack", db_path=tmp_path / "test.db", components=[])
+        stack = SQLiteStack(
+            stack_id="test-stack",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=False,
+        )
         comp = EmbeddingComponent()
         stack.add_component(comp)
 

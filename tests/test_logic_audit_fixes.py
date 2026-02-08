@@ -23,7 +23,7 @@ def kernle_fresh(tmp_path):
     """Create a fresh Kernle instance for testing."""
     db_path = tmp_path / "test_logic_audit.db"
     storage = SQLiteStorage(stack_id="test_agent", db_path=db_path)
-    return Kernle(stack_id="test_agent", storage=storage)
+    return Kernle(stack_id="test_agent", storage=storage, strict=False)
 
 
 class TestDivisionByZeroProtection:

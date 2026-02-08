@@ -209,7 +209,7 @@ class TestBeliefScopeDecay:
         """Self-scoped beliefs should decay slower, like values."""
         from kernle import Kernle
 
-        k = Kernle(stack_id="test_agent", storage=storage)
+        k = Kernle(stack_id="test_agent", storage=storage, strict=False)
 
         old_date = datetime.now(timezone.utc) - timedelta(days=90)
 
@@ -234,7 +234,7 @@ class TestBeliefScopeDecay:
         """World-scoped beliefs should use standard belief decay."""
         from kernle import Kernle
 
-        k = Kernle(stack_id="test_agent", storage=storage)
+        k = Kernle(stack_id="test_agent", storage=storage, strict=False)
 
         old_date = datetime.now(timezone.utc) - timedelta(days=30)
 

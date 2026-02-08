@@ -85,6 +85,13 @@ MEMORY_TYPE_PRIORITIES = {
 }
 
 
+# Strength tier thresholds (documented in memory-integrity.md)
+STRENGTH_FORGOTTEN = 0.0  # Tombstoned — only via recover()
+STRENGTH_DORMANT = 0.2  # Only via explicit include_dormant=True
+STRENGTH_WEAK = 0.5  # Excluded from load(), still searchable
+STRENGTH_FADING = 0.8  # Included but reduced priority
+
+
 def _estimate_tokens(text: str) -> int:
     """Estimate token count from text (~4 chars/token with safety margin)."""
     if not text:
@@ -116,6 +123,11 @@ def _compute_priority_score(memory_type: str, record: Any) -> float:
         bonus = getattr(record, "confidence", 0.8) / 10.0
     elif memory_type == "drive":
         bonus = getattr(record, "intensity", 0.5) / 10.0
+
+    # Reduce priority for fading memories (strength 0.5-0.8)
+    strength = getattr(record, "strength", 1.0)
+    if strength < STRENGTH_FADING:
+        return (base + bonus) * 0.5
     return base + bonus
 
 
@@ -160,7 +172,7 @@ class SQLiteStack(
         cloud_storage: Optional[Any] = None,
         embedder: Optional[Any] = None,
         components: Optional[List[StackComponentProtocol]] = None,
-        enforce_provenance: bool = False,
+        enforce_provenance: bool = True,
     ):
         self._backend = SQLiteStorage(
             stack_id=stack_id,
@@ -268,12 +280,63 @@ class SQLiteStack(
     # ---- Component Dispatch Helpers ----
 
     def _dispatch_on_save(self, memory_type: str, memory_id: str, memory: Any) -> None:
-        """Notify components after a memory is saved."""
+        """Notify components after a memory is saved, persisting any returned metadata."""
         for name, component in self._components.items():
             try:
-                component.on_save(memory_type, memory_id, memory)
+                result = component.on_save(memory_type, memory_id, memory)
+                if result and isinstance(result, dict):
+                    self._persist_on_save_metadata(memory_type, memory_id, result)
             except Exception as e:
                 logger.warning("Component '%s' on_save failed: %s", name, e)
+
+    def _persist_on_save_metadata(self, memory_type: str, memory_id: str, metadata: dict) -> None:
+        """Persist metadata returned by on_save components."""
+        table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "agent_values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+        }
+        table = table_map.get(memory_type)
+        if not table:
+            return
+
+        # Map of allowed fields per table (only fields that exist in schema)
+        allowed_fields = {
+            "episodes": {
+                "emotional_valence",
+                "emotional_arousal",
+                "emotional_tags",
+            },
+        }
+        fields = allowed_fields.get(table, set())
+        if not fields:
+            return
+
+        updates = []
+        params = []
+        for key, value in metadata.items():
+            if key not in fields:
+                continue
+            updates.append(f"{key} = ?")
+            if isinstance(value, (list, dict)):
+                import json
+
+                params.append(json.dumps(value))
+            else:
+                params.append(value)
+
+        if not updates:
+            return
+
+        params.extend([memory_id, self._backend.stack_id])
+        sql = f"UPDATE {table} SET {', '.join(updates)} WHERE id = ? AND stack_id = ?"
+        with self._backend._connect() as conn:
+            conn.execute(sql, params)
+            conn.commit()
 
     def _dispatch_on_search(
         self, query: str, results: List[ProtocolSearchResult]
@@ -295,6 +358,28 @@ class SQLiteStack(
                 component.on_load(context)
             except Exception as e:
                 logger.warning("Component '%s' on_load failed: %s", name, e)
+
+    # ---- Strength Tier Filtering ----
+
+    @staticmethod
+    def _filter_by_strength(
+        memories: list,
+        include_forgotten: bool = False,
+        include_weak: bool = False,
+    ) -> list:
+        """Filter memories by strength tier.
+
+        Tiers:
+          0.8-1.0 Strong — always included
+          0.5-0.8 Fading — always included (reduced priority in load)
+          0.2-0.5 Weak   — excluded unless include_weak=True
+          0.0-0.2 Dormant — excluded unless include_forgotten=True
+          0.0     Forgotten — excluded unless include_forgotten=True
+        """
+        if include_forgotten:
+            return memories
+        min_strength = STRENGTH_FORGOTTEN if include_weak else STRENGTH_WEAK
+        return [m for m in memories if getattr(m, "strength", 1.0) >= min_strength]
 
     # ---- State Management ----
 
@@ -522,10 +607,10 @@ class SQLiteStack(
         tags: Optional[List[str]] = None,
         context: Optional[str] = None,
         include_forgotten: bool = False,
+        include_weak: bool = False,
     ) -> List[Episode]:
         episodes = self._backend.get_episodes(limit=limit, tags=tags)
-        if not include_forgotten:
-            episodes = [e for e in episodes if e.strength > 0.0]
+        episodes = self._filter_by_strength(episodes, include_forgotten, include_weak)
         return episodes
 
     def get_beliefs(
@@ -536,14 +621,14 @@ class SQLiteStack(
         min_confidence: Optional[float] = None,
         context: Optional[str] = None,
         include_forgotten: bool = False,
+        include_weak: bool = False,
     ) -> List[Belief]:
         beliefs = self._backend.get_beliefs(limit=limit)
         if belief_type:
             beliefs = [b for b in beliefs if b.belief_type == belief_type]
         if min_confidence is not None:
             beliefs = [b for b in beliefs if b.confidence >= min_confidence]
-        if not include_forgotten:
-            beliefs = [b for b in beliefs if b.strength > 0.0]
+        beliefs = self._filter_by_strength(beliefs, include_forgotten, include_weak)
         return beliefs
 
     def get_values(
@@ -552,10 +637,10 @@ class SQLiteStack(
         limit: int = 50,
         context: Optional[str] = None,
         include_forgotten: bool = False,
+        include_weak: bool = False,
     ) -> List[Value]:
         values = self._backend.get_values(limit=limit)
-        if not include_forgotten:
-            values = [v for v in values if v.strength > 0.0]
+        values = self._filter_by_strength(values, include_forgotten, include_weak)
         return values
 
     def get_goals(
@@ -565,10 +650,10 @@ class SQLiteStack(
         status: Optional[str] = None,
         context: Optional[str] = None,
         include_forgotten: bool = False,
+        include_weak: bool = False,
     ) -> List[Goal]:
         goals = self._backend.get_goals(status=status, limit=limit)
-        if not include_forgotten:
-            goals = [g for g in goals if g.strength > 0.0]
+        goals = self._filter_by_strength(goals, include_forgotten, include_weak)
         return goals
 
     def get_notes(
@@ -578,10 +663,10 @@ class SQLiteStack(
         note_type: Optional[str] = None,
         context: Optional[str] = None,
         include_forgotten: bool = False,
+        include_weak: bool = False,
     ) -> List[Note]:
         notes = self._backend.get_notes(limit=limit, note_type=note_type)
-        if not include_forgotten:
-            notes = [n for n in notes if n.strength > 0.0]
+        notes = self._filter_by_strength(notes, include_forgotten, include_weak)
         return notes
 
     def get_drives(self, *, include_expired: bool = False) -> List[Drive]:
@@ -651,9 +736,9 @@ class SQLiteStack(
             else:
                 content = str(record)[:200]
 
-            # Exclude forgotten/dormant memories from search
+            # Exclude dormant/forgotten memories from search (weak OK)
             record_strength = getattr(record, "strength", 1.0)
-            if record_strength <= 0.0:
+            if record_strength < STRENGTH_DORMANT:
                 continue
 
             if min_confidence is not None:

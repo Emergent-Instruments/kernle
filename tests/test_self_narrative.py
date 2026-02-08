@@ -25,7 +25,7 @@ def stack_id():
 
 @pytest.fixture
 def k(stack_id):
-    return Kernle(stack_id=stack_id)
+    return Kernle(stack_id=stack_id, strict=False)
 
 
 # === Dataclass Tests ===

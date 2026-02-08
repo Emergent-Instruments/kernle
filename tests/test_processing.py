@@ -43,13 +43,17 @@ def storage(tmp_path):
 
 @pytest.fixture
 def stack(tmp_path):
-    return SQLiteStack(STACK_ID, db_path=tmp_path / "test.db", components=[])
+    return SQLiteStack(
+        STACK_ID, db_path=tmp_path / "test.db", components=[], enforce_provenance=False
+    )
 
 
 @pytest.fixture
 def entity(tmp_path):
     ent = Entity(core_id="test-core", data_dir=tmp_path / "entity")
-    st = SQLiteStack(STACK_ID, db_path=tmp_path / "test.db", components=[])
+    st = SQLiteStack(
+        STACK_ID, db_path=tmp_path / "test.db", components=[], enforce_provenance=False
+    )
     ent.attach_stack(st)
     return ent
 

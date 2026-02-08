@@ -36,7 +36,7 @@ def storage(temp_db):
 def kernle(temp_db):
     """Create a Kernle instance for testing."""
     storage = SQLiteStorage(stack_id="test_agent", db_path=temp_db)
-    return Kernle(stack_id="test_agent", storage=storage)
+    return Kernle(stack_id="test_agent", storage=storage, strict=False)
 
 
 class TestRawEntryDataclass:

@@ -56,6 +56,7 @@ def kernle_instance(temp_db, temp_checkpoint_dir):
         stack_id="test-agent",
         storage=storage,
         checkpoint_dir=temp_checkpoint_dir,
+        strict=False,
     )
     yield kernle, storage
     storage.close()

@@ -48,7 +48,9 @@ def kernle_instance(temp_checkpoint_dir, temp_db_path):
         db_path=temp_db_path,
     )
 
-    kernle = Kernle(stack_id="test_agent", storage=storage, checkpoint_dir=temp_checkpoint_dir)
+    kernle = Kernle(
+        stack_id="test_agent", storage=storage, checkpoint_dir=temp_checkpoint_dir, strict=False
+    )
 
     yield kernle, storage
     storage.close()

@@ -57,7 +57,9 @@ def tmp_db(tmp_path):
 @pytest.fixture
 def stack(tmp_db):
     """Create an SQLiteStack instance with a temp database."""
-    return SQLiteStack(stack_id="test-stack", db_path=tmp_db, components=[])
+    return SQLiteStack(
+        stack_id="test-stack", db_path=tmp_db, components=[], enforce_provenance=False
+    )
 
 
 @pytest.fixture
@@ -641,8 +643,8 @@ class TestMetaMemory:
         recovered = stack.recover_memory("episode", ep.id)
         assert recovered is True
 
-        # Should be back
-        episodes = stack.get_episodes(include_forgotten=False)
+        # Should be back (recovered at strength 0.2, in the Weak tier)
+        episodes = stack.get_episodes(include_weak=True)
         assert any(e.id == ep.id for e in episodes)
 
     def test_protect_memory(self, stack, stack_id):

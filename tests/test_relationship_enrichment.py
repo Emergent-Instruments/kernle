@@ -37,7 +37,7 @@ def kernle_with_storage(tmp_path):
     checkpoint_dir = tmp_path / "checkpoints"
     checkpoint_dir.mkdir()
     s = SQLiteStorage(stack_id="test_agent", db_path=tmp_path / "test.db")
-    k = Kernle(stack_id="test_agent", storage=s, checkpoint_dir=checkpoint_dir)
+    k = Kernle(stack_id="test_agent", storage=s, checkpoint_dir=checkpoint_dir, strict=False)
     yield k, s
     s.close()
 

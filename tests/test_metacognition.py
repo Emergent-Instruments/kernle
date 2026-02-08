@@ -37,7 +37,9 @@ def temp_checkpoint_dir(tmp_path):
 def kernle(temp_db, temp_checkpoint_dir):
     """Create a Kernle instance for testing."""
     storage = SQLiteStorage(stack_id="test-agent", db_path=temp_db)
-    return Kernle(stack_id="test-agent", storage=storage, checkpoint_dir=temp_checkpoint_dir)
+    return Kernle(
+        stack_id="test-agent", storage=storage, checkpoint_dir=temp_checkpoint_dir, strict=False
+    )
 
 
 @pytest.fixture

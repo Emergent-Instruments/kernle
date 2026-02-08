@@ -21,7 +21,7 @@ def kernle_instance(tmp_path):
 
     db_path = tmp_path / "test.db"
     storage = SQLiteStorage(stack_id="test-process", db_path=db_path)
-    k = Kernle(stack_id="test-process", storage=storage)
+    k = Kernle(stack_id="test-process", storage=storage, strict=False)
     yield k
     storage.close()
 
