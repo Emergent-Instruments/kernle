@@ -808,6 +808,10 @@ class SQLiteStack(
             self._dispatch_on_load(result)
             return result
 
+        # Filter by strength tier: load() only includes Strong + Fading (>= 0.5)
+        for key in ("values", "beliefs", "goals", "drives", "episodes", "notes", "relationships"):
+            batched[key] = self._filter_by_strength(batched.get(key, []))
+
         # Build candidate list with priorities
         candidates = []
         for v in batched.get("values", []):

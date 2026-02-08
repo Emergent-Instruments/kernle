@@ -499,14 +499,15 @@ class StackComponentProtocol(Protocol):
     # The stack calls these at appropriate moments. Components
     # implement the ones they care about. Default: no-op.
 
-    def on_save(self, memory_type: str, memory_id: str, memory: Any) -> Any:
+    def on_save(self, memory_type: str, memory_id: str, memory: Any) -> Optional[dict]:
         """Called after a memory is saved.
 
-        Can modify the memory (e.g., add emotional tags) by returning
-        the modified version. Return None to leave unchanged.
+        Return a dict of metadata fields to persist on the memory
+        (e.g., emotional tags). The stack writes returned fields to the
+        database. Return None to leave unchanged.
 
         Examples:
-        - EmotionalTagging: detect valence/arousal, add to metadata
+        - EmotionalTagging: detect valence/arousal, return {"valence": 0.8}
         - MetaMemory: initialize confidence tracking
         - Embedding: generate and store vector
         """

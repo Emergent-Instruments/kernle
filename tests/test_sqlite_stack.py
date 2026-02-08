@@ -441,6 +441,36 @@ class TestLoad:
         result = stack.load()
         assert isinstance(result, dict)
 
+    def test_load_excludes_weak_and_dormant(self, stack, stack_id):
+        """load() should only include Strong (>=0.8) and Fading (0.5-0.8) memories."""
+        strong_ep = _make_episode(stack_id, objective="Strong episode", strength=1.0)
+        fading_ep = _make_episode(stack_id, objective="Fading episode", strength=0.6)
+        weak_ep = _make_episode(stack_id, objective="Weak episode", strength=0.4)
+        dormant_ep = _make_episode(stack_id, objective="Dormant episode", strength=0.1)
+        stack.save_episode(strong_ep)
+        stack.save_episode(fading_ep)
+        stack.save_episode(weak_ep)
+        stack.save_episode(dormant_ep)
+
+        result = stack.load(token_budget=8000)
+        episode_objectives = [e["objective"] for e in result.get("episodes", [])]
+        assert "Strong episode" in episode_objectives
+        assert "Fading episode" in episode_objectives
+        assert "Weak episode" not in episode_objectives
+        assert "Dormant episode" not in episode_objectives
+
+    def test_load_excludes_weak_beliefs(self, stack, stack_id):
+        """load() should exclude beliefs with strength below 0.5."""
+        strong_belief = _make_belief(stack_id, statement="Strong belief", strength=0.9)
+        weak_belief = _make_belief(stack_id, statement="Weak belief", strength=0.3)
+        stack.save_belief(strong_belief)
+        stack.save_belief(weak_belief)
+
+        result = stack.load(token_budget=8000)
+        belief_statements = [b["statement"] for b in result.get("beliefs", [])]
+        assert "Strong belief" in belief_statements
+        assert "Weak belief" not in belief_statements
+
 
 # Minimum token budget for test reference
 MIN_TOKEN_BUDGET = 100
