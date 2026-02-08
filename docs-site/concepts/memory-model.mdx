@@ -93,6 +93,7 @@ Every memory type has these meta-fields:
 | Field | Description |
 |-------|-------------|
 | `confidence` | How certain we are (0.0-1.0) |
+| `strength` | Memory strength (0.0-1.0), decays over time based on access patterns |
 | `source_type` | How acquired: `direct_experience`, `inference`, `told_by_si`, `consolidation` |
 | `source_episodes` | Episode IDs that support this memory |
 | `derived_from` | Memory refs this was derived from (`type:id`) |
@@ -110,35 +111,38 @@ kernle meta uncertain --threshold 0.5  # Find weak memories
 
 ## Forgetting System
 
-Kernle uses **tombstoning, not deletion**. Forgotten memories can be recovered.
+Kernle uses **continuous strength decay** instead of binary forgetting. Every memory has a `strength` field (0.0 to 1.0) that decays over time based on access patterns. Memories with strength 0.0 are considered forgotten but can be recovered.
 
-### Salience Formula
+### Strength Scoring
 
 ```
-salience = (confidence × log(times_accessed + 1)) / (days_since_access / half_life + 1)
+base_decay = (days_since_last_access / half_life)
+reinforcement = log(times_accessed + 1) * 0.1
+strength = max(0.0, previous_strength - base_decay + reinforcement)
 ```
 
-- **High salience**: Confident, frequently accessed, recently used
-- **Low salience**: Uncertain, rarely accessed, old
+- **High strength**: Frequently accessed, recently used, reinforced through retrieval
+- **Low strength**: Rarely accessed, old, not reinforced
+- **Zero strength**: Effectively forgotten, but recoverable
 
 ### Protection
 
 <Info>
 - Values and Drives are protected by default
 - Any memory can be marked protected: `kernle forget protect episode <id>`
-- Protected memories never decay
+- Protected memories never decay in strength
 </Info>
 
 ### Forgetting Cycle
 
 ```bash
-# Preview what would be forgotten
+# Preview memories with low strength
 kernle forget candidates --threshold 0.3
 
-# Run forgetting (dry_run to preview)
+# Run strength decay (dry_run to preview)
 kernle forget run --dry-run
 
-# Recover a forgotten memory
+# Recover a forgotten memory (restores strength)
 kernle forget recover episode <id>
 ```
 

@@ -254,25 +254,6 @@ kernle -s <stack> anxiety [options]
 
 ---
 
-## consolidate
-
-Run memory consolidation (episodes → beliefs).
-
-```bash
-kernle -s <stack> consolidate [--min-episodes MIN]
-```
-
-| Option | Description |
-|--------|-------------|
-| `-m, --min-episodes MIN` | Minimum episodes to consolidate (default: 3) |
-
-```bash
-kernle -s claire consolidate
-kernle -s claire consolidate --min-episodes 5
-```
-
----
-
 ## identity
 
 Identity synthesis operations.
@@ -573,6 +554,122 @@ Format is auto-detected from file extension if not specified.
 ```bash
 kernle -s claire export backup.md
 kernle -s claire export memory-snapshot.json --format json
+```
+
+---
+
+## export-full
+
+Export complete agent context (all memory layers) to a single file. Unlike `export` (full memory dump), `export-full` assembles all memory layers -- boot config, values, beliefs, goals, episodes, notes, drives, relationships, self-narratives, trust assessments, playbooks, and checkpoint -- into one comprehensive file.
+
+```bash
+kernle -s <stack> export-full [PATH] [--format {markdown,json}] [--include-raw] [--no-raw]
+```
+
+| Option | Description |
+|--------|-------------|
+| `PATH` | Output file path (default: stdout) |
+| `-f, --format` | Output format (auto-detected from extension if not specified, default: markdown) |
+| `-r, --include-raw` | Include raw entries (default: true) |
+| `--no-raw` | Exclude raw entries |
+
+```bash
+# Export to file
+kernle -s claire export-full context.md
+
+# Export as JSON
+kernle -s claire export-full context.json --format json
+
+# Print to stdout
+kernle -s claire export-full
+```
+
+---
+
+## process
+
+Run or check automated memory processing (model-driven layer promotion). Processing uses a bound model to automatically promote memories across layers (e.g., raw entries to episodes, episodes to beliefs).
+
+### process run
+
+Run memory processing transitions.
+
+```bash
+kernle -s <stack> process run [--transition TRANSITION] [--force] [--json]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-t, --transition TRANSITION` | Specific transition to process (omit to check all) |
+| `-f, --force` | Process even if quantity thresholds are not met |
+| `-j, --json` | Output as JSON |
+
+Available transitions:
+
+| Transition | Description |
+|------------|-------------|
+| `raw_to_episode` | Promote raw entries to episodes |
+| `raw_to_note` | Promote raw entries to notes |
+| `episode_to_belief` | Extract beliefs from episodes |
+| `episode_to_goal` | Derive goals from episodes |
+| `episode_to_relationship` | Detect relationships from episodes |
+| `episode_to_drive` | Identify drives from episodes |
+| `belief_to_value` | Promote beliefs to values |
+
+<Tabs>
+  <Tab title="Run All">
+    ```bash
+    kernle -s claire process run
+    ```
+  </Tab>
+  <Tab title="Specific Transition">
+    ```bash
+    kernle -s claire process run --transition episode_to_belief
+    ```
+  </Tab>
+  <Tab title="Force">
+    ```bash
+    kernle -s claire process run --force
+    ```
+  </Tab>
+</Tabs>
+
+<Warning>
+Memory processing requires a bound model (via `entity.set_model()`). Without a model, the command will return an error.
+</Warning>
+
+### process status
+
+Show unprocessed memory counts and whether each transition's quantity threshold has been met.
+
+```bash
+kernle -s <stack> process status [--json]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-j, --json` | Output as JSON |
+
+```bash
+kernle -s claire process status
+```
+
+**Example output:**
+```
+Memory Processing Status
+========================================
+Unprocessed raw entries:  12
+Unprocessed episodes:    8
+Unprocessed beliefs:     3
+
+Trigger Status:
+  raw_to_episode: 12/5 (READY)
+  raw_to_note: 12/5 (READY)
+  episode_to_belief: 8/3 (READY)
+  episode_to_goal: 8/10 (waiting)
+  episode_to_relationship: 8/5 (READY)
+  episode_to_drive: 8/10 (waiting)
+  belief_to_value: 3/5 (waiting)
 ```
 
 ---

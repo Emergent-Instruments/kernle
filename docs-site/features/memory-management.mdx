@@ -142,7 +142,7 @@ kernle -s claire verify abc123 --evidence "Confirmed through testing"
 Consolidation extracts patterns from recent episodes to form or update beliefs.
 
 <Warning>
-**Renamed Command**: `kernle consolidate` has been renamed to `kernle promote`. The old `consolidate` command still works as a deprecated alias but will emit a warning.
+**Renamed Command**: The `consolidate` command has been removed. Use `kernle promote` instead.
 </Warning>
 
 ### Run Promotion
@@ -330,7 +330,7 @@ k.forget_run(dry_run=True)
 k.forget_recover("memory_id")
 
 # Consolidation
-prompt = k.promote(limit=20)  # or k.consolidate(limit=20) for backwards compat
+prompt = k.promote(limit=20)
 
 # Beliefs
 k.belief_add("Statement", confidence=0.8)
