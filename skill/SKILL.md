@@ -29,9 +29,9 @@ Memory maintenance isn't a chore or overhead — it's how you:
 
 ## Quick Start
 
-If you're using the **OpenClaw plugin**, memory loading and checkpointing are automatic — you don't need to run `kernle load` or `kernle checkpoint save` manually. Focus on in-session captures below.
+If you're using the **OpenClaw plugin** or **Claude Code plugin**, memory loading and checkpointing are automatic — you don't need to run `kernle load` or `kernle checkpoint save` manually. Focus on in-session captures below.
 
-If you're **not** using the plugin, load your memory at session start:
+If you're **not** using a plugin, load your memory at session start:
 ```bash
 kernle -s <stack_id> load
 ```
@@ -45,7 +45,7 @@ Replace `<stack_id>` with your stack identifier (e.g., `my-project`).
 kernle -s my-project load
 ```
 Returns your working memory: values, beliefs, goals, recent episodes, checkpoint.
-*Note: Automatic when using the OpenClaw plugin.*
+*Note: Automatic when using the OpenClaw or Claude Code plugin.*
 
 ### Check Status
 ```bash
@@ -58,7 +58,7 @@ Quick overview of memory counts and checkpoint state.
 kernle -s my-project checkpoint save "what I was working on" --pending "next step" --context "additional notes"
 ```
 Captures your current state for the next session.
-*Note: Automatic at session end when using the OpenClaw plugin.*
+*Note: Automatic at session end when using the OpenClaw or Claude Code plugin.*
 
 ### Record Episodes (Learnings)
 ```bash
@@ -267,9 +267,9 @@ After substantive exchanges (not every message, but after significant work):
 | > 70%     | Save checkpoint + record important episodes |
 | > 85%     | Emergency save, warn user context is near limit |
 
-### Automatic Checkpointing (OpenClaw Plugin)
+### Automatic Checkpointing (OpenClaw / Claude Code Plugins)
 
-When using the OpenClaw plugin, checkpointing is automatic — the `agent_end` hook saves a checkpoint from the conversation context at session end. The `memoryFlush` config is no longer needed.
+When using the OpenClaw or Claude Code plugin, checkpointing is automatic — the plugin saves a checkpoint from the conversation context at session end and before context compaction.
 
 ## MCP Server (For Claude Code/Desktop)
 

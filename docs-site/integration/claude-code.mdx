@@ -1,11 +1,11 @@
 ---
 title: Claude Code
-description: "Hook-based automatic memory for Claude Code sessions"
+description: "Plugin-based automatic memory for Claude Code sessions"
 ---
 
 # Claude Code Integration
 
-Kernle integrates with Claude Code via a **SessionStart hook** — memory loads automatically when you start a session. No manual `kernle load` needed.
+Kernle integrates with Claude Code via a **plugin** — memory loads automatically, checkpoints save before compaction and at session end, and native memory file writes are intercepted and captured into Kernle.
 
 ## How It Works
 
@@ -13,19 +13,36 @@ Kernle integrates with Claude Code via a **SessionStart hook** — memory loads 
 CLAUDE CODE SESSION STARTS
        ↓
 1. SessionStart hook fires
-2. Hook executes: `kernle -s {stackId} load`
-3. Output added to session context automatically
+2. Plugin runs: `kernle -s {stackId} load --budget {budget}`
+3. Memory injected as session context automatically
 4. SI has full memory: values, beliefs, goals, checkpoint, episodes
        ↓
    SI WORKS (captures memories via CLI as they happen)
        ↓
+   CONTEXT COMPACTION
+       ↓
+5. PreCompact hook saves checkpoint automatically
+6. SessionStart re-fires — memory reloaded into fresh context
+       ↓
+   SI CONTINUES WORKING
+       ↓
 SESSION ENDS
        ↓
-5. SI saves checkpoint before ending (manual — no auto-save hook)
+7. SessionEnd hook saves final checkpoint automatically
 ```
 
+### Write Interception
+
+When the SI tries to write to `memory/` or `MEMORY.md` (Claude Code's native memory), the plugin:
+
+1. Captures the content as a Kernle raw entry
+2. Blocks the write
+3. Returns a message directing the SI to use Kernle commands instead
+
+This ensures all memory flows through Kernle's structured system.
+
 <Note>
-The SI never needs to run `kernle load` manually. The SessionStart hook handles it automatically. However, unlike OpenClaw, Claude Code does not have a pre-compaction auto-save mechanism — the SI must save checkpoints explicitly.
+Unlike the previous hook-based approach, this plugin provides full lifecycle coverage — automatic loading, pre-compaction checkpointing, session-end checkpointing, and write interception. No manual checkpoint saves needed.
 </Note>
 
 ## Installation
@@ -43,21 +60,16 @@ The SI never needs to run `kernle load` manually. The SessionStart hook handles 
     kernle -s my-project init
     ```
   </Step>
-  <Step title="Run Setup">
-    Install the SessionStart hook:
+  <Step title="Run with Plugin">
     ```bash
-    # Project-level (recommended)
-    kernle -s my-project setup claude-code
-
-    # Or global (all Claude Code sessions)
-    kernle -s my-project setup claude-code --global
+    claude --plugin-dir ./integrations/claude-code
     ```
-    This adds a `SessionStart` hook to `.claude/settings.json` (project) or `~/.claude/settings.json` (global) that runs `kernle load` automatically.
+    The plugin directory is inside the Kernle repo at `integrations/claude-code/`.
   </Step>
   <Step title="Verify">
-    Start a new Claude Code session:
+    Start a new Claude Code session with the plugin:
     ```bash
-    claude
+    claude --plugin-dir ./integrations/claude-code
     ```
     Ask: *"What are my current values and goals from Kernle?"*
 
@@ -65,38 +77,60 @@ The SI never needs to run `kernle load` manually. The SessionStart hook handles 
   </Step>
 </Steps>
 
-## What the Hook Does
+## Configuration
 
-The setup command adds this to your `.claude/settings.json`:
+All configuration is via environment variables — no config files needed:
 
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "name": "kernle-memory-load",
-        "description": "Automatically load Kernle persistent memory at session start",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'kernle -s my-project load 2>/dev/null || echo \"# Kernle Memory\\n\\nKernle not available in this session.\"'"
-          }
-        ]
-      }
-    ]
-  }
-}
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `KERNLE_STACK_ID` | auto-detected | Kernle stack ID |
+| `KERNLE_BIN` | `kernle` | Path to kernle binary |
+| `KERNLE_TIMEOUT` | `5` | CLI timeout in seconds |
+| `KERNLE_TOKEN_BUDGET` | `8000` | Token budget for memory loading |
+
+### Stack ID Resolution
+
+The plugin resolves the stack ID in order:
+
+1. `KERNLE_STACK_ID` environment variable
+2. Project directory name from working directory
+3. Kernle auto-resolve (omits `-s` flag, lets kernle decide)
+
+For multi-project setups, set `KERNLE_STACK_ID` in your shell profile:
+
+```bash
+export KERNLE_STACK_ID=my-project
 ```
 
-If you already have a `.claude/settings.json`, the setup command merges the hook into your existing configuration without overwriting other settings.
+## Plugin Hooks
+
+### SessionStart — Memory Loading
+
+Fires on startup, resume, clear, and compact. Runs `kernle load` and injects the output as `additionalContext` in the session.
+
+### PreToolUse — Write Interception
+
+Matches `Write`, `Edit`, and `NotebookEdit` tool calls. When the target path matches a memory file (`memory/`, `MEMORY.md`), the plugin:
+
+- Captures the content as a Kernle raw entry (for preservation)
+- Blocks the write with a deny decision
+- Returns a message explaining that memory is handled by Kernle
+
+### PreCompact — Pre-Compaction Checkpoint
+
+Fires before context compaction. Reads the transcript to extract the last user message (task) and assistant message (context), then saves a checkpoint prefixed with `[pre-compact]`.
+
+### SessionEnd — Final Checkpoint
+
+Fires when the session terminates. Reads the transcript and saves both a checkpoint and a raw entry marking session completion.
 
 ### Graceful Degradation
 
-If Kernle is not installed, the stack doesn't exist, or the command fails, the hook outputs a fallback message and the session continues normally.
+All hooks exit 0 on any error. If Kernle is not installed, the stack doesn't exist, or any command fails, the session continues normally with no error messages.
 
 ## What Gets Loaded
 
-The hook runs `kernle -s {stackId} load` and the output is added to the session context containing:
+The plugin runs `kernle load` and the output is injected into the session context containing:
 
 - **Checkpoint** — current task, context, next steps (resume point)
 - **Values** — core principles
@@ -106,7 +140,7 @@ The hook runs `kernle -s {stackId} load` and the output is added to the session 
 - **Lessons** — extracted from recent episodes
 - **Relationships** — key entities with sentiment
 
-Memory loading is budget-aware by default (8000 tokens). Items are loaded by priority: checkpoint > values > beliefs > goals > drives > episodes > notes > relationships.
+Memory loading is budget-aware (default 8000 tokens). Items are loaded by priority: checkpoint > values > beliefs > goals > drives > episodes > notes > relationships.
 
 ## During Work
 
@@ -126,34 +160,6 @@ kernle -s my-project note "Using Redis for session cache" \
   --reason "Need sub-millisecond reads"
 ```
 
-## Saving State
-
-Claude Code does not have an automatic pre-compaction save mechanism like OpenClaw's `memoryFlush`. The SI must save checkpoints explicitly.
-
-Add checkpoint instructions to your project's `CLAUDE.md`:
-
-```markdown
-## Memory
-
-Before ending a session or when context pressure builds:
-```
-kernle -s my-project checkpoint save "<specific task>" --context "<progress>"
-```
-
-Be specific:
-- Bad: "Saving state"
-- Good: "Building auth API - finished /login, next: add JWT refresh"
-```
-
-### When to Checkpoint
-
-| Situation | Action |
-|-----------|--------|
-| Before ending session | Save checkpoint with current task |
-| Before large context operations | Save checkpoint as safety net |
-| After completing a major task | Save checkpoint with summary |
-| Context getting large | Save checkpoint proactively |
-
 ## Relationship to Native Features
 
 Claude Code has its own memory mechanisms. Here's how they interact with Kernle:
@@ -161,7 +167,7 @@ Claude Code has its own memory mechanisms. Here's how they interact with Kernle:
 | Feature | What It Does | Kernle Relationship |
 |---------|-------------|-------------------|
 | `CLAUDE.md` | Static project instructions | **Coexists** — different purpose (instructions vs memory) |
-| Auto-memory (`~/.claude/.../memory/`) | Simple text notes across sessions | **Replaced** — Kernle provides typed, structured memory with provenance |
+| Auto-memory (`~/.claude/.../memory/`) | Simple text notes across sessions | **Replaced** — plugin intercepts writes and routes to Kernle |
 | Conversation context | In-session history | **Coexists** — Kernle adds cross-session persistence |
 
 <Note>
@@ -170,51 +176,29 @@ Claude Code has its own memory mechanisms. Here's how they interact with Kernle:
 
 ## MCP Server (Alternative)
 
-Kernle also provides an MCP server that works with Claude Code. This is an alternative to the hook approach — use one or the other, not both.
+Kernle also provides an MCP server that works with Claude Code. This is an alternative to the plugin approach — use one or the other for memory loading, not both.
 
-The hook approach is recommended because:
+The plugin approach is recommended because:
 - Memory loads automatically (no manual tool call needed)
-- Simpler setup
+- Auto-checkpointing before compaction and at session end
+- Native write interception routes all memory through Kernle
 - No MCP configuration required
 
-If you need MCP tools during the session (e.g., `memory_search`, `memory_anxiety`), you can use both: the hook for automatic loading, and MCP for in-session memory operations. See the [MCP Integration](/integration/mcp) guide.
-
-## Dynamic Stack Detection
-
-For multi-project setups, use environment variables:
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'kernle -s ${KERNLE_STACK_ID:-main} load 2>/dev/null || true'"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-Set `KERNLE_STACK_ID` in your shell profile:
-
-```bash
-export KERNLE_STACK_ID=my-project
-```
+If you need MCP tools during the session (e.g., `memory_search`, `memory_anxiety`), you can use both: the plugin for automatic lifecycle management, and MCP for in-session memory operations. See the [MCP Integration](/integration/mcp) guide.
 
 ## Diagnostics
 
-Verify the hook is configured:
+Verify the plugin works:
 
 ```bash
-# Check hook status
-kernle -s my-project doctor --full
+# Test with plugin
+claude --plugin-dir ./integrations/claude-code
 
-# Test manually
+# Verify Kernle is available
+which kernle
+kernle -s my-project status
+
+# Test loading manually
 kernle -s my-project load
 ```
 
@@ -222,19 +206,17 @@ kernle -s my-project load
 
 ### Memory not appearing at session start
 
-1. Check the hook is installed:
+1. Verify you're using the `--plugin-dir` flag:
    ```bash
-   cat .claude/settings.json | grep -A 10 kernle
-   # or
-   cat ~/.claude/settings.json | grep -A 10 kernle
+   claude --plugin-dir ./integrations/claude-code
    ```
 
-2. Verify valid JSON:
+2. Check that the plugin manifest exists:
    ```bash
-   jq . .claude/settings.json
+   cat integrations/claude-code/.claude-plugin/plugin.json
    ```
 
-3. Test the command manually:
+3. Test the load command manually:
    ```bash
    kernle -s my-project load
    ```
@@ -254,18 +236,11 @@ which kernle
 pip install kernle
 ```
 
-### Hook not merging with existing settings
+### Writes to MEMORY.md being blocked
 
-Use `--force` to overwrite:
-
-```bash
-kernle -s my-project setup claude-code --force
-```
-
-## Cowork
-
-Cowork uses the same `.claude/settings.json` format. The setup command works identically:
+This is expected behavior. The plugin intercepts writes to memory files and routes them through Kernle. Use Kernle CLI commands instead:
 
 ```bash
-kernle -s my-project setup cowork
+kernle -s my-project raw "your thought here"
+kernle -s my-project note "your observation" --type insight
 ```
