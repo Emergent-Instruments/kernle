@@ -91,6 +91,60 @@ Wired provenance through all interfaces (CLI, MCP, core methods), added strength
 
 ---
 
+## Near-Term: Platform Integration Plugins
+
+Deep integration with AI runtimes to ensure automatic memory capture — not just loading, but writing.
+
+### OpenClaw Plugin
+
+Build a native OpenClaw plugin using the Plugin SDK to replace the current CLI hook approach. The Plugin SDK exposes lifecycle hooks that CLI hooks cannot reach:
+
+| Plugin Hook | Kernle Use |
+|-------------|-----------|
+| `after_tool_call` | Intercept file writes to `memory/` directory, redirect to Kernle raw layer |
+| `agent_end` | Auto-capture a raw summary after each agent turn |
+| `session_end` | Auto-checkpoint with current task context |
+| `session_start` | Load memory (replaces current `agent:bootstrap` CLI hook) |
+| `before_tool_call` | Block writes to native memory files when Kernle is active |
+| `tool_result_persist` | Modify persistence behavior to route through Kernle |
+
+This eliminates the instruction-driven gap: memory writes happen automatically through the plugin runtime rather than relying on the agent to follow SKILL.md instructions.
+
+### Claude Code Plugin
+
+Build a Claude Code plugin that uses the full hook system (14 events available). Currently only `SessionStart` is used — the following hooks close critical gaps:
+
+| Hook | Kernle Use | Status |
+|------|-----------|--------|
+| `SessionStart` | Load memory at session start | **Shipped** |
+| `PreCompact` | Auto-save checkpoint before compaction | **Planned** |
+| `Stop` | Auto-capture raw summary when Claude finishes responding | **Planned** |
+| `SessionEnd` | Final checkpoint on session close | **Planned** |
+| `PostToolUse` | Track significant tool calls (Write, Edit, Bash) as raw captures | **Planned** |
+| `UserPromptSubmit` | Inject relevant memory context based on the user's prompt | **Planned** |
+
+The plugin bundles hooks, a Kernle skill (SKILL.md), and the MCP server configuration into a single installable package:
+
+```
+kernle-claude-code/
+  .claude-plugin/
+    plugin.json
+  hooks/
+    hooks.json          # All 6 hook events
+  skills/
+    SKILL.md            # Kernle memory skill
+  .mcp.json             # Kernle MCP server config
+```
+
+Key architectural decisions:
+- `PreCompact` hook saves checkpoint automatically (mirrors OpenClaw's `memoryFlush`)
+- `Stop` hook captures a raw entry summarizing what happened (async, non-blocking)
+- `PostToolUse` hooks are async to avoid slowing down the agent
+- `additionalContext` field injects memory without polluting visible conversation
+- `Stop` hook checks `stop_hook_active` to prevent infinite loops
+
+---
+
 ## Near-Term: Enriched Cognition
 
 These features extend the existing protocol system with no breaking changes. New capabilities are delivered as StackComponentProtocol implementations or protocol extensions.
