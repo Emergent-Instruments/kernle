@@ -46,6 +46,7 @@ from kernle.cli.commands import (
     cmd_suggestions,
     cmd_summary,
 )
+from kernle.cli.commands.hook import cmd_hook
 from kernle.cli.commands.import_cmd import cmd_import, cmd_migrate
 from kernle.cli.commands.setup import cmd_setup
 from kernle.cli.commands.stack import cmd_stack
@@ -4382,6 +4383,17 @@ Beliefs already present in the agent's memory will be skipped.
         help="Install globally (Claude Code/Cowork only)",
     )
 
+    # hook - Claude Code lifecycle hooks (called by settings.json)
+    p_hook = subparsers.add_parser(
+        "hook", help="Claude Code lifecycle hooks (called by settings.json)"
+    )
+    p_hook.add_argument(
+        "hook_event",
+        nargs="?",
+        choices=["session-start", "pre-tool-use", "pre-compact", "session-end"],
+        help="Hook event to handle",
+    )
+
     # Pre-process arguments: handle `kernle raw "content"` by inserting "capture"
     # This is needed because argparse subparsers consume positional args before parent parser
     raw_subcommands = {
@@ -4436,6 +4448,12 @@ Beliefs already present in the agent's memory will be skipped.
         logger.debug(f"Plugin discovery failed: {e}")
 
     args = parser.parse_args(argv)
+
+    # Dispatch hook commands BEFORE Kernle init -- hooks handle their
+    # own initialization and must always exit 0 even if init would fail.
+    if args.command == "hook":
+        cmd_hook(args)
+        return  # cmd_hook always calls sys.exit(0)
 
     # Initialize Kernle with error handling
     try:
