@@ -1,0 +1,12 @@
+{
+  "name": "kernle-memory",
+  "version": "0.1.0",
+  "description": "Kernle stratified memory system for Claude Code — automatic loading, checkpointing, and native write interception",
+  "author": {
+    "name": "Emergent Instruments",
+    "email": "hello@emergentinstruments.com"
+  },
+  "homepage": "https://github.com/emergent-instruments/kernle",
+  "repository": "https://github.com/emergent-instruments/kernle",
+  "license": "MIT"
+}
