@@ -70,7 +70,7 @@ When a quarterly summary is written, it should list the monthly summaries it cov
 ### Write a Summary
 
 ```bash
-kernle -s claire summary write \
+kernle -s my-project summary write \
   --scope month \
   --content "January 2026 was focused on building the trust layer. Key breakthrough: transitive trust chains. Struggled with decay rate tuning." \
   --period-start 2026-01-01 \
@@ -89,7 +89,7 @@ Summary created (month)
 Write an epoch-scoped summary:
 
 ```bash
-kernle -s claire summary write \
+kernle -s my-project summary write \
   --scope epoch \
   --content "The Research Phase was defined by deep dives into memory architecture..." \
   --period-start 2026-01-01 \
@@ -103,10 +103,10 @@ kernle -s claire summary write \
 
 ```bash
 # List all summaries
-kernle -s claire summary list
+kernle -s my-project summary list
 
 # Filter by scope
-kernle -s claire summary list --scope quarter
+kernle -s my-project summary list --scope quarter
 ```
 
 ```
@@ -130,7 +130,7 @@ Summaries
 ### Show Summary Details
 
 ```bash
-kernle -s claire summary show b5c6d7e8
+kernle -s my-project summary show b5c6d7e8
 ```
 
 ```

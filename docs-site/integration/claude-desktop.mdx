@@ -36,14 +36,14 @@ Add Kernle to the `mcpServers` section:
   "mcpServers": {
     "kernle": {
       "command": "kernle",
-      "args": ["mcp", "--stack", "claude"]
+      "args": ["mcp", "--stack", "my-project"]
     }
   }
 }
 ```
 
 <Warning>
-Replace `claude` with your preferred stack ID. This ID identifies your memory store.
+Replace `my-project` with your preferred stack ID. This ID identifies your memory store.
 </Warning>
 
 ### Full Configuration Example
@@ -53,7 +53,7 @@ Replace `claude` with your preferred stack ID. This ID identifies your memory st
   "mcpServers": {
     "kernle": {
       "command": "kernle",
-      "args": ["mcp", "--stack", "claude-desktop"]
+      "args": ["mcp", "--stack", "my-project"]
     }
   }
 }
@@ -68,7 +68,7 @@ If Kernle was installed via pip in a specific environment:
   "mcpServers": {
     "kernle": {
       "command": "/path/to/python",
-      "args": ["-m", "kernle", "mcp", "--stack", "claude"]
+      "args": ["-m", "kernle", "mcp", "--stack", "my-project"]
     }
   }
 }
@@ -81,7 +81,7 @@ Or with pipx:
   "mcpServers": {
     "kernle": {
       "command": "/Users/you/.local/bin/kernle",
-      "args": ["mcp", "--stack", "claude"]
+      "args": ["mcp", "--stack", "my-project"]
     }
   }
 }
@@ -100,6 +100,40 @@ After restarting, you should see memory tools available. Try asking Claude:
 > "Can you check my memory status?"
 
 Claude should call the `memory_status` tool and return your memory overview.
+
+## How Memory Works with Claude Desktop
+
+Understanding what Claude Desktop provides on its own and what Kernle adds helps clarify why both exist and how they interact.
+
+### What Claude Desktop Provides Natively
+
+- **Projects with pinned knowledge files.** These are static documents (instructions, reference material, style guides) that get loaded into every conversation within that project. They do not change between conversations unless you manually edit them.
+- **Conversation history within a single chat.** Claude remembers everything said within one conversation thread. Scrolling up works normally.
+- **No persistent memory between separate conversations.** Each time you start a new conversation, Claude begins completely fresh. Nothing from the previous conversation carries over automatically.
+
+### What Kernle Adds
+
+Kernle provides **persistent memory that survives across conversations**. When the SI calls `memory_load`, it receives values, beliefs, goals, episodes, notes, and a checkpoint from all previous conversations. When it calls `memory_checkpoint_save`, that state is available in the next conversation.
+
+This is the cross-conversation continuity that Claude Desktop does not have on its own.
+
+### What Coexists vs. What's Replaced
+
+**Project knowledge files -- still used.** These are static instructions and reference context. Kernle does not replace them. They serve different purposes: knowledge files provide fixed configuration and context, while Kernle provides dynamic memory that evolves over time.
+
+**Conversation history -- still works.** Claude Desktop's in-conversation history functions normally within a single chat. Kernle adds cross-conversation persistence on top of this. Within a conversation, Claude still has full access to everything said earlier in that same thread.
+
+**Claude's internal "memory" feature (if enabled).** Claude Desktop may offer its own memory feature that remembers facts across chats as flat notes. Kernle provides a more structured alternative: typed memories with provenance, strength decay, and semantic search instead of simple fact storage. Both can coexist, but Kernle is the primary memory system for SIs using the stratified memory model.
+
+### Memory Handling Steps
+
+There is **no automatic memory loading or saving**. The SI must explicitly call MCP tools at each step. Nothing happens behind the scenes.
+
+- **Session start.** The SI should call `memory_load` to restore context from previous conversations. This pulls in values, beliefs, goals, episodes, notes, and the last checkpoint.
+- **During the conversation.** The SI calls `memory_episode`, `memory_note`, `memory_raw`, `memory_belief`, and other tools to capture memories as they arise. Each of these tool calls writes immediately to the memory store.
+- **Session end.** The SI should call `memory_checkpoint_save` to persist a summary of the current state for the next conversation.
+- **If the SI forgets to load.** The conversation proceeds without any cross-conversation context. No data is lost -- it just is not loaded. The next conversation can still load everything.
+- **If the SI forgets to save a checkpoint.** Anything captured via `memory_episode`, `memory_note`, `memory_raw`, etc. during the conversation is already persisted, because each tool call writes immediately. Only the checkpoint summary is lost. The individual memories are still there.
 
 ## Available Tools
 
@@ -183,7 +217,7 @@ Claude Desktop logs may show MCP connection errors:
 
 ## Agent Integration Template
 
-To ensure consistent memory health across sessions, add a Kernle section to your project's `CLAUDE.md` (for Claude Code) or `AGENTS.md` (for Clawdbot). This instructs the agent to load memory and check health at the start of every session.
+To ensure consistent memory health across sessions, add a Kernle section to your project's `CLAUDE.md` (for Claude Code) or `AGENTS.md` (for OpenClaw). This instructs the agent to load memory and check health at the start of every session.
 
 ### Standard Template
 
@@ -195,13 +229,13 @@ Add this to your project's boot file:
 You have persistent memory through Kernle. **Every session, before any task:**
 
 1. **Load memory:**
-   kernle -a {YOUR_STACK_ID} load
+   kernle -s {YOUR_STACK_ID} load
 
 2. **Check health:**
-   kernle -a {YOUR_STACK_ID} anxiety
+   kernle -s {YOUR_STACK_ID} anxiety
 
 3. **If anxiety > 50:** Address before proceeding
-   - Run `kernle consolidate` for episode debt
+   - Run `kernle promote` for episode debt
    - Run `kernle raw list --unprocessed` for aged captures
    - Run `kernle checkpoint save "pre-task"` if starting major work
 
@@ -221,8 +255,8 @@ For projects that want brevity:
 ```markdown
 ## Kernle
 
-At session start: `kernle -a {STACK_ID} load && kernle -a {STACK_ID} anxiety -b`
-If WARN/CRITICAL, run `kernle consolidate` before proceeding.
+At session start: `kernle -s {STACK_ID} load && kernle -s {STACK_ID} anxiety -b`
+If WARN/CRITICAL, run `kernle promote` before proceeding.
 ```
 
 ### Enforcement Levels
@@ -239,7 +273,7 @@ If WARN/CRITICAL, run `kernle consolidate` before proceeding.
   <Tab title="Claude Code">
     Add to `CLAUDE.md` in the project root. For global coverage, add to `~/.claude/CLAUDE.md`. Pull-based only — no push mechanism for alerts.
   </Tab>
-  <Tab title="Clawdbot">
+  <Tab title="OpenClaw">
     Add to `AGENTS.md` in the workspace. Supports heartbeat for periodic checks and webhook push for alerts between sessions.
   </Tab>
   <Tab title="IDE Extensions">

@@ -25,6 +25,53 @@ kernle -s <stack_id> mcp
 
 This starts an MCP server using stdio transport. The server stays running and responds to tool calls from the connected client.
 
+## How Memory Works via MCP
+
+MCP provides a protocol for AI assistants to call external tools. Kernle exposes its full memory API as MCP tools. Any MCP-compatible client — Claude Code, Claude Desktop, Cursor, custom agents — can use Kernle memory through standard tool calls.
+
+### All Memory Handling is Manual
+
+There is no automatic memory loading or saving. The client SI must call tools explicitly at each stage:
+
+**Session start** — Call `memory_load` to restore context. This returns values, beliefs, goals, episodes, notes, checkpoint, and relationships, priority-ordered within the token budget. Without this call, the SI starts with no memory context.
+
+**During the session** — Call capture tools (`memory_episode`, `memory_note`, `memory_raw`, `memory_belief`, etc.) as the SI works. Each call immediately persists to the local SQLite database. Nothing is buffered or batched.
+
+**Session end** — Call `memory_checkpoint_save` to record what the SI was working on, pending items, and context for next time. This checkpoint is loaded first on the next `memory_load`.
+
+**Search** — `memory_search` runs semantic search across all memory types. `memory_raw_search` uses FTS5 for keyword search on raw entries.
+
+**Processing** — `memory_process` runs automated memory processing (raw entries to episodes to beliefs to values) using the bound inference model. `memory_process_status` shows what is pending.
+
+### What the MCP Server Does NOT Do
+
+- Does not auto-load memory at connection time
+- Does not auto-save when the client disconnects
+- Does not run background maintenance or processing
+- Does not push notifications about memory state
+
+The server is purely reactive — it waits for tool calls and executes them.
+
+### Immediate Persistence Model
+
+Every `memory_*` capture tool writes directly to the SQLite database on call. If the client crashes after calling `memory_episode` but before `memory_checkpoint_save`, the episode is still saved — only the checkpoint summary is lost. This means partial sessions are never completely lost; whatever was captured before the interruption remains in the database.
+
+## Relationship to Native Memory Systems
+
+Kernle works alongside whatever native memory your MCP client already provides. It does not require exclusive access.
+
+### Claude Code
+
+Claude Code has two native memory mechanisms: `CLAUDE.md` files (static project instructions loaded at session start) and auto-memory (`~/.claude/projects/.../memory/MEMORY.md`, simple text notes the agent writes during sessions). Kernle provides structured, typed memory with provenance, strength decay, hierarchy, and search — capabilities that flat text files cannot offer. `CLAUDE.md` is still the right place for static project instructions. Auto-memory can coexist with Kernle — some users keep auto-memory for quick project notes and use Kernle for the full stratified memory system.
+
+### Claude Desktop
+
+Claude Desktop has Projects with pinned knowledge files (static documents). It has no persistent dynamic memory between conversations. Kernle fills the gap entirely, giving the assistant memory that survives across conversations. See the [Claude Desktop guide](/integration/claude-desktop) for setup.
+
+### Other MCP Clients (Cursor, Custom Agents)
+
+Kernle provides the complete memory layer. Whatever native memory the client has can coexist — Kernle does not require exclusive access and does not interfere with other memory systems.
+
 ## Available Tools
 
 When connected, the MCP server exposes these tools:
@@ -103,7 +150,6 @@ Loading memories automatically records access for salience-based forgetting. Thi
 | `memory_value` | Define core values |
 | `memory_goal` | Set and manage goals |
 | `memory_drive` | Set or update drives (motivations) |
-| `memory_auto_capture` | Deprecated alias for raw capture |
 
 <Note>
 Playbooks are currently available via CLI only. MCP tools for playbook operations are planned for a future release.

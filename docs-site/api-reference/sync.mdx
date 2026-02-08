@@ -62,7 +62,7 @@ Content-Type: application/json
 
 ```json
 {
-  "stack_id": "claire",
+  "stack_id": "my-project",
   "operations": [
     {
       "table": "episodes",
@@ -105,7 +105,7 @@ Content-Type: application/json
 ### CLI Equivalent
 
 ```bash
-kernle -s claire sync push
+kernle -s my-project sync push
 ```
 
 ---
@@ -129,7 +129,7 @@ Content-Type: application/json
 
 ```json
 {
-  "stack_id": "claire",
+  "stack_id": "my-project",
   "since": "2024-01-15T00:00:00Z",
   "full": false
 }
@@ -162,10 +162,10 @@ Content-Type: application/json
 
 ```bash
 # Incremental pull
-kernle -s claire sync pull
+kernle -s my-project sync pull
 
 # Full pull
-kernle -s claire sync pull --full
+kernle -s my-project sync pull --full
 ```
 
 ---
@@ -189,7 +189,7 @@ Content-Type: application/json
 
 ```json
 {
-  "stack_id": "claire"
+  "stack_id": "my-project"
 }
 ```
 
@@ -216,7 +216,7 @@ Content-Type: application/json
 ### CLI Equivalent
 
 ```bash
-kernle -s claire sync full
+kernle -s my-project sync full
 ```
 
 ---

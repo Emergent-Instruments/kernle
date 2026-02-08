@@ -113,7 +113,7 @@
       "pages": [
         "integration/mcp",
         "integration/claude-desktop",
-        "integration/clawdbot"
+        "integration/openclaw"
       ]
     },
     {

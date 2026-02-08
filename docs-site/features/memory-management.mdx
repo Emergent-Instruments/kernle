@@ -28,7 +28,7 @@ Not all memories deserve eternal storage. Kernle implements principled forgettin
 ### View Candidates
 
 ```bash
-kernle -s claire forget candidates
+kernle -s my-project forget candidates
 ```
 
 ```
@@ -62,13 +62,13 @@ Every memory has a strength value (0.0–1.0) that determines its visibility and
 ### Check Specific Memory
 
 ```bash
-kernle -s claire forget strength abc123
+kernle -s my-project forget strength abc123
 ```
 
 ### Protect Important Memories
 
 ```bash
-kernle -s claire forget protect abc123
+kernle -s my-project forget protect abc123
 ```
 
 Protected memories never decay, regardless of age or access patterns.
@@ -77,10 +77,10 @@ Protected memories never decay, regardless of age or access patterns.
 
 ```bash
 # Preview what would be forgotten
-kernle -s claire forget run --dry-run
+kernle -s my-project forget run --dry-run
 
 # Actually forget dormant memories (strength < 0.2)
-kernle -s claire forget run
+kernle -s my-project forget run
 ```
 
 ### Recover Forgotten Memories
@@ -89,10 +89,10 @@ Forgotten memories are tombstoned (strength set to 0.0), not deleted. Recovered 
 
 ```bash
 # List forgotten memories
-kernle -s claire forget list
+kernle -s my-project forget list
 
 # Recover a specific memory (returns at 0.2 strength)
-kernle -s claire forget recover abc123
+kernle -s my-project forget recover abc123
 ```
 
 ---
@@ -126,13 +126,13 @@ Recovered memories return at strength 0.2 (Weak tier), not full strength. They m
 
 ```bash
 # Forget a memory
-kernle -s claire forget execute abc123 --reason "No longer relevant"
+kernle -s my-project forget execute abc123 --reason "No longer relevant"
 
 # Recover it later (returns at 0.2 strength)
-kernle -s claire forget recover abc123
+kernle -s my-project forget recover abc123
 
 # Verify to boost strength
-kernle -s claire verify abc123 --evidence "Confirmed through testing"
+kernle -s my-project verify abc123 --evidence "Confirmed through testing"
 ```
 
 ---
@@ -148,7 +148,7 @@ Consolidation extracts patterns from recent episodes to form or update beliefs.
 ### Run Promotion
 
 ```bash
-kernle -s claire promote --limit 20
+kernle -s my-project promote --limit 20
 ```
 
 This outputs a reflection prompt with your recent episodes and current beliefs, guiding you to:
@@ -191,7 +191,7 @@ kernle belief reinforce <belief_id>
 ### List Beliefs
 
 ```bash
-kernle -s claire belief list
+kernle -s my-project belief list
 ```
 
 ```
@@ -210,25 +210,25 @@ Beliefs (3 total, 3 active)
 ### Revise from Episode
 
 ```bash
-kernle -s claire belief revise abc123
+kernle -s my-project belief revise abc123
 ```
 
 ### Check for Contradictions
 
 ```bash
-kernle -s claire belief contradictions
+kernle -s my-project belief contradictions
 ```
 
 ### Reinforce Belief
 
 ```bash
-kernle -s claire belief reinforce abc123
+kernle -s my-project belief reinforce abc123
 ```
 
 ### Supersede Belief
 
 ```bash
-kernle -s claire belief supersede abc123 "New updated belief"
+kernle -s my-project belief supersede abc123 "New updated belief"
 ```
 
 ---
@@ -240,7 +240,7 @@ Migrate from MEMORY.md or other flat files:
 ### Preview Import
 
 ```bash
-kernle -s claire import MEMORY.md --dry-run
+kernle -s my-project import MEMORY.md --dry-run
 ```
 
 ```
@@ -260,13 +260,13 @@ Found 6 items to import:
 ### Actually Import
 
 ```bash
-kernle -s claire import MEMORY.md
+kernle -s my-project import MEMORY.md
 ```
 
 ### Interactive Mode
 
 ```bash
-kernle -s claire import MEMORY.md --interactive
+kernle -s my-project import MEMORY.md --interactive
 ```
 
 Prompts for each item: `[y]es / [n]o / [e]dit / [s]kip all / [a]ccept all`
@@ -274,7 +274,7 @@ Prompts for each item: `[y]es / [n]o / [e]dit / [s]kip all / [a]ccept all`
 ### Force Layer
 
 ```bash
-kernle -s claire import notes.md --layer raw
+kernle -s my-project import notes.md --layer raw
 ```
 
 ---
@@ -293,7 +293,7 @@ kernle stack list
 Local Stacks (5 total)
 ==================================================
 
-  claire ← current
+  my-project ← current
     Episodes: 103  Notes: 20  Beliefs: 3  Raw: 35
 
   test-stack

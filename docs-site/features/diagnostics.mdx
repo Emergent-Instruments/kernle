@@ -101,14 +101,14 @@ Severity levels: `error`, `warning`, `info`.
 The default `doctor` command checks instruction file compliance:
 
 ```bash
-kernle -s claire doctor
+kernle -s my-project doctor
 ```
 
 ```
 ╔══════════════════════════════════════════════════╗
 ║         Kernle Doctor - System Health            ║
 ╚══════════════════════════════════════════════════╝
-  Stack: claire
+  Stack: my-project
   Seed Beliefs Version: 3
   Instruction File: CLAUDE.md
 
@@ -132,7 +132,7 @@ INSTRUCTION FILE CHECKS
 Include seed beliefs and platform hook verification:
 
 ```bash
-kernle -s claire doctor --full
+kernle -s my-project doctor --full
 ```
 
 This adds two additional sections:
@@ -154,7 +154,7 @@ PLATFORM HOOKS
 Attempt to fix instruction file issues automatically:
 
 ```bash
-kernle -s claire doctor --fix
+kernle -s my-project doctor --fix
 ```
 
 ### Structural Health Check
@@ -162,14 +162,14 @@ kernle -s claire doctor --fix
 Analyze the memory graph for structural issues:
 
 ```bash
-kernle -s claire doctor structural
+kernle -s my-project doctor structural
 ```
 
 ```
 =======================================================
   Kernle Doctor - Structural Health Check
 =======================================================
-  Stack: claire
+  Stack: my-project
 
   Findings: 1 errors, 3 warnings, 2 info
 
@@ -195,7 +195,7 @@ INFO
 Save findings as a diagnostic note:
 
 ```bash
-kernle -s claire doctor structural --save-note
+kernle -s my-project doctor structural --save-note
 ```
 
 ### Structural Checks Performed
@@ -218,20 +218,20 @@ For structured, auditable diagnostics with consent tracking:
 
 ```bash
 # Self-requested session (default)
-kernle -s claire doctor session start
+kernle -s my-project doctor session start
 
 # Routine check
-kernle -s claire doctor session start --type routine
+kernle -s my-project doctor session start --type routine
 
 # Operator-initiated (trust-gated)
-kernle -s claire doctor session start --type operator_initiated
+kernle -s my-project doctor session start --type operator_initiated
 ```
 
 ```
 =======================================================
   Kernle Doctor - Diagnostic Session
 =======================================================
-  Stack: claire
+  Stack: my-project
   Session: a1b2c3d4e5f6...
   Type: self_requested
   Access: structural
@@ -256,14 +256,14 @@ WARNINGS
 ### List Sessions
 
 ```bash
-kernle -s claire doctor session list
+kernle -s my-project doctor session list
 ```
 
 ```
 =======================================================
   Kernle Doctor - Diagnostic Sessions
 =======================================================
-  Stack: claire
+  Stack: my-project
 
   [done]   a1b2c3d4e5f6...  self_requested        2026-02-01 10:30
   [done]   b2c3d4e5f6a7...  routine               2026-01-15 09:00
@@ -273,10 +273,10 @@ kernle -s claire doctor session list
 
 ```bash
 # View the latest report
-kernle -s claire doctor report latest
+kernle -s my-project doctor report latest
 
 # View a specific report by session ID
-kernle -s claire doctor report a1b2c3d4e5f6
+kernle -s my-project doctor report a1b2c3d4e5f6
 ```
 
 ---
