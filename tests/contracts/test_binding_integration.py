@@ -40,7 +40,7 @@ def entity(data_dir):
 
 @pytest.fixture
 def stack(db_path):
-    return SQLiteStack(stack_id=STACK_ID, db_path=db_path)
+    return SQLiteStack(stack_id=STACK_ID, db_path=db_path, enforce_provenance=False)
 
 
 def _make_mock_plugin(name="test-plugin"):
@@ -104,8 +104,8 @@ class TestBindingRoundtrip:
         assert data["model_config"]["model_id"] == "claude-test"
 
     def test_roundtrip_with_multiple_stacks(self, entity, tmp_path):
-        s1 = SQLiteStack(stack_id="s1", db_path=tmp_path / "s1.db")
-        s2 = SQLiteStack(stack_id="s2", db_path=tmp_path / "s2.db")
+        s1 = SQLiteStack(stack_id="s1", db_path=tmp_path / "s1.db", enforce_provenance=False)
+        s2 = SQLiteStack(stack_id="s2", db_path=tmp_path / "s2.db", enforce_provenance=False)
 
         entity.attach_stack(s1, alias="alpha")
         entity.attach_stack(s2, alias="beta", set_active=False)
@@ -238,7 +238,7 @@ class TestMemoriesSurviveBinding:
         assert restored.core_id == CORE_ID
 
         # Re-open the same database to verify data persisted
-        reopened_stack = SQLiteStack(stack_id=STACK_ID, db_path=db_path)
+        reopened_stack = SQLiteStack(stack_id=STACK_ID, db_path=db_path, enforce_provenance=False)
         episodes = reopened_stack.get_episodes()
         assert any(e.id == ep_id for e in episodes)
 

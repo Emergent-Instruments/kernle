@@ -30,7 +30,10 @@ def k(temp_checkpoint_dir, temp_db_path):
     )
 
     kernle = Kernle(
-        stack_id="test_anxiety_agent", storage=storage, checkpoint_dir=temp_checkpoint_dir
+        stack_id="test_anxiety_agent",
+        storage=storage,
+        checkpoint_dir=temp_checkpoint_dir,
+        strict=False,
     )
 
     return kernle

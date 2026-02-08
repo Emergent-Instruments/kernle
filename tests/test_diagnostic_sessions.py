@@ -23,7 +23,7 @@ def diag_setup(tmp_path):
     storage = SQLiteStorage(stack_id="test_agent", db_path=db_path)
     checkpoint_dir = tmp_path / "checkpoints"
     checkpoint_dir.mkdir()
-    k = Kernle(stack_id="test_agent", storage=storage, checkpoint_dir=checkpoint_dir)
+    k = Kernle(stack_id="test_agent", storage=storage, checkpoint_dir=checkpoint_dir, strict=False)
     yield k, storage
     storage.close()
 

@@ -53,7 +53,7 @@ STACK_ID = "contract-test-stack"
 def stack(tmp_path):
     """Create a fresh SQLiteStack for each test."""
     db_path = tmp_path / "contract_test.db"
-    return SQLiteStack(stack_id=STACK_ID, db_path=db_path, components=[])
+    return SQLiteStack(stack_id=STACK_ID, db_path=db_path, components=[], enforce_provenance=False)
 
 
 def _uid() -> str:
@@ -626,7 +626,7 @@ class TestMetaMemoryOps:
         recovered = stack.recover_memory("episode", ep.id)
         assert recovered is True
 
-        episodes_after = stack.get_episodes()
+        episodes_after = stack.get_episodes(include_weak=True)
         found_after = [e for e in episodes_after if e.id == ep.id]
         assert len(found_after) == 1
         assert found_after[0].strength > 0.0

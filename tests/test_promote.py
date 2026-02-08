@@ -19,6 +19,7 @@ def kernle_instance():
             stack_id="test-promote",
             storage=storage,
             checkpoint_dir=Path(tmpdir),
+            strict=False,
         )
         yield k
 

@@ -12,7 +12,7 @@ class TestPatternExtraction:
 
     def test_episode_patterns_detected(self, tmp_path):
         """Episode patterns should be detected in content."""
-        k = Kernle("test-agent", storage=MagicMock())
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
 
         # Episode-like content
         content = "I completed the API refactoring and it was a success. Learned that small PRs are easier to review."
@@ -30,7 +30,7 @@ class TestPatternExtraction:
 
     def test_belief_patterns_detected(self, tmp_path):
         """Belief patterns should be detected in content."""
-        k = Kernle("test-agent", storage=MagicMock())
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
 
         content = "I believe that smaller functions are always better than large ones."
         score = k._score_patterns(
@@ -45,7 +45,7 @@ class TestPatternExtraction:
 
     def test_note_patterns_detected(self, tmp_path):
         """Note patterns should be detected in content."""
-        k = Kernle("test-agent", storage=MagicMock())
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
 
         content = 'John said "we should use dependency injection for testability".'
         score = k._score_patterns(
@@ -60,7 +60,7 @@ class TestPatternExtraction:
 
     def test_low_score_for_irrelevant_content(self, tmp_path):
         """Irrelevant content should score low."""
-        k = Kernle("test-agent", storage=MagicMock())
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
 
         content = "The weather is nice today."
         score = k._score_patterns(
@@ -79,7 +79,7 @@ class TestSuggestionExtraction:
 
     def test_extract_episode_suggestion(self, tmp_path):
         """Episode suggestion should be extracted from work log content."""
-        k = Kernle("test-agent", storage=MagicMock())
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
         k._storage.save_suggestion = MagicMock(return_value="suggestion-123")
 
         raw_entry = RawEntry(
@@ -106,7 +106,7 @@ class TestSuggestionExtraction:
 
     def test_extract_belief_suggestion(self, tmp_path):
         """Belief suggestion should be extracted from opinion content."""
-        k = Kernle("test-agent", storage=MagicMock())
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
         k._storage.save_suggestion = MagicMock()
 
         raw_entry = RawEntry(
@@ -128,7 +128,7 @@ class TestSuggestionExtraction:
 
     def test_extract_note_suggestion(self, tmp_path):
         """Note suggestion should be extracted from decision content."""
-        k = Kernle("test-agent", storage=MagicMock())
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
         k._storage.save_suggestion = MagicMock()
 
         # This content should trigger note detection but NOT episode or belief
@@ -152,7 +152,7 @@ class TestSuggestionExtraction:
 
     def test_auto_save_suggestions(self, tmp_path):
         """Suggestions should be saved when auto_save=True."""
-        k = Kernle("test-agent", storage=MagicMock())
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
         k._storage.save_suggestion = MagicMock(return_value="saved-id")
 
         raw_entry = RawEntry(
@@ -339,7 +339,7 @@ class TestPromotionWorkflow:
         from kernle.storage import SQLiteStorage
 
         storage = SQLiteStorage("test-agent", db_path=tmp_path / "test.db")
-        k = Kernle("test-agent", storage=storage)
+        k = Kernle("test-agent", storage=storage, strict=False)
 
         # Create a suggestion
         suggestion = MemorySuggestion(
@@ -390,7 +390,7 @@ class TestPromotionWorkflow:
         from kernle.storage import SQLiteStorage
 
         storage = SQLiteStorage("test-agent", db_path=tmp_path / "test.db")
-        k = Kernle("test-agent", storage=storage)
+        k = Kernle("test-agent", storage=storage, strict=False)
 
         suggestion = MemorySuggestion(
             id="sug-modify",
@@ -433,7 +433,7 @@ class TestPromotionWorkflow:
         from kernle.storage import SQLiteStorage
 
         storage = SQLiteStorage("test-agent", db_path=tmp_path / "test.db")
-        k = Kernle("test-agent", storage=storage)
+        k = Kernle("test-agent", storage=storage, strict=False)
 
         suggestion = MemorySuggestion(
             id="sug-reject",
@@ -463,7 +463,7 @@ class TestPromotionWorkflow:
         from kernle.storage import SQLiteStorage
 
         storage = SQLiteStorage("test-agent", db_path=tmp_path / "test.db")
-        k = Kernle("test-agent", storage=storage)
+        k = Kernle("test-agent", storage=storage, strict=False)
 
         suggestion = MemorySuggestion(
             id="sug-already-promoted",
@@ -489,7 +489,7 @@ class TestHelperMethods:
 
     def test_extract_first_sentence(self):
         """Should extract first meaningful sentence."""
-        k = Kernle("test-agent", storage=MagicMock())
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
 
         content = "This is the first sentence. Here is another one."
         result = k._extract_first_sentence(content)
@@ -502,7 +502,7 @@ class TestHelperMethods:
 
     def test_infer_outcome_type(self):
         """Should infer outcome type from content."""
-        k = Kernle("test-agent", storage=MagicMock())
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
 
         assert k._infer_outcome_type("The task was successful") == "success"
         assert k._infer_outcome_type("It failed completely") == "failure"
@@ -511,7 +511,7 @@ class TestHelperMethods:
 
     def test_infer_belief_type(self):
         """Should infer belief type from content."""
-        k = Kernle("test-agent", storage=MagicMock())
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
 
         assert k._infer_belief_type("You should always test") == "rule"
         assert k._infer_belief_type("I prefer Python") == "preference"
@@ -521,7 +521,7 @@ class TestHelperMethods:
 
     def test_infer_note_type(self):
         """Should infer note type from content."""
-        k = Kernle("test-agent", storage=MagicMock())
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
 
         assert k._infer_note_type('"Quote" said John') == "quote"
         assert k._infer_note_type("I decided to use Python") == "decision"

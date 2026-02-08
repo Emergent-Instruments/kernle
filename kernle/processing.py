@@ -730,5 +730,6 @@ class MemoryProcessor:
         ):
             for ep in sources:
                 backend.mark_episode_processed(ep.id)
-        # Note: belief_to_value does not mark beliefs as processed
-        # (beliefs table has no processed column)
+        elif transition == "belief_to_value":
+            for belief in sources:
+                backend.mark_belief_processed(belief.id)

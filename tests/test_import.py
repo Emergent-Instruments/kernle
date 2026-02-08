@@ -291,7 +291,7 @@ class TestImportIntegration:
     def kernle_instance(self, tmp_path):
         """Create a Kernle instance with temp storage."""
         try:
-            return Kernle(stack_id="test-import")
+            return Kernle(stack_id="test-import", strict=False)
         except Exception as e:
             logger.debug(f"Kernle instance creation failed: {e}")
             pytest.skip("Could not create Kernle instance - schema may be changing")

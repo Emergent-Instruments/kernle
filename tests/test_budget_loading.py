@@ -206,7 +206,9 @@ class TestBudgetLoading:
         checkpoint_dir.mkdir()
 
         storage = SQLiteStorage(stack_id="test_agent", db_path=db_path)
-        kernle = Kernle(stack_id="test_agent", storage=storage, checkpoint_dir=checkpoint_dir)
+        kernle = Kernle(
+            stack_id="test_agent", storage=storage, checkpoint_dir=checkpoint_dir, strict=False
+        )
 
         # Add test data with varying priorities/confidence
         for i in range(10):
@@ -339,7 +341,7 @@ class TestBudgetValidation:
         checkpoint_dir = tmp_path / "checkpoints"
         checkpoint_dir.mkdir()
         storage = SQLiteStorage(stack_id="test", db_path=db_path)
-        k = Kernle(stack_id="test", storage=storage, checkpoint_dir=checkpoint_dir)
+        k = Kernle(stack_id="test", storage=storage, checkpoint_dir=checkpoint_dir, strict=False)
 
         # Should not raise, should clamp to MIN_TOKEN_BUDGET
         memory = k.load(budget=50)  # Below minimum
@@ -352,7 +354,7 @@ class TestBudgetValidation:
         checkpoint_dir = tmp_path / "checkpoints"
         checkpoint_dir.mkdir()
         storage = SQLiteStorage(stack_id="test", db_path=db_path)
-        k = Kernle(stack_id="test", storage=storage, checkpoint_dir=checkpoint_dir)
+        k = Kernle(stack_id="test", storage=storage, checkpoint_dir=checkpoint_dir, strict=False)
 
         # Should not raise, should clamp to MAX_TOKEN_BUDGET
         memory = k.load(budget=999999)  # Above maximum
@@ -365,7 +367,7 @@ class TestBudgetValidation:
         checkpoint_dir = tmp_path / "checkpoints"
         checkpoint_dir.mkdir()
         storage = SQLiteStorage(stack_id="test", db_path=db_path)
-        k = Kernle(stack_id="test", storage=storage, checkpoint_dir=checkpoint_dir)
+        k = Kernle(stack_id="test", storage=storage, checkpoint_dir=checkpoint_dir, strict=False)
 
         # Should not raise, should clamp invalid values
         memory = k.load(budget=8000, max_item_chars=5)  # Below minimum

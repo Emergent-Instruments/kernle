@@ -2,8 +2,8 @@
 
 Tests cover:
 - Stack lifecycle state transitions (INITIALIZING -> ACTIVE -> MAINTENANCE)
-- Provenance enforcement when enforce_provenance=True
-- Provenance bypass when enforce_provenance=False (default)
+- Provenance enforcement when enforce_provenance=True (default)
+- Provenance bypass when enforce_provenance=False
 - Hierarchy rules: each type must cite allowed source types
 - ProvenanceError for missing, malformed, or invalid references
 - MaintenanceModeError during maintenance mode
@@ -48,8 +48,10 @@ def tmp_db(tmp_path):
 
 @pytest.fixture
 def stack(tmp_db):
-    """Stack with enforce_provenance=False (default), bare components."""
-    return SQLiteStack(stack_id="test-stack", db_path=tmp_db, components=[])
+    """Stack with enforce_provenance=False, bare components."""
+    return SQLiteStack(
+        stack_id="test-stack", db_path=tmp_db, components=[], enforce_provenance=False
+    )
 
 
 @pytest.fixture
@@ -1199,7 +1201,7 @@ class TestStackScopedSettings:
     def test_set_enforce_provenance_live(self, tmp_path):
         """set_stack_setting('enforce_provenance', 'true') takes effect immediately."""
         db_path = tmp_path / "live.db"
-        stack = SQLiteStack("test", db_path=db_path, components=[])
+        stack = SQLiteStack("test", db_path=db_path, components=[], enforce_provenance=False)
         raw = RawEntry(id=_uid(), stack_id="test", blob="raw", source="test")
         raw_id = stack.save_raw(raw)
         ep = Episode(
@@ -1286,6 +1288,7 @@ class TestKernleStrictMode:
             stack_id="legacy_agent",
             storage=storage,
             checkpoint_dir=tmp_path / "cp",
+            strict=False,
         )
         yield k
         storage.close()
@@ -1407,14 +1410,27 @@ class TestKernleStrictMode:
         raw_id = strict_kernle.raw(blob="Test raw in strict mode")
         assert raw_id is not None
 
-    def test_strict_active_allows_episode_without_provenance(self, strict_kernle):
+    def test_strict_active_allows_episode_without_provenance(self, tmp_path):
         """Episodes without provenance succeed when provenance not enforced."""
-        # Default enforce_provenance=False, so provenance not required
-        ep_id = strict_kernle.episode(
+        from kernle.core import Kernle
+        from kernle.storage import SQLiteStorage
+
+        db = tmp_path / "strict_no_prov.db"
+        storage = SQLiteStorage(stack_id="strict_np", db_path=db)
+        k = Kernle(
+            stack_id="strict_np",
+            storage=storage,
+            checkpoint_dir=tmp_path / "cp",
+            strict=True,
+        )
+        # Explicitly disable provenance enforcement on the stack
+        k.stack._enforce_provenance = False
+        ep_id = k.episode(
             objective="Test episode",
             outcome="Success",
         )
         assert ep_id is not None
+        storage.close()
 
     def test_strict_enforced_rejects_belief_without_provenance(self, tmp_path):
         """strict + enforce_provenance rejects beliefs without derived_from."""

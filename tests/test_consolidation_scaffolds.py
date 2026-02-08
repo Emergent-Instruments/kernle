@@ -29,7 +29,7 @@ def storage(tmp_path):
 @pytest.fixture
 def kernle_instance(storage):
     """Kernle instance with test storage."""
-    k = Kernle(stack_id="test_agent", storage=storage)
+    k = Kernle(stack_id="test_agent", storage=storage, strict=False)
     return k
 
 

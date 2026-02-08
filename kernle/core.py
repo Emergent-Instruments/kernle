@@ -394,7 +394,7 @@ class Kernle(
         supabase_url: Optional[str] = None,
         supabase_key: Optional[str] = None,
         checkpoint_dir: Optional[Path] = None,
-        strict: bool = False,
+        strict: bool = True,
     ):
         """Initialize Kernle.
 
@@ -529,6 +529,7 @@ class Kernle(
             self._stack = SQLiteStack(
                 stack_id=self.stack_id,
                 db_path=self._storage.db_path,
+                enforce_provenance=self._strict,
             )
             if hasattr(self, "_entity"):
                 self._entity.attach_stack(self._stack, alias="default", set_active=True)

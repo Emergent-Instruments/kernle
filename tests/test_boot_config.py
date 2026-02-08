@@ -31,7 +31,7 @@ def kernle_instance(tmp_db, tmp_path):
     checkpoint_dir = tmp_path / "checkpoints"
     checkpoint_dir.mkdir()
     s = SQLiteStorage(stack_id="test-agent", db_path=tmp_db)
-    k = Kernle(stack_id="test-agent", storage=s, checkpoint_dir=checkpoint_dir)
+    k = Kernle(stack_id="test-agent", storage=s, checkpoint_dir=checkpoint_dir, strict=False)
     yield k
     s.close()
 
@@ -389,7 +389,9 @@ class TestBootCLI:
         checkpoint_dir = tmp_path / "checkpoints"
         checkpoint_dir.mkdir()
         storage = SQLiteStorage(stack_id="cli-test", db_path=db_path)
-        k = Kernle(stack_id="cli-test", storage=storage, checkpoint_dir=checkpoint_dir)
+        k = Kernle(
+            stack_id="cli-test", storage=storage, checkpoint_dir=checkpoint_dir, strict=False
+        )
         k.boot_set("chat_id", "4")
         k.boot_set("gateway_ip", "192.168.50.11")
         return k
@@ -492,7 +494,7 @@ class TestBootCLI:
         checkpoint_dir = tmp_path / "cp"
         checkpoint_dir.mkdir()
         s = SQLiteStorage(stack_id="empty", db_path=db_path)
-        k = Kernle(stack_id="empty", storage=s, checkpoint_dir=checkpoint_dir)
+        k = Kernle(stack_id="empty", storage=s, checkpoint_dir=checkpoint_dir, strict=False)
         args = self._make_args(boot_action="list", format="plain")
         cmd_boot(args, k)
         output = capsys.readouterr().out

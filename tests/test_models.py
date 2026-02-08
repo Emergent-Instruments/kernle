@@ -421,7 +421,12 @@ class TestEntityIntegration:
         from kernle.stack.sqlite_stack import SQLiteStack
 
         entity = Entity(core_id="test-core")
-        stack = SQLiteStack(stack_id="test-stack", db_path=tmp_path / "test.db", components=[])
+        stack = SQLiteStack(
+            stack_id="test-stack",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=False,
+        )
         entity.attach_stack(stack)
 
         entity.set_model(anthropic_model)

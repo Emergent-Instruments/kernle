@@ -38,7 +38,9 @@ def kernle_instance(tmp_path):
     checkpoint_dir = tmp_path / "checkpoints"
     checkpoint_dir.mkdir()
     storage = SQLiteStorage(stack_id="test-agent", db_path=db_path)
-    return Kernle(stack_id="test-agent", storage=storage, checkpoint_dir=checkpoint_dir)
+    return Kernle(
+        stack_id="test-agent", storage=storage, checkpoint_dir=checkpoint_dir, strict=False
+    )
 
 
 class TestEpochStorage:

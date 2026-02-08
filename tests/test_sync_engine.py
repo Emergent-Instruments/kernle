@@ -666,14 +666,14 @@ class TestSyncHooks:
 
         mock_cloud_storage.get_stats.return_value = {"episodes": 0}  # Returns value = online
 
-        k = Kernle(stack_id="test-agent", storage=storage_with_cloud)
+        k = Kernle(stack_id="test-agent", storage=storage_with_cloud, strict=False)
         assert k.auto_sync is True
 
     def test_auto_sync_can_be_disabled_via_property(self, storage):
         """Auto-sync can be disabled by setting the property."""
         from kernle import Kernle
 
-        k = Kernle(stack_id="test-agent", storage=storage)
+        k = Kernle(stack_id="test-agent", storage=storage, strict=False)
         k.auto_sync = False
         assert k.auto_sync is False
 
@@ -681,7 +681,7 @@ class TestSyncHooks:
         """Load with sync=False should not attempt to pull."""
         from kernle import Kernle
 
-        k = Kernle(stack_id="test-agent", storage=storage)
+        k = Kernle(stack_id="test-agent", storage=storage, strict=False)
         k.auto_sync = True
 
         # Load with sync=False should work without errors
@@ -701,7 +701,7 @@ class TestSyncHooks:
         mock_cloud_storage.get_drives.return_value = []
         mock_cloud_storage.get_relationships.return_value = []
 
-        k = Kernle(stack_id="test-agent", storage=storage_with_cloud)
+        k = Kernle(stack_id="test-agent", storage=storage_with_cloud, strict=False)
         memory = k.load(sync=True)
 
         # Should have attempted to pull from cloud
@@ -713,7 +713,7 @@ class TestSyncHooks:
 
         mock_cloud_storage.get_stats.return_value = {"episodes": 1}  # Simulates online
 
-        k = Kernle(stack_id="test-agent", storage=storage_with_cloud)
+        k = Kernle(stack_id="test-agent", storage=storage_with_cloud, strict=False)
 
         result = k.checkpoint("Test task", pending=["Next"], sync=True)
 
@@ -727,7 +727,7 @@ class TestSyncHooks:
         """Checkpoint should include sync result when sync is attempted."""
         from kernle import Kernle
 
-        k = Kernle(stack_id="test-agent", storage=storage)
+        k = Kernle(stack_id="test-agent", storage=storage, strict=False)
 
         # With no cloud storage, sync should report offline
         result = k.checkpoint("Test task", sync=True)
@@ -745,7 +745,7 @@ class TestSyncHooks:
         # Make cloud throw an error
         mock_cloud_storage.get_stats.side_effect = Exception("Network error")
 
-        k = Kernle(stack_id="test-agent", storage=storage_with_cloud)
+        k = Kernle(stack_id="test-agent", storage=storage_with_cloud, strict=False)
 
         # Load should still work
         memory = k.load(sync=True)
@@ -758,7 +758,7 @@ class TestSyncHooks:
         # Make cloud throw an error
         mock_cloud_storage.get_stats.side_effect = Exception("Network error")
 
-        k = Kernle(stack_id="test-agent", storage=storage_with_cloud)
+        k = Kernle(stack_id="test-agent", storage=storage_with_cloud, strict=False)
 
         # Checkpoint should still work
         result = k.checkpoint("Test task", sync=True)

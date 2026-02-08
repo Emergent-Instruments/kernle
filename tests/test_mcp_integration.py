@@ -36,7 +36,7 @@ def real_kernle(temp_db):
     os.environ["KERNLE_HOME"] = str(Path(temp_db).parent)
 
     try:
-        k = Kernle(stack_id="test-mcp-integration")
+        k = Kernle(stack_id="test-mcp-integration", strict=False)
         yield k
     finally:
         if old_home:

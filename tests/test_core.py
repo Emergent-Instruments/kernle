@@ -23,7 +23,7 @@ class TestKernleInitialization:
         """Test initialization with default values."""
         # Clear any env vars that might interfere
         with patch.dict(os.environ, {}, clear=True):
-            kernle = Kernle()
+            kernle = Kernle(strict=False)
             assert kernle.stack_id == "default"  # Default when no env var
             assert kernle.checkpoint_dir == Path.home() / ".kernle" / "checkpoints"
             # Should have SQLite storage when no Supabase credentials
@@ -32,7 +32,9 @@ class TestKernleInitialization:
     def test_init_with_explicit_params(self, temp_checkpoint_dir, temp_db_path):
         """Test initialization with explicit parameters."""
         storage = SQLiteStorage(stack_id="test_agent", db_path=temp_db_path)
-        kernle = Kernle(stack_id="test_agent", storage=storage, checkpoint_dir=temp_checkpoint_dir)
+        kernle = Kernle(
+            stack_id="test_agent", storage=storage, checkpoint_dir=temp_checkpoint_dir, strict=False
+        )
         assert kernle.stack_id == "test_agent"
         assert kernle.checkpoint_dir == temp_checkpoint_dir
         assert kernle._storage is storage
@@ -62,7 +64,7 @@ class TestKernleInitialization:
             },
             clear=True,
         ):
-            kernle = Kernle(checkpoint_dir=temp_checkpoint_dir)
+            kernle = Kernle(checkpoint_dir=temp_checkpoint_dir, strict=False)
             assert kernle.stack_id == "env_agent"
             # Without Supabase creds, should use SQLite
             assert isinstance(kernle._storage, SQLiteStorage)
@@ -70,7 +72,7 @@ class TestKernleInitialization:
     def test_client_property_missing_credentials(self, temp_db_path):
         """Test that client property raises error with SQLite storage."""
         with patch.dict(os.environ, {}, clear=True):
-            kernle = Kernle(stack_id="test")
+            kernle = Kernle(stack_id="test", strict=False)
 
             # With SQLite storage, accessing .client should raise
             with pytest.raises(ValueError, match="Direct Supabase client access not available"):
@@ -856,14 +858,14 @@ class TestInputValidation:
         """Test that empty agent ID uses default."""
         # Empty string defaults to "default" from env var fallback
         with patch.dict(os.environ, {}, clear=True):
-            kernle = Kernle(stack_id="")
+            kernle = Kernle(stack_id="", strict=False)
             assert kernle.stack_id == "default"  # Falls back to default
 
     def test_validate_stack_id_whitespace_only(self, temp_db_path):
         """Test that whitespace-only agent ID raises error."""
         with patch.dict(os.environ, {}, clear=True):
             with pytest.raises(ValueError, match="Stack ID cannot be empty"):
-                Kernle(stack_id="   ")
+                Kernle(stack_id="   ", strict=False)
 
     def test_validate_stack_id_special_chars(self, temp_checkpoint_dir, temp_db_path):
         """Test that special characters are sanitized from agent ID."""
@@ -889,7 +891,7 @@ class TestInputValidation:
     def test_validate_stack_id_path_traversal(self, bad_id, match):
         """Test that path traversal stack IDs are rejected."""
         with pytest.raises(ValueError, match=match):
-            Kernle(stack_id=bad_id)
+            Kernle(stack_id=bad_id, strict=False)
 
     def test_validate_string_too_long(self, kernle_instance):
         """Test that strings exceeding max length raise error."""

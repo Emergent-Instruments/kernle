@@ -310,7 +310,7 @@ class TestCoreDerivedFrom:
 
         from kernle import Kernle
 
-        k = Kernle(stack_id="test-agent", storage=storage)
+        k = Kernle(stack_id="test-agent", storage=storage, strict=False)
         return k, storage
 
     def test_value_with_derived_from(self):

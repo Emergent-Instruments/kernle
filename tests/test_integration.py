@@ -26,7 +26,12 @@ class TestCLIIntegration:
         checkpoint_dir = tmp_path / "checkpoints"
         checkpoint_dir.mkdir()
         storage = SQLiteStorage(stack_id="test_integration", db_path=db_path)
-        return Kernle(stack_id="test_integration", storage=storage, checkpoint_dir=checkpoint_dir)
+        return Kernle(
+            stack_id="test_integration",
+            storage=storage,
+            checkpoint_dir=checkpoint_dir,
+            strict=False,
+        )
 
     def test_episode_command_persists(self, temp_kernle):
         """CLI episode command should persist to actual storage."""
@@ -314,7 +319,7 @@ class TestAnxietyIntegration:
         stack_id = "test_anxiety"
 
         storage = SQLiteStorage(stack_id=stack_id, db_path=db_path)
-        k = Kernle(stack_id=stack_id, storage=storage, checkpoint_dir=checkpoint_dir)
+        k = Kernle(stack_id=stack_id, storage=storage, checkpoint_dir=checkpoint_dir, strict=False)
 
         # Fresh state should have low anxiety
         report1 = k.get_anxiety_report()

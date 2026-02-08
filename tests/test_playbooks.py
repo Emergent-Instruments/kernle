@@ -270,7 +270,7 @@ class TestPlaybookCore:
         """Create a Kernle instance with temporary storage."""
         db_path = tmp_path / "test_kernle.db"
         storage = SQLiteStorage(stack_id="test_agent", db_path=db_path)
-        return Kernle(stack_id="test_agent", storage=storage)
+        return Kernle(stack_id="test_agent", storage=storage, strict=False)
 
     def test_create_playbook_simple(self, kernle):
         """Test creating a playbook with simple string steps."""
