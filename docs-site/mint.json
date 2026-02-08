@@ -111,9 +111,10 @@
     {
       "group": "Integration",
       "pages": [
-        "integration/mcp",
+        "integration/claude-code",
+        "integration/openclaw",
         "integration/claude-desktop",
-        "integration/openclaw"
+        "integration/mcp"
       ]
     },
     {
