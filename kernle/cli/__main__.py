@@ -39,6 +39,7 @@ from kernle.cli.commands import (
     cmd_meta,
     cmd_narrative,
     cmd_playbook,
+    cmd_process,
     cmd_promote,
     cmd_raw,
     cmd_stats,
@@ -3473,6 +3474,37 @@ def main():
     # mcp
     subparsers.add_parser("mcp", help="Start MCP server (stdio transport)")
 
+    # process (memory processing)
+    p_process = subparsers.add_parser(
+        "process", help="Run memory processing (model-driven promotion)"
+    )
+    process_sub = p_process.add_subparsers(dest="process_action", required=True)
+
+    process_run = process_sub.add_parser("run", help="Run memory processing")
+    process_run.add_argument(
+        "--transition",
+        "-t",
+        choices=[
+            "raw_to_episode",
+            "raw_to_note",
+            "episode_to_belief",
+            "episode_to_goal",
+            "episode_to_relationship",
+            "belief_to_value",
+            "episode_to_drive",
+        ],
+        help="Specific transition to process (omit to check all)",
+    )
+    process_run.add_argument(
+        "--force", "-f", action="store_true", help="Process even if thresholds aren't met"
+    )
+    process_run.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    process_status = process_sub.add_parser(
+        "status", help="Show unprocessed counts and trigger status"
+    )
+    process_status.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
     # raw (raw memory entries)
     p_raw = subparsers.add_parser("raw", help="Raw memory capture and management")
     # Arguments for default action (kernle raw "content" without subcommand)
@@ -4528,6 +4560,8 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_narrative(args, k)
         elif args.command == "playbook":
             cmd_playbook(args, k)
+        elif args.command == "process":
+            cmd_process(args, k)
         elif args.command == "raw":
             cmd_raw(args, k)
         elif args.command == "suggestions":

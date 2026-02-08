@@ -1786,6 +1786,25 @@ class Kernle(
             for e in entries
         ]
 
+    def process(self, transition=None, force=False):
+        """Run memory processing. Requires a bound model.
+
+        Promotes memories up the hierarchy using the bound model:
+        raw -> episode/note, episode -> belief/goal/relationship/drive,
+        belief -> value.
+
+        Args:
+            transition: Specific layer transition to process (None = check all)
+            force: Process even if triggers aren't met
+
+        Returns:
+            List of ProcessingResult for each transition that ran
+        """
+        entity = self.entity
+        if entity is None:
+            raise RuntimeError("process() requires Entity (use SQLite storage)")
+        return entity.process(transition=transition, force=force)
+
     def process_raw(
         self,
         raw_id: str,
