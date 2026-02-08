@@ -57,15 +57,38 @@ All `save_*` methods return the memory ID of the saved record.
 
 | Method | Key Parameters |
 |--------|---------------|
-| `get_episodes` | `*, limit=50, tags=None, context=None, include_forgotten=False` |
-| `get_beliefs` | `*, limit=50, belief_type=None, min_confidence=None, include_forgotten=False` |
-| `get_values` | `*, limit=50, context=None, include_forgotten=False` |
-| `get_goals` | `*, limit=50, status=None, context=None, include_forgotten=False` |
-| `get_notes` | `*, limit=50, note_type=None, context=None, include_forgotten=False` |
+| `get_episodes` | `*, limit=50, tags=None, context=None, include_weak=False, include_forgotten=False` |
+| `get_beliefs` | `*, limit=50, belief_type=None, min_confidence=None, include_weak=False, include_forgotten=False` |
+| `get_values` | `*, limit=50, context=None, include_weak=False, include_forgotten=False` |
+| `get_goals` | `*, limit=50, status=None, context=None, include_weak=False, include_forgotten=False` |
+| `get_notes` | `*, limit=50, note_type=None, context=None, include_weak=False, include_forgotten=False` |
 | `get_drives` | `*, include_expired=False` |
 | `get_relationships` | `*, entity_id=None, entity_type=None, min_trust=None` |
 | `get_raw` | `*, limit=50, tags=None` |
 | `get_memory` | `(memory_type: str, memory_id: str) -> Optional[Any]` |
+
+### Strength-Tier Filtering *(v0.10.0)*
+
+Read operations filter memories by strength tier. New memories start at strength 1.0 and decay over time through maintenance or explicit weakening.
+
+| Tier | Strength Range | `load()` | `search()` | `get_*()` |
+|------|---------------|----------|------------|-----------|
+| Strong | 0.8–1.0 | Included (full priority) | Included | Included |
+| Fading | 0.5–0.8 | Included (reduced priority) | Included | Included |
+| Weak | 0.2–0.5 | Excluded | Included | `include_weak=True` |
+| Dormant | 0.0–0.2 | Excluded | Excluded | `include_forgotten=True` |
+| Forgotten | 0.0 | Excluded | Excluded | `include_forgotten=True` |
+
+```python
+# Normal getter — Strong + Fading only
+episodes = stack.get_episodes()
+
+# Include Weak tier
+episodes = stack.get_episodes(include_weak=True)
+
+# Include everything (even dormant/forgotten)
+episodes = stack.get_episodes(include_forgotten=True)
+```
 
 ### Search
 
@@ -180,6 +203,16 @@ emb = stack.get_component("embedding")
 stats = stack.maintenance()
 ```
 
+### Default Configuration *(v0.10.0)*
+
+```python
+# SQLiteStack now enforces provenance by default
+stack = SQLiteStack("my-stack")  # enforce_provenance=True
+
+# Opt out for testing or legacy use
+stack = SQLiteStack("my-stack", enforce_provenance=False)
+```
+
 ### Default Components
 
 | Component | Required | Needs Inference | Role |
@@ -215,7 +248,7 @@ graph LR
   style C fill:#50c878,color:#fff
 ```
 
-Components can modify the memory by returning a modified version. Return `None` to leave unchanged.
+Components can return metadata to persist on the memory (e.g., emotional tags). The stack writes returned fields to the database. Return `None` to leave unchanged. *(v0.10.0: return values are now persisted — previously they were ignored.)*
 
 ### on_search
 

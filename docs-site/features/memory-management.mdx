@@ -23,7 +23,7 @@ Kernle provides sophisticated memory management including intentional forgetting
 
 ## Intentional Forgetting
 
-Not all memories deserve eternal storage. Kernle implements principled forgetting based on salience scores.
+Not all memories deserve eternal storage. Kernle implements principled forgetting based on continuous strength (0.0–1.0).
 
 ### View Candidates
 
@@ -32,37 +32,37 @@ kernle -s claire forget candidates
 ```
 
 ```
-Forgetting Candidates (salience < 0.3)
+Forgetting Candidates (strength < 0.2, Dormant tier)
 ============================================================
 
 1. [belief    ] 6bc41d9d...
-   Salience: [░░░░░] 0.08
+   Strength: [░░░░░] 0.08
    Summary: Old assumption that's been superseded...
    Confidence: 80% | Accessed: 0 times
    Created: 2026-01-15
 
 2. [episode   ] 06272772...
-   Salience: [░░░░░] 0.08
+   Strength: [░░░░░] 0.08
    Summary: Minor task with no lasting lessons...
    Confidence: 80% | Accessed: 0 times
    Created: 2026-01-10
 ```
 
-### Salience Scores
+### Strength Scores
 
-Every memory has a salience score (0.0-1.0) that determines its importance:
+Every memory has a strength value (0.0–1.0) that determines its visibility and decay behavior:
 
 | Factor | Effect |
 |--------|--------|
-| **Recency** | Newer = higher salience |
-| **Access** | Frequently retrieved = higher |
-| **Connections** | Linked to goals = protected |
-| **Emotional intensity** | Strong emotions = memorable |
+| **Time decay** | Strength decreases based on half-life |
+| **Access** | `record_access()` boosts strength (diminishing returns) |
+| **Verification** | `verify_memory()` boosts strength toward 1.0 |
+| **Emotional intensity** | High-arousal episodes decay slower |
 
 ### Check Specific Memory
 
 ```bash
-kernle -s claire forget salience abc123
+kernle -s claire forget strength abc123
 ```
 
 ### Protect Important Memories
@@ -79,20 +79,60 @@ Protected memories never decay, regardless of age or access patterns.
 # Preview what would be forgotten
 kernle -s claire forget run --dry-run
 
-# Actually forget low-salience memories
+# Actually forget dormant memories (strength < 0.2)
 kernle -s claire forget run
 ```
 
 ### Recover Forgotten Memories
 
-Forgotten memories are tombstoned, not deleted:
+Forgotten memories are tombstoned (strength set to 0.0), not deleted. Recovered memories return at strength 0.2 (Weak tier):
 
 ```bash
 # List forgotten memories
 kernle -s claire forget list
 
-# Recover a specific memory
+# Recover a specific memory (returns at 0.2 strength)
 kernle -s claire forget recover abc123
+```
+
+---
+
+## Continuous Strength *(v0.10.0)*
+
+Every memory has a `strength` field (0.0 to 1.0) that replaces binary forgetting. New memories start at strength 1.0.
+
+### Strength Tiers
+
+| Tier | Range | Behavior |
+|------|-------|----------|
+| **Strong** | 0.8–1.0 | Full weight in load and search |
+| **Fading** | 0.5–0.8 | Included but with reduced priority |
+| **Weak** | 0.2–0.5 | Excluded from `load()`, still findable via `search()` |
+| **Dormant** | 0.0–0.2 | Excluded from both load and search by default |
+| **Forgotten** | 0.0 | Tombstoned — only recoverable via `recover()` |
+
+### What Changes Strength
+
+- **Time decay**: Periodic maintenance reduces strength based on half-life
+- **Access reinforcement**: `record_access()` boosts strength (diminishing returns)
+- **Verification**: `verify_memory()` boosts strength toward 1.0
+- **Emotional weight**: High-arousal episodes decay slower
+- **Explicit weakening**: `weaken_memory()` reduces strength by a specified amount
+- **Forgetting**: `forget_memory()` sets strength to 0.0
+
+### Recovery
+
+Recovered memories return at strength 0.2 (Weak tier), not full strength. They must be verified or accessed to regain full strength.
+
+```bash
+# Forget a memory
+kernle -s claire forget execute abc123 --reason "No longer relevant"
+
+# Recover it later (returns at 0.2 strength)
+kernle -s claire forget recover abc123
+
+# Verify to boost strength
+kernle -s claire verify abc123 --evidence "Confirmed through testing"
 ```
 
 ---

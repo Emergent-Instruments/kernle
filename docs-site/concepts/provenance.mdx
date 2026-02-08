@@ -59,27 +59,27 @@ Two critical fields serve different purposes:
 <Tabs>
   <Tab title="derived_from">
     **Direct creation lineage** — "This memory was literally created FROM these."
-    
+
     ```json
     {
       "derived_from": ["raw:abc123", "belief:def456"],
       "meaning": "This belief was promoted from raw:abc123 and supersedes belief:def456"
     }
     ```
-    
+
     Used when a raw entry is promoted to a belief, or when a belief supersedes another.
   </Tab>
-  
+
   <Tab title="source_episodes">
     **Supporting evidence** — "These episodes back this up."
-    
+
     ```json
     {
       "source_episodes": ["episode:abc123", "episode:def456"],
       "meaning": "These specific experiences provide evidence for this belief"
     }
     ```
-    
+
     Used when episodes provide evidence for a belief or value.
   </Tab>
 </Tabs>
@@ -95,7 +95,7 @@ Raw memories flow upward through promotion, with each step recording lineage:
 ```
 Raw Capture: "First collaboration with Claire on PR #24"
     ↓  (promote)
-Episode: "Pair debugging seed beliefs import" 
+Episode: "Pair debugging seed beliefs import"
     ↓  (consolidation)
 Belief: "Independent convergence validates design decisions"
 ```
@@ -133,7 +133,7 @@ Memories that aren't verified or reinforced gradually lose confidence over time:
     | Drive | 0.5% | 60 days | 0.6 | Slower — motivations are deep |
     | Goal | 1% | 30 days | 0.5 | Standard — goals can become stale |
   </Accordion>
-  
+
   <Accordion title="Confidence History Format">
     ```json
     {
@@ -171,6 +171,57 @@ kernle meta orphans
 # Verify a memory (increases confidence)
 kernle meta verify belief:xyz789 --evidence "Confirmed during code review"
 ```
+
+## Provenance Enforcement *(v0.10.0)*
+
+Provenance is enforced by default. Every memory (except raw entries) must cite its sources via `derived_from`.
+
+<Warning>
+Creating a belief without citing an episode or note will raise `ProvenanceError`. This is intentional — memories must have traceable origins.
+</Warning>
+
+### Hierarchy Rules
+
+| Memory Type | Required Sources | Allowed Source Types |
+|-------------|-----------------|---------------------|
+| Raw | none | — |
+| Episode | >= 1 | `raw` |
+| Note | >= 1 | `raw` |
+| Belief | >= 1 | `episode`, `note` |
+| Goal | >= 1 | `episode`, `belief` |
+| Relationship | >= 1 | `episode` |
+| Value | >= 1 | `belief` |
+| Drive | >= 1 | `episode`, `belief` |
+
+### Stack Lifecycle and Enforcement
+
+Provenance requirements depend on stack state:
+
+- **INITIALIZING**: Seed writes with `source_type="seed"` bypass provenance (for bootstrap)
+- **ACTIVE**: All writes must have valid provenance (default state)
+- **MAINTENANCE**: Writes blocked entirely (admin operations only)
+
+### Opting Out
+
+For testing or migration, provenance can be disabled:
+
+```python
+from kernle.stack import SQLiteStack
+stack = SQLiteStack("test-stack", enforce_provenance=False)
+
+from kernle import Kernle
+k = Kernle(stack_id="test", strict=False)  # Bypasses stack layer entirely
+```
+
+## Strength Cascade *(v0.10.0)*
+
+When a memory's strength changes, effects cascade through the provenance chain:
+
+- **Forget/Weaken cascade**: When a source memory is forgotten or weakened below 0.2, derived memories are flagged for review via audit entries
+- **Verify boost**: When a memory is verified, its source memories get a +0.02 strength boost
+- **Ungrounded detection**: If ALL source memories of a belief are forgotten/deleted, the belief is flagged as "ungrounded"
+
+Cascade depth is 1 (direct children only). All cascades except verify are advisory — they create audit entries but don't auto-modify child strength.
 
 ## Belief Revision
 
