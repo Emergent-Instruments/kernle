@@ -8105,6 +8105,7 @@ class SQLiteStorage:
 
         # Lookup tables for checking strength
         strength_table_map = {
+            "raw": "raw_entries",
             "episode": "episodes",
             "belief": "beliefs",
             "value": "agent_values",
@@ -8155,17 +8156,29 @@ class SQLiteStorage:
                         ref_type, ref_id = ref.split(":", 1)
                         ref_table = strength_table_map.get(ref_type)
                         if not ref_table:
-                            continue  # Unknown type counts as dead
-                        ref_row = conn.execute(
-                            f"""SELECT strength FROM {ref_table}
-                               WHERE id = ? AND stack_id = ? AND deleted = 0""",
-                            (ref_id, stack_id),
-                        ).fetchone()
-                        if ref_row is not None:
-                            strength = float(self._safe_get(ref_row, "strength", 1.0))
-                            if strength > 0.0:
+                            all_dead = False  # Unknown type treated as alive
+                            break
+                        if ref_type == "raw":
+                            # Raw entries have no strength column — existing + not deleted = alive
+                            ref_row = conn.execute(
+                                f"""SELECT id FROM {ref_table}
+                                   WHERE id = ? AND stack_id = ? AND deleted = 0""",
+                                (ref_id, stack_id),
+                            ).fetchone()
+                            if ref_row is not None:
                                 all_dead = False
                                 break
+                        else:
+                            ref_row = conn.execute(
+                                f"""SELECT strength FROM {ref_table}
+                                   WHERE id = ? AND stack_id = ? AND deleted = 0""",
+                                (ref_id, stack_id),
+                            ).fetchone()
+                            if ref_row is not None:
+                                strength = float(self._safe_get(ref_row, "strength", 1.0))
+                                if strength > 0.0:
+                                    all_dead = False
+                                    break
 
                     if all_dead:
                         results.append((mem_type, row["id"], source_refs))
