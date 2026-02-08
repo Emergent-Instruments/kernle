@@ -6,12 +6,19 @@ Tests cover:
 - Stack: processing method routing
 - Entity: process() method with mock inference
 - Processing output parsing and memory writing
+- check_triggers: all transition types
+- _gather_sources / _gather_context: all transition types
+- _format_sources / _format_context: all memory types
+- _write_memories: all 7 transition types
+- _mark_processed: raw, episode, belief sources
+- _parse_response: plain JSON, markdown-fenced JSON
 """
 
 from __future__ import annotations
 
 import json
 import uuid
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -103,6 +110,20 @@ def _save_episode(storage, objective="Test episode", outcome="Test outcome"):
     return ep.id
 
 
+def _make_mock_stack():
+    """Create a MagicMock stack with _backend for MemoryProcessor tests."""
+    mock_stack = MagicMock()
+    mock_stack.stack_id = STACK_ID
+    mock_stack._backend = MagicMock()
+    return mock_stack
+
+
+def _make_processor(mock_stack, response="[]"):
+    """Create a MemoryProcessor with a mock stack and inference."""
+    inference = MockInference(response)
+    return MemoryProcessor(stack=mock_stack, inference=inference, core_id="test"), inference
+
+
 # =============================================================================
 # Trigger Evaluation
 # =============================================================================
@@ -128,6 +149,14 @@ class TestEvaluateTriggers:
         assert not evaluate_triggers("raw_to_episode", config, 1, cumulative_valence=1.5)
         assert evaluate_triggers("raw_to_episode", config, 1, cumulative_valence=2.5)
 
+    def test_valence_threshold_triggers_for_raw_to_note(self):
+        config = LayerConfig(
+            layer_transition="raw_to_note",
+            quantity_threshold=100,
+            valence_threshold=2.0,
+        )
+        assert evaluate_triggers("raw_to_note", config, 1, cumulative_valence=3.0)
+
     def test_valence_threshold_ignored_for_non_raw(self):
         config = LayerConfig(
             layer_transition="episode_to_belief",
@@ -152,6 +181,22 @@ class TestEvaluateTriggers:
             time_threshold_hours=24,
         )
         assert not evaluate_triggers("raw_to_episode", config, 1, hours_since_last=None)
+
+    def test_time_threshold_exact_boundary(self):
+        config = LayerConfig(
+            layer_transition="raw_to_episode",
+            quantity_threshold=100,
+            time_threshold_hours=24,
+        )
+        assert evaluate_triggers("raw_to_episode", config, 1, hours_since_last=24.0)
+
+    def test_time_threshold_zero_disables(self):
+        config = LayerConfig(
+            layer_transition="raw_to_episode",
+            quantity_threshold=100,
+            time_threshold_hours=0,
+        )
+        assert not evaluate_triggers("raw_to_episode", config, 1, hours_since_last=100.0)
 
 
 # =============================================================================
@@ -563,6 +608,27 @@ class TestParseResponse:
         result = processor._parse_response("[]")
         assert result == []
 
+    def test_strips_plain_backtick_fences(self, stack):
+        """Markdown fences without language tag are also stripped."""
+        inference = MockInference()
+        processor = MemoryProcessor(stack=stack, inference=inference, core_id="test")
+        result = processor._parse_response('```\n[{"a": 1}]\n```')
+        assert result == [{"a": 1}]
+
+    def test_invalid_json_raises(self, stack):
+        inference = MockInference()
+        processor = MemoryProcessor(stack=stack, inference=inference, core_id="test")
+        with pytest.raises(json.JSONDecodeError):
+            processor._parse_response("not json at all")
+
+    def test_multiline_json_in_fences(self, stack):
+        inference = MockInference()
+        processor = MemoryProcessor(stack=stack, inference=inference, core_id="test")
+        fenced = '```json\n[\n  {"key": "val1"},\n  {"key": "val2"}\n]\n```'
+        result = processor._parse_response(fenced)
+        assert len(result) == 2
+        assert result[0]["key"] == "val1"
+
 
 # =============================================================================
 # MemoryProcessor: mark processed
@@ -728,3 +794,997 @@ class TestProcessingResult:
         )
         assert result.skipped
         assert result.skip_reason == "No sources"
+
+
+# =============================================================================
+# check_triggers — all transition types (mock-based)
+# =============================================================================
+
+
+class TestCheckTriggersAllTransitions:
+    """Cover check_triggers lines 325-360 for each transition type."""
+
+    def test_unknown_config_returns_false(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        assert not processor.check_triggers("nonexistent_transition")
+
+    def test_disabled_config_returns_false(self):
+        mock_stack = _make_mock_stack()
+        config = LayerConfig(layer_transition="raw_to_episode", enabled=False)
+        processor = MemoryProcessor(
+            stack=mock_stack,
+            inference=MockInference(),
+            core_id="test",
+            configs={"raw_to_episode": config},
+        )
+        assert not processor.check_triggers("raw_to_episode")
+
+    def test_no_backend_returns_false(self):
+        mock_stack = MagicMock(spec=[])
+        processor = MemoryProcessor(
+            stack=mock_stack,
+            inference=MockInference(),
+            core_id="test",
+        )
+        assert not processor.check_triggers("raw_to_episode")
+
+    def test_raw_to_episode_triggers(self):
+        mock_stack = _make_mock_stack()
+        raws = [MagicMock() for _ in range(11)]
+        mock_stack._backend.list_raw.return_value = raws
+        processor, _ = _make_processor(mock_stack)
+        assert processor.check_triggers("raw_to_episode")
+        mock_stack._backend.list_raw.assert_called_once_with(processed=False, limit=11)
+
+    def test_raw_to_note_triggers(self):
+        mock_stack = _make_mock_stack()
+        raws = [MagicMock() for _ in range(11)]
+        mock_stack._backend.list_raw.return_value = raws
+        processor, _ = _make_processor(mock_stack)
+        assert processor.check_triggers("raw_to_note")
+
+    def test_episode_to_belief_triggers(self):
+        mock_stack = _make_mock_stack()
+        episodes = [MagicMock(processed=False) for _ in range(6)]
+        mock_stack.get_episodes.return_value = episodes
+        processor, _ = _make_processor(mock_stack)
+        assert processor.check_triggers("episode_to_belief")
+
+    def test_episode_to_belief_no_unprocessed(self):
+        mock_stack = _make_mock_stack()
+        episodes = [MagicMock(processed=True) for _ in range(6)]
+        mock_stack.get_episodes.return_value = episodes
+        processor, _ = _make_processor(mock_stack)
+        assert not processor.check_triggers("episode_to_belief")
+
+    def test_episode_to_goal_triggers(self):
+        mock_stack = _make_mock_stack()
+        episodes = [MagicMock(processed=False) for _ in range(6)]
+        mock_stack.get_episodes.return_value = episodes
+        processor, _ = _make_processor(mock_stack)
+        assert processor.check_triggers("episode_to_goal")
+
+    def test_episode_to_relationship_triggers(self):
+        mock_stack = _make_mock_stack()
+        # episode_to_relationship has quantity_threshold=3 by default
+        episodes = [MagicMock(processed=False) for _ in range(4)]
+        mock_stack.get_episodes.return_value = episodes
+        processor, _ = _make_processor(mock_stack)
+        assert processor.check_triggers("episode_to_relationship")
+
+    def test_belief_to_value_triggers(self):
+        mock_stack = _make_mock_stack()
+        beliefs = [MagicMock(processed=False) for _ in range(6)]
+        mock_stack.get_beliefs.return_value = beliefs
+        processor, _ = _make_processor(mock_stack)
+        assert processor.check_triggers("belief_to_value")
+
+    def test_belief_to_value_uses_getattr_for_processed(self):
+        """belief_to_value uses getattr(b, 'processed', False)."""
+        mock_stack = _make_mock_stack()
+        # Create objects without 'processed' attribute
+        belief = MagicMock(spec=["id", "statement"])
+        del belief.processed  # Make getattr fall back to False
+        beliefs = [belief for _ in range(6)]
+        mock_stack.get_beliefs.return_value = beliefs
+        processor, _ = _make_processor(mock_stack)
+        assert processor.check_triggers("belief_to_value")
+
+    def test_episode_to_drive_triggers(self):
+        mock_stack = _make_mock_stack()
+        episodes = [MagicMock(processed=False) for _ in range(6)]
+        mock_stack.get_episodes.return_value = episodes
+        processor, _ = _make_processor(mock_stack)
+        assert processor.check_triggers("episode_to_drive")
+
+    def test_unknown_transition_returns_false(self):
+        mock_stack = _make_mock_stack()
+        config = LayerConfig(layer_transition="unknown_type", enabled=True)
+        processor = MemoryProcessor(
+            stack=mock_stack,
+            inference=MockInference(),
+            core_id="test",
+            configs={"unknown_type": config},
+        )
+        assert not processor.check_triggers("unknown_type")
+
+
+# =============================================================================
+# _gather_sources — all transition types (mock-based)
+# =============================================================================
+
+
+class TestGatherSources:
+    def test_no_backend_returns_empty(self):
+        mock_stack = MagicMock(spec=[])
+        processor = MemoryProcessor(stack=mock_stack, inference=MockInference(), core_id="test")
+        assert processor._gather_sources("raw_to_episode", 10) == []
+
+    def test_raw_to_episode(self):
+        mock_stack = _make_mock_stack()
+        raws = [MagicMock() for _ in range(3)]
+        mock_stack._backend.list_raw.return_value = raws
+        processor, _ = _make_processor(mock_stack)
+        result = processor._gather_sources("raw_to_episode", 10)
+        assert result == raws
+        mock_stack._backend.list_raw.assert_called_once_with(processed=False, limit=10)
+
+    def test_raw_to_note(self):
+        mock_stack = _make_mock_stack()
+        raws = [MagicMock() for _ in range(2)]
+        mock_stack._backend.list_raw.return_value = raws
+        processor, _ = _make_processor(mock_stack)
+        result = processor._gather_sources("raw_to_note", 5)
+        assert result == raws
+
+    def test_episode_to_belief(self):
+        mock_stack = _make_mock_stack()
+        unprocessed = [MagicMock(processed=False) for _ in range(3)]
+        processed_ep = [MagicMock(processed=True) for _ in range(2)]
+        mock_stack.get_episodes.return_value = unprocessed + processed_ep
+        processor, _ = _make_processor(mock_stack)
+        result = processor._gather_sources("episode_to_belief", 10)
+        assert len(result) == 3
+        assert all(not e.processed for e in result)
+
+    def test_episode_to_goal(self):
+        mock_stack = _make_mock_stack()
+        eps = [MagicMock(processed=False) for _ in range(4)]
+        mock_stack.get_episodes.return_value = eps
+        processor, _ = _make_processor(mock_stack)
+        result = processor._gather_sources("episode_to_goal", 10)
+        assert len(result) == 4
+
+    def test_episode_to_relationship(self):
+        mock_stack = _make_mock_stack()
+        eps = [MagicMock(processed=False) for _ in range(2)]
+        mock_stack.get_episodes.return_value = eps
+        processor, _ = _make_processor(mock_stack)
+        result = processor._gather_sources("episode_to_relationship", 5)
+        assert len(result) == 2
+
+    def test_episode_to_drive(self):
+        mock_stack = _make_mock_stack()
+        eps = [MagicMock(processed=False) for _ in range(3)]
+        mock_stack.get_episodes.return_value = eps
+        processor, _ = _make_processor(mock_stack)
+        result = processor._gather_sources("episode_to_drive", 10)
+        assert len(result) == 3
+
+    def test_belief_to_value(self):
+        mock_stack = _make_mock_stack()
+        beliefs = [MagicMock(processed=False) for _ in range(4)]
+        mock_stack.get_beliefs.return_value = beliefs
+        processor, _ = _make_processor(mock_stack)
+        result = processor._gather_sources("belief_to_value", 10)
+        assert len(result) == 4
+
+    def test_batch_size_limits_episodes(self):
+        mock_stack = _make_mock_stack()
+        eps = [MagicMock(processed=False) for _ in range(20)]
+        mock_stack.get_episodes.return_value = eps
+        processor, _ = _make_processor(mock_stack)
+        result = processor._gather_sources("episode_to_belief", 5)
+        assert len(result) == 5
+
+    def test_unknown_transition_returns_empty(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        result = processor._gather_sources("nonexistent_type", 10)
+        assert result == []
+
+
+# =============================================================================
+# _gather_context — all transition types (mock-based)
+# =============================================================================
+
+
+class TestGatherContext:
+    def test_raw_to_episode_context(self):
+        mock_stack = _make_mock_stack()
+        episodes = [MagicMock() for _ in range(5)]
+        mock_stack.get_episodes.return_value = episodes
+        processor, _ = _make_processor(mock_stack)
+        result = processor._gather_context("raw_to_episode")
+        assert result == episodes
+        mock_stack.get_episodes.assert_called_once_with(limit=20)
+
+    def test_raw_to_note_context(self):
+        mock_stack = _make_mock_stack()
+        episodes = [MagicMock() for _ in range(3)]
+        mock_stack.get_episodes.return_value = episodes
+        processor, _ = _make_processor(mock_stack)
+        result = processor._gather_context("raw_to_note")
+        assert result == episodes
+
+    def test_episode_to_belief_context(self):
+        mock_stack = _make_mock_stack()
+        beliefs = [MagicMock() for _ in range(3)]
+        mock_stack.get_beliefs.return_value = beliefs
+        processor, _ = _make_processor(mock_stack)
+        result = processor._gather_context("episode_to_belief")
+        assert result == beliefs
+        mock_stack.get_beliefs.assert_called_once_with(limit=20)
+
+    def test_episode_to_goal_context(self):
+        mock_stack = _make_mock_stack()
+        goals = [MagicMock() for _ in range(3)]
+        mock_stack.get_goals.return_value = goals
+        processor, _ = _make_processor(mock_stack)
+        result = processor._gather_context("episode_to_goal")
+        assert result == goals
+        mock_stack.get_goals.assert_called_once_with(limit=20)
+
+    def test_episode_to_relationship_context(self):
+        mock_stack = _make_mock_stack()
+        rels = [MagicMock() for _ in range(2)]
+        mock_stack.get_relationships.return_value = rels
+        processor, _ = _make_processor(mock_stack)
+        result = processor._gather_context("episode_to_relationship")
+        assert result == rels
+        mock_stack.get_relationships.assert_called_once()
+
+    def test_belief_to_value_context(self):
+        mock_stack = _make_mock_stack()
+        values = [MagicMock() for _ in range(3)]
+        mock_stack.get_values.return_value = values
+        processor, _ = _make_processor(mock_stack)
+        result = processor._gather_context("belief_to_value")
+        assert result == values
+        mock_stack.get_values.assert_called_once_with(limit=20)
+
+    def test_episode_to_drive_context(self):
+        mock_stack = _make_mock_stack()
+        drives = [MagicMock() for _ in range(2)]
+        mock_stack.get_drives.return_value = drives
+        processor, _ = _make_processor(mock_stack)
+        result = processor._gather_context("episode_to_drive")
+        assert result == drives
+        mock_stack.get_drives.assert_called_once()
+
+    def test_unknown_transition_returns_empty(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        result = processor._gather_context("nonexistent_type")
+        assert result == []
+
+
+# =============================================================================
+# _format_sources — episodes, beliefs, raw entries
+# =============================================================================
+
+
+class TestFormatSources:
+    def test_format_raw_entries_with_blob(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        raw = MagicMock()
+        raw.id = "raw-1"
+        raw.blob = "test content here"
+        raw.content = None
+        result = processor._format_sources("raw_to_episode", [raw])
+        assert "[raw-1]" in result
+        assert "test content here" in result
+
+    def test_format_raw_entries_with_content_fallback(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        raw = MagicMock()
+        raw.id = "raw-2"
+        raw.blob = None
+        raw.content = "fallback content"
+        result = processor._format_sources("raw_to_note", [raw])
+        assert "[raw-2]" in result
+        assert "fallback content" in result
+
+    def test_format_raw_entries_both_none(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        raw = MagicMock()
+        raw.id = "raw-3"
+        raw.blob = None
+        raw.content = None
+        result = processor._format_sources("raw_to_episode", [raw])
+        assert "[raw-3]" in result
+
+    def test_format_episodes(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        ep = MagicMock()
+        ep.id = "ep-1"
+        ep.objective = "did something"
+        ep.outcome = "it worked"
+        result = processor._format_sources("episode_to_belief", [ep])
+        assert "[ep-1]" in result
+        assert "did something" in result
+        assert "it worked" in result
+
+    def test_format_beliefs(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        belief = MagicMock(spec=["id", "statement", "confidence"])
+        belief.id = "b-1"
+        belief.statement = "testing matters"
+        belief.confidence = 0.9
+        # Remove objective attribute so hasattr check fails for episode branch
+        del belief.objective
+        result = processor._format_sources("belief_to_value", [belief])
+        assert "[b-1]" in result
+        assert "testing matters" in result
+        assert "0.9" in result
+
+    def test_format_empty_sources(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        result = processor._format_sources("raw_to_episode", [])
+        assert result == "(none)"
+
+    def test_format_fallback_str(self):
+        """Sources without known attributes use str() fallback."""
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        obj = MagicMock(spec=["id"])
+        obj.id = "other-1"
+        del obj.blob
+        del obj.content
+        del obj.objective
+        del obj.statement
+        result = processor._format_sources("episode_to_drive", [obj])
+        assert "[other-1]" in result
+
+    def test_format_raw_long_blob_truncated(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        raw = MagicMock()
+        raw.id = "raw-long"
+        raw.blob = "x" * 1000
+        raw.content = None
+        result = processor._format_sources("raw_to_episode", [raw])
+        # blob[:500] truncation
+        assert len(result) < 600
+
+
+# =============================================================================
+# _format_context — values, goals, drives, relationships, empty
+# =============================================================================
+
+
+class TestFormatContext:
+    def test_empty_context(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        result = processor._format_context("raw_to_episode", [])
+        assert result == "(none)"
+
+    def test_format_episodes(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        ep = MagicMock()
+        ep.objective = "obj1"
+        ep.outcome = "out1"
+        result = processor._format_context("raw_to_episode", [ep])
+        assert "obj1" in result
+        assert "out1" in result
+
+    def test_format_beliefs(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        belief = MagicMock(spec=["statement", "belief_type"])
+        belief.statement = "things work well"
+        belief.belief_type = "causal"
+        del belief.objective  # Not an episode
+        result = processor._format_context("episode_to_belief", [belief])
+        assert "things work well" in result
+
+    def test_format_values(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        value = MagicMock(spec=["name", "statement"])
+        value.name = "honesty"
+        value.statement = "always be truthful"
+        del value.objective  # Not an episode
+        del value.belief_type  # Not a plain belief
+        result = processor._format_context("belief_to_value", [value])
+        assert "honesty" in result
+        assert "always be truthful" in result
+
+    def test_format_goals(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        goal = MagicMock(spec=["title", "description"])
+        goal.title = "ship v2"
+        goal.description = "release version 2.0"
+        del goal.objective
+        del goal.statement
+        result = processor._format_context("episode_to_goal", [goal])
+        assert "ship v2" in result
+        assert "release version 2.0" in result
+
+    def test_format_goals_without_description(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        goal = MagicMock(spec=["title", "description"])
+        goal.title = "do stuff"
+        goal.description = None
+        del goal.objective
+        del goal.statement
+        result = processor._format_context("episode_to_goal", [goal])
+        assert "do stuff" in result
+
+    def test_format_drives(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        drive = MagicMock(spec=["drive_type", "intensity"])
+        drive.drive_type = "curiosity"
+        drive.intensity = 0.8
+        del drive.objective
+        del drive.statement
+        del drive.title
+        result = processor._format_context("episode_to_drive", [drive])
+        assert "curiosity" in result
+        assert "0.8" in result
+
+    def test_format_relationships(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        rel = MagicMock(spec=["entity_name", "entity_type"])
+        rel.entity_name = "Alice"
+        rel.entity_type = "person"
+        del rel.objective
+        del rel.statement
+        del rel.title
+        del rel.drive_type
+        result = processor._format_context("episode_to_relationship", [rel])
+        assert "Alice" in result
+        assert "person" in result
+
+    def test_format_fallback_str(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        obj = MagicMock(spec=[])
+        del obj.objective
+        del obj.statement
+        del obj.title
+        del obj.drive_type
+        del obj.entity_name
+        result = processor._format_context("raw_to_episode", [obj])
+        # Should use str(c)[:100] fallback
+        assert result.startswith("- ")
+
+    def test_context_limited_to_10(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        episodes = []
+        for i in range(15):
+            ep = MagicMock()
+            ep.objective = f"obj{i}"
+            ep.outcome = f"out{i}"
+            episodes.append(ep)
+        result = processor._format_context("raw_to_episode", episodes)
+        lines = result.strip().split("\n")
+        assert len(lines) == 10
+
+
+# =============================================================================
+# _write_memories — all 7 transition types (mock-based)
+# =============================================================================
+
+
+class TestWriteMemories:
+    def test_write_raw_to_episode(self):
+        mock_stack = _make_mock_stack()
+        mock_stack.save_episode.return_value = "ep-new"
+        processor, _ = _make_processor(mock_stack)
+        parsed = [
+            {
+                "objective": "learned things",
+                "outcome": "success",
+                "outcome_type": "success",
+                "lessons": ["lesson1"],
+                "source_raw_ids": ["r1", "r2"],
+            }
+        ]
+        created = processor._write_memories("raw_to_episode", parsed, [])
+        assert len(created) == 1
+        assert created[0] == {"type": "episode", "id": "ep-new"}
+        mock_stack.save_episode.assert_called_once()
+        saved_ep = mock_stack.save_episode.call_args[0][0]
+        assert saved_ep.objective == "learned things"
+        assert saved_ep.derived_from == ["raw:r1", "raw:r2"]
+        assert saved_ep.source_type == "processed"
+
+    def test_write_raw_to_note(self):
+        mock_stack = _make_mock_stack()
+        mock_stack.save_note.return_value = "note-new"
+        processor, _ = _make_processor(mock_stack)
+        parsed = [
+            {
+                "content": "factual note",
+                "note_type": "observation",
+                "source_raw_ids": ["r1"],
+            }
+        ]
+        created = processor._write_memories("raw_to_note", parsed, [])
+        assert len(created) == 1
+        assert created[0] == {"type": "note", "id": "note-new"}
+        saved_note = mock_stack.save_note.call_args[0][0]
+        assert saved_note.content == "factual note"
+        assert saved_note.derived_from == ["raw:r1"]
+
+    def test_write_episode_to_belief(self):
+        mock_stack = _make_mock_stack()
+        mock_stack.save_belief.return_value = "b-new"
+        processor, _ = _make_processor(mock_stack)
+        parsed = [
+            {
+                "statement": "testing is vital",
+                "belief_type": "evaluative",
+                "confidence": 0.85,
+                "source_episode_ids": ["ep-1"],
+            }
+        ]
+        created = processor._write_memories("episode_to_belief", parsed, [])
+        assert len(created) == 1
+        assert created[0] == {"type": "belief", "id": "b-new"}
+        saved = mock_stack.save_belief.call_args[0][0]
+        assert saved.statement == "testing is vital"
+        assert saved.confidence == 0.85
+        assert saved.derived_from == ["episode:ep-1"]
+
+    def test_write_episode_to_goal(self):
+        mock_stack = _make_mock_stack()
+        mock_stack.save_goal.return_value = "g-new"
+        processor, _ = _make_processor(mock_stack)
+        parsed = [
+            {
+                "title": "ship feature",
+                "description": "deliver the feature",
+                "goal_type": "task",
+                "priority": "high",
+                "source_episode_ids": ["ep-2"],
+            }
+        ]
+        created = processor._write_memories("episode_to_goal", parsed, [])
+        assert len(created) == 1
+        assert created[0] == {"type": "goal", "id": "g-new"}
+        saved = mock_stack.save_goal.call_args[0][0]
+        assert saved.title == "ship feature"
+        assert saved.priority == "high"
+        assert saved.derived_from == ["episode:ep-2"]
+
+    def test_write_episode_to_relationship(self):
+        mock_stack = _make_mock_stack()
+        mock_stack.save_relationship.return_value = "rel-new"
+        processor, _ = _make_processor(mock_stack)
+        parsed = [
+            {
+                "entity_name": "Alice",
+                "entity_type": "person",
+                "sentiment": 0.7,
+                "context_note": "collaborative",
+                "source_episode_ids": ["ep-3"],
+            }
+        ]
+        created = processor._write_memories("episode_to_relationship", parsed, [])
+        assert len(created) == 1
+        assert created[0] == {"type": "relationship", "id": "rel-new"}
+        saved = mock_stack.save_relationship.call_args[0][0]
+        assert saved.entity_name == "Alice"
+        assert saved.sentiment == 0.7
+        assert saved.notes == "collaborative"
+
+    def test_write_belief_to_value(self):
+        mock_stack = _make_mock_stack()
+        mock_stack.save_value.return_value = "v-new"
+        processor, _ = _make_processor(mock_stack)
+        parsed = [
+            {
+                "name": "integrity",
+                "statement": "always be honest",
+                "priority": 90,
+                "source_belief_ids": ["b-1"],
+            }
+        ]
+        created = processor._write_memories("belief_to_value", parsed, [])
+        assert len(created) == 1
+        assert created[0] == {"type": "value", "id": "v-new"}
+        saved = mock_stack.save_value.call_args[0][0]
+        assert saved.name == "integrity"
+        assert saved.priority == 90
+        assert saved.derived_from == ["belief:b-1"]
+
+    def test_write_episode_to_drive(self):
+        mock_stack = _make_mock_stack()
+        mock_stack.save_drive.return_value = "d-new"
+        processor, _ = _make_processor(mock_stack)
+        parsed = [
+            {
+                "drive_type": "curiosity",
+                "intensity": 0.8,
+                "source_episode_ids": ["ep-4"],
+            }
+        ]
+        created = processor._write_memories("episode_to_drive", parsed, [])
+        assert len(created) == 1
+        assert created[0] == {"type": "drive", "id": "d-new"}
+        saved = mock_stack.save_drive.call_args[0][0]
+        assert saved.drive_type == "curiosity"
+        assert saved.intensity == 0.8
+        assert saved.derived_from == ["episode:ep-4"]
+
+    def test_write_multiple_items(self):
+        mock_stack = _make_mock_stack()
+        mock_stack.save_episode.side_effect = ["ep-1", "ep-2"]
+        processor, _ = _make_processor(mock_stack)
+        parsed = [
+            {"objective": "first", "outcome": "ok", "source_raw_ids": []},
+            {"objective": "second", "outcome": "ok", "source_raw_ids": []},
+        ]
+        created = processor._write_memories("raw_to_episode", parsed, [])
+        assert len(created) == 2
+
+    def test_write_exception_does_not_crash(self):
+        """A failing write for one item should not prevent other items."""
+        mock_stack = _make_mock_stack()
+        mock_stack.save_episode.side_effect = [Exception("db error"), "ep-2"]
+        processor, _ = _make_processor(mock_stack)
+        parsed = [
+            {"objective": "fails", "outcome": "err", "source_raw_ids": []},
+            {"objective": "works", "outcome": "ok", "source_raw_ids": []},
+        ]
+        created = processor._write_memories("raw_to_episode", parsed, [])
+        # Only the second item succeeds
+        assert len(created) == 1
+        assert created[0]["id"] == "ep-2"
+
+    def test_write_episode_default_values(self):
+        """Missing optional fields get defaults."""
+        mock_stack = _make_mock_stack()
+        mock_stack.save_episode.return_value = "ep-def"
+        processor, _ = _make_processor(mock_stack)
+        parsed = [
+            {"objective": "obj", "outcome": "out"},
+        ]
+        created = processor._write_memories("raw_to_episode", parsed, [])
+        assert len(created) == 1
+        saved = mock_stack.save_episode.call_args[0][0]
+        assert saved.outcome_type == "neutral"
+        assert saved.lessons is None
+        assert saved.derived_from == []
+
+    def test_write_goal_title_from_description(self):
+        """Goal title falls back to description when title missing."""
+        mock_stack = _make_mock_stack()
+        mock_stack.save_goal.return_value = "g-fb"
+        processor, _ = _make_processor(mock_stack)
+        parsed = [
+            {"description": "do the thing", "source_episode_ids": []},
+        ]
+        processor._write_memories("episode_to_goal", parsed, [])
+        saved = mock_stack.save_goal.call_args[0][0]
+        assert saved.title == "do the thing"
+
+    def test_write_value_statement_defaults_to_name(self):
+        """Value statement falls back to name when missing."""
+        mock_stack = _make_mock_stack()
+        mock_stack.save_value.return_value = "v-fb"
+        processor, _ = _make_processor(mock_stack)
+        parsed = [
+            {"name": "honesty", "source_belief_ids": []},
+        ]
+        processor._write_memories("belief_to_value", parsed, [])
+        saved = mock_stack.save_value.call_args[0][0]
+        assert saved.statement == "honesty"
+        assert saved.priority == 50
+
+
+# =============================================================================
+# _mark_processed — raw, episode, belief sources (mock-based)
+# =============================================================================
+
+
+class TestMarkProcessedMock:
+    def test_mark_raw_sources(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        raw1 = MagicMock()
+        raw1.id = "r-1"
+        raw2 = MagicMock()
+        raw2.id = "r-2"
+        created = [{"type": "episode", "id": "ep-1"}]
+        processor._mark_processed("raw_to_episode", [raw1, raw2], created)
+        assert mock_stack._backend.mark_raw_processed.call_count == 2
+        mock_stack._backend.mark_raw_processed.assert_any_call("r-1", ["episode:ep-1"])
+        mock_stack._backend.mark_raw_processed.assert_any_call("r-2", ["episode:ep-1"])
+
+    def test_mark_raw_sources_for_note(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        raw = MagicMock()
+        raw.id = "r-3"
+        created = [{"type": "note", "id": "n-1"}]
+        processor._mark_processed("raw_to_note", [raw], created)
+        mock_stack._backend.mark_raw_processed.assert_called_once_with("r-3", ["note:n-1"])
+
+    def test_mark_episode_sources_for_belief(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        ep = MagicMock()
+        ep.id = "ep-1"
+        created = [{"type": "belief", "id": "b-1"}]
+        processor._mark_processed("episode_to_belief", [ep], created)
+        mock_stack._backend.mark_episode_processed.assert_called_once_with("ep-1")
+
+    def test_mark_episode_sources_for_goal(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        ep = MagicMock()
+        ep.id = "ep-2"
+        created = [{"type": "goal", "id": "g-1"}]
+        processor._mark_processed("episode_to_goal", [ep], created)
+        mock_stack._backend.mark_episode_processed.assert_called_once_with("ep-2")
+
+    def test_mark_episode_sources_for_relationship(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        ep = MagicMock()
+        ep.id = "ep-3"
+        created = [{"type": "relationship", "id": "rel-1"}]
+        processor._mark_processed("episode_to_relationship", [ep], created)
+        mock_stack._backend.mark_episode_processed.assert_called_once_with("ep-3")
+
+    def test_mark_episode_sources_for_drive(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        ep = MagicMock()
+        ep.id = "ep-4"
+        created = [{"type": "drive", "id": "d-1"}]
+        processor._mark_processed("episode_to_drive", [ep], created)
+        mock_stack._backend.mark_episode_processed.assert_called_once_with("ep-4")
+
+    def test_mark_belief_sources_for_value(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        belief = MagicMock()
+        belief.id = "b-1"
+        created = [{"type": "value", "id": "v-1"}]
+        processor._mark_processed("belief_to_value", [belief], created)
+        mock_stack._backend.mark_belief_processed.assert_called_once_with("b-1")
+
+    def test_no_backend_returns_silently(self):
+        mock_stack = MagicMock(spec=[])
+        processor = MemoryProcessor(stack=mock_stack, inference=MockInference(), core_id="test")
+        # Should not raise
+        processor._mark_processed("raw_to_episode", [], [])
+
+    def test_created_refs_format(self):
+        """Verify the created_refs list format for raw marking."""
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        raw = MagicMock()
+        raw.id = "r-1"
+        created = [
+            {"type": "episode", "id": "ep-1"},
+            {"type": "note", "id": "n-1"},
+        ]
+        processor._mark_processed("raw_to_episode", [raw], created)
+        expected_refs = ["episode:ep-1", "note:n-1"]
+        mock_stack._backend.mark_raw_processed.assert_called_once_with("r-1", expected_refs)
+
+
+# =============================================================================
+# _process_layer — full pipeline (mock-based)
+# =============================================================================
+
+
+class TestProcessLayer:
+    def test_no_prompts_skips(self):
+        """Unknown transition with no prompts returns skipped result."""
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        config = LayerConfig(layer_transition="fake_transition")
+        result = processor._process_layer("fake_transition", config)
+        assert result.skipped
+        assert "No prompts" in result.skip_reason
+
+    def test_no_sources_skips(self):
+        mock_stack = _make_mock_stack()
+        mock_stack._backend.list_raw.return_value = []
+        processor, _ = _make_processor(mock_stack)
+        config = DEFAULT_LAYER_CONFIGS["raw_to_episode"]
+        result = processor._process_layer("raw_to_episode", config)
+        assert result.skipped
+        assert result.skip_reason == "No unprocessed sources"
+
+    def test_happy_path_raw_to_episode(self):
+        mock_stack = _make_mock_stack()
+        raw = MagicMock()
+        raw.id = "r-1"
+        raw.blob = "test content"
+        raw.content = None
+        mock_stack._backend.list_raw.return_value = [raw]
+        mock_stack.get_episodes.return_value = []
+        mock_stack.save_episode.return_value = "ep-new"
+
+        response = json.dumps(
+            [
+                {
+                    "objective": "processed item",
+                    "outcome": "success",
+                    "source_raw_ids": ["r-1"],
+                }
+            ]
+        )
+        processor, inference = _make_processor(mock_stack, response)
+        config = DEFAULT_LAYER_CONFIGS["raw_to_episode"]
+        result = processor._process_layer("raw_to_episode", config)
+
+        assert not result.skipped
+        assert result.source_count == 1
+        assert len(result.created) == 1
+        assert result.created[0] == {"type": "episode", "id": "ep-new"}
+        assert len(inference.calls) == 1
+        mock_stack.log_audit.assert_called_once()
+
+    def test_inference_failure(self):
+        mock_stack = _make_mock_stack()
+        raw = MagicMock()
+        raw.id = "r-1"
+        raw.blob = "test"
+        raw.content = None
+        mock_stack._backend.list_raw.return_value = [raw]
+        mock_stack.get_episodes.return_value = []
+
+        inference = MockInference()
+        inference.infer = lambda *a, **kw: (_ for _ in ()).throw(RuntimeError("boom"))
+        processor = MemoryProcessor(stack=mock_stack, inference=inference, core_id="test")
+        config = DEFAULT_LAYER_CONFIGS["raw_to_episode"]
+        result = processor._process_layer("raw_to_episode", config)
+
+        assert not result.skipped
+        assert result.source_count == 1
+        assert len(result.errors) == 1
+        assert "Inference failed" in result.errors[0]
+
+    def test_parse_failure(self):
+        mock_stack = _make_mock_stack()
+        raw = MagicMock()
+        raw.id = "r-1"
+        raw.blob = "test"
+        raw.content = None
+        mock_stack._backend.list_raw.return_value = [raw]
+        mock_stack.get_episodes.return_value = []
+
+        processor, _ = _make_processor(mock_stack, "not valid json")
+        config = DEFAULT_LAYER_CONFIGS["raw_to_episode"]
+        result = processor._process_layer("raw_to_episode", config)
+
+        assert not result.skipped
+        assert len(result.errors) == 1
+        assert "Parse failed" in result.errors[0]
+
+    def test_audit_log_called_on_success(self):
+        mock_stack = _make_mock_stack()
+        raw = MagicMock()
+        raw.id = "r-1"
+        raw.blob = "stuff"
+        raw.content = None
+        mock_stack._backend.list_raw.return_value = [raw]
+        mock_stack.get_episodes.return_value = []
+        mock_stack.save_episode.return_value = "ep-1"
+
+        response = json.dumps(
+            [
+                {
+                    "objective": "thing",
+                    "outcome": "done",
+                    "source_raw_ids": [],
+                }
+            ]
+        )
+        processor, _ = _make_processor(mock_stack, response)
+        config = DEFAULT_LAYER_CONFIGS["raw_to_episode"]
+        processor._process_layer("raw_to_episode", config)
+
+        mock_stack.log_audit.assert_called_once_with(
+            "processing",
+            "raw_to_episode",
+            "process",
+            actor="core:test",
+            details={
+                "source_count": 1,
+                "created_count": 1,
+                "errors": [],
+            },
+        )
+
+
+# =============================================================================
+# process() — full flow with force and trigger checking (mock-based)
+# =============================================================================
+
+
+class TestProcessFullFlow:
+    def test_force_bypasses_triggers(self):
+        mock_stack = _make_mock_stack()
+        raw = MagicMock()
+        raw.id = "r-1"
+        raw.blob = "data"
+        raw.content = None
+        mock_stack._backend.list_raw.return_value = [raw]
+        mock_stack.get_episodes.return_value = []
+        mock_stack.save_episode.return_value = "ep-1"
+
+        response = json.dumps(
+            [
+                {
+                    "objective": "obj",
+                    "outcome": "out",
+                    "source_raw_ids": [],
+                }
+            ]
+        )
+        processor, _ = _make_processor(mock_stack, response)
+        results = processor.process("raw_to_episode", force=True)
+        assert len(results) == 1
+        assert not results[0].skipped
+
+    def test_without_force_checks_triggers(self):
+        mock_stack = _make_mock_stack()
+        # Not enough raws to trigger (default threshold is 10)
+        raws = [MagicMock() for _ in range(2)]
+        mock_stack._backend.list_raw.return_value = raws
+        processor, _ = _make_processor(mock_stack)
+        results = processor.process("raw_to_episode")
+        # No results since trigger not met
+        assert results == []
+
+    def test_process_none_transition_iterates_all(self):
+        mock_stack = _make_mock_stack()
+        mock_stack._backend.list_raw.return_value = []
+        mock_stack.get_episodes.return_value = []
+        mock_stack.get_beliefs.return_value = []
+        processor, _ = _make_processor(mock_stack)
+        results = processor.process(force=True)
+        # All 7 transitions should produce skipped results
+        assert len(results) == len(VALID_TRANSITIONS)
+        assert all(r.skipped for r in results)
+
+    def test_missing_config_transition_skipped(self):
+        """A transition not in configs is skipped entirely."""
+        mock_stack = _make_mock_stack()
+        # Use a config dict that excludes the transition we request
+        processor = MemoryProcessor(
+            stack=mock_stack,
+            inference=MockInference(),
+            core_id="test",
+            configs={"episode_to_belief": DEFAULT_LAYER_CONFIGS["episode_to_belief"]},
+        )
+        results = processor.process("raw_to_episode", force=True)
+        assert results == []
+
+    def test_get_config_returns_none_for_missing(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+        assert processor.get_config("nonexistent") is None
