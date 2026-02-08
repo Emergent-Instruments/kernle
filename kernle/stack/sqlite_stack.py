@@ -260,10 +260,12 @@ class SQLiteStack(
 
     def _sort_components(self) -> None:
         """Re-sort _components dict by priority (lower = runs first)."""
-        sorted_items = sorted(
-            self._components.items(),
-            key=lambda item: getattr(item[1], "priority", 200),
-        )
+
+        def _get_priority(item):
+            val = getattr(item[1], "priority", 200)
+            return val if isinstance(val, (int, float)) else 200
+
+        sorted_items = sorted(self._components.items(), key=_get_priority)
         self._components = dict(sorted_items)
 
     # ---- Plugin Registration ----
@@ -372,6 +374,104 @@ class SQLiteStack(
                 logger.warning("Component '%s' on_load failed: %s", name, e)
 
     # ---- Strength Tier Filtering ----
+
+    # ---- Lazy Decay-on-Read ----
+
+    def _apply_lazy_decay(self, records: list, memory_type: str) -> list:
+        """Apply time-based strength decay to retrieved records.
+
+        Computes what strength WOULD be based on elapsed time since
+        last_accessed, updates records in-place, and persists changes
+        for records that differ meaningfully (>0.001) from stored value.
+
+        Protected records are never decayed.
+
+        Args:
+            records: List of memory records to decay.
+            memory_type: The memory type string (episode, belief, etc.).
+
+        Returns:
+            The same list with updated strength values.
+        """
+        # Check if lazy decay is enabled
+        lazy_decay_setting = self.get_stack_setting("lazy_decay")
+        if lazy_decay_setting == "false":
+            return records
+
+        from kernle.stack.components.forgetting import compute_decayed_strength
+
+        strength_updates: list[tuple[str, str, float]] = []
+
+        for record in records:
+            # Skip protected records
+            if getattr(record, "is_protected", False):
+                continue
+
+            current_strength = getattr(record, "strength", 1.0)
+            # Skip already-forgotten records
+            if current_strength <= 0.0:
+                continue
+
+            new_strength = compute_decayed_strength(memory_type, record)
+
+            if abs(new_strength - current_strength) > 0.001:
+                # Update the record object in-place
+                if hasattr(record, "strength"):
+                    object.__setattr__(record, "strength", new_strength)
+                if hasattr(record, "last_accessed"):
+                    object.__setattr__(
+                        record, "last_accessed", datetime.now(timezone.utc)
+                    )
+                strength_updates.append((memory_type, record.id, new_strength))
+
+        # Persist all updates in a single batch, also updating last_accessed
+        # so the next read doesn't re-decay from the same reference time.
+        if strength_updates:
+            try:
+                self._persist_decay_updates(strength_updates)
+            except Exception as e:
+                logger.warning("Failed to persist lazy decay updates: %s", e)
+
+        return records
+
+    def _persist_decay_updates(
+        self, updates: list[tuple[str, str, float]]
+    ) -> None:
+        """Persist lazy decay strength updates with last_accessed bump.
+
+        Updates both strength and last_accessed to now, ensuring
+        subsequent reads don't re-decay from the same reference time.
+        """
+        if not updates:
+            return
+
+        table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "agent_values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+        }
+
+        now = datetime.now(timezone.utc).isoformat()
+
+        with self._backend._connect() as conn:
+            for memory_type, memory_id, strength in updates:
+                table = table_map.get(memory_type)
+                if not table:
+                    continue
+                strength = max(0.0, min(1.0, strength))
+                conn.execute(
+                    f"""UPDATE {table}
+                       SET strength = ?,
+                           last_accessed = ?,
+                           local_updated_at = ?
+                       WHERE id = ? AND stack_id = ? AND deleted = 0""",
+                    (strength, now, now, memory_id, self._backend.stack_id),
+                )
+            conn.commit()
 
     @staticmethod
     def _filter_by_strength(
@@ -622,6 +722,7 @@ class SQLiteStack(
         include_weak: bool = False,
     ) -> List[Episode]:
         episodes = self._backend.get_episodes(limit=limit, tags=tags)
+        episodes = self._apply_lazy_decay(episodes, "episode")
         episodes = self._filter_by_strength(episodes, include_forgotten, include_weak)
         return episodes
 
@@ -640,6 +741,7 @@ class SQLiteStack(
             beliefs = [b for b in beliefs if b.belief_type == belief_type]
         if min_confidence is not None:
             beliefs = [b for b in beliefs if b.confidence >= min_confidence]
+        beliefs = self._apply_lazy_decay(beliefs, "belief")
         beliefs = self._filter_by_strength(beliefs, include_forgotten, include_weak)
         return beliefs
 
@@ -652,6 +754,7 @@ class SQLiteStack(
         include_weak: bool = False,
     ) -> List[Value]:
         values = self._backend.get_values(limit=limit)
+        values = self._apply_lazy_decay(values, "value")
         values = self._filter_by_strength(values, include_forgotten, include_weak)
         return values
 
@@ -665,6 +768,7 @@ class SQLiteStack(
         include_weak: bool = False,
     ) -> List[Goal]:
         goals = self._backend.get_goals(status=status, limit=limit)
+        goals = self._apply_lazy_decay(goals, "goal")
         goals = self._filter_by_strength(goals, include_forgotten, include_weak)
         return goals
 
@@ -678,6 +782,7 @@ class SQLiteStack(
         include_weak: bool = False,
     ) -> List[Note]:
         notes = self._backend.get_notes(limit=limit, note_type=note_type)
+        notes = self._apply_lazy_decay(notes, "note")
         notes = self._filter_by_strength(notes, include_forgotten, include_weak)
         return notes
 
@@ -729,6 +834,35 @@ class SQLiteStack(
             limit=limit,
             record_types=record_types,
         )
+
+        # Apply lazy decay to search result records
+        lazy_decay_setting = self.get_stack_setting("lazy_decay")
+        if lazy_decay_setting != "false":
+            from kernle.stack.components.forgetting import compute_decayed_strength
+
+            decay_updates: list[tuple[str, str, float]] = []
+            for sr in storage_results:
+                record = sr.record
+                if getattr(record, "is_protected", False):
+                    continue
+                current_strength = getattr(record, "strength", 1.0)
+                if current_strength <= 0.0:
+                    continue
+                new_strength = compute_decayed_strength(sr.record_type, record)
+                if abs(new_strength - current_strength) > 0.001:
+                    if hasattr(record, "strength"):
+                        object.__setattr__(record, "strength", new_strength)
+                    if hasattr(record, "last_accessed"):
+                        object.__setattr__(
+                            record, "last_accessed", datetime.now(timezone.utc)
+                        )
+                    decay_updates.append((sr.record_type, record.id, new_strength))
+            if decay_updates:
+                try:
+                    self._persist_decay_updates(decay_updates)
+                except Exception as e:
+                    logger.warning("Failed to persist lazy decay updates in search: %s", e)
+
         results = []
         for sr in storage_results:
             record = sr.record
