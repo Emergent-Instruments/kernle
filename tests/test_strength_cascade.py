@@ -11,7 +11,7 @@ import pytest
 
 from kernle.entity import Entity
 from kernle.stack.sqlite_stack import SQLiteStack
-from kernle.types import Belief, Episode, Goal, Note, Value
+from kernle.types import Belief, Episode, Goal, Note, RawEntry, Value
 
 
 def _id():
@@ -492,6 +492,42 @@ class TestGetUngroundedMemories:
         ungrounded = stack.get_ungrounded_memories()
         assert len(ungrounded) == 1
         assert ungrounded[0][1] == belief_id
+
+    def test_not_ungrounded_if_raw_source_exists(self, stack):
+        """Episodes derived from existing raw entries are NOT ungrounded."""
+        raw = RawEntry(
+            id=_id(),
+            stack_id=stack.stack_id,
+            blob="test raw entry",
+            source="test",
+        )
+        raw_id = stack.save_raw(raw)
+
+        ep = _make_episode(stack.stack_id, derived_from=[f"raw:{raw_id}"])
+        stack.save_episode(ep)
+
+        ungrounded = stack.get_ungrounded_memories()
+        assert len(ungrounded) == 0
+
+    def test_ungrounded_if_raw_source_deleted(self, stack):
+        """Episodes derived from deleted raw entries ARE ungrounded."""
+        raw = RawEntry(
+            id=_id(),
+            stack_id=stack.stack_id,
+            blob="test raw entry",
+            source="test",
+        )
+        raw_id = stack.save_raw(raw)
+
+        ep = _make_episode(stack.stack_id, derived_from=[f"raw:{raw_id}"])
+        ep_id = stack.save_episode(ep)
+
+        # Delete the raw entry
+        stack._backend.delete_raw(raw_id)
+
+        ungrounded = stack.get_ungrounded_memories()
+        assert len(ungrounded) == 1
+        assert ungrounded[0][1] == ep_id
 
 
 class TestCascadeDepth:
