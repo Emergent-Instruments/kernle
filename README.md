@@ -37,8 +37,8 @@ kernle -s my-stack checkpoint save "End of session"
 **Make memory loading automatic** instead of relying on manual commands:
 
 ```bash
-# Claude Code - Install plugin for automatic loading + checkpointing + write interception
-claude --plugin-dir ./integrations/claude-code
+# Claude Code - Setup hooks for automatic loading + checkpointing + write interception
+kernle setup claude-code
 
 # OpenClaw - Install plugin for automatic loading + checkpointing
 cd integrations/openclaw && npm install && npm run build
@@ -46,8 +46,6 @@ openclaw plugins install ./integrations/openclaw
 ```
 
 After setup, memory loads automatically at every session start. No more forgetting to run `kernle load`!
-
-See `integrations/` directory for details.
 
 ## Other Integrations
 

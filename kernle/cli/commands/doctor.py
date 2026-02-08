@@ -380,10 +380,11 @@ def check_clawdbot_hook() -> ComplianceCheck:
 
 
 def check_claude_code_hook(stack_id: str) -> ComplianceCheck:
-    """Check if Claude Code SessionStart hook is configured."""
-    # Check global settings
+    """Check if Claude Code hooks are configured (all 4 events)."""
     global_config = Path.home() / ".claude" / "settings.json"
     local_config = Path.cwd() / ".claude" / "settings.json"
+
+    required_events = {"SessionStart", "PreToolUse", "PreCompact", "SessionEnd"}
 
     for config_path, location in [(global_config, "global"), (local_config, "project")]:
         if not config_path.exists():
@@ -393,14 +394,27 @@ def check_claude_code_hook(stack_id: str) -> ComplianceCheck:
             with open(config_path) as f:
                 config = json.load(f)
 
-            hooks = config.get("hooks", {}).get("SessionStart", [])
-            has_kernle = any("kernle" in str(h).lower() for h in hooks)
+            existing_hooks = config.get("hooks", {})
+            configured_events = set()
+            for event in required_events:
+                hooks_list = existing_hooks.get(event, [])
+                if any("kernle" in str(h).lower() for h in hooks_list):
+                    configured_events.add(event)
 
-            if has_kernle:
+            if configured_events == required_events:
                 return ComplianceCheck(
                     name="claude_code_hook",
                     passed=True,
-                    message=f"✓ Claude Code hook configured ({location})",
+                    message=f"✓ Claude Code hooks configured ({location}, 4/4 events)",
+                    category="recommended",
+                )
+            elif configured_events:
+                missing = required_events - configured_events
+                return ComplianceCheck(
+                    name="claude_code_hook",
+                    passed=False,
+                    message=f"Claude Code hooks partially configured ({location}, {len(configured_events)}/4)",
+                    fix=f"Run: kernle setup claude-code --force  (missing: {', '.join(sorted(missing))})",
                     category="recommended",
                 )
         except Exception as e:
@@ -410,7 +424,7 @@ def check_claude_code_hook(stack_id: str) -> ComplianceCheck:
     return ComplianceCheck(
         name="claude_code_hook",
         passed=False,
-        message="✗ Claude Code hook not configured",
+        message="Claude Code hooks not configured",
         fix="Run: kernle setup claude-code",
         category="recommended",
     )

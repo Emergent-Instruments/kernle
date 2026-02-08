@@ -15,6 +15,7 @@ from kernle.cli.commands.doctor import (
 from kernle.cli.commands.emotion import cmd_emotion
 from kernle.cli.commands.epoch import cmd_epoch
 from kernle.cli.commands.forget import cmd_forget
+from kernle.cli.commands.hook import cmd_hook
 from kernle.cli.commands.identity import cmd_identity, cmd_promote
 from kernle.cli.commands.init import cmd_init as cmd_init_md
 from kernle.cli.commands.meta import cmd_meta
@@ -39,6 +40,7 @@ __all__ = [
     "cmd_emotion",
     "cmd_epoch",
     "cmd_forget",
+    "cmd_hook",
     "cmd_identity",
     "cmd_init_md",
     "cmd_meta",

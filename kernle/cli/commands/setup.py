@@ -225,16 +225,74 @@ def _enable_clawdbot_hook(stack_id: str) -> bool:
         return False
 
 
+def _build_claude_code_hooks(stack_id: str | None = None) -> dict:
+    """Build the hooks configuration dict for Claude Code settings.json.
+
+    Args:
+        stack_id: If provided, bake -s {stack_id} into hook commands.
+
+    Returns:
+        Dict matching Claude Code settings.json hooks schema.
+    """
+    stack_flag = f" -s {stack_id}" if stack_id else ""
+
+    return {
+        "hooks": {
+            "SessionStart": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f"kernle{stack_flag} hook session-start",
+                            "timeout": 10,
+                        }
+                    ]
+                }
+            ],
+            "PreToolUse": [
+                {
+                    "matcher": "Write|Edit|NotebookEdit",
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f"kernle{stack_flag} hook pre-tool-use",
+                            "timeout": 10,
+                        }
+                    ],
+                }
+            ],
+            "PreCompact": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f"kernle{stack_flag} hook pre-compact",
+                            "timeout": 10,
+                        }
+                    ]
+                }
+            ],
+            "SessionEnd": [
+                {
+                    "hooks": [
+                        {
+                            "type": "command",
+                            "command": f"kernle{stack_flag} hook session-end",
+                            "timeout": 10,
+                        }
+                    ]
+                }
+            ],
+        }
+    }
+
+
 def setup_claude_code(stack_id: str, force: bool = False, global_install: bool = False) -> None:
-    """Install Claude Code/Cowork SessionStart hook."""
-    hooks_dir = get_hooks_dir()
-    source = hooks_dir / "claude-code" / "settings.json"
+    """Install Claude Code hooks for automatic memory lifecycle management.
 
-    if not source.exists():
-        print("❌ Claude Code hook template not found in kernle installation")
-        print(f"   Expected: {source}")
-        return
-
+    Writes hooks to .claude/settings.json that call `kernle hook <event>`.
+    Four hooks: SessionStart, PreToolUse, PreCompact, SessionEnd.
+    """
     # Determine target
     if global_install:
         target = Path.home() / ".claude" / "settings.json"
@@ -243,69 +301,62 @@ def setup_claude_code(stack_id: str, force: bool = False, global_install: bool =
         target = Path.cwd() / ".claude" / "settings.json"
         location = "project settings"
 
-    # Check if already exists
+    # Build hooks config
+    hooks_config = _build_claude_code_hooks(stack_id)
+
+    # Check if already configured
     if target.exists() and not force:
-        with open(target) as f:
-            content = f.read()
-            if "kernle" in content.lower():
-                print(f"⚠️  Kernle hook already configured in {target}")
+        try:
+            with open(target) as f:
+                existing = json.load(f)
+            existing_hooks = existing.get("hooks", {})
+            has_kernle = any(
+                "kernle" in str(existing_hooks.get(event, [])).lower()
+                for event in ("SessionStart", "PreToolUse", "PreCompact", "SessionEnd")
+            )
+            if has_kernle:
+                print(f"Kernle hooks already configured in {target}")
                 print("   Use --force to overwrite")
                 return
-
-    # Read template
-    with open(source) as f:
-        template = f.read()
-
-    # Replace placeholder
-    config_content = template.replace("YOUR_AGENT_NAME", stack_id)
+        except (json.JSONDecodeError, OSError):
+            pass  # Will write fresh
 
     # Create target directory
     target.parent.mkdir(parents=True, exist_ok=True)
 
-    # Merge with existing config if present
+    # Merge with existing or write new
     if target.exists():
         try:
             with open(target) as f:
                 existing = json.load(f)
-
-            new_config = json.loads(config_content)
-
-            # Merge SessionStart hooks
-            existing_hooks = existing.get("hooks", {}).get("SessionStart", [])
-            new_hooks = new_config["hooks"]["SessionStart"]
-
-            # Check if kernle hook already exists
-            has_kernle = any("kernle" in str(h).lower() for h in existing_hooks)
-
-            if not has_kernle:
-                existing_hooks.extend(new_hooks)
-                if "hooks" not in existing:
-                    existing["hooks"] = {}
-                existing["hooks"]["SessionStart"] = existing_hooks
-
-                with open(target, "w") as f:
-                    json.dump(existing, f, indent=2)
-                print(f"✓ Merged Kernle hook into existing {location}")
-            else:
-                print(f"⚠️  Kernle hook already present in {location}")
+            existing = _deep_merge(existing, hooks_config)
+            with open(target, "w") as f:
+                json.dump(existing, f, indent=2)
+            print(f"Merged Kernle hooks into existing {location}")
         except Exception as e:
-            print(f"⚠️  Could not merge with existing config: {e}")
+            print(f"Could not merge with existing config: {e}")
             print("   Writing new config instead")
             with open(target, "w") as f:
-                f.write(config_content)
-            print(f"✓ Created {location}")
+                json.dump(hooks_config, f, indent=2)
+            print(f"Created {location}")
     else:
-        # Write new config
         with open(target, "w") as f:
-            f.write(config_content)
-        print(f"✓ Created {location}")
+            json.dump(hooks_config, f, indent=2)
+        print(f"Created {location}")
 
     print(f"  Location: {target}")
-    print("\nNext steps:")
-    print(f"  1. Start a new Claude Code session in {'~' if global_install else 'this directory'}")
-    print(f"  2. Memory will load automatically for agent '{stack_id}'")
-    print("\nVerify with: claude")
-    print('Then ask: "What are my current values and goals?"')
+    print()
+    print("Hooks configured:")
+    print("  SessionStart  - Auto-loads memory into session context")
+    print("  PreToolUse    - Intercepts writes to memory/ and MEMORY.md")
+    print("  PreCompact    - Saves checkpoint before context compaction")
+    print("  SessionEnd    - Saves final checkpoint on session termination")
+    print()
+    loc_desc = "any directory" if global_install else "this directory"
+    print(f"Start Claude Code in {loc_desc}: claude")
+    print(f"Memory loads automatically for stack '{stack_id}'")
+    print()
+    print("Verify with: kernle doctor --full")
 
 
 def cmd_setup(args, k: "Kernle"):
