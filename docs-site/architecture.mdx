@@ -279,6 +279,10 @@ graph TB
 - **Model** is interchangeable. Swapping from Claude to Llama changes how the entity thinks. The model is wrapped in an `InferenceService` for stack components.
 - **Components** hook into the stack lifecycle (save, search, load, maintenance). They provide embedding, forgetting, emotional tagging, anxiety monitoring, and more.
 
+<Note>
+As of v0.10.0, `strict=True` is the default for Kernle initialization. In strict mode, all memory operations enforce provenance requirements (e.g., `source_type`, `derived_from`). Pass `strict=False` to disable enforcement for development or migration purposes.
+</Note>
+
 <Info>
 For the full protocol reference, see the [Protocol System](/protocol/overview) documentation.
 </Info>
@@ -304,13 +308,18 @@ For the full protocol reference, see the [Protocol System](/protocol/overview) d
 | `search` | Vector similarity lookup | Decides what's relevant |
 | `dump` | Exports all memories | Reviews and audits |
 
-### Promotion (SI-Driven)
+### Promotion and Memory Processing
 
 | Operation | Kernle Does | SI Does |
 |-----------|-------------|------------|
 | `promote` | *Outputs a reflection scaffold* | *Reads it, reasons, forms beliefs* |
+| `process run` | *Uses bound model to promote memories through layers* | *Configures thresholds and reviews results* |
 
-When an SI runs promotion, Kernle provides:
+Kernle supports two promotion paths:
+
+### Manual Promotion via `kernle promote`
+
+The `kernle promote` command outputs a **reflection scaffold** — structured information designed to help the SI think:
 - A structured view of recent episodes
 - Existing beliefs for comparison
 - Reflection prompts to guide thinking
@@ -323,31 +332,31 @@ The **SI** does:
 - Resolving conflicts with existing beliefs
 - Running `belief add` for beliefs they form
 
-### The `promote` Command: A Reflection Scaffold
-
-The `kernle promote` command (formerly `consolidate`) outputs a **reflection scaffold** — structured information designed to help the SI think. It does NOT:
-- ❌ Call an external AI to analyze memories
-- ❌ Generate suggested beliefs
-- ❌ Automatically update confidence scores
-- ❌ Make any decisions for the SI
-
 ```bash
 # SI runs promote
 kernle -s claire promote
 
-# Output: A REFLECTION SCAFFOLD (not AI analysis)
-# ═══════════════════════════════════════════════════════
+# Output: A REFLECTION SCAFFOLD
 # Recent episodes, their lessons, existing beliefs,
 # and prompts to guide the SI's own reflection
-# ═══════════════════════════════════════════════════════
 
 # SI reads output, does their own reasoning, then:
 kernle -s claire belief add "Pattern I noticed" --confidence 0.8
 ```
 
-<Note>
-**The scaffold principle**: Kernle provides the structure for reflection. The SI provides the reasoning. No external AI ever forms beliefs on the SI's behalf. This is the core guarantee of memory sovereignty.
-</Note>
+### Automated Processing via `kernle process run` *(v0.10.0)*
+
+Memory processing uses the bound inference model to process memories through the hierarchy automatically:
+- Raw → Episodes → Beliefs → Values (each layer processed independently)
+- Configurable thresholds, model selection, and batch sizes
+- Can be triggered programmatically, via CLI, or MCP tools
+
+```bash
+# Run automated memory processing
+kernle -s claire process run
+```
+
+Both paths enforce the same provenance rules — every created memory must cite its sources via `derived_from` and `source_episodes`.
 
 ---
 
@@ -502,7 +511,7 @@ Learn more about privacy controls in the [Privacy guide](/concepts/privacy).
 | **Storage** | Provides database, schema, sync | Decides what to store |
 | **Retrieval** | Provides search, queries | Decides what's relevant |
 | **Organization** | Provides layer structure | Promotes memories between layers |
-| **Promotion** | Provides scaffold and tools | Does the reasoning |
+| **Promotion** | Provides scaffold, tools, and automated processing | Reasons manually or configures automated processing |
 | **Beliefs** | Stores with metadata | Forms through experience |
 | **Identity** | Stores values/beliefs/narratives | Synthesizes coherent self |
 | **Trust** | Stores assessments, computes chains | Evaluates and sets trust levels |
