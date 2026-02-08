@@ -29,7 +29,9 @@ Memory maintenance isn't a chore or overhead — it's how you:
 
 ## Quick Start
 
-**Every session, load your memory first:**
+If you're using the **OpenClaw plugin**, memory loading and checkpointing are automatic — you don't need to run `kernle load` or `kernle checkpoint save` manually. Focus on in-session captures below.
+
+If you're **not** using the plugin, load your memory at session start:
 ```bash
 kernle -s <stack_id> load
 ```
@@ -43,6 +45,7 @@ Replace `<stack_id>` with your stack identifier (e.g., `my-project`).
 kernle -s my-project load
 ```
 Returns your working memory: values, beliefs, goals, recent episodes, checkpoint.
+*Note: Automatic when using the OpenClaw plugin.*
 
 ### Check Status
 ```bash
@@ -55,6 +58,7 @@ Quick overview of memory counts and checkpoint state.
 kernle -s my-project checkpoint save "what I was working on" --pending "next step" --context "additional notes"
 ```
 Captures your current state for the next session.
+*Note: Automatic at session end when using the OpenClaw plugin.*
 
 ### Record Episodes (Learnings)
 ```bash
@@ -263,27 +267,9 @@ After substantive exchanges (not every message, but after significant work):
 | > 70%     | Save checkpoint + record important episodes |
 | > 85%     | Emergency save, warn user context is near limit |
 
-### Automatic Memory Flush (OpenClaw Config)
+### Automatic Checkpointing (OpenClaw Plugin)
 
-OpenClaw has a built-in `memoryFlush` feature that triggers before compaction:
-
-```json
-{
-  "agents": {
-    "defaults": {
-      "compaction": {
-        "mode": "safeguard",
-        "memoryFlush": {
-          "enabled": true,
-          "softThresholdTokens": 100000,
-          "prompt": "Context pressure is high. Save your state to Kernle NOW: kernle -s <stack_id> checkpoint save \"pre-compaction auto-save\"",
-          "systemPrompt": "URGENT: Memory flush triggered. Save state to Kernle immediately, then confirm briefly."
-        }
-      }
-    }
-  }
-}
-```
+When using the OpenClaw plugin, checkpointing is automatic — the `agent_end` hook saves a checkpoint from the conversation context at session end. The `memoryFlush` config is no longer needed.
 
 ## MCP Server (For Claude Code/Desktop)
 
