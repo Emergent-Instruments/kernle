@@ -2070,7 +2070,7 @@ class Kernle(
         lines.append("")
 
         # Values
-        values = self._storage.get_values(limit=100)
+        values = self._storage.get_values(limit=10000)
         if values:
             lines.append("## Values")
             for v in sorted(values, key=lambda x: x.priority, reverse=True):
@@ -2086,7 +2086,7 @@ class Kernle(
             lines.append("")
 
         # Goals
-        goals = self._storage.get_goals(status=None, limit=100)
+        goals = self._storage.get_goals(status=None, limit=10000)
         if goals:
             lines.append("## Goals")
             for g in goals:
@@ -2099,7 +2099,7 @@ class Kernle(
             lines.append("")
 
         # Episodes
-        episodes = self._storage.get_episodes(limit=100)
+        episodes = self._storage.get_episodes(limit=10000)
         if episodes:
             lines.append("## Episodes")
             for e in episodes:
@@ -2120,7 +2120,7 @@ class Kernle(
                 lines.append("")
 
         # Notes
-        notes = self._storage.get_notes(limit=100)
+        notes = self._storage.get_notes(limit=10000)
         if notes:
             lines.append("## Notes")
             for n in notes:
@@ -2154,7 +2154,7 @@ class Kernle(
 
         # Raw entries
         if include_raw:
-            raw_entries = self._storage.list_raw(limit=100)
+            raw_entries = self._storage.list_raw(limit=10000)
             if raw_entries:
                 lines.append("## Raw Entries")
                 for raw in raw_entries:
@@ -2197,7 +2197,7 @@ class Kernle(
                     "last_accessed": _dt(v.last_accessed),
                     "is_protected": v.is_protected,
                 }
-                for v in self._storage.get_values(limit=100)
+                for v in self._storage.get_values(limit=10000)
             ],
             "beliefs": [
                 {
@@ -2236,7 +2236,7 @@ class Kernle(
                     "last_accessed": _dt(g.last_accessed),
                     "is_protected": g.is_protected,
                 }
-                for g in self._storage.get_goals(status=None, limit=100)
+                for g in self._storage.get_goals(status=None, limit=10000)
             ],
             "episodes": [
                 {
@@ -2259,7 +2259,7 @@ class Kernle(
                     "last_accessed": _dt(e.last_accessed),
                     "is_protected": e.is_protected,
                 }
-                for e in self._storage.get_episodes(limit=100)
+                for e in self._storage.get_episodes(limit=10000)
             ],
             "notes": [
                 {
@@ -2278,7 +2278,7 @@ class Kernle(
                     "last_accessed": _dt(n.last_accessed),
                     "is_protected": n.is_protected,
                 }
-                for n in self._storage.get_notes(limit=100)
+                for n in self._storage.get_notes(limit=10000)
             ],
             "drives": [
                 {
@@ -2333,7 +2333,7 @@ class Kernle(
                     "confidence": r.confidence,
                     "source_type": r.source_type,
                 }
-                for r in self._storage.list_raw(limit=100)
+                for r in self._storage.list_raw(limit=10000)
             ]
 
         return json.dumps(data, indent=2, default=str)
@@ -2381,18 +2381,19 @@ class Kernle(
         Returns:
             The exported content string
         """
+        # Auto-detect format from file extension if path is provided
+        if path:
+            if path.endswith(".json"):
+                format = "json"
+            elif path.endswith(".md") or path.endswith(".markdown"):
+                format = "markdown"
+
         if format == "json":
             content = self._export_full_json(include_raw)
         else:
             content = self._export_full_markdown(include_raw)
 
         if path:
-            # Auto-detect format from extension
-            if format == "markdown" and path.endswith(".json"):
-                content = self._export_full_json(include_raw)
-            elif format == "json" and (path.endswith(".md") or path.endswith(".markdown")):
-                content = self._export_full_markdown(include_raw)
-
             export_path = Path(path)
             export_path.parent.mkdir(parents=True, exist_ok=True)
             export_path.write_text(content, encoding="utf-8")
@@ -2428,7 +2429,7 @@ class Kernle(
                 lines.append("")
 
         # Values
-        values = self._storage.get_values(limit=100)
+        values = self._storage.get_values(limit=10000)
         if values:
             lines.append("## Values")
             for v in sorted(
@@ -2438,7 +2439,7 @@ class Kernle(
             lines.append("")
 
         # Beliefs
-        beliefs = self._storage.get_beliefs(limit=200)
+        beliefs = self._storage.get_beliefs(limit=10000)
         if beliefs:
             lines.append("## Beliefs")
             for b in sorted(
@@ -2450,7 +2451,7 @@ class Kernle(
             lines.append("")
 
         # Goals
-        goals = self._storage.get_goals(status=None, limit=100)
+        goals = self._storage.get_goals(status=None, limit=10000)
         if goals:
             lines.append("## Goals")
             for g in goals:
@@ -2483,7 +2484,7 @@ class Kernle(
             lines.append("")
 
         # Episodes
-        episodes = self._storage.get_episodes(limit=100)
+        episodes = self._storage.get_episodes(limit=10000)
         if episodes:
             lines.append("## Episodes")
             for e in episodes:
@@ -2504,7 +2505,7 @@ class Kernle(
                 lines.append("")
 
         # Notes
-        notes = self._storage.get_notes(limit=100)
+        notes = self._storage.get_notes(limit=10000)
         if notes:
             lines.append("## Notes")
             for n in notes:
@@ -2530,7 +2531,7 @@ class Kernle(
             lines.append("")
 
         # Playbooks
-        playbooks = self._storage.list_playbooks(limit=100)
+        playbooks = self._storage.list_playbooks(limit=10000)
         if playbooks:
             lines.append("## Playbooks")
             for p in playbooks:
@@ -2571,18 +2572,15 @@ class Kernle(
 
         # Raw entries (optional)
         if include_raw:
-            raw_entries = self._storage.list_raw(limit=100)
+            raw_entries = self._storage.list_raw(limit=10000)
             if raw_entries:
                 lines.append("## Raw Entries")
                 for raw in raw_entries:
-                    date_str = (
-                        raw.timestamp.strftime("%Y-%m-%d %H:%M") if raw.timestamp else "unknown"
-                    )
+                    ts = raw.captured_at or raw.timestamp
+                    date_str = ts.strftime("%Y-%m-%d %H:%M") if ts else "unknown"
                     status = "+" if raw.processed else "o"
                     lines.append(f"### {status} {date_str}")
-                    lines.append(raw.content)
-                    if raw.tags:
-                        lines.append(f"Tags: {', '.join(raw.tags)}")
+                    lines.append(raw.blob or raw.content or "")
                     if raw.processed and raw.processed_into:
                         lines.append(f"Processed into: {', '.join(raw.processed_into)}")
                     lines.append("")
@@ -2602,7 +2600,7 @@ class Kernle(
         assessments = self._storage.get_trust_assessments()
 
         # Playbooks
-        playbooks = self._storage.list_playbooks(limit=100)
+        playbooks = self._storage.list_playbooks(limit=10000)
 
         data = {
             "stack_id": self.stack_id,
@@ -2638,7 +2636,7 @@ class Kernle(
                     "last_accessed": _dt(v.last_accessed),
                     "is_protected": v.is_protected,
                 }
-                for v in self._storage.get_values(limit=100)
+                for v in self._storage.get_values(limit=10000)
             ],
             "beliefs": [
                 {
@@ -2659,7 +2657,7 @@ class Kernle(
                     "times_reinforced": b.times_reinforced,
                     "is_active": b.is_active,
                 }
-                for b in self._storage.get_beliefs(limit=200)
+                for b in self._storage.get_beliefs(limit=10000)
             ],
             "goals": [
                 {
@@ -2677,7 +2675,7 @@ class Kernle(
                     "last_accessed": _dt(g.last_accessed),
                     "is_protected": g.is_protected,
                 }
-                for g in self._storage.get_goals(status=None, limit=100)
+                for g in self._storage.get_goals(status=None, limit=10000)
             ],
             "drives": [
                 {
@@ -2737,7 +2735,7 @@ class Kernle(
                     "last_accessed": _dt(e.last_accessed),
                     "is_protected": e.is_protected,
                 }
-                for e in self._storage.get_episodes(limit=100)
+                for e in self._storage.get_episodes(limit=10000)
             ],
             "notes": [
                 {
@@ -2756,7 +2754,7 @@ class Kernle(
                     "last_accessed": _dt(n.last_accessed),
                     "is_protected": n.is_protected,
                 }
-                for n in self._storage.get_notes(limit=100)
+                for n in self._storage.get_notes(limit=10000)
             ],
             "trust_assessments": [
                 {
@@ -2797,17 +2795,14 @@ class Kernle(
             data["raw_entries"] = [
                 {
                     "id": r.id,
-                    "content": r.content,
-                    "timestamp": _dt(r.timestamp),
+                    "blob": r.blob or r.content,
+                    "captured_at": _dt(r.captured_at or r.timestamp),
                     "source": r.source,
                     "processed": r.processed,
                     "processed_into": r.processed_into,
-                    "tags": r.tags,
                     "local_updated_at": _dt(r.local_updated_at),
-                    "confidence": r.confidence,
-                    "source_type": r.source_type,
                 }
-                for r in self._storage.list_raw(limit=100)
+                for r in self._storage.list_raw(limit=10000)
             ]
 
         return json.dumps(data, indent=2, default=str)
@@ -6149,7 +6144,7 @@ class Kernle(
         recurring.sort(key=lambda x: -len(x[1]))
 
         # Check existing beliefs to avoid duplicates
-        existing_beliefs = self._storage.get_beliefs(limit=200)
+        existing_beliefs = self._storage.get_beliefs(limit=10000)
         existing_statements = {b.statement.strip().lower() for b in existing_beliefs if b.is_active}
 
         suggestions = []
