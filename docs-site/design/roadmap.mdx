@@ -110,9 +110,9 @@ Installation: `cd integrations/openclaw && npm install && npm run build && openc
 
 See [OpenClaw Integration](/integration/openclaw) for full details.
 
-### Claude Code Plugin
+### Claude Code Hooks
 
-Claude Code plugin using the hook system. Provides full lifecycle coverage — automatic loading, pre-compaction checkpointing, session-end checkpointing, and native write interception:
+Claude Code integration using `kernle hook` CLI commands. Provides full lifecycle coverage — automatic loading, pre-compaction checkpointing, session-end checkpointing, and native write interception:
 
 | Hook | Kernle Use |
 |------|-----------|
@@ -121,9 +121,9 @@ Claude Code plugin using the hook system. Provides full lifecycle coverage — a
 | `PreCompact` | Auto-save checkpoint before context compaction |
 | `SessionEnd` | Final checkpoint + raw entry on session close |
 
-Installation: `claude --plugin-dir ./integrations/claude-code`
+Installation: `kernle setup claude-code` (writes hooks to `.claude/settings.json`)
 
-Pure Python, stdlib only — no build step required. Configuration via environment variables (`KERNLE_STACK_ID`, `KERNLE_BIN`, `KERNLE_TIMEOUT`, `KERNLE_TOKEN_BUDGET`).
+No repo access needed — works directly from `pip install kernle`. Configuration via environment variables (`KERNLE_STACK_ID`, `KERNLE_TOKEN_BUDGET`).
 
 See [Claude Code Integration](/integration/claude-code) for full details.
 
