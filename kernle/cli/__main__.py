@@ -4359,6 +4359,24 @@ Beliefs already present in the agent's memory will be skipped.
     )
     migrate_provenance.add_argument("--json", "-j", action="store_true")
 
+    # migrate link-raw - link pre-provenance memories to raw entries
+    migrate_link_raw = migrate_sub.add_parser(
+        "link-raw",
+        help="Link pre-provenance episodes/notes to raw entries by timestamp and content",
+    )
+    migrate_link_raw.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview what would be linked without making changes",
+    )
+    migrate_link_raw.add_argument("--json", "-j", action="store_true")
+    migrate_link_raw.add_argument(
+        "--window",
+        type=int,
+        default=30,
+        help="Timestamp proximity window in minutes (default: 30)",
+    )
+
     # setup - install platform hooks for automatic memory loading
     p_setup = subparsers.add_parser(
         "setup", help="Install platform hooks for automatic memory loading"
