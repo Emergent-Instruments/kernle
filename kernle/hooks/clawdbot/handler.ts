@@ -17,7 +17,7 @@ interface BootstrapContext {
 }
 
 /**
- * Extract stack ID from session key (e.g., "agent:claire:main" -> "claire")
+ * Extract stack ID from session key (e.g., "agent:ash:main" -> "ash")
  */
 function extractStackId(sessionKey: string | undefined, workspaceDir: string | undefined): string {
   if (sessionKey) {

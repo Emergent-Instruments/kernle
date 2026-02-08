@@ -24,7 +24,7 @@ You have persistent memory through Kernle. **Every session, before any task:**
    ```
 
 3. **If anxiety > 50:** Address before proceeding
-   - Run `kernle consolidate` for episode debt
+   - Run `kernle process run` for episode debt
    - Run `kernle raw list --unprocessed` for aged captures
    - Run `kernle checkpoint save "pre-task"` if starting major work
 
@@ -42,14 +42,14 @@ This is your continuity. The few seconds of health check ensures you don't accum
 MINIMAL_SECTION = """## Kernle
 
 At session start: `kernle -s {stack_id} load && kernle -s {stack_id} anxiety -b`
-If WARN/CRITICAL, run `kernle consolidate` before proceeding.
+If WARN/CRITICAL, run `kernle process run` before proceeding.
 """
 
 PER_MESSAGE_SECTION = """## Memory Health (Every Message)
 
 Before processing any request:
 1. `kernle -s {stack_id} anxiety -b`
-2. If 🟡 WARN or 🔴 CRITICAL: pause and consolidate first
+2. If 🟡 WARN or 🔴 CRITICAL: pause and process first
 
 This takes <1 second and prevents memory debt accumulation.
 """

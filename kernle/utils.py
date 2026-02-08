@@ -35,17 +35,17 @@ def _get_git_root() -> Optional[str]:
 
 
 def generate_default_stack_id() -> str:
-    """Generate a default agent ID based on machine + project path.
+    """Generate a default stack ID based on machine + project path.
 
     Combines:
     1. Machine identifier (hostname)
     2. Project path (git root or cwd)
 
     Returns a stable ID like 'auto-a1b2c3d4' that:
-    - Same machine + same directory = same agent (consistent)
-    - Different machine or path = different agent (isolated)
+    - Same machine + same directory = same stack (consistent)
+    - Different machine or path = different stack (isolated)
 
-    The user can always override with explicit -a <name> or KERNLE_STACK_ID env var.
+    The user can always override with explicit -s <name> or KERNLE_STACK_ID env var.
     """
     # Get machine identifier
     machine = platform.node() or "unknown"
@@ -65,7 +65,7 @@ def generate_default_stack_id() -> str:
 
 
 def resolve_stack_id(explicit_id: Optional[str] = None) -> str:
-    """Resolve the agent ID with fallback chain.
+    """Resolve the stack ID with fallback chain.
 
     Resolution order:
     1. Explicit ID passed as argument (highest priority)
@@ -73,10 +73,10 @@ def resolve_stack_id(explicit_id: Optional[str] = None) -> str:
     3. Auto-generated from machine + project path
 
     Args:
-        explicit_id: Explicitly provided agent ID (e.g., from -a flag)
+        explicit_id: Explicitly provided stack ID (e.g., from -s flag)
 
     Returns:
-        The resolved agent ID
+        The resolved stack ID
     """
     # 1. Explicit ID takes priority
     if explicit_id and explicit_id != "default":

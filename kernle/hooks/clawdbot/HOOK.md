@@ -50,7 +50,7 @@ Enable/disable in `~/.clawdbot/clawdbot.json`:
 ## Stack ID Detection
 
 The hook detects the stack ID from:
-1. Session key (e.g., `agent:claire:main` → `claire`)
+1. Session key (e.g., `agent:ash:main` → `ash`)
 2. Workspace directory name as fallback
 3. Default to `"main"` if unable to detect
 

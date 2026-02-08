@@ -37,8 +37,8 @@ kernle -s my-stack checkpoint save "End of session"
 **Make memory loading automatic** instead of relying on manual commands:
 
 ```bash
-# Clawdbot - Install hook for automatic loading
-kernle -s my-stack setup clawdbot
+# OpenClaw - Install hook for automatic loading
+kernle -s my-stack setup openclaw
 
 # Claude Code - Install SessionStart hook (project-level)
 kernle -s my-stack setup claude-code
@@ -66,9 +66,9 @@ kernle -s my-stack init  # Generates CLAUDE.md section with manual load instruct
 claude mcp add kernle -- kernle mcp -s my-stack
 ```
 
-**Clawdbot skill:**
+**OpenClaw skill:**
 ```bash
-ln -s ~/kernle/skill ~/.clawdbot/skills/kernle
+ln -s ~/kernle/skill ~/.openclaw/skills/kernle
 ```
 
 ## Features
@@ -138,8 +138,8 @@ The **hosted cloud API** (api.kernle.ai) is maintained separately.
 
 ## Status
 
-- **Tests:** 1292 passing
-- **Coverage:** 57%
+- **Tests:** 2971 passing
+- **Coverage:** 63%
 - **Cloud API:** [api.kernle.ai](https://api.kernle.ai) (Railway + Supabase)
 - **Docs:** [docs.kernle.ai](https://docs.kernle.ai) (Mintlify)
 

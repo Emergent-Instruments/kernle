@@ -40,7 +40,7 @@ Example:
         "hooks": [
           {
             "type": "command",
-            "command": "kernle -s claire load"
+            "command": "kernle -s my-project load"
           }
         ]
       }
@@ -97,7 +97,7 @@ Instead of hooks, use command injection in `CLAUDE.md`:
 ```markdown
 # Kernle Memory
 
-!`kernle -s claire load`
+!`kernle -s my-project load`
 ```
 
 The `!`command`` syntax executes at file load time.
@@ -187,5 +187,5 @@ Cowork uses the same `.claude/settings.json` format. Follow the same instruction
 ## See Also
 
 - [Kernle Documentation](../../README.md)
-- [Clawdbot Hook](../clawdbot/README.md)
+- [OpenClaw Hook](../clawdbot/README.md)
 - [Claude Code Hooks](https://code.claude.com/docs/en/hooks.md)
