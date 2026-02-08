@@ -357,8 +357,8 @@ class TestDetailedAndActions:
             "recommendations": [
                 {
                     "priority": "medium",
-                    "description": "Run consolidation",
-                    "command": "kernle consolidate",
+                    "description": "Run promotion",
+                    "command": "kernle promote",
                 }
             ],
         }
@@ -383,7 +383,7 @@ class TestDetailedAndActions:
         assert "15 min" in captured.out
         assert "5 episodes" in captured.out
         assert "Recommended Actions:" in captured.out
-        assert "kernle consolidate" in captured.out
+        assert "kernle promote" in captured.out
 
     def test_actions_mode(self, capsys):
         """Actions mode shows recommended actions."""
@@ -469,8 +469,8 @@ class TestAutoMode:
         captured = capsys.readouterr()
         assert "No actions needed" in captured.out
 
-    def test_auto_consolidate_action(self, capsys):
-        """Auto mode executes consolidate action."""
+    def test_auto_promote_action(self, capsys):
+        """Auto mode executes promote action."""
         k = MagicMock()
         k.get_anxiety_report.return_value = {
             "overall_score": 55,
@@ -487,9 +487,9 @@ class TestAutoMode:
             },
         }
         k.get_recommended_actions.return_value = [
-            {"priority": "medium", "description": "Consolidate", "method": "consolidate"}
+            {"priority": "medium", "description": "Promote episodes", "method": "promote"}
         ]
-        k.consolidate.return_value = {"consolidated": 5}
+        k.promote.return_value = {"episodes_scanned": 5}
 
         args = Namespace(
             context=None,
@@ -506,9 +506,9 @@ class TestAutoMode:
 
         cmd_anxiety(args, k)
 
-        k.consolidate.assert_called_once()
+        k.promote.assert_called_once()
         captured = capsys.readouterr()
-        assert "Consolidated 5 episodes" in captured.out
+        assert "Promoted from 5 episodes" in captured.out
 
     def test_auto_synthesize_identity_action(self, capsys):
         """Auto mode executes synthesize identity action."""

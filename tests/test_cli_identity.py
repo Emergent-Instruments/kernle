@@ -4,7 +4,7 @@ import json
 from argparse import Namespace
 from unittest.mock import MagicMock
 
-from kernle.cli.commands.identity import cmd_consolidate, cmd_identity, cmd_promote
+from kernle.cli.commands.identity import cmd_identity, cmd_promote
 
 
 class TestCmdPromote:
@@ -157,71 +157,6 @@ class TestCmdPromote:
         captured = capsys.readouterr()
         assert "kernle" in captured.out
         assert "promote --auto" in captured.out
-
-
-class TestCmdConsolidateDeprecated:
-    """Test that cmd_consolidate is a deprecated alias for cmd_promote."""
-
-    def test_deprecation_warning(self, capsys):
-        """Test consolidate prints deprecation warning to stderr."""
-        k = MagicMock()
-        k.stack_id = "test-agent"
-        k.promote.return_value = {
-            "episodes_scanned": 5,
-            "patterns_found": 0,
-            "suggestions": [],
-            "beliefs_created": 0,
-        }
-
-        args = Namespace(
-            auto=False,
-            min_occurrences=2,
-            min_episodes=3,
-            confidence=0.7,
-            limit=50,
-            json=False,
-        )
-
-        cmd_consolidate(args, k)
-
-        captured = capsys.readouterr()
-        assert "deprecated" in captured.err.lower()
-        assert "promote" in captured.err
-
-    def test_delegates_to_promote(self, capsys):
-        """Test consolidate delegates to promote and produces same output."""
-        k = MagicMock()
-        k.stack_id = "test-agent"
-        k.promote.return_value = {
-            "episodes_scanned": 10,
-            "patterns_found": 1,
-            "suggestions": [
-                {
-                    "lesson": "Always test first",
-                    "count": 3,
-                    "source_episodes": ["ep1", "ep2", "ep3"],
-                },
-            ],
-            "beliefs_created": 0,
-        }
-
-        args = Namespace(
-            auto=False,
-            min_occurrences=2,
-            min_episodes=3,
-            confidence=0.7,
-            limit=50,
-            json=False,
-        )
-
-        cmd_consolidate(args, k)
-
-        captured = capsys.readouterr()
-        # Should produce promote output
-        assert "Promotion Results" in captured.out
-        assert "Always test first" in captured.out
-        # k.promote should have been called
-        k.promote.assert_called_once()
 
 
 class TestCmdIdentityShow:

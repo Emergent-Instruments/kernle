@@ -104,8 +104,10 @@ class TestCmdRawCapture:
         cmd_raw(args, k)
 
         call_kwargs = k.raw.call_args
-        assert "tag1" in call_kwargs[1]["tags"]
-        assert "tag2" in call_kwargs[1]["tags"]
+        # Tags are folded into blob text (tags param removed from raw API)
+        blob_value = call_kwargs[1].get("blob", call_kwargs[0][0] if call_kwargs[0] else "")
+        assert "tag1" in blob_value
+        assert "tag2" in blob_value
 
     def test_capture_with_source(self, capsys):
         """Capture with custom source."""

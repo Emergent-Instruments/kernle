@@ -338,7 +338,7 @@ def _import_json(
                     skipped["raw"] = skipped.get("raw", 0) + 1
                     continue
 
-            k.raw(content=content, source=item.get("source", "import"), tags=item.get("tags"))
+            k.raw(blob=content, source=item.get("source", "import"))
             imported["raw"] = imported.get("raw", 0) + 1
         except Exception as e:
             errors.append(f"raw: {str(e)[:50]}")
@@ -1015,7 +1015,7 @@ def _import_item(
             derived_from=derived_from,
         )
     elif t == "raw":
-        k.raw(content=item["content"], source=item.get("source", "import"), tags=item.get("tags"))
+        k.raw(blob=item["content"], source=item.get("source", "import"))
 
 
 def cmd_migrate(args: "argparse.Namespace", k: "Kernle") -> None:

@@ -388,9 +388,8 @@ def _import_csv_item(item: CsvImportItem, k: "Kernle", skip_duplicates: bool = T
                     return False
 
         k.raw(
-            content=content,
+            blob=content,
             source=data.get("source", "csv-import"),
-            tags=data.get("tags"),
         )
         return True
 

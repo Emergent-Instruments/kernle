@@ -147,9 +147,9 @@ def cmd_anxiety(args, k: "Kernle"):
                         context=f"Anxiety level: {report['overall_score']}/100",
                     )
                     print("    ✓ Checkpoint saved")
-                elif method == "consolidate":
-                    result = k.consolidate(min_episodes=1)
-                    print(f"    ✓ Consolidated {result.get('consolidated', 0)} episodes")
+                elif method == "promote":
+                    result = k.promote(min_episodes=1)
+                    print(f"    ✓ Promoted from {result.get('episodes_scanned', 0)} episodes")
                 elif method == "synthesize_identity":
                     identity = k.synthesize_identity()
                     print(

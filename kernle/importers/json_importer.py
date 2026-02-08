@@ -305,9 +305,8 @@ def _import_json_item(item: JsonImportItem, k: "Kernle", skip_duplicates: bool =
                     return False
 
         k.raw(
-            content=content,
+            blob=content,
             source=data.get("source", "import"),
-            tags=data.get("tags"),
         )
         return True
 

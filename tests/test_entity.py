@@ -302,7 +302,7 @@ class TestRoutedOperations:
 
     def test_raw_routes_to_stack(self, entity, stack):
         entity.attach_stack(stack)
-        entity.raw("some unstructured content", tags=["dump"])
+        entity.raw("some unstructured content")
         r = stack.save_raw.call_args[0][0]
         assert isinstance(r, RawEntry)
         assert r.blob == "some unstructured content"

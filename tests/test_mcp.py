@@ -171,8 +171,6 @@ def mock_kernle():
         "notes": [{"content": "Test note content"}],
     }
 
-    kernle_mock.consolidate.return_value = {"consolidated": 5, "new_beliefs": 2}
-
     # Mock load_beliefs for memory_consolidate reflection scaffold
     kernle_mock.load_beliefs.return_value = [
         {"statement": "Testing is crucial", "confidence": 0.9, "belief_type": "learned"},

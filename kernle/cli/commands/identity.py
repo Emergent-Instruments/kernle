@@ -1,7 +1,6 @@
-"""Identity, promotion, and consolidation commands for Kernle CLI."""
+"""Identity and promotion commands for Kernle CLI."""
 
 import json
-import sys
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
@@ -151,15 +150,6 @@ def _print_drive_pattern_analysis(episodes, k: "Kernle"):
     elif tag_counts:
         print("All recurring themes align with declared drives.")
         print()
-
-
-def cmd_consolidate(args, k: "Kernle"):
-    """Deprecated alias for 'kernle promote'. Use 'kernle promote' instead."""
-    print(
-        "WARNING: 'kernle consolidate' is deprecated. " "Use 'kernle promote' instead.",
-        file=sys.stderr,
-    )
-    cmd_promote(args, k)
 
 
 def cmd_identity(args, k: "Kernle"):

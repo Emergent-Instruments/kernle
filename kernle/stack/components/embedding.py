@@ -73,6 +73,10 @@ class EmbeddingComponent:
         """Update the inference service when the model changes."""
         self._inference = inference
 
+    def set_storage(self, storage: Any) -> None:
+        """Not needed by EmbeddingComponent."""
+        pass
+
     # ---- Lifecycle Hooks ----
 
     def on_save(self, memory_type: str, memory_id: str, memory: Any) -> Any:

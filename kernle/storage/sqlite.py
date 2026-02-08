@@ -5737,11 +5737,8 @@ class SQLiteStorage:
 
     def save_raw(
         self,
-        blob: Optional[str] = None,
+        blob: str,
         source: str = "unknown",
-        # DEPRECATED parameters - kept for backward compatibility
-        content: Optional[str] = None,
-        tags: Optional[List[str]] = None,
     ) -> str:
         """Save a raw entry for later processing.
 
@@ -5750,37 +5747,12 @@ class SQLiteStorage:
         metadata.
 
         Args:
-            blob: The raw brain dump content (primary parameter).
+            blob: The raw brain dump content (required).
             source: Auto-populated source identifier (cli|mcp|sdk|import|unknown).
-
-        Deprecated Args:
-            content: Use blob instead. Will be removed in future version.
-            tags: Include tags in blob text instead. Will be removed in future version.
 
         Returns:
             The raw entry ID.
         """
-        import warnings
-
-        # Handle deprecated parameters
-        if content is not None:
-            warnings.warn(
-                "The 'content' parameter is deprecated. Use 'blob' instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            if blob is None:
-                blob = content
-
-        if tags is not None:
-            warnings.warn(
-                "The 'tags' parameter is deprecated. Include tags in blob text instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-
-        if blob is None:
-            raise ValueError("blob parameter is required")
 
         # Normalize source to valid enum values
         valid_sources = {"cli", "mcp", "sdk", "import", "unknown"}
@@ -5810,7 +5782,7 @@ class SQLiteStorage:
         now = self._now()
 
         # 1. Write to flat file (blob acts as flat file content)
-        self._append_raw_to_file(raw_id, blob, now, source, tags)
+        self._append_raw_to_file(raw_id, blob, now, source, None)
 
         # 2. Index in SQLite with both blob and legacy columns for compatibility
         with self._connect() as conn:
@@ -5832,7 +5804,7 @@ class SQLiteStorage:
                     None,  # processed_into
                     blob,  # Legacy content field (same as blob for new entries)
                     now,  # Legacy timestamp field (same as captured_at)
-                    self._to_json(tags),  # Legacy tags field
+                    None,  # Legacy tags field (removed)
                     1.0,  # confidence (deprecated)
                     "direct_experience",  # source_type (deprecated)
                     now,

@@ -91,10 +91,7 @@ class TestCLIIntegration:
         k = temp_kernle
 
         # Capture raw thought
-        raw_id = k.raw(
-            content="This is a raw thought that should become an episode",
-            tags=["test", "integration"],
-        )
+        raw_id = k.raw("This is a raw thought that should become an episode")
 
         # Verify raw exists
         raw_entry = k.get_raw(raw_id)
