@@ -3242,12 +3242,13 @@ class SQLiteStorage:
                  source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
                  supersedes, superseded_by, times_reinforced, is_active,
+                 strength,
                  context, context_tags, source_entity, subject_ids, access_grants, consent_grants,
                  processed,
                  belief_scope, source_domain, cross_domain_applications, abstraction_level,
                  epoch_id,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     belief.id,
@@ -3266,6 +3267,7 @@ class SQLiteStorage:
                     belief.superseded_by,
                     belief.times_reinforced,
                     1 if belief.is_active else 0,
+                    belief.strength,
                     belief.context,
                     self._to_json(belief.context_tags),
                     getattr(belief, "source_entity", None),
@@ -3629,11 +3631,12 @@ class SQLiteStorage:
                 (id, stack_id, name, statement, priority, created_at,
                  confidence, source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
+                 strength,
                  context, context_tags,
                  subject_ids, access_grants, consent_grants,
                  epoch_id,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     value.id,
@@ -3649,6 +3652,7 @@ class SQLiteStorage:
                     value.last_verified.isoformat() if value.last_verified else None,
                     value.verification_count,
                     self._to_json(value.confidence_history),
+                    value.strength,
                     value.context,
                     self._to_json(value.context_tags),
                     self._to_json(getattr(value, "subject_ids", None)),
@@ -3758,11 +3762,12 @@ class SQLiteStorage:
                 (id, stack_id, title, description, goal_type, priority, status, created_at,
                  confidence, source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
+                 strength,
                  context, context_tags,
                  subject_ids, access_grants, consent_grants,
                  epoch_id,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     goal.id,
@@ -3780,6 +3785,7 @@ class SQLiteStorage:
                     goal.last_verified.isoformat() if goal.last_verified else None,
                     goal.verification_count,
                     self._to_json(goal.confidence_history),
+                    goal.strength,
                     goal.context,
                     self._to_json(goal.context_tags),
                     self._to_json(getattr(goal, "subject_ids", None)),
@@ -3921,11 +3927,12 @@ class SQLiteStorage:
                 (id, stack_id, content, note_type, speaker, reason, tags, created_at,
                  confidence, source_type, source_episodes, derived_from,
                  last_verified, verification_count, confidence_history,
+                 strength,
                  context, context_tags, source_entity,
                  subject_ids, access_grants, consent_grants,
                  epoch_id,
                  local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     note.id,
@@ -3943,6 +3950,7 @@ class SQLiteStorage:
                     note.last_verified.isoformat() if note.last_verified else None,
                     note.verification_count,
                     self._to_json(note.confidence_history),
+                    note.strength,
                     note.context,
                     self._to_json(note.context_tags),
                     getattr(note, "source_entity", None),
@@ -4157,11 +4165,12 @@ class SQLiteStorage:
                     (id, stack_id, drive_type, intensity, focus_areas, created_at, updated_at,
                      confidence, source_type, source_episodes, derived_from,
                      last_verified, verification_count, confidence_history,
+                     strength,
                      context, context_tags,
                      subject_ids, access_grants, consent_grants,
                      epoch_id,
                      local_updated_at, cloud_synced_at, version, deleted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         drive.id,
@@ -4178,6 +4187,7 @@ class SQLiteStorage:
                         drive.last_verified.isoformat() if drive.last_verified else None,
                         drive.verification_count,
                         self._to_json(drive.confidence_history),
+                        drive.strength,
                         drive.context,
                         self._to_json(drive.context_tags),
                         self._to_json(getattr(drive, "subject_ids", None)),
@@ -4334,11 +4344,12 @@ class SQLiteStorage:
                      sentiment, interaction_count, last_interaction, created_at,
                      confidence, source_type, source_episodes, derived_from,
                      last_verified, verification_count, confidence_history,
+                     strength,
                      context, context_tags,
                      subject_ids, access_grants, consent_grants,
                      epoch_id,
                      local_updated_at, cloud_synced_at, version, deleted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                     (
                         relationship.id,
@@ -4366,6 +4377,7 @@ class SQLiteStorage:
                         ),
                         relationship.verification_count,
                         self._to_json(relationship.confidence_history),
+                        relationship.strength,
                         relationship.context,
                         self._to_json(relationship.context_tags),
                         self._to_json(getattr(relationship, "subject_ids", None)),
