@@ -506,6 +506,26 @@ def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
             )
             sanitized["limit"] = int(validate_number(arguments.get("limit"), "limit", 1, 500, 50))
 
+        elif name == "memory_process":
+            from kernle.processing import VALID_TRANSITIONS
+
+            transition = arguments.get("transition")
+            if transition is not None:
+                transition = sanitize_string(transition, "transition", 50, required=True)
+                if transition not in VALID_TRANSITIONS:
+                    raise ValueError(
+                        f"Invalid transition: {transition}. "
+                        f"Valid: {', '.join(sorted(VALID_TRANSITIONS))}"
+                    )
+            sanitized["transition"] = transition
+            sanitized["force"] = arguments.get("force", False)
+            if not isinstance(sanitized["force"], bool):
+                sanitized["force"] = False
+
+        elif name == "memory_process_status":
+            # No parameters to validate
+            pass
+
         elif name in _plugin_handlers:
             # Plugin tools bypass built-in validation; plugins own their schemas
             sanitized = dict(arguments)
@@ -1380,6 +1400,41 @@ TOOLS = [
             },
         },
     ),
+    Tool(
+        name="memory_process",
+        description="Run memory processing to promote memories up the hierarchy using the bound model. Transitions: raw->episode, raw->note, episode->belief, episode->goal, episode->relationship, belief->value, episode->drive. Requires a bound model.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "transition": {
+                    "type": "string",
+                    "description": "Specific layer transition to process (omit to check all)",
+                    "enum": [
+                        "raw_to_episode",
+                        "raw_to_note",
+                        "episode_to_belief",
+                        "episode_to_goal",
+                        "episode_to_relationship",
+                        "belief_to_value",
+                        "episode_to_drive",
+                    ],
+                },
+                "force": {
+                    "type": "boolean",
+                    "description": "Process even if trigger thresholds aren't met (default: false)",
+                    "default": False,
+                },
+            },
+        },
+    ),
+    Tool(
+        name="memory_process_status",
+        description="Show unprocessed memory counts and which processing triggers would fire. No model required.",
+        inputSchema={
+            "type": "object",
+            "properties": {},
+        },
+    ),
 ]
 
 
@@ -2039,6 +2094,85 @@ Checkpoint: {"Yes" if status["checkpoint"] else "No"}"""
                     lines.append(f"  {t}: {count}")
                 lines.append("\nUse memory_suggestions_list to review pending suggestions.")
                 result = "\n".join(lines)
+
+        elif name == "memory_process":
+            transition = sanitized_args.get("transition")
+            force = sanitized_args.get("force", False)
+            try:
+                results = k.process(transition=transition, force=force)
+            except RuntimeError as e:
+                result = (
+                    "Memory processing requires a bound model. " "Use entity.set_model() first."
+                )
+                return [TextContent(type="text", text=result)]
+
+            if not results:
+                result = "No processing triggered. "
+                if not force:
+                    result += "Thresholds not met — use force=true to process anyway."
+                else:
+                    result += "No unprocessed memories found."
+            else:
+                lines = [f"Processing complete ({len(results)} transition(s)):\n"]
+                for r in results:
+                    if r.skipped:
+                        lines.append(f"  {r.layer_transition}: skipped ({r.skip_reason})")
+                    else:
+                        created_summary = ", ".join(f"{c['type']}:{c['id'][:8]}" for c in r.created)
+                        lines.append(
+                            f"  {r.layer_transition}: "
+                            f"{r.source_count} sources -> {len(r.created)} created"
+                        )
+                        if created_summary:
+                            lines.append(f"    Created: {created_summary}")
+                        if r.errors:
+                            for err in r.errors:
+                                lines.append(f"    Error: {err}")
+                result = "\n".join(lines)
+
+        elif name == "memory_process_status":
+            from kernle.processing import DEFAULT_LAYER_CONFIGS
+
+            lines = ["Memory Processing Status\n"]
+
+            try:
+                storage = k._storage
+                # Raw entries
+                unprocessed_raw = storage.list_raw(processed=False, limit=1000)
+                raw_count = len(unprocessed_raw)
+                lines.append(f"Unprocessed raw entries: {raw_count}")
+
+                # Episodes
+                episodes = storage.get_episodes(limit=1000)
+                unprocessed_eps = [e for e in episodes if not e.processed]
+                lines.append(f"Unprocessed episodes: {len(unprocessed_eps)}")
+
+                # Beliefs (for belief_to_value)
+                beliefs = storage.get_beliefs(limit=1000)
+                unprocessed_beliefs = [b for b in beliefs if not getattr(b, "processed", False)]
+                lines.append(f"Unprocessed beliefs: {len(unprocessed_beliefs)}")
+
+                # Trigger status
+                lines.append("\nTrigger Status:")
+                trigger_checks = {
+                    "raw_to_episode": raw_count,
+                    "raw_to_note": raw_count,
+                    "episode_to_belief": len(unprocessed_eps),
+                    "episode_to_goal": len(unprocessed_eps),
+                    "episode_to_relationship": len(unprocessed_eps),
+                    "episode_to_drive": len(unprocessed_eps),
+                    "belief_to_value": len(unprocessed_beliefs),
+                }
+                for transition, count in trigger_checks.items():
+                    cfg = DEFAULT_LAYER_CONFIGS.get(transition)
+                    if cfg:
+                        would_fire = count >= cfg.quantity_threshold
+                        status = "READY" if would_fire else "waiting"
+                        lines.append(f"  {transition}: {count}/{cfg.quantity_threshold} ({status})")
+            except Exception as e:
+                lines.append(f"\nError gathering status: {e}")
+
+            result = "\n".join(lines)
 
         elif name in _plugin_handlers:
             # Dispatch to plugin tool handler

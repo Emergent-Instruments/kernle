@@ -20,6 +20,7 @@ from kernle.cli.commands.init import cmd_init as cmd_init_md
 from kernle.cli.commands.meta import cmd_meta
 from kernle.cli.commands.narrative import cmd_narrative
 from kernle.cli.commands.playbook import cmd_playbook
+from kernle.cli.commands.process import cmd_process
 from kernle.cli.commands.raw import cmd_raw, resolve_raw_id
 from kernle.cli.commands.stats import cmd_stats
 from kernle.cli.commands.subscription import cmd_subscription
@@ -44,6 +45,7 @@ __all__ = [
     "cmd_meta",
     "cmd_narrative",
     "cmd_playbook",
+    "cmd_process",
     "cmd_raw",
     "cmd_stats",
     "cmd_suggestions",
