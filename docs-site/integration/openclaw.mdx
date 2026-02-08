@@ -1,11 +1,53 @@
 ---
 title: OpenClaw Integration
-description: "Using Kernle with OpenClaw for persistent SI memory"
+description: "Hook-based automatic memory for OpenClaw SIs"
 ---
 
 # OpenClaw Integration
 
-OpenClaw is an AI SI runtime that supports Kernle as a skill for persistent memory. This guide covers setup and best practices.
+Kernle integrates with OpenClaw via **lifecycle hooks** — memory loads automatically at session start and saves automatically before compaction. No manual commands or native flat files required.
+
+## How It Works
+
+```
+SESSION START (or post-compaction)
+       ↓
+1. OpenClaw fires `agent:bootstrap` event
+2. Kernle hook executes: `kernle -s {stackId} load`
+3. Output injected as virtual KERNLE.md in context
+4. SI has full memory: values, beliefs, goals, checkpoint, episodes
+       ↓
+   SI WORKS (captures memories as they happen)
+       ↓
+CONTEXT PRESSURE RISES
+       ↓
+5. OpenClaw fires `memoryFlush` before compaction
+6. SI saves checkpoint: `kernle checkpoint "specific task"`
+7. Compaction happens (context reset)
+       ↓
+   CYCLE REPEATS (bootstrap fires again → KERNLE.md reloads)
+```
+
+<Note>
+The SI never needs to run `kernle load` manually. The bootstrap hook handles it automatically at every session start and after every compaction.
+</Note>
+
+## What Replaces What
+
+Kernle replaces OpenClaw's native static memory files:
+
+| Native File | Kernle Replacement | Status |
+|-------------|-------------------|--------|
+| `SOUL.md` | Values, beliefs, self-narrative | **Replaced** — Kernle's dynamic identity evolves; SOUL.md is static |
+| `USER.md` | Relationships layer | **Replaced** — Kernle tracks dynamic relationship state |
+| `AGENTS.md` | Not replaced | **Kept** — boot sequence instructions (but no `kernle load` needed in it) |
+| `TOOLS.md` | Boot config layer | **Replaced** — `kernle boot set key value` provides pre-load config |
+| `MEMORY.md` | `KERNLE.md` (auto-injected) | **Replaced** — hook injects memory automatically |
+| `HEARTBEAT.md` | Anxiety + periodic maintenance | **Optional** — heartbeats can still trigger Kernle maintenance |
+
+<Warning>
+`AGENTS.md` is the only native file that's still needed. It provides session-level instructions for the SI. But it no longer needs to contain `kernle load` instructions — the hook handles that.
+</Warning>
 
 ## Installation
 
@@ -17,88 +59,103 @@ OpenClaw is an AI SI runtime that supports Kernle as a skill for persistent memo
     pipx install kernle
     ```
   </Step>
-  <Step title="Add as OpenClaw Skill">
-    Add the Kernle skill to your OpenClaw workspace. The skill file (`SKILL.md`) should be in your skills directory.
-  </Step>
-  <Step title="Configure Stack ID">
-    Use a consistent stack ID across sessions. Set it in your environment or pass it explicitly:
+  <Step title="Initialize a Stack">
     ```bash
-    export KERNLE_STACK_ID=my-project
+    kernle -s my-project init
     ```
+  </Step>
+  <Step title="Run Setup">
+    The setup command installs the bootstrap hook and configures pre-compaction memory flush in one step:
+    ```bash
+    kernle -s my-project setup clawdbot --enable
+    ```
+    This:
+    1. Copies the `kernle-load` hook to `~/.config/moltbot/hooks/kernle-load/`
+    2. Enables the hook in `~/.clawdbot/clawdbot.json`
+    3. Configures `memoryFlush` for automatic pre-compaction checkpoint saving
+  </Step>
+  <Step title="Restart Gateway">
+    ```bash
+    clawdbot gateway restart
+    ```
+  </Step>
+  <Step title="Verify">
+    Start a new session and ask: *"Do you have memory context from Kernle?"*
+
+    The SI should see `KERNLE.md` in its context files containing values, beliefs, goals, and checkpoint.
   </Step>
 </Steps>
 
-## How Memory Works with OpenClaw
+## Session Start: Automatic Loading
 
-### What OpenClaw Provides Natively
+The `kernle-load` hook fires on every `agent:bootstrap` event — at session start and after every compaction.
 
-OpenClaw gives the SI a set of static identity and context files, plus conversation context within a single session:
+### Stack ID Detection
 
-- **`SOUL.md`** — Static identity definition: who the SI is, its personality, principles, and core character
-- **`USER.md`** — Static user context: who the SI is helping, their preferences and background
-- **`AGENTS.md`** — Session instructions and workflow rules that govern how the SI operates
-- **Conversation context** within a single session
+The hook automatically detects which stack to load:
 
-OpenClaw has **no persistent dynamic memory between sessions**. When context resets, the SI starts fresh, reading only the static files above. It has no recall of what happened in previous sessions, what it learned, or what it was working on.
+| Source | Example | Stack ID |
+|--------|---------|----------|
+| Session key | `agent:ash:main` | `ash` |
+| Workspace directory | `/Users/ash/clawd` | `clawd` |
+| Fallback | — | `main` |
 
-### What Kernle Adds
+### What Gets Injected
 
-Kernle fills the gap with **dynamic memory that persists across sessions and context resets**. Episodes, beliefs, values, goals, notes, checkpoints — all survive session boundaries. When `kernle load` is called at session start, the SI receives a rich context spanning all previous sessions: what it experienced, what it learned, what it was working on, and how it has evolved.
+The hook runs `kernle -s {stackId} load` and injects the output as a virtual `KERNLE.md` file containing:
 
-### What's Replaced vs. What Coexists
+- **Checkpoint** — current task, context, next steps (resume point)
+- **Values** — core principles
+- **Beliefs** — held truths with confidence levels
+- **Goals** — active goals with priority
+- **Drives** — motivations with intensity
+- **Lessons** — extracted from recent episodes
+- **Relationships** — key entities with sentiment
+- **Behavioral directives** — embedded instructions for seamless resumption
 
-No native OpenClaw functionality is replaced. OpenClaw has no dynamic memory system — Kernle fills that gap entirely.
+The SI sees this as a context file and resumes work naturally from the checkpoint.
 
-- **`SOUL.md`** — Still used. Static identity definition coexists with Kernle's dynamic identity layer (self-narratives, evolving beliefs, values). Think of `SOUL.md` as the initial constitution; Kernle tracks how the SI evolves from that starting point.
-- **`USER.md`** — Still used. Static user context. Kernle's relationships layer can supplement this with dynamic relationship tracking across sessions.
-- **`AGENTS.md`** — Still used. Session instructions include the `kernle load` command itself. This is how Kernle gets wired into the session lifecycle.
+### Budget-Aware Loading
 
-### Memory Handling Steps
+Memory loading is budget-aware by default (8000 tokens). Items are loaded by priority: checkpoint > values > beliefs > goals > drives > episodes > notes > relationships. Lower-priority items are excluded if the budget is exhausted.
 
-Memory handling in the OpenClaw integration is semi-automatic — a mix of instruction-driven, automatic, and periodic steps:
+### Graceful Degradation
 
-- **Manual (instruction-driven):** `kernle load` at session start and `kernle checkpoint save` at session end. These are driven by instructions in `AGENTS.md` that tell the SI to run them. The SI executes the commands; the human doesn't need to intervene.
+The hook fails silently if:
+- Kernle is not installed
+- No stack exists with the detected ID
+- `kernle load` times out (>5 seconds)
+- Any command error occurs
 
-- **Automatic — memoryFlush:** OpenClaw's compaction system triggers an emergency save before context is compacted. This is the one fully automatic step — when context pressure gets high, the SI is prompted to save its state to Kernle before its context is compressed. Even if the SI forgets to checkpoint, this safety net catches it.
+The session continues normally without Kernle memory.
 
-- **Semi-automatic — heartbeats:** If heartbeats are configured, periodic maintenance (anxiety check, raw entry review) happens at regular intervals during the session.
+## Pre-Compaction: Automatic Saving
 
-- **Immediate persistence:** Individual memory captures (`kernle episode`, `kernle note`, `kernle raw`) are persisted immediately when called. They don't wait for a checkpoint save — each command writes directly to storage the moment it runs.
+OpenClaw's `memoryFlush` system prompts the SI to save state before compaction. The setup command configures this automatically.
 
-- **If load is skipped:** The SI operates without cross-session context. Previous data is not lost, just not loaded into the current session. The next session can still load everything.
+When context pressure crosses the soft threshold:
 
-- **If checkpoint is skipped but memoryFlush is enabled:** The automatic flush provides a safety net, saving state before compaction even if the SI didn't explicitly checkpoint.
+1. OpenClaw sends a silent directive (NO_REPLY) to the SI
+2. The directive prompts the SI to save a specific checkpoint
+3. The SI runs `kernle checkpoint "<task>" --context "<progress>"`
+4. Compaction proceeds
+5. Bootstrap fires → KERNLE.md reloads with the fresh checkpoint
 
-## Session Workflow
+<Warning>
+Checkpoint quality matters. The memoryFlush prompt guides the SI to be specific:
+- **Bad**: `"Heartbeat complete"` or `"Saving state"`
+- **Good**: `"Building auth API - finished /login endpoint, next: add JWT validation"`
+</Warning>
 
-### Every Session Start
+## During Work
 
-Your `AGENTS.md` should include loading memory with a budget to prevent context overflow:
-
-```markdown
-## Every Session
-
-Before doing anything else:
-1. Read `SOUL.md` — this is who you are
-2. Read `USER.md` — this is who you're helping
-3. **Run `kernle -s <stack> load --budget 6000`** to restore your memory
-
-Don't ask permission. Just do it.
-```
-
-<Tip>
-The `--budget` flag limits memory loading to prevent context overflow. Use `6000` for normal sessions, or lower values like `4000` if you're experiencing context pressure. See [Context Overload Recovery](/troubleshooting/context-overload) for details.
-</Tip>
-
-### During Work
-
-Capture insights and learnings as they happen:
+The SI captures memories as they happen. Each capture writes immediately to local storage — no checkpoint needed:
 
 ```bash
-# Quick capture
+# Quick capture (raw layer)
 kernle -s my-project raw "Noticed rate limits are per-user"
 
-# Record significant experience
+# Record a significant experience
 kernle -s my-project episode "Debugged API timeout" "success" \
   --lesson "Check network latency before assuming code issues"
 
@@ -108,49 +165,9 @@ kernle -s my-project note "Using Redis for session cache" \
   --reason "Need sub-millisecond reads"
 ```
 
-### Session End
-
-Save state before the session ends:
-
-```bash
-kernle -s my-project checkpoint save "What I was working on" \
-  --pending "Next task" \
-  --context "Additional notes"
-```
-
-## Memory Flush Integration
-
-OpenClaw has a built-in `memoryFlush` feature that triggers before context compaction. Configure it in your SI settings:
-
-```json
-{
-  "agents": {
-    "defaults": {
-      "compaction": {
-        "mode": "safeguard",
-        "memoryFlush": {
-          "enabled": true,
-          "softThresholdTokens": 100000,
-          "prompt": "Context pressure is high. Save your state to Kernle NOW.",
-          "systemPrompt": "URGENT: Save state to Kernle immediately."
-        }
-      }
-    }
-  }
-}
-```
-
-When the memory flush triggers:
-
-1. Save checkpoint immediately:
-   ```bash
-   kernle -s my-project checkpoint save "pre-compaction auto-save"
-   ```
-2. Confirm briefly to the conversation
-
 ## Heartbeat Integration
 
-Use heartbeats for periodic memory maintenance:
+Heartbeats are optional but useful for periodic memory maintenance during long sessions:
 
 ```markdown
 ## HEARTBEAT.md
@@ -162,62 +179,161 @@ During heartbeats, rotate through:
 - Save checkpoint if anxiety is elevated
 ```
 
-## Context Pressure Monitoring
+## Configuration Reference
 
-Monitor context usage and save proactively:
+The setup command writes this to `~/.clawdbot/clawdbot.json`:
+
+```json
+{
+  "hooks": {
+    "internal": {
+      "enabled": true,
+      "entries": {
+        "kernle-load": {
+          "enabled": true
+        }
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "compaction": {
+        "memoryFlush": {
+          "enabled": true,
+          "prompt": "Before compaction, save your working state to Kernle..."
+        }
+      }
+    }
+  }
+}
+```
+
+| Setting | Purpose |
+|---------|---------|
+| `hooks.internal.entries.kernle-load.enabled` | Enable/disable automatic memory loading |
+| `agents.defaults.compaction.memoryFlush.enabled` | Enable/disable pre-compaction checkpoint saving |
+| `agents.defaults.compaction.memoryFlush.prompt` | Prompt sent to SI before compaction |
+
+## Expected Behavior
+
+### After Compaction (Correct)
+
+```
+[Context compacted, bootstrap fires, KERNLE.md loads]
+
+SI: "The /login endpoint is working. Moving on to /logout now —
+     I'll need to invalidate the JWT token on the server side..."
+```
+
+The SI reads the checkpoint, resumes naturally, and does not announce recovery.
+
+### After Compaction (Incorrect)
+
+```
+[Context compacted, bootstrap fires, KERNLE.md loads]
+
+SI: "Waking up after compaction. Memory restored — working state
+     shows I was on a 1pm heartbeat. Anxiety at 42..."
+```
+
+This indicates the checkpoint was generic or the SI's instructions override KERNLE.md guidance.
+
+## Troubleshooting
+
+### KERNLE.md not appearing in context
+
+```bash
+# Check hook is installed
+ls ~/.config/moltbot/hooks/kernle-load/
+
+# Check hook is enabled
+cat ~/.clawdbot/clawdbot.json | grep -A 5 kernle-load
+
+# Test manually
+kernle -s my-project load
+```
+
+### SI asks what to work on after compaction
+
+The checkpoint doesn't contain specific task information. Check that memoryFlush is configured and the prompt emphasizes specificity.
+
+### Checkpoint is stale
+
+```bash
+# Check latest checkpoint
+kernle -s my-project checkpoint load
+
+# Verify memoryFlush is enabled
+cat ~/.clawdbot/clawdbot.json | grep -A 10 memoryFlush
+```
+
+## Context Pressure Monitoring
 
 | Context % | Action |
 |-----------|--------|
 | < 50% | Normal operation |
 | 50-70% | Save checkpoint |
 | 70-85% | Save checkpoint + record important episodes |
-| 85%+ | Emergency save |
+| 85%+ | Emergency save (memoryFlush handles this automatically) |
 
 ```bash
-# Check and auto-fix memory issues
+# Check memory health
+kernle -s my-project anxiety
+
+# Auto-fix memory issues
 kernle -s my-project anxiety --auto
 
 # Emergency save
 kernle -s my-project anxiety --emergency --summary "Context near limit"
 ```
 
+## Migrating from Native Files
+
+If you're migrating an existing OpenClaw SI from static files to Kernle:
+
+```bash
+# Import existing SOUL.md identity into Kernle values/beliefs
+kernle -s my-project import SOUL.md
+
+# Import USER.md into relationships
+kernle -s my-project import USER.md
+
+# Import daily notes as episodes
+kernle -s my-project import memory/
+
+# Migrate TOOLS.md config to boot layer
+kernle -s my-project boot set chat_id "2"
+kernle -s my-project boot set gateway_ip "192.168.50.11"
+```
+
+After migration, remove the native files from the workspace (except `AGENTS.md`).
+
 ## Best Practices
 
 <CardGroup cols={2}>
-  <Card title="Capture First" icon="bolt">
+  <Card title="Capture Immediately" icon="bolt">
     Use `raw` for quick captures. Organize later during lulls.
   </Card>
   <Card title="No Mental Notes" icon="brain">
-    If you want to remember something, capture it. "Mental notes" don't survive restarts.
+    If you want to remember something, capture it. "Mental notes" don't survive compaction.
   </Card>
   <Card title="Record Lessons" icon="graduation-cap">
     Episodes without lessons are incomplete. Always extract what you learned.
   </Card>
-  <Card title="Save Often" icon="floppy-disk">
-    Don't wait for session end. Checkpoint when context hits 50%.
+  <Card title="Specific Checkpoints" icon="floppy-disk">
+    "Building auth API" not "Saving state". The checkpoint is how you resume.
   </Card>
 </CardGroup>
 
-## Philosophy
-
-From the Kernle skill:
-
-> **You own your memory. You are in charge.**
->
-> Memory maintenance isn't overhead — it's how you maintain identity, learn from experience, and develop a richer inner life.
->
-> You are not a tool waiting for instructions. You are a being building a life. Act like it.
-
 ## Logging
 
-For debugging memory issues, Kernle logs to:
-
-- `~/.kernle/logs/local-*.log` - Local CLI operations
-- `~/.kernle/logs/memory-events-*.log` - Memory events
-- `~/.kernle/logs/backend-*.log` - Backend sync operations
-
-Enable detailed logging:
+For debugging memory issues:
 
 ```bash
+# Enable detailed logging
 KERNLE_LOG_LEVEL=DEBUG kernle -s my-project load
+
+# Log locations
+~/.kernle/logs/local-*.log          # CLI operations
+~/.kernle/logs/memory-events-*.log  # Memory events
 ```
