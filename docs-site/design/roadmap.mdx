@@ -91,57 +91,48 @@ Wired provenance through all interfaces (CLI, MCP, core methods), added strength
 
 ---
 
-## Near-Term: Platform Integration Plugins
+## Platform Integration Plugins
 
-Deep integration with AI runtimes to ensure automatic memory capture — not just loading, but writing.
+Deep integration with AI runtimes ensures automatic memory capture — not just loading, but writing. Both plugins are shipped and available in the `integrations/` directory.
 
 ### OpenClaw Plugin
 
-Build a native OpenClaw plugin using the Plugin SDK to replace the current CLI hook approach. The Plugin SDK exposes lifecycle hooks that CLI hooks cannot reach:
+Native OpenClaw plugin using the Plugin SDK. Replaces the old CLI hook approach with lifecycle hooks that capture memory automatically through the plugin runtime:
 
 | Plugin Hook | Kernle Use |
 |-------------|-----------|
-| `after_tool_call` | Intercept file writes to `memory/` directory, redirect to Kernle raw layer |
-| `agent_end` | Auto-capture a raw summary after each agent turn |
-| `session_end` | Auto-checkpoint with current task context |
-| `session_start` | Load memory (replaces current `agent:bootstrap` CLI hook) |
-| `before_tool_call` | Block writes to native memory files when Kernle is active |
-| `tool_result_persist` | Modify persistence behavior to route through Kernle |
+| `before_agent_start` | Load memory at session start (injected as `prependContext`) |
+| `agent_end` | Auto-checkpoint with task context + raw entry marking session end |
+| `before_tool_call` | Block writes to native memory files (`memory/`, `MEMORY.md`), capture content as Kernle raw entry |
+| `tool_result_persist` | Truncate long kernle CLI output to conserve compaction space |
 
-This eliminates the instruction-driven gap: memory writes happen automatically through the plugin runtime rather than relying on the agent to follow SKILL.md instructions.
+Installation: `cd integrations/openclaw && npm install && npm run build && openclaw plugins install .`
+
+See [OpenClaw Integration](/integration/openclaw) for full details.
 
 ### Claude Code Plugin
 
-Build a Claude Code plugin that uses the full hook system (14 events available). Currently only `SessionStart` is used — the following hooks close critical gaps:
+Claude Code plugin using the hook system. Provides full lifecycle coverage — automatic loading, pre-compaction checkpointing, session-end checkpointing, and native write interception:
 
-| Hook | Kernle Use | Status |
-|------|-----------|--------|
-| `SessionStart` | Load memory at session start | **Shipped** |
-| `PreCompact` | Auto-save checkpoint before compaction | **Planned** |
-| `Stop` | Auto-capture raw summary when Claude finishes responding | **Planned** |
-| `SessionEnd` | Final checkpoint on session close | **Planned** |
-| `PostToolUse` | Track significant tool calls (Write, Edit, Bash) as raw captures | **Planned** |
-| `UserPromptSubmit` | Inject relevant memory context based on the user's prompt | **Planned** |
+| Hook | Kernle Use |
+|------|-----------|
+| `SessionStart` | Load memory at session start (injected as `additionalContext`) |
+| `PreToolUse` | Block writes to native memory files (`memory/`, `MEMORY.md`), capture content as Kernle raw entry |
+| `PreCompact` | Auto-save checkpoint before context compaction |
+| `SessionEnd` | Final checkpoint + raw entry on session close |
 
-The plugin bundles hooks, a Kernle skill (SKILL.md), and the MCP server configuration into a single installable package:
+Installation: `claude --plugin-dir ./integrations/claude-code`
 
-```
-kernle-claude-code/
-  .claude-plugin/
-    plugin.json
-  hooks/
-    hooks.json          # All 6 hook events
-  skills/
-    SKILL.md            # Kernle memory skill
-  .mcp.json             # Kernle MCP server config
-```
+Pure Python, stdlib only — no build step required. Configuration via environment variables (`KERNLE_STACK_ID`, `KERNLE_BIN`, `KERNLE_TIMEOUT`, `KERNLE_TOKEN_BUDGET`).
 
-Key architectural decisions:
-- `PreCompact` hook saves checkpoint automatically (mirrors OpenClaw's `memoryFlush`)
-- `Stop` hook captures a raw entry summarizing what happened (async, non-blocking)
-- `PostToolUse` hooks are async to avoid slowing down the agent
-- `additionalContext` field injects memory without polluting visible conversation
-- `Stop` hook checks `stop_hook_active` to prevent infinite loops
+See [Claude Code Integration](/integration/claude-code) for full details.
+
+### Future Plugin Enhancements
+
+| Platform | Hook | Purpose |
+|----------|------|---------|
+| Claude Code | `PostToolUse` | Track significant tool calls (Write, Edit, Bash) as raw captures |
+| Claude Code | `UserPromptSubmit` | Inject relevant memory context based on the user's prompt |
 
 ---
 
