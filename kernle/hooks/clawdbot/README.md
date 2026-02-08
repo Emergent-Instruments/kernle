@@ -27,9 +27,9 @@ This hook **automatically** injects Kernle memory into the session's system prom
 The hook intelligently detects the stack ID:
 
 ```
-Session Key: "agent:claire:main" → Stack ID: "claire"
+Session Key: "agent:ash:main"    → Stack ID: "ash"
 Session Key: "agent:bob:work"   → Stack ID: "bob"
-Workspace: /Users/claire/clawd  → Stack ID: "clawd"
+Workspace: /Users/ash/project   → Stack ID: "project"
 Fallback: No detection          → Stack ID: "main"
 ```
 
@@ -134,7 +134,7 @@ cat ~/.clawdbot/clawdbot.json | grep -A 5 kernle-load
 ### Test Kernle Load Manually
 
 ```bash
-kernle -s claire load
+kernle -s my-project load
 ```
 
 ### View Hook Logs
@@ -163,7 +163,7 @@ For Claude Code sessions, use a `SessionStart` hook instead:
         "hooks": [
           {
             "type": "command",
-            "command": "kernle -s claire load"
+            "command": "kernle -s my-project load 2>/dev/null || true"
           }
         ]
       }
@@ -190,4 +190,4 @@ The Kernle MCP server provides manual `memory_load()` tool but doesn't auto-inje
 
 ## License
 
-Same as parent project (moltbot/clawdbot).
+Same as parent project.
