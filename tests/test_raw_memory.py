@@ -97,14 +97,6 @@ class TestSQLiteStorageRaw:
         assert raw_id is not None
         assert len(raw_id) == 36  # UUID format
 
-    def test_save_raw_with_tags(self, storage):
-        """Test save_raw with tags."""
-        raw_id = storage.save_raw("Test content", tags=["dev", "idea"])
-        entry = storage.get_raw(raw_id)
-
-        assert entry is not None
-        assert entry.tags == ["dev", "idea"]
-
     def test_save_raw_with_source(self, storage):
         """Test save_raw with custom source (valid enum value)."""
         # Note: source is now normalized to valid enum values: cli, mcp, sdk, import, unknown
@@ -200,13 +192,6 @@ class TestKernleRaw:
         assert raw_id is not None
         entry = kernle.get_raw(raw_id)
         assert entry["content"] == "Quick thought about sync"
-
-    def test_raw_with_tags(self, kernle):
-        """Test raw() with tags."""
-        raw_id = kernle.raw("Dev idea", tags=["dev", "idea"])
-
-        entry = kernle.get_raw(raw_id)
-        assert entry["tags"] == ["dev", "idea"]
 
     def test_raw_with_source(self, kernle):
         """Test raw() with custom source (valid enum value)."""
@@ -454,10 +439,11 @@ class TestCLIRaw:
 
         mock_kernle.raw.assert_called_once()
         call_args = mock_kernle.raw.call_args
-        # New API uses keyword arguments: blob=..., source=..., tags=...
-        assert call_args.kwargs.get("blob") == "Quick thought"
-        assert "dev" in call_args.kwargs.get("tags", [])
-        assert "idea" in call_args.kwargs.get("tags", [])
+        # Tags are folded into blob text (tags param removed from raw API)
+        blob_value = call_args.kwargs.get("blob", "")
+        assert "Quick thought" in blob_value
+        assert "dev" in blob_value
+        assert "idea" in blob_value
 
     def test_cmd_raw_list(self, mock_kernle):
         """Test raw list command."""
@@ -633,7 +619,7 @@ class TestRawMemoryIntegration:
     def test_full_workflow(self, kernle):
         """Test complete raw entry workflow."""
         # 1. Capture raw thoughts
-        raw1 = kernle.raw("Realized sync queue needs deduplication", tags=["dev", "kernle"])
+        raw1 = kernle.raw("Realized sync queue needs deduplication")
         kernle.raw("Feeling good about progress today")
         raw3 = kernle.raw("Sean suggested raw dump layer - great idea")
 
@@ -668,7 +654,7 @@ class TestRawMemoryIntegration:
     def test_dump_then_import_json(self, kernle, tmp_path):
         """Test that exported JSON can be re-imported (future feature)."""
         # Add some data
-        kernle.raw("Test raw entry", tags=["test"])
+        kernle.raw("Test raw entry")
         kernle.note("Test note")
         kernle.belief("Test belief", confidence=0.8)
 

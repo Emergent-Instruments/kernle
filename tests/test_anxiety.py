@@ -570,20 +570,20 @@ class TestAnxietyIntegration:
             <= before["dimensions"]["unsaved_work"]["score"]
         )
 
-    def test_anxiety_after_consolidation(self, k):
-        """Consolidation should reduce consolidation debt anxiety."""
+    def test_anxiety_after_promotion(self, k):
+        """Promotion should reduce consolidation debt anxiety."""
         # Add unreflected episodes
         for i in range(4):
             k.episode(objective=f"Unprocessed event {i}", outcome="completed")
 
         k.get_anxiety_report()
 
-        # Run consolidation
-        k.consolidate(min_episodes=1)
+        # Run promotion
+        k.promote(min_episodes=1)
 
         after = k.get_anxiety_report()
 
-        # Score should be affected (even if consolidation doesn't fully process)
+        # Score should be affected (even if promotion doesn't fully process)
         assert "consolidation_debt" in after["dimensions"]
 
 

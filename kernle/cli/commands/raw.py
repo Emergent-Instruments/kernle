@@ -66,8 +66,11 @@ def cmd_raw(args, k: "Kernle"):
         tags = [t.strip() for t in tags if t.strip()]
         source = getattr(args, "source", None) or "cli"
 
-        # Deprecation: tags parameter is deprecated, include in blob text instead
-        raw_id = k.raw(blob=blob, source=source, tags=tags if tags else None)
+        # Fold tags into blob text (tags parameter was removed from save_raw)
+        if tags:
+            blob = f"{blob}\n\n[Tags: {', '.join(tags)}]"
+
+        raw_id = k.raw(blob=blob, source=source)
 
         # Quiet mode: minimal output for hook usage
         if quiet:

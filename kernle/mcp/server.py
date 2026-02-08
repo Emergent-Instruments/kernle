@@ -1769,8 +1769,7 @@ Checkpoint: {"Yes" if status["checkpoint"] else "No"}"""
                 # Append context to blob if provided
                 blob = f"{blob}\n\n[Context: {sanitized_args['context']}]"
 
-            # Capture to raw layer using new blob parameter
-            # Note: tags parameter is deprecated but kept for backward compatibility
+            # Capture to raw layer
             capture_id = k.raw(
                 blob=blob,
                 source=source,

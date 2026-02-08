@@ -495,6 +495,19 @@ class StackComponentProtocol(Protocol):
         """
         ...
 
+    def set_storage(self, storage: Any) -> None:
+        """Provide storage access to the component.
+
+        Called by the stack after attach() to give the component
+        direct access to the storage backend. Components that need
+        to query or write memories during maintenance, on_load, etc.
+        use this reference.
+
+        Args:
+            storage: The stack's storage backend instance.
+        """
+        ...
+
     # ---- Lifecycle Hooks ----
     # The stack calls these at appropriate moments. Components
     # implement the ones they care about. Default: no-op.
@@ -1149,8 +1162,6 @@ class PluginContext(Protocol):
     def raw(
         self,
         content: str,
-        *,
-        tags: Optional[list[str]] = None,
     ) -> Optional[str]:
         """Write a raw entry."""
         ...
@@ -1595,7 +1606,6 @@ class CoreProtocol(Protocol):
         self,
         content: str,
         *,
-        tags: Optional[list[str]] = None,
         source: Optional[str] = None,
     ) -> str: ...
 

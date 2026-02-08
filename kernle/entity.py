@@ -243,15 +243,12 @@ class _PluginContextImpl:
     def raw(
         self,
         content: str,
-        *,
-        tags: Optional[list[str]] = None,
     ) -> Optional[str]:
         stack = self._entity.active_stack
         if stack is None:
             return None
         return self._entity.raw(
             content,
-            tags=tags,
             source=f"plugin:{self._plugin_name}",
         )
 
@@ -749,7 +746,6 @@ class Entity:
         self,
         content: str,
         *,
-        tags: Optional[list[str]] = None,
         source: Optional[str] = None,
     ) -> str:
         stack = self._require_active_stack()
@@ -759,7 +755,6 @@ class Entity:
             blob=content,
             captured_at=datetime.now(timezone.utc),
             source=source or f"core:{self._core_id}",
-            tags=tags,
         )
         return stack.save_raw(r)
 

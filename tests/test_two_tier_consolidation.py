@@ -6,7 +6,6 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock, patch
 
 from kernle.cli.commands.epoch import cmd_epoch
-from kernle.cli.commands.identity import cmd_consolidate
 from kernle.features.consolidation import build_epoch_closing_scaffold
 
 # ---------------------------------------------------------------------------
@@ -146,67 +145,6 @@ def _setup_kernle_mock(
 # ---------------------------------------------------------------------------
 # Regular consolidation still works
 # ---------------------------------------------------------------------------
-
-
-class TestRegularConsolidation:
-    """cmd_consolidate is now a deprecated alias for cmd_promote.
-
-    It prints a deprecation warning and delegates to the promote command.
-    """
-
-    def test_regular_consolidation_delegates_to_promote(self, capsys):
-        """cmd_consolidate delegates to cmd_promote with deprecation warning."""
-        k = MagicMock()
-        k.stack_id = "test-agent"
-        k.promote.return_value = {
-            "episodes_scanned": 5,
-            "patterns_found": 1,
-            "suggestions": [
-                {
-                    "lesson": "Testing is important",
-                    "count": 2,
-                    "source_episodes": ["ep1", "ep2"],
-                },
-            ],
-            "beliefs_created": 0,
-        }
-
-        args = Namespace(
-            auto=False,
-            min_occurrences=2,
-            min_episodes=3,
-            confidence=0.7,
-            limit=50,
-            json=False,
-        )
-        cmd_consolidate(args, k)
-
-        captured = capsys.readouterr()
-        assert "deprecated" in captured.err.lower()
-        assert "Promotion Results" in captured.out
-        assert "Testing is important" in captured.out
-
-    def test_regular_consolidation_calls_promote(self, capsys):
-        """cmd_consolidate calls k.promote() under the hood."""
-        k = MagicMock()
-        k.stack_id = "test-agent"
-        k.promote.return_value = {
-            "episodes_scanned": 0,
-            "patterns_found": 0,
-            "suggestions": [],
-            "beliefs_created": 0,
-        }
-
-        args = Namespace(
-            auto=False,
-            min_occurrences=2,
-            min_episodes=3,
-            confidence=0.7,
-            limit=50,
-            json=False,
-        )
-        cmd_consolidate(args, k)
-        k.promote.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

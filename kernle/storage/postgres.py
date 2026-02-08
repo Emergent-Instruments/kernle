@@ -1695,7 +1695,9 @@ class SupabaseStorage:
     # === Raw Entries - NOT YET SUPPORTED ===
 
     def save_raw(
-        self, content: str, source: str = "manual", tags: Optional[List[str]] = None
+        self,
+        blob: str,
+        source: str = "unknown",
     ) -> str:
         """Save a raw entry for later processing. Returns the entry ID."""
         raise NotImplementedError(

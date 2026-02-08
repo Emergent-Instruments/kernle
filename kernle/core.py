@@ -390,9 +390,6 @@ class Kernle(
         self,
         stack_id: Optional[str] = None,
         storage: Optional["StorageProtocol"] = None,
-        # Keep supabase_url/key for backwards compatibility
-        supabase_url: Optional[str] = None,
-        supabase_key: Optional[str] = None,
         checkpoint_dir: Optional[Path] = None,
         strict: bool = True,
     ):
@@ -401,8 +398,6 @@ class Kernle(
         Args:
             stack_id: Unique identifier for the agent
             storage: Optional storage backend. If None, auto-detects.
-            supabase_url: Supabase project URL (deprecated, use storage param)
-            supabase_key: Supabase API key (deprecated, use storage param)
             checkpoint_dir: Directory for local checkpoints
             strict: If True, route writes through stack enforcement layer
                 (maintenance mode, provenance validation, component hooks).
@@ -415,16 +410,6 @@ class Kernle(
             checkpoint_dir or get_kernle_home() / "checkpoints"
         )
 
-        # Store credentials for backwards compatibility
-        self._supabase_url = (
-            supabase_url or os.environ.get("KERNLE_SUPABASE_URL") or os.environ.get("SUPABASE_URL")
-        )
-        self._supabase_key = (
-            supabase_key
-            or os.environ.get("KERNLE_SUPABASE_KEY")
-            or os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
-        )
-
         # Initialize storage
         if storage is not None:
             self._storage = storage
@@ -432,8 +417,6 @@ class Kernle(
             # Auto-detect storage based on environment
             self._storage = get_storage(
                 stack_id=self.stack_id,
-                supabase_url=self._supabase_url,
-                supabase_key=self._supabase_key,
             )
 
         # Auto-sync configuration: enabled by default if sync is available
@@ -1439,13 +1422,6 @@ class Kernle(
         else:
             outcome_type = "partial"
 
-        # Combine lessons with repeat/avoid patterns
-        all_lessons = lessons or []
-        if repeat:
-            all_lessons.extend([f"Repeat: {r}" for r in repeat])
-        if avoid:
-            all_lessons.extend([f"Avoid: {a}" for a in avoid])
-
         # Determine source_type from explicit param or source context
         if source_type is None:
             source_type_val = "direct_experience"
@@ -1469,7 +1445,9 @@ class Kernle(
             objective=objective,
             outcome=outcome,
             outcome_type=outcome_type,
-            lessons=all_lessons if all_lessons else None,
+            lessons=lessons if lessons else None,
+            repeat=repeat if repeat else None,
+            avoid=avoid if avoid else None,
             tags=tags or ["manual"],
             created_at=datetime.now(timezone.utc),
             confidence=0.8,
@@ -1646,11 +1624,8 @@ class Kernle(
 
     def raw(
         self,
-        blob: Optional[str] = None,
+        blob: str,
         source: str = "unknown",
-        # DEPRECATED parameters
-        content: Optional[str] = None,
-        tags: Optional[List[str]] = None,
     ) -> str:
         """Quick capture of unstructured brain dump for later processing.
 
@@ -1661,35 +1636,9 @@ class Kernle(
             blob: The raw brain dump content (no validation, no length limits).
             source: Auto-populated source identifier (cli|mcp|sdk|import|unknown).
 
-        Deprecated Args:
-            content: Use blob instead. Will be removed in future version.
-            tags: Include tags in blob text instead. Will be removed in future version.
-
         Returns:
             Raw entry ID
         """
-        import warnings
-
-        # Handle deprecated parameters
-        if content is not None:
-            warnings.warn(
-                "The 'content' parameter is deprecated. Use 'blob' instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            if blob is None:
-                blob = content
-
-        if tags is not None:
-            warnings.warn(
-                "The 'tags' parameter is deprecated. Include tags in blob text instead.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-
-        if blob is None:
-            raise ValueError("blob parameter is required")
-
         # Basic validation - no length limit, but sanitize control chars
         blob = self._validate_string_input(blob, "blob", max_length=None)
 
@@ -1703,7 +1652,7 @@ class Kernle(
                 source=source,
             )
             return self._write_backend.save_raw(raw_entry)
-        return self._storage.save_raw(blob=blob, source=source, tags=tags)
+        return self._storage.save_raw(blob=blob, source=source)
 
     def list_raw(self, processed: Optional[bool] = None, limit: int = 100) -> List[Dict[str, Any]]:
         """List raw entries, optionally filtered by processed state.
@@ -6021,54 +5970,6 @@ class Kernle(
 
         epoch_id = self._validate_string_input(epoch_id, "epoch_id", 100)
         return build_epoch_closing_scaffold(self, epoch_id)
-
-    def consolidate(self, min_episodes: int = 3) -> Dict[str, Any]:
-        """Deprecated: use promote() instead.
-
-        Run memory consolidation (legacy). Analyzes recent episodes to
-        extract patterns, lessons, and beliefs.
-
-        Args:
-            min_episodes: Minimum episodes required to consolidate
-
-        Returns:
-            Consolidation results
-        """
-        import warnings
-
-        warnings.warn(
-            "Kernle.consolidate() is deprecated, use Kernle.promote() instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        episodes = self._storage.get_episodes(limit=50)
-
-        if len(episodes) < min_episodes:
-            return {
-                "consolidated": 0,
-                "new_beliefs": 0,
-                "lessons_found": 0,
-                "message": f"Need at least {min_episodes} episodes to consolidate",
-            }
-
-        # Simple consolidation: extract lessons from recent episodes
-        all_lessons = []
-        for ep in episodes:
-            if ep.lessons:
-                all_lessons.extend(ep.lessons)
-
-        # Count unique lessons
-        from collections import Counter
-
-        lesson_counts = Counter(all_lessons)
-        common_lessons = [lesson for lesson, count in lesson_counts.items() if count >= 2]
-
-        return {
-            "consolidated": len(episodes),
-            "new_beliefs": 0,  # Would need LLM integration for belief extraction
-            "lessons_found": len(common_lessons),
-            "common_lessons": common_lessons[:5],
-        }
 
     def promote(
         self,

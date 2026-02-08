@@ -39,22 +39,6 @@ class TestKernleInitialization:
         assert kernle.checkpoint_dir == temp_checkpoint_dir
         assert kernle._storage is storage
 
-    def test_init_with_supabase_params_backwards_compat(self, temp_checkpoint_dir):
-        """Test initialization with Supabase params for backwards compatibility."""
-        # When Supabase creds are provided but not actually used
-        # (no actual connection test, just that params are stored)
-        kernle = Kernle(
-            stack_id="test_agent",
-            supabase_url="http://test.url",
-            supabase_key="test_key",
-            checkpoint_dir=temp_checkpoint_dir,
-        )
-        assert kernle.stack_id == "test_agent"
-        # Storage should be SupabaseStorage when creds provided
-        from kernle.storage import SupabaseStorage
-
-        assert isinstance(kernle._storage, SupabaseStorage)
-
     def test_init_with_env_vars(self, temp_checkpoint_dir):
         """Test initialization with environment variables."""
         with patch.dict(

@@ -425,8 +425,8 @@ class AnxietyMixin:
                     {
                         "priority": "low",
                         "description": f"Reflect on {len(unreflected)} recent experiences when convenient",
-                        "command": "kernle consolidate",
-                        "method": "consolidate",
+                        "command": "kernle promote",
+                        "method": "promote",
                     }
                 )
             return actions
@@ -447,8 +447,8 @@ class AnxietyMixin:
                     {
                         "priority": "medium",
                         "description": f"Process {len(unreflected)} unreflected episodes",
-                        "command": "kernle consolidate",
-                        "method": "consolidate",
+                        "command": "kernle promote",
+                        "method": "promote",
                     }
                 )
             return actions
@@ -468,8 +468,8 @@ class AnxietyMixin:
                     {
                         "priority": "high",
                         "description": f"Consolidate {len(unreflected)} unreflected episodes",
-                        "command": "kernle consolidate",
-                        "method": "consolidate",
+                        "command": "kernle promote",
+                        "method": "promote",
                     }
                 )
             if identity_conf < 0.7:
@@ -498,8 +498,8 @@ class AnxietyMixin:
                 {
                     "priority": "critical",
                     "description": "PRIORITY: Run full consolidation",
-                    "command": "kernle consolidate",
-                    "method": "consolidate",
+                    "command": "kernle promote",
+                    "method": "promote",
                 }
             )
             actions.append(
@@ -595,9 +595,9 @@ class AnxietyMixin:
 
         # 2. Consolidate all unreflected episodes
         try:
-            consolidation = self.consolidate(min_episodes=1)
-            results["episodes_consolidated"] = consolidation.get("consolidated", 0)
-            results["consolidation_result"] = consolidation
+            promotion = self.promote(min_episodes=1)
+            results["episodes_consolidated"] = promotion.get("episodes_scanned", 0)
+            results["consolidation_result"] = promotion
         except Exception as e:
             results["errors"].append(f"Consolidation failed: {str(e)}")
 

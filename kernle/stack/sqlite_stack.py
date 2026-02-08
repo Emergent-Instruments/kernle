@@ -535,7 +535,7 @@ class SQLiteStack(
     def save_raw(self, raw: RawEntry) -> str:
         self._validate_provenance("raw", None)  # Raw entries need no provenance
         result_id = self._backend.save_raw(
-            blob=raw.blob or raw.content or "",
+            blob=raw.blob or "",
             source=raw.source,
         )
         self._dispatch_on_save("raw", result_id, raw)

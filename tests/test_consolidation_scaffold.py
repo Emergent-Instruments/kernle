@@ -1,10 +1,9 @@
 """Tests for consolidation scaffold: emotional weighting and drive emergence."""
 
-from argparse import Namespace
 from datetime import datetime, timedelta, timezone
 from unittest.mock import MagicMock
 
-from kernle.cli.commands.identity import _print_drive_pattern_analysis, cmd_consolidate
+from kernle.cli.commands.identity import _print_drive_pattern_analysis
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -49,40 +48,6 @@ def _make_drive(drive_type, intensity=0.5, focus_areas=None):
 # ---------------------------------------------------------------------------
 # High-Arousal Episodes
 # ---------------------------------------------------------------------------
-
-
-class TestHighArousalEpisodes:
-    """These tests previously tested the old cmd_consolidate guided-reflection
-    output. Since cmd_consolidate now delegates to cmd_promote, we test the
-    _print_drive_pattern_analysis helper directly for drive analysis, and
-    verify cmd_consolidate produces promotion output with deprecation warning.
-    """
-
-    def test_cmd_consolidate_is_deprecated_alias(self, capsys):
-        """cmd_consolidate prints deprecation warning and delegates to cmd_promote."""
-        k = MagicMock()
-        k.stack_id = "test-agent"
-        k.promote.return_value = {
-            "episodes_scanned": 5,
-            "patterns_found": 0,
-            "suggestions": [],
-            "beliefs_created": 0,
-        }
-
-        args = Namespace(
-            auto=False,
-            min_occurrences=2,
-            min_episodes=3,
-            confidence=0.7,
-            limit=50,
-            json=False,
-        )
-        cmd_consolidate(args, k)
-
-        captured = capsys.readouterr()
-        assert "deprecated" in captured.err.lower()
-        assert "promote" in captured.err
-        assert "Promotion Results" in captured.out
 
 
 # ---------------------------------------------------------------------------
@@ -255,89 +220,3 @@ class TestDrivePatternAnalysis:
 
         captured = capsys.readouterr()
         assert "no matching declared drive" in captured.out
-
-
-# ---------------------------------------------------------------------------
-# Integration: cmd_consolidate is now a deprecated alias for cmd_promote
-# ---------------------------------------------------------------------------
-
-
-class TestConsolidateIntegration:
-    """Test that cmd_consolidate properly delegates to cmd_promote.
-
-    The old guided-reflection behavior has been replaced by the promote
-    command. cmd_consolidate now prints a deprecation warning and
-    delegates to cmd_promote.
-    """
-
-    def _make_consolidate_args(self, **overrides):
-        defaults = dict(
-            auto=False,
-            min_occurrences=2,
-            min_episodes=3,
-            confidence=0.7,
-            limit=50,
-            json=False,
-        )
-        defaults.update(overrides)
-        return Namespace(**defaults)
-
-    def test_consolidate_delegates_to_promote(self, capsys):
-        """cmd_consolidate calls k.promote() and outputs promotion results."""
-        k = MagicMock()
-        k.stack_id = "test-agent"
-        k.promote.return_value = {
-            "episodes_scanned": 10,
-            "patterns_found": 2,
-            "suggestions": [
-                {
-                    "lesson": "Always test first",
-                    "count": 3,
-                    "source_episodes": ["ep1", "ep2", "ep3"],
-                },
-            ],
-            "beliefs_created": 0,
-        }
-
-        cmd_consolidate(self._make_consolidate_args(), k)
-
-        captured = capsys.readouterr()
-        assert "Promotion Results" in captured.out
-        assert "Always test first" in captured.out
-        k.promote.assert_called_once()
-
-    def test_consolidate_warns_deprecated(self, capsys):
-        """cmd_consolidate prints deprecation warning to stderr."""
-        k = MagicMock()
-        k.stack_id = "test-agent"
-        k.promote.return_value = {
-            "episodes_scanned": 0,
-            "patterns_found": 0,
-            "suggestions": [],
-            "beliefs_created": 0,
-        }
-
-        cmd_consolidate(self._make_consolidate_args(), k)
-
-        captured = capsys.readouterr()
-        assert "deprecated" in captured.err.lower()
-        assert "promote" in captured.err
-
-    def test_consolidate_json_delegates(self, capsys):
-        """cmd_consolidate --json delegates JSON output to cmd_promote."""
-        result = {
-            "episodes_scanned": 5,
-            "patterns_found": 0,
-            "suggestions": [],
-            "beliefs_created": 0,
-        }
-        k = MagicMock()
-        k.promote.return_value = result
-
-        cmd_consolidate(self._make_consolidate_args(json=True), k)
-
-        captured = capsys.readouterr()
-        import json
-
-        parsed = json.loads(captured.out)
-        assert parsed["episodes_scanned"] == 5

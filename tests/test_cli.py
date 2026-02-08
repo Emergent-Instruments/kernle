@@ -12,7 +12,6 @@ import pytest
 
 from kernle.cli.__main__ import (
     cmd_checkpoint,
-    cmd_consolidate,
     cmd_drive,
     cmd_episode,
     cmd_load,
@@ -89,7 +88,6 @@ def mock_kernle():
     ]
     kernle.drive.return_value = "drive789"
     kernle.satisfy_drive.return_value = True
-    kernle.consolidate.return_value = {"consolidated": 5, "new_beliefs": 2, "lessons_found": 12}
     kernle.what_happened.return_value = {
         "range": {"start": "2024-01-01T00:00:00Z", "end": "2024-01-01T23:59:59Z"},
         "episodes": [{"objective": "Test something", "outcome_type": "success"}],
@@ -675,72 +673,6 @@ class TestPromoteCommand:
         output = fake_out.getvalue()
         parsed = json.loads(output)
         assert parsed["episodes_scanned"] == 10
-
-
-class TestConsolidateDeprecatedAlias:
-    """Test that 'consolidate' works as a deprecated alias for 'promote'."""
-
-    def test_cmd_consolidate_prints_deprecation_warning(self, mock_kernle):
-        """Test consolidate command prints deprecation warning to stderr."""
-        mock_kernle.promote.return_value = {
-            "episodes_scanned": 5,
-            "patterns_found": 0,
-            "suggestions": [],
-            "beliefs_created": 0,
-        }
-        mock_kernle.stack_id = "test_agent"
-
-        args = argparse.Namespace(
-            auto=False,
-            min_occurrences=2,
-            min_episodes=3,
-            confidence=0.7,
-            limit=50,
-            json=False,
-        )
-
-        with patch("sys.stderr", new=StringIO()) as fake_err:
-            with patch("sys.stdout", new=StringIO()):
-                cmd_consolidate(args, mock_kernle)
-
-        err_output = fake_err.getvalue()
-        assert "deprecated" in err_output.lower()
-        assert "promote" in err_output
-
-    def test_cmd_consolidate_delegates_to_promote(self, mock_kernle):
-        """Test consolidate command delegates to promote and produces same output."""
-        mock_kernle.promote.return_value = {
-            "episodes_scanned": 10,
-            "patterns_found": 1,
-            "suggestions": [
-                {
-                    "lesson": "Always test first",
-                    "count": 3,
-                    "source_episodes": ["ep1", "ep2", "ep3"],
-                    "promoted": False,
-                },
-            ],
-            "beliefs_created": 0,
-        }
-        mock_kernle.stack_id = "test_agent"
-
-        args = argparse.Namespace(
-            auto=False,
-            min_occurrences=2,
-            min_episodes=3,
-            confidence=0.7,
-            limit=50,
-            json=False,
-        )
-
-        with patch("sys.stderr", new=StringIO()):
-            with patch("sys.stdout", new=StringIO()) as fake_out:
-                cmd_consolidate(args, mock_kernle)
-
-        output = fake_out.getvalue()
-        # Should produce promote output, not the old consolidation output
-        assert "Promotion Results" in output
-        assert "Always test first" in output
 
 
 class TestTemporalCommand:
