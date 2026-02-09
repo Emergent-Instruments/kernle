@@ -54,12 +54,12 @@ class TestKernleInitialization:
             assert isinstance(kernle._storage, SQLiteStorage)
 
     def test_client_property_missing_credentials(self, temp_db_path):
-        """Test that client property raises error with SQLite storage."""
+        """Test that client property raises error (Supabase removed from core)."""
         with patch.dict(os.environ, {}, clear=True):
             kernle = Kernle(stack_id="test", strict=False)
 
-            # With SQLite storage, accessing .client should raise
-            with pytest.raises(ValueError, match="Direct Supabase client access not available"):
+            # Supabase storage removed from core — .client always raises
+            with pytest.raises(ValueError, match="no longer available"):
                 _ = kernle.client
 
     def test_storage_property(self, kernle_instance):

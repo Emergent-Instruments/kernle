@@ -24,7 +24,6 @@ from kernle.storage import (
     QueuedChange,
     Relationship,
     SQLiteStorage,
-    SupabaseStorage,
     SyncConflict,
     SyncResult,
     Value,
@@ -51,7 +50,7 @@ def storage(temp_db):
 @pytest.fixture
 def mock_cloud_storage():
     """Create a mock cloud storage for testing sync."""
-    mock = MagicMock(spec=SupabaseStorage)
+    mock = MagicMock(spec=SQLiteStorage)
     mock.stack_id = "test-agent"
 
     # Default return values

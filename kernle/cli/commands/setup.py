@@ -44,25 +44,25 @@ def _deep_merge(base: dict, updates: dict) -> dict:
     return result
 
 
-def setup_clawdbot(stack_id: str, force: bool = False, enable: bool = False) -> None:
-    """Install Clawdbot/moltbot hook for automatic memory loading and checkpoint saving.
+def setup_openclaw(stack_id: str, force: bool = False, enable: bool = False) -> None:
+    """Install OpenClaw hook for automatic memory loading and checkpoint saving.
 
     Args:
         stack_id: Stack identifier
         force: Overwrite existing hook files
-        enable: Automatically enable hook and configure memoryFlush in clawdbot.json
+        enable: Automatically enable hook and configure memoryFlush in openclaw.json
     """
     hooks_dir = get_hooks_dir()
-    source = hooks_dir / "clawdbot"
+    source = hooks_dir / "openclaw"
 
     if not source.exists():
-        print("❌ Clawdbot hook files not found in kernle installation")
+        print("❌ OpenClaw hook files not found in kernle installation")
         print(f"   Expected: {source}")
         return
 
-    # Try user hooks directory first (doesn't require moltbot repo access)
-    user_hooks = Path.home() / ".config" / "moltbot" / "hooks" / "kernle-load"
-    bundled_hooks = Path.home() / "clawd" / "moltbot" / "src" / "hooks" / "bundled" / "kernle-load"
+    # Try user hooks directory first
+    user_hooks = Path.home() / ".config" / "openclaw" / "hooks" / "kernle-load"
+    bundled_hooks = Path.home() / "openclaw" / "src" / "hooks" / "bundled" / "kernle-load"
 
     # Determine target
     if bundled_hooks.parent.exists():
@@ -78,7 +78,7 @@ def setup_clawdbot(stack_id: str, force: bool = False, enable: bool = False) -> 
         print("   Use --force to overwrite")
         # Even if files exist, still try to enable if requested
         if enable:
-            _enable_clawdbot_hook(stack_id)
+            _enable_openclaw_hook(stack_id)
         return
 
     # Create target directory
@@ -89,7 +89,7 @@ def setup_clawdbot(stack_id: str, force: bool = False, enable: bool = False) -> 
         if target.exists():
             shutil.rmtree(target)
         shutil.copytree(source, target)
-        print(f"✓ Installed Clawdbot hook to {location}")
+        print(f"✓ Installed OpenClaw hook to {location}")
         print(f"  Location: {target}")
     except Exception as e:
         print(f"❌ Failed to copy hook files: {e}")
@@ -97,10 +97,10 @@ def setup_clawdbot(stack_id: str, force: bool = False, enable: bool = False) -> 
 
     # Handle enabling in config
     if enable:
-        _enable_clawdbot_hook(stack_id)
+        _enable_openclaw_hook(stack_id)
     else:
         # Check current status and show instructions
-        config_path = Path.home() / ".clawdbot" / "clawdbot.json"
+        config_path = Path.home() / ".openclaw" / "openclaw.json"
         if config_path.exists():
             try:
                 with open(config_path) as f:
@@ -122,17 +122,17 @@ def setup_clawdbot(stack_id: str, force: bool = False, enable: bool = False) -> 
             except Exception as e:
                 print(f"⚠️  Could not read config: {e}")
         else:
-            print(f"\n⚠️  Clawdbot config not found at {config_path}")
+            print(f"\n⚠️  OpenClaw config not found at {config_path}")
             print("   Run with --enable to create config with hook enabled")
 
         print("\nNext steps:")
-        print("  1. Enable hook: kernle setup clawdbot --enable")
-        print("  2. Restart Clawdbot gateway: clawdbot gateway restart")
+        print("  1. Enable hook: kernle setup openclaw --enable")
+        print("  2. Restart OpenClaw gateway: openclaw gateway restart")
         print(f"  3. Memory will load automatically for agent '{stack_id}'")
 
 
-def _enable_clawdbot_hook(stack_id: str) -> bool:
-    """Enable kernle-load hook and configure memoryFlush in clawdbot.json.
+def _enable_openclaw_hook(stack_id: str) -> bool:
+    """Enable kernle-load hook and configure memoryFlush in openclaw.json.
 
     This configures both:
     1. Session start hook (loads KERNLE.md)
@@ -140,7 +140,7 @@ def _enable_clawdbot_hook(stack_id: str) -> bool:
 
     Returns True if successfully enabled (or already enabled).
     """
-    config_path = Path.home() / ".clawdbot" / "clawdbot.json"
+    config_path = Path.home() / ".openclaw" / "openclaw.json"
 
     try:
         if config_path.exists():
@@ -196,7 +196,7 @@ def _enable_clawdbot_hook(stack_id: str) -> bool:
         with open(config_path, "w") as f:
             json.dump(merged, f, indent=2)
 
-        print("✓ Updated clawdbot.json with Kernle configuration")
+        print("✓ Updated openclaw.json with Kernle configuration")
 
         if not hook_enabled:
             print("  - Enabled session start hook")
@@ -212,8 +212,8 @@ def _enable_clawdbot_hook(stack_id: str) -> bool:
         print("  1. Session start: Memory auto-loads into KERNLE.md")
         print("  2. Pre-compaction: Agent saves checkpoint before compaction")
         print()
-        print("⚠️  Restart Clawdbot gateway for changes to take effect:")
-        print("   clawdbot gateway restart")
+        print("⚠️  Restart OpenClaw gateway for changes to take effect:")
+        print("   openclaw gateway restart")
         print()
         print(f"Memory will persist across sessions for agent '{stack_id}'")
 
@@ -221,7 +221,7 @@ def _enable_clawdbot_hook(stack_id: str) -> bool:
 
     except Exception as e:
         print(f"❌ Failed to enable hook in config: {e}")
-        print("   You may need to manually edit ~/.clawdbot/clawdbot.json")
+        print("   You may need to manually edit ~/.openclaw/openclaw.json")
         return False
 
 
@@ -363,8 +363,8 @@ def cmd_setup(args, k: "Kernle"):
     """Install platform hooks for automatic Kernle memory loading.
 
     Examples:
-        kernle setup clawdbot              # Install for Clawdbot
-        kernle setup clawdbot --enable     # Install AND enable in config
+        kernle setup openclaw               # Install for OpenClaw
+        kernle setup openclaw --enable     # Install AND enable in config
         kernle setup claude-code            # Install for Claude Code (project)
         kernle setup claude-code --global   # Install for Claude Code (all projects)
         kernle setup cowork                 # Install for Cowork (same as claude-code)
@@ -377,22 +377,22 @@ def cmd_setup(args, k: "Kernle"):
 
     if not platform:
         print("Available platforms:")
-        print("  clawdbot      - Clawdbot/moltbot automatic memory loading")
+        print("  openclaw      - OpenClaw automatic memory loading")
         print("  claude-code   - Claude Code SessionStart hook")
         print("  cowork        - Cowork (same as claude-code)")
         print()
         print("Usage: kernle setup <platform> [--enable] [--force]")
         print()
         print("Options:")
-        print("  --enable    Auto-enable hook in config (clawdbot only)")
+        print("  --enable    Auto-enable hook in config (openclaw only)")
         print("  --force     Overwrite existing hook files")
         print("  --global    Install globally (claude-code only)")
         return
 
-    if platform == "clawdbot":
-        setup_clawdbot(stack_id, force, enable)
+    if platform == "openclaw":
+        setup_openclaw(stack_id, force, enable)
     elif platform in ("claude-code", "cowork"):
         setup_claude_code(stack_id, force, global_install)
     else:
         print(f"❌ Unknown platform: {platform}")
-        print("Available: clawdbot, claude-code, cowork")
+        print("Available: openclaw, claude-code, cowork")

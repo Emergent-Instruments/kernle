@@ -315,7 +315,7 @@ class TestCmdSetup:
         cmd_setup(args, k)
         captured = capsys.readouterr()
         assert "Available platforms:" in captured.out
-        assert "clawdbot" in captured.out
+        assert "openclaw" in captured.out
         assert "claude-code" in captured.out
 
     def test_unknown_platform_shows_error(self, capsys):
@@ -344,13 +344,13 @@ class TestCmdSetup:
         cmd_setup(args, k)
         mock_setup_cc.assert_called_once_with("cowork-stack", False, True)
 
-    @patch("kernle.cli.commands.setup.setup_clawdbot")
-    def test_dispatches_clawdbot(self, mock_setup_cb):
-        """Platform 'clawdbot' dispatches to setup_clawdbot."""
-        args = make_args(platform="clawdbot", force=True, enable=True)
+    @patch("kernle.cli.commands.setup.setup_openclaw")
+    def test_dispatches_openclaw(self, mock_setup_oc):
+        """Platform 'openclaw' dispatches to setup_openclaw."""
+        args = make_args(platform="openclaw", force=True, enable=True)
         k = self._make_kernle_mock("my-stack")
         cmd_setup(args, k)
-        mock_setup_cb.assert_called_once_with("my-stack", True, True)
+        mock_setup_oc.assert_called_once_with("my-stack", True, True)
 
     @patch("kernle.cli.commands.setup.setup_claude_code")
     def test_passes_force_flag(self, mock_setup_cc):
