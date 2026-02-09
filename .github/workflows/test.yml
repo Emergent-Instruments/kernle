@@ -36,7 +36,7 @@ jobs:
 
       - name: Run tests
         run: |
-          pytest tests/ -v --tb=short --cov=kernle --cov-report=xml --cov-fail-under=70
+          pytest tests/ -v --tb=short --cov=kernle --cov-branch --cov-report=xml --cov-fail-under=73
 
       - name: Upload coverage (Python 3.11 only)
         if: matrix.python-version == '3.11'
