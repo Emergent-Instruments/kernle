@@ -4376,6 +4376,12 @@ Beliefs already present in the agent's memory will be skipped.
         default=30,
         help="Timestamp proximity window in minutes (default: 30)",
     )
+    migrate_link_raw.add_argument(
+        "--all",
+        action="store_true",
+        dest="link_all",
+        help="Link all unlinked memories. Creates a synthetic raw entry for memories with no match.",
+    )
 
     # setup - install platform hooks for automatic memory loading
     p_setup = subparsers.add_parser(

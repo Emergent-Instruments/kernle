@@ -1500,12 +1500,8 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
 
         # Mark episodes with no derived_from as pre-v0.9 migrations
         if not derived_from or derived_from == []:
-            if not any(
-                d.startswith("kernle:pre-v0.9") for d in (new_derived_from or [])
-            ):
-                new_derived_from = list(new_derived_from or []) + [
-                    "kernle:pre-v0.9-migration"
-                ]
+            if not any(d.startswith("kernle:pre-v0.9") for d in (new_derived_from or [])):
+                new_derived_from = list(new_derived_from or []) + ["kernle:pre-v0.9-migration"]
                 needs_update = True
 
         if needs_update:
@@ -1537,12 +1533,8 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
 
         # Mark notes with no derived_from as pre-v0.9 migrations
         if not derived_from or derived_from == []:
-            if not any(
-                d.startswith("kernle:pre-v0.9") for d in (new_derived_from or [])
-            ):
-                new_derived_from = list(new_derived_from or []) + [
-                    "kernle:pre-v0.9-migration"
-                ]
+            if not any(d.startswith("kernle:pre-v0.9") for d in (new_derived_from or [])):
+                new_derived_from = list(new_derived_from or []) + ["kernle:pre-v0.9-migration"]
                 needs_update = True
 
         if needs_update:
@@ -1649,6 +1641,7 @@ def _migrate_link_raw(args: "argparse.Namespace", k: "Kernle") -> None:
     dry_run = getattr(args, "dry_run", False)
     json_output = getattr(args, "json", False)
     window_minutes = getattr(args, "window", 30)
+    link_all = getattr(args, "link_all", False)
 
     # Annotation ref types that don't count as real provenance
     annotation_prefixes = {"context", "kernle"}
@@ -1672,9 +1665,35 @@ def _migrate_link_raw(args: "argparse.Namespace", k: "Kernle") -> None:
         words_a = set(text_a.lower().split())
         words_b = set(text_b.lower().split())
         # Remove common stop words
-        stop = {"the", "a", "an", "is", "was", "are", "were", "be", "been",
-                "to", "of", "and", "in", "on", "at", "for", "with", "by",
-                "from", "it", "this", "that", "not", "but", "or", "as", "if"}
+        stop = {
+            "the",
+            "a",
+            "an",
+            "is",
+            "was",
+            "are",
+            "were",
+            "be",
+            "been",
+            "to",
+            "of",
+            "and",
+            "in",
+            "on",
+            "at",
+            "for",
+            "with",
+            "by",
+            "from",
+            "it",
+            "this",
+            "that",
+            "not",
+            "but",
+            "or",
+            "as",
+            "if",
+        }
         words_a -= stop
         words_b -= stop
         overlap = words_a & words_b
@@ -1766,31 +1785,73 @@ def _migrate_link_raw(args: "argparse.Namespace", k: "Kernle") -> None:
             if best_match and best_score >= 0.5:
                 # Build new derived_from, preserving existing annotations
                 existing_annotations = [
-                    ref for ref in (derived_from or [])
+                    ref
+                    for ref in (derived_from or [])
                     if ref and ":" in ref and ref.split(":", 1)[0] in annotation_prefixes
                 ]
-                new_derived_from = [f"raw:{best_match['id']}", "kernle:auto-linked"] + existing_annotations
+                new_derived_from = [
+                    f"raw:{best_match['id']}",
+                    "kernle:auto-linked",
+                ] + existing_annotations
 
-                links.append({
-                    "type": memory_type,
-                    "id": record.id,
-                    "summary": match_text[:60],
-                    "raw_id": best_match["id"],
-                    "raw_blob": best_match["blob"][:60],
-                    "score": round(best_score, 2),
-                    "old_derived_from": derived_from,
-                    "new_derived_from": new_derived_from,
-                })
+                links.append(
+                    {
+                        "type": memory_type,
+                        "id": record.id,
+                        "summary": match_text[:60],
+                        "raw_id": best_match["id"],
+                        "raw_blob": best_match["blob"][:60],
+                        "score": round(best_score, 2),
+                        "old_derived_from": derived_from,
+                        "new_derived_from": new_derived_from,
+                        "synthetic": False,
+                    }
+                )
+            elif link_all and match_text.strip():
+                # --all: create a synthetic raw entry for unmatched memories
+                existing_annotations = [
+                    ref
+                    for ref in (derived_from or [])
+                    if ref and ":" in ref and ref.split(":", 1)[0] in annotation_prefixes
+                ]
+                links.append(
+                    {
+                        "type": memory_type,
+                        "id": record.id,
+                        "summary": match_text[:60],
+                        "raw_id": None,
+                        "raw_blob": None,
+                        "score": 0.0,
+                        "old_derived_from": derived_from,
+                        "new_derived_from": None,  # filled at apply time
+                        "synthetic": True,
+                        "synthetic_blob": f"[migrated {memory_type}] {match_text[:500]}",
+                        "existing_annotations": existing_annotations,
+                    }
+                )
+
+    # Separate matched and synthetic links for reporting
+    matched_links = [link for link in links if not link.get("synthetic")]
+    synthetic_links = [link for link in links if link.get("synthetic")]
 
     # Output results
     if json_output:
-        print(_json.dumps({
-            "dry_run": dry_run,
-            "total_links": len(links),
-            "window_minutes": window_minutes,
-            "raw_entries_available": len(raw_index),
-            "links": links,
-        }, indent=2, default=str))
+        print(
+            _json.dumps(
+                {
+                    "dry_run": dry_run,
+                    "total_links": len(links),
+                    "matched_links": len(matched_links),
+                    "synthetic_links": len(synthetic_links),
+                    "window_minutes": window_minutes,
+                    "raw_entries_available": len(raw_index),
+                    "link_all": link_all,
+                    "links": links,
+                },
+                indent=2,
+                default=str,
+            )
+        )
         if dry_run:
             return
     else:
@@ -1798,7 +1859,11 @@ def _migrate_link_raw(args: "argparse.Namespace", k: "Kernle") -> None:
         print("=" * 60)
         print(f"Raw entries available: {len(raw_index)}")
         print(f"Time window: {window_minutes} minutes")
-        print(f"Memories linkable: {len(links)}")
+        if link_all:
+            print("Mode: --all (synthetic raw entries for unmatched memories)")
+        print(
+            f"Memories linkable: {len(links)} ({len(matched_links)} matched, {len(synthetic_links)} synthetic)"
+        )
 
         if not links:
             print("\n✓ No linkable memories found!")
@@ -1813,23 +1878,53 @@ def _migrate_link_raw(args: "argparse.Namespace", k: "Kernle") -> None:
 
         if dry_run:
             print("\n=== DRY RUN (no changes made) ===\n")
-            for link in links:
-                print(f"  [{link['type']}] {link['id'][:8]}... → raw:{link['raw_id'][:8]}... (score={link['score']})")
+            for link in matched_links:
+                print(
+                    f"  [{link['type']}] {link['id'][:8]}... → raw:{link['raw_id'][:8]}... (score={link['score']})"
+                )
                 print(f"          memory: {link['summary']}")
                 print(f"          raw:    {link['raw_blob']}")
-            print(f"\nTo apply: kernle -s {k.stack_id} migrate link-raw")
+            if synthetic_links:
+                print(f"\n  --- Synthetic raw entries ({len(synthetic_links)}) ---\n")
+                for link in synthetic_links:
+                    print(f"  [{link['type']}] {link['id'][:8]}... → new synthetic raw")
+                    print(f"          memory: {link['summary']}")
+            apply_cmd = f"kernle -s {k.stack_id} migrate link-raw"
+            if link_all:
+                apply_cmd += " --all"
+            print(f"\nTo apply: {apply_cmd}")
             return
 
     # Apply links
     applied = 0
+    synthetic_created = 0
     errors = []
 
     for link in links:
         try:
+            if link.get("synthetic"):
+                # Create a synthetic raw entry from the memory content
+                raw_id = k._storage.save_raw(
+                    link["synthetic_blob"],
+                    source="migration",
+                )
+                new_derived_from = [
+                    f"raw:{raw_id}",
+                    "kernle:auto-linked",
+                    "kernle:synthetic-raw",
+                ] + link.get("existing_annotations", [])
+                link["new_derived_from"] = new_derived_from
+                link["raw_id"] = raw_id
+                synthetic_created += 1
+
             k.set_memory_source(
                 link["type"],
                 link["id"],
-                getattr(k._storage.get_memory(link["type"], link["id"]), "source_type", "direct_experience"),
+                getattr(
+                    k._storage.get_memory(link["type"], link["id"]),
+                    "source_type",
+                    "direct_experience",
+                ),
                 derived_from=link["new_derived_from"],
             )
             applied += 1
@@ -1838,10 +1933,9 @@ def _migrate_link_raw(args: "argparse.Namespace", k: "Kernle") -> None:
 
     if not json_output:
         print(f"\n✓ Linked {applied}/{len(links)} memories to raw entries")
+        if synthetic_created:
+            print(f"  ({synthetic_created} synthetic raw entries created)")
         if errors:
             print(f"\n⚠ {len(errors)} errors:")
             for err in errors[:5]:
                 print(f"  - {err}")
-        unlinked = len(k._storage.get_episodes(limit=10000)) - applied
-        print(f"\nNote: {unlinked} episodes still without raw links.")
-        print(f"These are annotated with kernle:pre-v0.9-migration if backfill-provenance was run.")

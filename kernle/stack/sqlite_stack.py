@@ -419,9 +419,7 @@ class SQLiteStack(
                 if hasattr(record, "strength"):
                     object.__setattr__(record, "strength", new_strength)
                 if hasattr(record, "last_accessed"):
-                    object.__setattr__(
-                        record, "last_accessed", datetime.now(timezone.utc)
-                    )
+                    object.__setattr__(record, "last_accessed", datetime.now(timezone.utc))
                 strength_updates.append((memory_type, record.id, new_strength))
 
         # Persist all updates in a single batch, also updating last_accessed
@@ -434,9 +432,7 @@ class SQLiteStack(
 
         return records
 
-    def _persist_decay_updates(
-        self, updates: list[tuple[str, str, float]]
-    ) -> None:
+    def _persist_decay_updates(self, updates: list[tuple[str, str, float]]) -> None:
         """Persist lazy decay strength updates with last_accessed bump.
 
         Updates both strength and last_accessed to now, ensuring
@@ -547,6 +543,14 @@ class SQLiteStack(
         # that produce valid memories without raw-entry derivation.
         if source_entity and source_entity.startswith("kernle:"):
             return
+
+        # Pre-v0.9 migrated memories bypass provenance.
+        # These existed before provenance enforcement and have been
+        # annotated by `kernle migrate backfill-provenance`.
+        if derived_from:
+            for ref in derived_from:
+                if ref and ref.startswith("kernle:pre-v0.9"):
+                    return
 
         # Plugin-sourced writes have relaxed provenance requirements,
         # but only for plugins actually registered with this stack
@@ -859,9 +863,7 @@ class SQLiteStack(
                     if hasattr(record, "strength"):
                         object.__setattr__(record, "strength", new_strength)
                     if hasattr(record, "last_accessed"):
-                        object.__setattr__(
-                            record, "last_accessed", datetime.now(timezone.utc)
-                        )
+                        object.__setattr__(record, "last_accessed", datetime.now(timezone.utc))
                     decay_updates.append((sr.record_type, record.id, new_strength))
             if decay_updates:
                 try:

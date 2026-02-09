@@ -12,14 +12,13 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
-from kernle.storage.sqlite import SQLiteStorage
 from kernle.stack.sqlite_stack import SQLiteStack
-from kernle.types import Belief, Episode, Note
+from kernle.storage.sqlite import SQLiteStorage
+from kernle.types import Episode, Note
 
 STACK_ID = "test-migration"
 
@@ -106,7 +105,12 @@ class TestGetPreV09Memories:
         with storage._connect() as conn:
             conn.execute(
                 "UPDATE episodes SET derived_from = ? WHERE id = ?",
-                (json.dumps([f"raw:{raw_id}", "kernle:auto-linked", "kernle:pre-v0.9-migration"]), ep.id),
+                (
+                    json.dumps(
+                        [f"raw:{raw_id}", "kernle:auto-linked", "kernle:pre-v0.9-migration"]
+                    ),
+                    ep.id,
+                ),
             )
             conn.commit()
 
@@ -296,6 +300,7 @@ class TestLinkRaw:
         args.dry_run = False
         args.json = True
         args.window = 30
+        args.link_all = False
 
         _migrate_link_raw(args, mock_k)
 
@@ -327,6 +332,7 @@ class TestLinkRaw:
         args.dry_run = False
         args.json = True
         args.window = 30
+        args.link_all = False
 
         _migrate_link_raw(args, mock_k)
 
@@ -351,6 +357,7 @@ class TestLinkRaw:
         args.dry_run = False
         args.json = True
         args.window = 30
+        args.link_all = False
 
         _migrate_link_raw(args, mock_k)
 
@@ -378,6 +385,7 @@ class TestLinkRaw:
         args.dry_run = True
         args.json = True
         args.window = 30
+        args.link_all = False
 
         _migrate_link_raw(args, mock_k)
 
@@ -385,7 +393,7 @@ class TestLinkRaw:
 
     def test_links_notes_too(self, stack):
         now = datetime.now(timezone.utc)
-        raw_id = _save_raw(
+        _save_raw(
             stack._backend,
             blob="insight about testing prevents bugs from production",
             captured_at=now,
@@ -405,6 +413,7 @@ class TestLinkRaw:
         args.dry_run = False
         args.json = True
         args.window = 30
+        args.link_all = False
 
         _migrate_link_raw(args, mock_k)
 
@@ -442,6 +451,7 @@ class TestLinkRaw:
         args.dry_run = False
         args.json = True
         args.window = 30
+        args.link_all = False
 
         _migrate_link_raw(args, mock_k)
 
@@ -464,6 +474,7 @@ class TestLinkRaw:
         args.dry_run = False
         args.json = True
         args.window = 30
+        args.link_all = False
 
         _migrate_link_raw(args, mock_k)  # Should not error
 
@@ -496,6 +507,7 @@ class TestLinkRaw:
         args.dry_run = False
         args.json = True
         args.window = 30
+        args.link_all = False
 
         _migrate_link_raw(args, mock_k)
 
@@ -505,3 +517,148 @@ class TestLinkRaw:
         assert f"raw:{raw_id}" in derived_from
         assert "kernle:auto-linked" in derived_from
         assert "kernle:pre-v0.9-migration" in derived_from
+
+    def test_all_flag_creates_synthetic_raw(self, stack):
+        """--all creates synthetic raw entries for unmatched memories."""
+        now = datetime.now(timezone.utc)
+        # Raw entry is far away in time and has no content overlap
+        _save_raw(
+            stack._backend,
+            blob="completely unrelated entry about cooking",
+            captured_at=now - timedelta(hours=5),
+        )
+
+        ep = _ep(objective="deployed api service", outcome="success", created_at=now)
+        stack.save_episode(ep)
+
+        from kernle.cli.commands.import_cmd import _migrate_link_raw
+
+        args = MagicMock()
+        args.dry_run = False
+        args.json = True
+        args.window = 30
+        args.link_all = True
+
+        mock_k = MagicMock()
+        mock_k._storage = stack._backend
+        mock_k.stack_id = STACK_ID
+        mock_k.set_memory_source = MagicMock(return_value=True)
+        # save_raw returns a synthetic raw id
+        synthetic_id = str(uuid.uuid4())
+        mock_k._storage.save_raw = MagicMock(return_value=synthetic_id)
+
+        _migrate_link_raw(args, mock_k)
+
+        # Synthetic raw should have been created
+        mock_k._storage.save_raw.assert_called_once()
+        call_args = mock_k._storage.save_raw.call_args
+        assert "[migrated episode]" in call_args[0][0]
+        assert "deployed api service" in call_args[0][0]
+
+        # Memory should be linked to the synthetic raw
+        calls = mock_k.set_memory_source.call_args_list
+        assert len(calls) == 1
+        derived_from = calls[0].kwargs.get("derived_from")
+        assert f"raw:{synthetic_id}" in derived_from
+        assert "kernle:auto-linked" in derived_from
+        assert "kernle:synthetic-raw" in derived_from
+
+    def test_all_flag_dry_run_no_synthetic(self, stack):
+        """--all --dry-run shows synthetic links but doesn't create them."""
+        now = datetime.now(timezone.utc)
+        # Need at least one raw entry so the function doesn't bail early
+        _save_raw(
+            stack._backend,
+            blob="unrelated raw entry",
+            captured_at=now - timedelta(hours=5),
+        )
+
+        ep = _ep(objective="unmatched task", outcome="done", created_at=now)
+        stack.save_episode(ep)
+
+        from kernle.cli.commands.import_cmd import _migrate_link_raw
+
+        args = MagicMock()
+        args.dry_run = True
+        args.json = True
+        args.window = 30
+        args.link_all = True
+
+        mock_k = MagicMock()
+        mock_k._storage = stack._backend
+        mock_k.stack_id = STACK_ID
+
+        _migrate_link_raw(args, mock_k)
+
+        # Nothing should have been applied (dry run)
+        mock_k.set_memory_source.assert_not_called()
+
+    def test_all_flag_not_set_skips_unmatched(self, stack):
+        """Without --all, unmatched memories are left alone."""
+        now = datetime.now(timezone.utc)
+        _save_raw(
+            stack._backend,
+            blob="unrelated content",
+            captured_at=now - timedelta(hours=5),
+        )
+
+        ep = _ep(objective="deployed api service", outcome="success", created_at=now)
+        stack.save_episode(ep)
+
+        from kernle.cli.commands.import_cmd import _migrate_link_raw
+
+        mock_k = MagicMock()
+        mock_k._storage = stack._backend
+        mock_k.stack_id = STACK_ID
+
+        args = MagicMock()
+        args.dry_run = False
+        args.json = True
+        args.window = 30
+        args.link_all = False
+
+        _migrate_link_raw(args, mock_k)
+
+        mock_k.set_memory_source.assert_not_called()
+
+
+class TestPreV09ProvenanceBypass:
+    """Test that pre-v0.9 migrated memories bypass provenance validation."""
+
+    def test_pre_v09_annotation_bypasses_provenance(self, tmp_path):
+        """Memories with kernle:pre-v0.9-migration pass provenance validation."""
+        stack = SQLiteStack(
+            STACK_ID, db_path=tmp_path / "test.db", components=[], enforce_provenance=True
+        )
+        stack._state = stack._state.__class__["ACTIVE"]
+
+        ep = Episode(
+            id=str(uuid.uuid4()),
+            stack_id=STACK_ID,
+            objective="legacy episode",
+            outcome="success",
+            derived_from=["kernle:pre-v0.9-migration"],
+            created_at=datetime.now(timezone.utc),
+        )
+        # Should not raise ProvenanceError
+        stack.save_episode(ep)
+
+    def test_annotation_only_still_fails_without_pre_v09(self, tmp_path):
+        """Other annotation-only refs still fail provenance validation."""
+        from kernle.stack.sqlite_stack import ProvenanceError
+
+        stack = SQLiteStack(
+            STACK_ID, db_path=tmp_path / "test.db", components=[], enforce_provenance=True
+        )
+        stack._state = stack._state.__class__["ACTIVE"]
+
+        ep = Episode(
+            id=str(uuid.uuid4()),
+            stack_id=STACK_ID,
+            objective="episode with only context annotation",
+            outcome="result",
+            derived_from=["context:cli"],
+            created_at=datetime.now(timezone.utc),
+        )
+        with pytest.raises(ProvenanceError):
+            stack.save_episode(ep)
