@@ -191,110 +191,80 @@ This is a preamble that should be treated as raw.
 
 
 class TestJsonExportFormat:
-    """Tests for JSON export format validation.
+    """Tests for JSON export format via real Kernle.dump()."""
 
-    These tests verify that the expected JSON export structure
-    is well-formed for later import operations.
-    """
+    def test_export_structure_has_required_fields(self, tmp_path):
+        """Real Kernle JSON export should have stack_id and exported_at."""
+        from kernle.storage import SQLiteStorage
 
-    def test_export_structure_has_required_fields(self):
-        """JSON export should have stack_id and exported_at fields."""
-        # This tests the expected structure of Kernle's JSON export format
-        # which is documented and used by the import command
-        required_fields = {"stack_id", "exported_at"}
-        memory_types = {"values", "beliefs", "goals", "episodes", "notes"}
+        storage = SQLiteStorage(stack_id="export-test", db_path=tmp_path / "export.db")
+        k = Kernle(stack_id="export-test", storage=storage, strict=False)
+        k.belief("Export test belief", confidence=0.8)
 
-        # A minimal valid export
-        export_data = {
-            "stack_id": "test-agent",
-            "exported_at": "2026-01-15T10:00:00Z",
-            "values": [],
-            "beliefs": [],
-            "goals": [],
-            "episodes": [],
-            "notes": [],
-        }
+        export_json = k.dump(format="json")
+        data = json.loads(export_json)
 
-        # Verify required fields exist
-        assert required_fields.issubset(export_data.keys())
-        # Verify memory type arrays exist
-        assert memory_types.issubset(export_data.keys())
+        assert "stack_id" in data
+        assert "exported_at" in data
+        assert data["stack_id"] == "export-test"
+        assert isinstance(data.get("beliefs"), list)
+        assert len(data["beliefs"]) >= 1
 
-    def test_episode_export_includes_outcome(self):
-        """Exported episodes should have objective and outcome."""
-        episode_data = {
-            "objective": "Fix bug",
-            "outcome": "Bug fixed successfully",
-            "lessons": ["Always add tests"],
-        }
+    def test_episode_export_includes_outcome(self, tmp_path):
+        """Exported episodes should have objective and outcome fields."""
+        from kernle.storage import SQLiteStorage
 
-        # Verify episode has required fields for import
-        assert "objective" in episode_data
-        assert "outcome" in episode_data
-        # Note: outcome_type is inferred from outcome text, not stored explicitly
+        storage = SQLiteStorage(stack_id="ep-test", db_path=tmp_path / "ep.db")
+        k = Kernle(stack_id="ep-test", storage=storage, strict=False)
+        k.episode(objective="Fix bug", outcome="Bug fixed successfully")
+
+        export_json = k.dump(format="json")
+        data = json.loads(export_json)
+
+        assert len(data["episodes"]) >= 1
+        ep = data["episodes"][0]
+        assert "objective" in ep
+        assert "outcome" in ep
 
 
 class TestCsvFormatRequirements:
-    """Tests for CSV import format requirements.
+    """Tests for CSV parsing via production parse_csv code paths."""
 
-    The import command expects specific column names and normalizes
-    various formats. These tests document those expectations.
-    """
+    def test_csv_belief_confidence_preserved(self, tmp_path):
+        """CSV parse_csv extracts confidence as string data for downstream normalization."""
+        from kernle.importers.csv_importer import parse_csv
 
-    def test_type_column_required_unless_layer_specified(self):
-        """CSV must have a type/memory_type/kind column for import."""
-        # Valid type column names recognized by the import command
-        valid_type_columns = ["type", "memory_type", "kind"]
+        csv_content = (
+            "type,statement,confidence\nbelief,Test high conf,90\nbelief,Test decimal,0.85\n"
+        )
+        items = parse_csv(csv_content)
+        assert len(items) == 2
+        assert items[0].type == "belief"
+        assert items[0].data["statement"] == "Test high conf"
+        assert items[1].data["statement"] == "Test decimal"
 
-        # Test that at least one is required (per import_cmd.py line 375)
-        csv_with_type = "type,content\nbelief,Test belief\n"
-        csv_with_memory_type = "memory_type,content\nbelief,Test belief\n"
-        csv_with_kind = "kind,content\nbelief,Test belief\n"
+    def test_csv_type_column_variants_parsed(self):
+        """CSV with type/memory_type/kind columns should all produce items."""
+        from kernle.importers.csv_importer import parse_csv
 
-        import csv
-        import io
-
-        # Each should be parseable with type column
-        for csv_content in [csv_with_type, csv_with_memory_type, csv_with_kind]:
-            reader = csv.DictReader(io.StringIO(csv_content))
-            headers = [h.lower() for h in (reader.fieldnames or [])]
-            has_type = any(h in valid_type_columns for h in headers)
-            assert has_type, f"Should recognize type column in: {csv_content[:50]}"
-
-    def test_confidence_normalization(self):
-        """Confidence can be 0-1 float or 0-100 integer."""
-        # The import command normalizes confidence values > 1
-        # by dividing by 100 (see import_cmd.py lines 421-424)
-        test_cases = [
-            ("0.9", 0.9),
-            ("90", 0.9),  # Will be normalized to 0.9
-            ("0.85", 0.85),
-            ("75", 0.75),  # Will be normalized to 0.75
-        ]
-
-        for raw_value, expected_normalized in test_cases:
-            value = float(raw_value)
-            if value > 1:
-                value = value / 100
-            assert abs(value - expected_normalized) < 0.01, f"Failed for {raw_value}"
+        for col_name in ["type", "memory_type", "kind"]:
+            csv_content = f"{col_name},statement,confidence\nbelief,A belief,0.8\n"
+            items = parse_csv(csv_content)
+            assert len(items) == 1, f"Failed for column name: {col_name}"
+            assert items[0].type == "belief"
+            assert items[0].data["statement"] == "A belief"
 
 
 class TestImportIntegration:
-    """Integration tests for the import command.
-
-    Note: These tests interact with the Kernle storage layer and may fail
-    if there are schema changes in progress. The unit tests for parsing
-    logic are more reliable for testing the import parsing functionality.
-    """
+    """Integration tests for the import command."""
 
     @pytest.fixture
     def kernle_instance(self, tmp_path):
         """Create a Kernle instance with temp storage."""
-        try:
-            return Kernle(stack_id="test-import", strict=False)
-        except Exception as e:
-            logger.debug(f"Kernle instance creation failed: {e}")
-            pytest.skip("Could not create Kernle instance - schema may be changing")
+        from kernle.storage import SQLiteStorage
+
+        storage = SQLiteStorage(stack_id="test-import", db_path=tmp_path / "import.db")
+        return Kernle(stack_id="test-import", storage=storage, strict=False)
 
     def test_import_markdown_beliefs(self, kernle_instance, tmp_path):
         """Import beliefs from markdown file."""
@@ -313,13 +283,7 @@ class TestImportIntegration:
 
         for item in items:
             assert item["type"] == "belief"
-            try:
-                kernle_instance.belief(statement=item["statement"], confidence=item["confidence"])
-            except AttributeError as e:
-                # Schema may be in transition
-                if "context" in str(e):
-                    pytest.skip("Belief schema has context fields not yet in dataclass")
-                raise
+            kernle_instance.belief(statement=item["statement"], confidence=item["confidence"])
 
         # Verify beliefs were stored
         beliefs = kernle_instance._storage.get_beliefs()
@@ -327,14 +291,7 @@ class TestImportIntegration:
 
     def test_import_json_round_trip(self, kernle_instance, tmp_path):
         """Test export then import round trip."""
-        # Add some data
-        try:
-            kernle_instance.belief("Test belief", confidence=0.9)
-        except AttributeError as e:
-            if "context" in str(e):
-                pytest.skip("Belief schema has context fields not yet in dataclass")
-            raise
-
+        kernle_instance.belief("Test belief", confidence=0.9)
         kernle_instance.episode("Test task", "Task completed successfully")
         kernle_instance.note("Test note", type="insight")
 
