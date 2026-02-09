@@ -166,43 +166,85 @@ class TestOpenAIEmbedder:
             # OpenAI() should be called only once
             mock_openai.OpenAI.assert_called_once_with(api_key="test-key")
 
-    def test_embed_mocked(self):
-        e = OpenAIEmbedder()
-        fake_embedding = [0.1, 0.2, 0.3]
+    def test_embed_calls_api_with_correct_params(self):
+        """Verify embed() passes the configured model name and input text to the API."""
+        e = OpenAIEmbedder(model="text-embedding-3-large")
         mock_client = MagicMock()
         mock_response = MagicMock()
         mock_item = MagicMock()
-        mock_item.embedding = fake_embedding
+        mock_item.embedding = [0.1]
         mock_response.data = [mock_item]
         mock_client.embeddings.create.return_value = mock_response
         e._client = mock_client
 
-        result = e.embed("test text")
-        assert result == fake_embedding
+        e.embed("hello world")
         mock_client.embeddings.create.assert_called_once_with(
-            model="text-embedding-3-small", input="test text"
+            model="text-embedding-3-large", input="hello world"
         )
 
-    def test_embed_batch_mocked(self):
+    def test_embed_extracts_first_data_item(self):
+        """Verify embed() returns the embedding from response.data[0], not data itself."""
         e = OpenAIEmbedder()
-        fake_embeddings = [[0.1, 0.2], [0.3, 0.4], [0.5, 0.6]]
         mock_client = MagicMock()
         mock_response = MagicMock()
-        mock_items = []
-        for emb in fake_embeddings:
-            item = MagicMock()
-            item.embedding = emb
-            mock_items.append(item)
-        mock_response.data = mock_items
+        # Put multiple items in data — embed() should take index 0
+        item0 = MagicMock()
+        item0.embedding = [1.0, 2.0]
+        item1 = MagicMock()
+        item1.embedding = [9.0, 9.0]
+        mock_response.data = [item0, item1]
         mock_client.embeddings.create.return_value = mock_response
         e._client = mock_client
 
-        texts = ["a", "b", "c"]
-        result = e.embed_batch(texts)
-        assert result == fake_embeddings
+        result = e.embed("test")
+        assert result == [1.0, 2.0]
+
+    def test_embed_batch_sends_all_texts(self):
+        """Verify embed_batch() sends all texts in a single API call."""
+        e = OpenAIEmbedder()
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        mock_response.data = [MagicMock(embedding=[i]) for i in range(4)]
+        mock_client.embeddings.create.return_value = mock_response
+        e._client = mock_client
+
+        texts = ["alpha", "beta", "gamma", "delta"]
+        e.embed_batch(texts)
         mock_client.embeddings.create.assert_called_once_with(
             model="text-embedding-3-small", input=texts
         )
+
+    def test_embed_batch_preserves_order_from_response(self):
+        """Verify embed_batch() returns embeddings in response.data order."""
+        e = OpenAIEmbedder()
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        # Simulate API returning items — batch should map them in order
+        items = []
+        for val in [[10.0], [20.0], [30.0]]:
+            item = MagicMock()
+            item.embedding = val
+            items.append(item)
+        mock_response.data = items
+        mock_client.embeddings.create.return_value = mock_response
+        e._client = mock_client
+
+        result = e.embed_batch(["x", "y", "z"])
+        assert result == [[10.0], [20.0], [30.0]]
+        assert len(result) == 3
+
+    def test_embed_batch_fewer_results_than_inputs(self):
+        """If API returns fewer items than requested, result has fewer elements."""
+        e = OpenAIEmbedder()
+        mock_client = MagicMock()
+        mock_response = MagicMock()
+        # Only 2 items for 3 inputs — the code returns whatever the API gives
+        mock_response.data = [MagicMock(embedding=[1.0]), MagicMock(embedding=[2.0])]
+        mock_client.embeddings.create.return_value = mock_response
+        e._client = mock_client
+
+        result = e.embed_batch(["a", "b", "c"])
+        assert len(result) == 2
 
 
 # ---------------------------------------------------------------------------
