@@ -1,0 +1,1224 @@
+"""Belief revision mixin for Kernle.
+
+Provides belief update, contradiction detection, reinforcement,
+supersession, and episode-based revision.
+"""
+
+import uuid
+from datetime import datetime, timezone
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+from kernle.storage import Belief
+
+if TYPE_CHECKING:
+    from kernle.core import Kernle
+
+
+class BeliefRevisionMixin:
+    """Mixin providing belief revision capabilities."""
+
+    # Opposition word pairs for semantic contradiction detection
+    # Format: (word, opposite) - both directions are checked
+    _OPPOSITION_PAIRS = [
+        # Frequency/Certainty
+        ("always", "never"),
+        ("sometimes", "never"),
+        ("often", "rarely"),
+        ("frequently", "seldom"),
+        ("constantly", "occasionally"),
+        # Modal verbs and necessity
+        ("should", "shouldn't"),
+        ("must", "mustn't"),
+        ("can", "cannot"),
+        ("will", "won't"),
+        ("would", "wouldn't"),
+        ("could", "couldn't"),
+        # Preferences and attitudes
+        ("like", "dislike"),
+        ("love", "hate"),
+        ("prefer", "avoid"),
+        ("enjoy", "despise"),
+        ("favor", "oppose"),
+        ("want", "reject"),
+        ("appreciate", "resent"),
+        ("embrace", "shun"),
+        # Value judgments
+        ("good", "bad"),
+        ("best", "worst"),
+        ("important", "unnecessary"),
+        ("essential", "optional"),
+        ("critical", "trivial"),
+        ("valuable", "worthless"),
+        ("beneficial", "harmful"),
+        ("helpful", "unhelpful"),
+        ("useful", "useless"),
+        # Comparatives
+        ("more", "less"),
+        ("better", "worse"),
+        ("faster", "slower"),
+        ("higher", "lower"),
+        ("greater", "lesser"),
+        ("stronger", "weaker"),
+        ("easier", "harder"),
+        ("simpler", "complex"),
+        ("safer", "riskier"),
+        ("cheaper", "expensive"),
+        ("larger", "smaller"),
+        ("longer", "shorter"),
+        # Actions and states
+        ("increase", "decrease"),
+        ("improve", "worsen"),
+        ("enhance", "diminish"),
+        ("enable", "disable"),
+        ("allow", "prevent"),
+        ("support", "block"),
+        ("accept", "reject"),
+        ("approve", "disapprove"),
+        ("agree", "disagree"),
+        ("include", "exclude"),
+        ("add", "remove"),
+        ("create", "destroy"),
+        # Truth values
+        ("true", "false"),
+        ("right", "wrong"),
+        ("correct", "incorrect"),
+        ("accurate", "inaccurate"),
+        ("valid", "invalid"),
+        # Quality descriptors
+        ("efficient", "inefficient"),
+        ("effective", "ineffective"),
+        ("reliable", "unreliable"),
+        ("stable", "unstable"),
+        ("secure", "insecure"),
+        ("safe", "dangerous"),
+        # Recommendations
+        ("recommended", "discouraged"),
+        ("advisable", "inadvisable"),
+        ("encouraged", "forbidden"),
+        ("suggested", "prohibited"),
+    ]
+
+    # Negation prefixes that can flip meaning
+    _NEGATION_PREFIXES = ["not", "no", "non", "un", "in", "dis", "anti", "counter"]
+
+    # Stop words to exclude from topic overlap calculations
+    _STOP_WORDS = frozenset(
+        [
+            "i",
+            "the",
+            "a",
+            "an",
+            "to",
+            "and",
+            "or",
+            "is",
+            "are",
+            "that",
+            "this",
+            "it",
+            "be",
+            "was",
+            "were",
+            "been",
+            "being",
+            "have",
+            "has",
+            "had",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "could",
+            "should",
+            "may",
+            "might",
+            "for",
+            "of",
+            "in",
+            "on",
+            "at",
+            "by",
+            "with",
+            "from",
+            "as",
+            "into",
+            "through",
+            "during",
+            "before",
+            "after",
+            "above",
+            "below",
+            "between",
+            "but",
+            "if",
+            "then",
+            "because",
+            "while",
+            "although",
+            "though",
+            "my",
+            "your",
+            "his",
+            "her",
+            "its",
+            "our",
+            "their",
+            "me",
+            "you",
+            "him",
+            "she",
+            "we",
+            "they",
+            "who",
+            "which",
+            "what",
+            "when",
+            "where",
+            "why",
+            "how",
+        ]
+    )
+
+    def update_belief(
+        self: "Kernle",
+        belief_id: str,
+        confidence: Optional[float] = None,
+        is_active: Optional[bool] = None,
+    ) -> bool:
+        """Update a belief's confidence or deactivate it."""
+        # Validate inputs
+        belief_id = self._validate_string_input(belief_id, "belief_id", 100)
+
+        # Get beliefs to find matching one (include inactive to allow reactivation)
+        beliefs = self._storage.get_beliefs(limit=1000, include_inactive=True)
+        existing = None
+        for b in beliefs:
+            if b.id == belief_id:
+                existing = b
+                break
+
+        if not existing:
+            return False
+
+        if confidence is not None:
+            if not 0.0 <= confidence <= 1.0:
+                raise ValueError("Confidence must be between 0.0 and 1.0")
+            existing.confidence = confidence
+
+        if is_active is not None:
+            existing.is_active = is_active
+            if not is_active:
+                existing.deleted = True
+
+        # Use atomic update with optimistic concurrency control
+        self._storage.update_belief_atomic(existing)
+        return True
+
+    # =========================================================================
+    # BELIEF REVISION
+    # =========================================================================
+
+    def find_contradictions(
+        self: "Kernle",
+        belief_statement: str,
+        similarity_threshold: float = 0.6,
+        limit: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """Find beliefs that might contradict a statement.
+
+        Uses semantic similarity to find related beliefs, then checks for
+        potential contradictions using heuristic pattern matching.
+
+        Args:
+            belief_statement: The statement to check for contradictions
+            similarity_threshold: Minimum similarity score (0-1) for related beliefs
+            limit: Maximum number of potential contradictions to return
+
+        Returns:
+            List of dicts with belief info and contradiction analysis
+        """
+        # Search for semantically similar beliefs
+        search_results = self._storage.search(
+            belief_statement,
+            limit=limit * 2,
+            record_types=["belief"],  # Get more to filter
+        )
+
+        contradictions = []
+        stmt_lower = belief_statement.lower().strip()
+
+        for result in search_results:
+            if result.record_type != "belief":
+                continue
+
+            # Filter by similarity threshold
+            if result.score < similarity_threshold:
+                continue
+
+            belief = result.record
+            belief_stmt_lower = belief.statement.lower().strip()
+
+            # Skip exact matches
+            if belief_stmt_lower == stmt_lower:
+                continue
+
+            # Check for contradiction patterns
+            contradiction_type = None
+            confidence = 0.0
+            explanation = ""
+
+            # Negation patterns
+            negation_pairs = [
+                ("never", "always"),
+                ("should not", "should"),
+                ("cannot", "can"),
+                ("don't", "do"),
+                ("avoid", "prefer"),
+                ("reject", "accept"),
+                ("false", "true"),
+                ("dislike", "like"),
+                ("hate", "love"),
+                ("wrong", "right"),
+                ("bad", "good"),
+            ]
+
+            for neg, pos in negation_pairs:
+                if (neg in stmt_lower and pos in belief_stmt_lower) or (
+                    pos in stmt_lower and neg in belief_stmt_lower
+                ):
+                    # Check word overlap for topic relevance
+                    words_stmt = set(stmt_lower.split()) - {
+                        "i",
+                        "the",
+                        "a",
+                        "an",
+                        "to",
+                        "and",
+                        "or",
+                        "is",
+                        "are",
+                        "that",
+                        "this",
+                    }
+                    words_belief = set(belief_stmt_lower.split()) - {
+                        "i",
+                        "the",
+                        "a",
+                        "an",
+                        "to",
+                        "and",
+                        "or",
+                        "is",
+                        "are",
+                        "that",
+                        "this",
+                    }
+                    overlap = len(words_stmt & words_belief)
+
+                    if overlap >= 2:
+                        contradiction_type = "direct_negation"
+                        confidence = min(0.5 + overlap * 0.1 + result.score * 0.2, 0.95)
+                        explanation = f"Negation conflict: '{neg}' vs '{pos}' with {overlap} overlapping terms"
+                        break
+
+            # Comparative opposition (more/less, better/worse, etc.)
+            if not contradiction_type:
+                comparative_pairs = [
+                    ("more", "less"),
+                    ("better", "worse"),
+                    ("faster", "slower"),
+                    ("higher", "lower"),
+                    ("greater", "lesser"),
+                    ("stronger", "weaker"),
+                    ("easier", "harder"),
+                    ("simpler", "more complex"),
+                    ("safer", "riskier"),
+                    ("cheaper", "more expensive"),
+                    ("larger", "smaller"),
+                    ("longer", "shorter"),
+                    ("increase", "decrease"),
+                    ("improve", "worsen"),
+                    ("enhance", "diminish"),
+                ]
+                for comp_a, comp_b in comparative_pairs:
+                    if (comp_a in stmt_lower and comp_b in belief_stmt_lower) or (
+                        comp_b in stmt_lower and comp_a in belief_stmt_lower
+                    ):
+                        # Check word overlap for topic relevance (need high overlap for comparatives)
+                        words_stmt = set(stmt_lower.split()) - {
+                            "i",
+                            "the",
+                            "a",
+                            "an",
+                            "to",
+                            "and",
+                            "or",
+                            "is",
+                            "are",
+                            "that",
+                            "this",
+                            "than",
+                            comp_a,
+                            comp_b,
+                        }
+                        words_belief = set(belief_stmt_lower.split()) - {
+                            "i",
+                            "the",
+                            "a",
+                            "an",
+                            "to",
+                            "and",
+                            "or",
+                            "is",
+                            "are",
+                            "that",
+                            "this",
+                            "than",
+                            comp_a,
+                            comp_b,
+                        }
+                        overlap = len(words_stmt & words_belief)
+
+                        if overlap >= 2:
+                            contradiction_type = "comparative_opposition"
+                            # Higher confidence for comparative oppositions with strong topic overlap
+                            confidence = min(0.6 + overlap * 0.08 + result.score * 0.2, 0.95)
+                            explanation = f"Comparative opposition: '{comp_a}' vs '{comp_b}' with {overlap} overlapping terms"
+                            break
+
+            # Preference conflicts
+            if not contradiction_type:
+                preference_pairs = [
+                    ("prefer", "avoid"),
+                    ("like", "dislike"),
+                    ("enjoy", "hate"),
+                    ("favor", "oppose"),
+                    ("support", "reject"),
+                    ("want", "don't want"),
+                ]
+                for pref, anti in preference_pairs:
+                    if (pref in stmt_lower and anti in belief_stmt_lower) or (
+                        anti in stmt_lower and pref in belief_stmt_lower
+                    ):
+                        words_stmt = set(stmt_lower.split()) - {
+                            "i",
+                            "the",
+                            "a",
+                            "an",
+                            "to",
+                            "and",
+                            "or",
+                        }
+                        words_belief = set(belief_stmt_lower.split()) - {
+                            "i",
+                            "the",
+                            "a",
+                            "an",
+                            "to",
+                            "and",
+                            "or",
+                        }
+                        overlap = len(words_stmt & words_belief)
+
+                        if overlap >= 2:
+                            contradiction_type = "preference_conflict"
+                            confidence = min(0.4 + overlap * 0.1 + result.score * 0.2, 0.85)
+                            explanation = f"Preference conflict: '{pref}' vs '{anti}'"
+                            break
+
+            if contradiction_type:
+                contradictions.append(
+                    {
+                        "belief_id": belief.id,
+                        "statement": belief.statement,
+                        "confidence": belief.confidence,
+                        "times_reinforced": belief.times_reinforced,
+                        "is_active": belief.is_active,
+                        "contradiction_type": contradiction_type,
+                        "contradiction_confidence": round(confidence, 2),
+                        "explanation": explanation,
+                        "semantic_similarity": round(result.score, 2),
+                    }
+                )
+
+        # Sort by contradiction confidence
+        contradictions.sort(key=lambda x: x["contradiction_confidence"], reverse=True)
+        return contradictions[:limit]
+
+    def find_semantic_contradictions(
+        self: "Kernle",
+        belief: str,
+        similarity_threshold: float = 0.7,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Find beliefs that are semantically similar but may contradict.
+
+        This method uses embedding-based similarity search to find beliefs
+        that discuss the same topic, then applies opposition detection to
+        identify potential contradictions. Unlike find_contradictions() which
+        requires explicit opposition words, this can detect semantic opposition
+        like "Testing is important" vs "Testing slows me down".
+
+        Args:
+            belief: The belief statement to check for contradictions
+            similarity_threshold: Minimum similarity score (0-1) for related beliefs.
+                Higher values (0.7-0.9) find more topically related beliefs.
+            limit: Maximum number of potential contradictions to return
+
+        Returns:
+            List of dicts containing:
+                - belief_id: ID of the potentially contradicting belief
+                - statement: The belief statement
+                - confidence: Belief's confidence level
+                - similarity_score: Semantic similarity (0-1)
+                - opposition_score: Strength of detected opposition (0-1)
+                - opposition_type: Type of opposition detected
+                - explanation: Human-readable explanation of the potential contradiction
+
+        Example:
+            >>> k = Kernle("my-agent")
+            >>> k.belief("Testing is essential for code quality")
+            >>> contradictions = k.find_semantic_contradictions(
+            ...     "Testing slows down development"
+            ... )
+            >>> for c in contradictions:
+            ...     print(f"{c['statement']}: {c['explanation']}")
+        """
+        belief = self._validate_string_input(belief, "belief", 2000)
+
+        # Search for semantically similar beliefs
+        search_results = self._storage.search(
+            belief,
+            limit=limit * 3,
+            record_types=["belief"],  # Get more to filter by threshold
+        )
+
+        contradictions = []
+        belief_lower = belief.lower().strip()
+
+        for result in search_results:
+            if result.record_type != "belief":
+                continue
+
+            # Filter by similarity threshold
+            if result.score < similarity_threshold:
+                continue
+
+            existing_belief = result.record
+            existing_lower = existing_belief.statement.lower().strip()
+
+            # Skip exact matches
+            if existing_lower == belief_lower:
+                continue
+
+            # Skip inactive beliefs by default
+            if not existing_belief.is_active:
+                continue
+
+            # Detect opposition
+            opposition = self._detect_opposition(belief_lower, existing_lower)
+
+            if opposition["score"] > 0:
+                contradictions.append(
+                    {
+                        "belief_id": existing_belief.id,
+                        "statement": existing_belief.statement,
+                        "confidence": existing_belief.confidence,
+                        "times_reinforced": existing_belief.times_reinforced,
+                        "is_active": existing_belief.is_active,
+                        "similarity_score": round(result.score, 3),
+                        "opposition_score": round(opposition["score"], 3),
+                        "opposition_type": opposition["type"],
+                        "explanation": opposition["explanation"],
+                    }
+                )
+
+        # Sort by combined score (similarity * opposition)
+        contradictions.sort(
+            key=lambda x: x["similarity_score"] * x["opposition_score"], reverse=True
+        )
+        return contradictions[:limit]
+
+    def _detect_opposition(
+        self: "Kernle",
+        stmt1: str,
+        stmt2: str,
+    ) -> Dict[str, Any]:
+        """Detect if two similar statements have opposing meanings.
+
+        Uses multiple heuristics:
+        1. Direct opposition words (always/never, good/bad, etc.)
+        2. Negation patterns (is vs is not, should vs shouldn't)
+        3. Sentiment/valence indicators
+
+        Args:
+            stmt1: First statement (lowercase)
+            stmt2: Second statement (lowercase)
+
+        Returns:
+            Dict with:
+                - score: Opposition strength (0-1), 0 means no opposition detected
+                - type: Type of opposition detected
+                - explanation: Human-readable explanation
+        """
+        result = {"score": 0.0, "type": "none", "explanation": ""}
+
+        words1 = set(stmt1.split())
+        words2 = set(stmt2.split())
+
+        # Calculate topic overlap (excluding stop words and opposition words)
+        content_words1 = words1 - self._STOP_WORDS
+        content_words2 = words2 - self._STOP_WORDS
+        overlap = content_words1 & content_words2
+        overlap_count = len(overlap)
+
+        # Need some topic overlap to be a meaningful contradiction
+        if overlap_count < 1:
+            return result
+
+        # 1. Check for direct opposition word pairs
+        for word_a, word_b in self._OPPOSITION_PAIRS:
+            # Check both directions
+            if (word_a in stmt1 and word_b in stmt2) or (word_b in stmt1 and word_a in stmt2):
+                # Verify words are used in meaningful context (not just substrings)
+                a_in_1 = word_a in words1
+                b_in_2 = word_b in words2
+                b_in_1 = word_b in words1
+                a_in_2 = word_a in words2
+
+                if (a_in_1 and b_in_2) or (b_in_1 and a_in_2):
+                    score = min(0.5 + overlap_count * 0.1, 0.95)
+                    return {
+                        "score": score,
+                        "type": "opposition_words",
+                        "explanation": f"Opposing terms '{word_a}' vs '{word_b}' with {overlap_count} shared topic words: {', '.join(list(overlap)[:3])}",
+                    }
+
+        # 2. Check for negation patterns
+        negation_found = self._check_negation_pattern(stmt1, stmt2)
+        if negation_found:
+            score = min(0.4 + overlap_count * 0.1, 0.85)
+            return {
+                "score": score,
+                "type": "negation",
+                "explanation": f"Negation pattern detected with {overlap_count} shared topic words: {', '.join(list(overlap)[:3])}",
+            }
+
+        # 3. Check for sentiment opposition using positive/negative indicator words
+        sentiment_opposition = self._check_sentiment_opposition(stmt1, stmt2)
+        if sentiment_opposition["detected"]:
+            score = min(0.3 + overlap_count * 0.1, 0.75)
+            return {
+                "score": score,
+                "type": "sentiment_opposition",
+                "explanation": f"Sentiment opposition: '{sentiment_opposition['word1']}' vs '{sentiment_opposition['word2']}' with topic overlap",
+            }
+
+        return result
+
+    def _check_negation_pattern(self: "Kernle", stmt1: str, stmt2: str) -> bool:
+        """Check if one statement negates the other.
+
+        Looks for patterns like:
+        - "X is good" vs "X is not good"
+        - "should use X" vs "should not use X"
+        - "I like X" vs "I don't like X"
+        """
+        # Common negation patterns
+        negation_patterns = [
+            ("is not", "is"),
+            ("is", "is not"),
+            ("are not", "are"),
+            ("are", "are not"),
+            ("do not", "do"),
+            ("do", "do not"),
+            ("does not", "does"),
+            ("does", "does not"),
+            ("should not", "should"),
+            ("should", "should not"),
+            ("shouldn't", "should"),
+            ("should", "shouldn't"),
+            ("can not", "can"),
+            ("can", "can not"),
+            ("cannot", "can"),
+            ("can", "cannot"),
+            ("can't", "can"),
+            ("can", "can't"),
+            ("won't", "will"),
+            ("will", "won't"),
+            ("don't", "do"),
+            ("do", "don't"),
+            ("doesn't", "does"),
+            ("does", "doesn't"),
+            ("isn't", "is"),
+            ("is", "isn't"),
+            ("aren't", "are"),
+            ("are", "aren't"),
+            ("wasn't", "was"),
+            ("was", "wasn't"),
+            ("weren't", "were"),
+            ("were", "weren't"),
+            ("not recommended", "recommended"),
+            ("recommended", "not recommended"),
+            ("not important", "important"),
+            ("important", "not important"),
+            ("no need", "need"),
+            ("need", "no need"),
+        ]
+
+        for pattern_a, pattern_b in negation_patterns:
+            if pattern_a in stmt1 and pattern_b in stmt2:
+                # Make sure pattern_a is not a substring of pattern_b in stmt1
+                if pattern_b not in stmt1 or stmt1.index(pattern_a) != stmt1.find(pattern_b):
+                    return True
+            if pattern_b in stmt1 and pattern_a in stmt2:
+                if pattern_a not in stmt1 or stmt1.index(pattern_b) != stmt1.find(pattern_a):
+                    return True
+
+        return False
+
+    def _check_sentiment_opposition(
+        self: "Kernle",
+        stmt1: str,
+        stmt2: str,
+    ) -> Dict[str, Any]:
+        """Check for sentiment/valence opposition between statements.
+
+        Looks for one statement having positive sentiment words and
+        the other having negative sentiment words about the same topic.
+        """
+        positive_words = {
+            "good",
+            "great",
+            "excellent",
+            "important",
+            "essential",
+            "valuable",
+            "helpful",
+            "useful",
+            "beneficial",
+            "necessary",
+            "crucial",
+            "vital",
+            "effective",
+            "efficient",
+            "reliable",
+            "fast",
+            "quick",
+            "easy",
+            "simple",
+            "clear",
+            "clean",
+            "safe",
+            "secure",
+            "stable",
+            "robust",
+            "powerful",
+            "flexible",
+            "scalable",
+            "maintainable",
+            "readable",
+            "elegant",
+            "beautiful",
+            "brilliant",
+            "amazing",
+            "wonderful",
+            "love",
+            "like",
+            "enjoy",
+            "prefer",
+            "appreciate",
+            "recommend",
+            "success",
+            "win",
+            "gain",
+            "improve",
+            "enhance",
+            "boost",
+        }
+
+        negative_words = {
+            "bad",
+            "poor",
+            "terrible",
+            "unimportant",
+            "unnecessary",
+            "worthless",
+            "unhelpful",
+            "useless",
+            "harmful",
+            "optional",
+            "trivial",
+            "minor",
+            "ineffective",
+            "inefficient",
+            "unreliable",
+            "slow",
+            "sluggish",
+            "hard",
+            "complex",
+            "confusing",
+            "messy",
+            "dangerous",
+            "insecure",
+            "unstable",
+            "fragile",
+            "weak",
+            "rigid",
+            "limited",
+            "unmaintainable",
+            "unreadable",
+            "ugly",
+            "awful",
+            "horrible",
+            "terrible",
+            "disaster",
+            "hate",
+            "dislike",
+            "avoid",
+            "reject",
+            "despise",
+            "discourage",
+            "failure",
+            "loss",
+            "degrade",
+            "diminish",
+            "reduce",
+            "slows",
+            "slow",
+            "slowdown",
+            "overhead",
+            "bloat",
+            "bloated",
+            "waste",
+            "wasted",
+            "wastes",
+            "wasting",
+        }
+
+        words1 = set(stmt1.split())
+        words2 = set(stmt2.split())
+
+        pos1 = words1 & positive_words
+        neg1 = words1 & negative_words
+        pos2 = words2 & positive_words
+        neg2 = words2 & negative_words
+
+        # Check for cross-sentiment: positive in one, negative in other
+        if pos1 and neg2:
+            return {
+                "detected": True,
+                "word1": list(pos1)[0],
+                "word2": list(neg2)[0],
+            }
+        if neg1 and pos2:
+            return {
+                "detected": True,
+                "word1": list(neg1)[0],
+                "word2": list(pos2)[0],
+            }
+
+        return {"detected": False, "word1": "", "word2": ""}
+
+    def reinforce_belief(
+        self: "Kernle",
+        belief_id: str,
+        evidence_source: Optional[str] = None,
+        reason: Optional[str] = None,
+    ) -> bool:
+        """Increase reinforcement count when a belief is confirmed.
+
+        Also slightly increases confidence (with diminishing returns).
+
+        Args:
+            belief_id: ID of the belief to reinforce
+            evidence_source: What triggered this reinforcement (e.g., "episode:abc123")
+            reason: Human-readable reason for reinforcement
+
+        Returns:
+            True if reinforced, False if belief not found
+        """
+        belief_id = self._validate_string_input(belief_id, "belief_id", 100)
+
+        # Get the belief (include inactive to allow reinforcing superseded beliefs back)
+        beliefs = self._storage.get_beliefs(limit=1000, include_inactive=True)
+        existing = None
+        for b in beliefs:
+            if b.id == belief_id:
+                existing = b
+                break
+
+        if not existing:
+            return False
+
+        # Store old confidence BEFORE modification for accurate history tracking
+        old_confidence = existing.confidence
+
+        # Increment reinforcement count first
+        existing.times_reinforced += 1
+
+        # Slightly increase confidence (diminishing returns)
+        # Each reinforcement adds less confidence, capped at 0.99
+        # Use (times_reinforced) which is already incremented, so first reinforcement uses 1
+        confidence_boost = 0.05 * (1.0 / (1 + existing.times_reinforced * 0.1))
+        room_to_grow = max(0.0, 0.99 - existing.confidence)  # Prevent negative when > 0.99
+        existing.confidence = max(
+            0.0, min(0.99, existing.confidence + room_to_grow * confidence_boost)
+        )
+
+        # Update confidence history with accurate old/new values
+        history_entry = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "old": round(old_confidence, 3),
+            "new": round(existing.confidence, 3),
+            "reason": reason or f"Reinforced (count: {existing.times_reinforced})",
+        }
+        if evidence_source:
+            history_entry["evidence_source"] = evidence_source
+
+        history = existing.confidence_history or []
+        history.append(history_entry)
+        existing.confidence_history = history[-20:]  # Keep last 20 entries
+
+        # Track supporting evidence in source_episodes
+        if evidence_source and evidence_source.startswith("episode:"):
+            existing.source_episodes = existing.source_episodes or []
+            if evidence_source not in existing.source_episodes:
+                existing.source_episodes.append(evidence_source)
+
+        existing.last_verified = datetime.now(timezone.utc)
+        existing.verification_count += 1
+
+        # Use atomic update with optimistic concurrency control
+        self._storage.update_belief_atomic(existing)
+        return True
+
+    def supersede_belief(
+        self: "Kernle",
+        old_id: str,
+        new_statement: str,
+        confidence: float = 0.8,
+        reason: Optional[str] = None,
+    ) -> str:
+        """Replace an old belief with a new one, maintaining the revision chain.
+
+        Args:
+            old_id: ID of the belief being superseded
+            new_statement: The new belief statement
+            confidence: Confidence in the new belief (clamped to 0.0-1.0)
+            reason: Optional reason for the supersession
+
+        Returns:
+            ID of the new belief
+
+        Raises:
+            ValueError: If old belief not found
+        """
+        old_id = self._validate_string_input(old_id, "old_id", 100)
+        new_statement = self._validate_string_input(new_statement, "new_statement", 2000)
+
+        # Get the old belief
+        beliefs = self._storage.get_beliefs(limit=1000, include_inactive=True)
+        old_belief = None
+        for b in beliefs:
+            if b.id == old_id:
+                old_belief = b
+                break
+
+        if not old_belief:
+            raise ValueError(f"Belief {old_id} not found")
+
+        # Create the new belief
+        confidence = max(0.0, min(1.0, confidence))  # Clamp to valid range
+        new_id = str(uuid.uuid4())
+        new_belief = Belief(
+            id=new_id,
+            stack_id=self.stack_id,
+            statement=new_statement,
+            belief_type=old_belief.belief_type,
+            confidence=confidence,
+            created_at=datetime.now(timezone.utc),
+            source_type="inference",
+            supersedes=old_id,
+            superseded_by=None,
+            times_reinforced=0,
+            is_active=True,
+            # Inherit source episodes from old belief
+            source_episodes=old_belief.source_episodes,
+            derived_from=[f"belief:{old_id}"],
+            confidence_history=[
+                {
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "old": 0.0,
+                    "new": confidence,
+                    "reason": reason or f"Superseded belief {old_id[:8]}",
+                }
+            ],
+        )
+        self._write_backend.save_belief(new_belief)
+
+        # Update the old belief
+        old_belief.superseded_by = new_id
+        old_belief.is_active = False
+
+        # Add to confidence history
+        history = old_belief.confidence_history or []
+        history.append(
+            {
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "old": old_belief.confidence,
+                "new": old_belief.confidence,
+                "reason": f"Superseded by belief {new_id[:8]}: {reason or 'no reason given'}",
+            }
+        )
+        old_belief.confidence_history = history[-20:]
+        # Use atomic update with optimistic concurrency control
+        self._storage.update_belief_atomic(old_belief)
+
+        return new_id
+
+    def revise_beliefs_from_episode(self: "Kernle", episode_id: str) -> Dict[str, Any]:
+        """Analyze an episode and update relevant beliefs.
+
+        Extracts lessons and patterns from the episode, then:
+        1. Reinforces beliefs that were confirmed
+        2. Identifies beliefs that may be contradicted
+        3. Suggests new beliefs based on lessons
+
+        Args:
+            episode_id: ID of the episode to analyze
+
+        Returns:
+            Dict with keys: reinforced, contradicted, suggested_new
+        """
+        episode_id = self._validate_string_input(episode_id, "episode_id", 100)
+
+        # Get the episode
+        episode = self._storage.get_episode(episode_id)
+        if not episode:
+            return {
+                "error": "Episode not found",
+                "reinforced": [],
+                "contradicted": [],
+                "suggested_new": [],
+            }
+
+        result = {
+            "episode_id": episode_id,
+            "reinforced": [],
+            "contradicted": [],
+            "suggested_new": [],
+        }
+
+        # Build evidence text from episode
+        evidence_parts = []
+        if episode.outcome_type == "success":
+            evidence_parts.append(f"Successfully: {episode.objective}")
+        elif episode.outcome_type == "failure":
+            evidence_parts.append(f"Failed: {episode.objective}")
+
+        evidence_parts.append(episode.outcome)
+
+        if episode.lessons:
+            evidence_parts.extend(episode.lessons)
+
+        evidence_text = " ".join(evidence_parts)
+
+        # Get all active beliefs
+        beliefs = self._storage.get_beliefs(limit=500)
+
+        for belief in beliefs:
+            belief_stmt_lower = belief.statement.lower()
+            evidence_lower = evidence_text.lower()
+
+            # Check for word overlap
+            belief_words = set(belief_stmt_lower.split()) - {
+                "i",
+                "the",
+                "a",
+                "an",
+                "to",
+                "and",
+                "or",
+                "is",
+                "are",
+                "should",
+                "can",
+            }
+            evidence_words = set(evidence_lower.split()) - {
+                "i",
+                "the",
+                "a",
+                "an",
+                "to",
+                "and",
+                "or",
+                "is",
+                "are",
+                "should",
+                "can",
+            }
+            overlap = belief_words & evidence_words
+
+            if len(overlap) < 2:
+                continue  # Not related enough
+
+            # Determine if evidence supports or contradicts
+            is_supporting = False
+            is_contradicting = False
+
+            if episode.outcome_type == "success":
+                # Success supports "should" beliefs about what worked
+                if any(
+                    word in belief_stmt_lower
+                    for word in ["should", "prefer", "good", "important", "effective"]
+                ):
+                    is_supporting = True
+                # Success contradicts "avoid" beliefs about what worked
+                elif any(word in belief_stmt_lower for word in ["avoid", "never", "don't", "bad"]):
+                    is_contradicting = True
+
+            elif episode.outcome_type == "failure":
+                # Failure contradicts "should" beliefs about what failed
+                if any(
+                    word in belief_stmt_lower
+                    for word in ["should", "prefer", "good", "important", "effective"]
+                ):
+                    is_contradicting = True
+                # Failure supports "avoid" beliefs
+                elif any(word in belief_stmt_lower for word in ["avoid", "never", "don't", "bad"]):
+                    is_supporting = True
+
+            if is_supporting:
+                # Reinforce the belief with episode as evidence
+                self.reinforce_belief(
+                    belief.id,
+                    evidence_source=f"episode:{episode_id}",
+                    reason=f"Confirmed by episode: {episode.objective[:50]}",
+                )
+                result["reinforced"].append(
+                    {
+                        "belief_id": belief.id,
+                        "statement": belief.statement,
+                        "overlap": list(overlap),
+                        "evidence_source": f"episode:{episode_id}",
+                    }
+                )
+
+            elif is_contradicting:
+                # Flag as potentially contradicted
+                result["contradicted"].append(
+                    {
+                        "belief_id": belief.id,
+                        "statement": belief.statement,
+                        "overlap": list(overlap),
+                        "evidence": evidence_text[:200],
+                    }
+                )
+
+        # Suggest new beliefs from lessons
+        if episode.lessons:
+            for lesson in episode.lessons:
+                # Check if a similar belief already exists
+                existing = self._storage.find_belief(lesson)
+                if not existing:
+                    # Check for similar beliefs via search
+                    similar = self._storage.search(lesson, limit=3, record_types=["belief"])
+                    if not any(r.score > 0.9 for r in similar):
+                        result["suggested_new"].append(
+                            {
+                                "statement": lesson,
+                                "source_episode": episode_id,
+                                "suggested_confidence": (
+                                    0.7 if episode.outcome_type == "success" else 0.6
+                                ),
+                            }
+                        )
+
+        # Link episode to affected beliefs
+        for reinforced in result["reinforced"]:
+            belief = next((b for b in beliefs if b.id == reinforced["belief_id"]), None)
+            if belief:
+                source_eps = belief.source_episodes or []
+                if episode_id not in source_eps:
+                    belief.source_episodes = source_eps + [episode_id]
+                    self._write_backend.save_belief(belief)
+
+        return result
+
+    def get_belief_history(self: "Kernle", belief_id: str) -> List[Dict[str, Any]]:
+        """Get the supersession chain for a belief.
+
+        Walks both backwards (what this belief superseded) and forwards
+        (what superseded this belief) to build the full revision history.
+
+        Args:
+            belief_id: ID of the belief to trace
+
+        Returns:
+            List of beliefs in chronological order, with revision metadata
+        """
+        belief_id = self._validate_string_input(belief_id, "belief_id", 100)
+
+        # Get all beliefs including inactive ones
+        all_beliefs = self._storage.get_beliefs(limit=1000, include_inactive=True)
+        belief_map = {b.id: b for b in all_beliefs}
+
+        if belief_id not in belief_map:
+            return []
+
+        history = []
+        visited = set()
+
+        # Walk backwards to find the original belief (with cycle detection)
+        back_visited = set()
+
+        def walk_back(bid: str) -> Optional[str]:
+            if bid in back_visited or bid not in belief_map:
+                return None
+            back_visited.add(bid)
+            belief = belief_map[bid]
+            if belief.supersedes and belief.supersedes in belief_map:
+                return belief.supersedes
+            return None
+
+        # Find the root
+        root_id = belief_id
+        while True:
+            prev = walk_back(root_id)
+            if prev:
+                root_id = prev
+            else:
+                break
+
+        # Walk forward from root
+        current_id = root_id
+        while current_id and current_id not in visited and current_id in belief_map:
+            visited.add(current_id)
+            belief = belief_map[current_id]
+
+            entry = {
+                "id": belief.id,
+                "statement": belief.statement,
+                "confidence": belief.confidence,
+                "times_reinforced": belief.times_reinforced,
+                "is_active": belief.is_active,
+                "is_current": belief.id == belief_id,
+                "created_at": belief.created_at.isoformat() if belief.created_at else None,
+                "supersedes": belief.supersedes,
+                "superseded_by": belief.superseded_by,
+            }
+
+            # Add supersession reason if available from confidence history
+            if belief.confidence_history:
+                for h in reversed(belief.confidence_history):
+                    reason = h.get("reason", "")
+                    if "Superseded" in reason:
+                        entry["supersession_reason"] = reason
+                        break
+
+            history.append(entry)
+            current_id = belief.superseded_by
+
+        return history
