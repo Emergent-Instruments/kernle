@@ -51,6 +51,13 @@ from .embeddings import (
     HashEmbedder,
     pack_embedding,
 )
+from .flat_files import (
+    init_flat_files,
+    sync_beliefs_to_file,
+    sync_goals_to_file,
+    sync_relationships_to_file,
+    sync_values_to_file,
+)
 from .lineage import check_derived_from_cycle
 
 if TYPE_CHECKING:
@@ -991,25 +998,17 @@ class SQLiteStorage:
             logger.info("sqlite-vec not available, semantic search will use text matching")
 
     def _init_flat_files(self) -> None:
-        """Initialize flat files from existing database data.
-
-        Called on startup to ensure flat files exist and are in sync.
-        """
-        try:
-            # Only sync if files don't exist or are empty
-            if not self._beliefs_file.exists() or self._beliefs_file.stat().st_size == 0:
-                self._sync_beliefs_to_file()
-            if not self._values_file.exists() or self._values_file.stat().st_size == 0:
-                self._sync_values_to_file()
-            if (
-                not self._relationships_file.exists()
-                or self._relationships_file.stat().st_size == 0
-            ):
-                self._sync_relationships_to_file()
-            if not self._goals_file.exists() or self._goals_file.stat().st_size == 0:
-                self._sync_goals_to_file()
-        except Exception as e:
-            logger.warning(f"Failed to initialize flat files: {e}")
+        """Initialize flat files from existing database data."""
+        init_flat_files(
+            self._beliefs_file,
+            self._values_file,
+            self._relationships_file,
+            self._goals_file,
+            self._sync_beliefs_to_file,
+            self._sync_values_to_file,
+            self._sync_goals_to_file,
+            self._sync_relationships_to_file,
+        )
 
     def _resolve_db_path(self, db_path: Optional[Path]) -> Path:
         """Resolve the database path, falling back to temp dir if home is not writable."""
@@ -3175,26 +3174,9 @@ class SQLiteStorage:
 
     def _sync_beliefs_to_file(self) -> None:
         """Write all active beliefs to flat file."""
-        try:
-            beliefs = self.get_beliefs(limit=500, include_inactive=False)
-            lines = ["# Beliefs", f"_Last updated: {self._now()}_", ""]
-
-            for b in sorted(beliefs, key=lambda x: x.confidence, reverse=True):
-                conf_bar = "█" * int(b.confidence * 5) + "░" * (5 - int(b.confidence * 5))
-                lines.append(f"## [{conf_bar}] {int(b.confidence * 100)}% - {b.id[:8]}")
-                lines.append(b.statement)
-                if b.source_episodes:
-                    lines.append(f"Sources: {', '.join(b.source_episodes[:3])}")
-                lines.append("")
-
-            with open(self._beliefs_file, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines))
-            # Secure permissions
-            import os
-
-            os.chmod(self._beliefs_file, 0o600)
-        except Exception as e:
-            logger.warning(f"Failed to sync beliefs to file: {e}")
+        sync_beliefs_to_file(
+            self._beliefs_file, self.get_beliefs(limit=500, include_inactive=False), self._now()
+        )
 
     def get_beliefs(
         self,
@@ -3374,19 +3356,7 @@ class SQLiteStorage:
 
     def _sync_values_to_file(self) -> None:
         """Write all values to flat file."""
-        try:
-            values = self.get_values(limit=100)
-            lines = ["# Values", f"_Last updated: {self._now()}_", ""]
-
-            for v in sorted(values, key=lambda x: x.priority, reverse=True):
-                lines.append(f"## {v.name} (priority: {v.priority}) - {v.id[:8]}")
-                lines.append(v.statement)
-                lines.append("")
-
-            with open(self._values_file, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines))
-        except Exception as e:
-            logger.warning(f"Failed to sync values to file: {e}")
+        sync_values_to_file(self._values_file, self.get_values(limit=100), self._now())
 
     def get_values(self, limit: int = 100, requesting_entity: Optional[str] = None) -> List[Value]:
         """Get values ordered by priority."""
@@ -3507,34 +3477,7 @@ class SQLiteStorage:
 
     def _sync_goals_to_file(self) -> None:
         """Write all active goals to flat file."""
-        try:
-            goals = self.get_goals(status=None, limit=100)  # All goals
-            lines = ["# Goals", f"_Last updated: {self._now()}_", ""]
-
-            # Group by status
-            for status in ["active", "completed", "paused"]:
-                status_goals = [g for g in goals if g.status == status]
-                if status_goals:
-                    lines.append(f"## {status.title()}")
-                    for g in sorted(status_goals, key=lambda x: x.priority or "", reverse=True):
-                        priority = f" [{g.priority}]" if g.priority else ""
-                        goal_type_label = (
-                            f" ({g.goal_type})" if g.goal_type and g.goal_type != "task" else ""
-                        )
-                        status_icon = (
-                            "○" if status == "active" else "✓" if status == "completed" else "⏸"
-                        )
-                        lines.append(
-                            f"- {status_icon} {g.title}{priority}{goal_type_label} ({g.id[:8]})"
-                        )
-                        if g.description:
-                            lines.append(f"  {g.description[:100]}")
-                    lines.append("")
-
-            with open(self._goals_file, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines))
-        except Exception as e:
-            logger.warning(f"Failed to sync goals to file: {e}")
+        sync_goals_to_file(self._goals_file, self.get_goals(status=None, limit=100), self._now())
 
     def get_goals(
         self,
@@ -4097,26 +4040,7 @@ class SQLiteStorage:
 
     def _sync_relationships_to_file(self) -> None:
         """Write all relationships to flat file."""
-        try:
-            relationships = self.get_relationships()
-            lines = ["# Relationships", f"_Last updated: {self._now()}_", ""]
-
-            for r in sorted(relationships, key=lambda x: x.sentiment, reverse=True):
-                trust_pct = int(((r.sentiment + 1) / 2) * 100)
-                trust_bar = "█" * (trust_pct // 10) + "░" * (10 - trust_pct // 10)
-                lines.append(f"## {r.entity_name} ({r.entity_type}) - {r.id[:8]}")
-                lines.append(f"Trust: [{trust_bar}] {trust_pct}%")
-                lines.append(f"Interactions: {r.interaction_count}")
-                if r.last_interaction:
-                    lines.append(f"Last: {r.last_interaction.strftime('%Y-%m-%d')}")
-                if r.notes:
-                    lines.append(f"Notes: {r.notes}")
-                lines.append("")
-
-            with open(self._relationships_file, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines))
-        except Exception as e:
-            logger.warning(f"Failed to sync relationships to file: {e}")
+        sync_relationships_to_file(self._relationships_file, self.get_relationships(), self._now())
 
     def get_relationships(
         self, entity_type: Optional[str] = None, requesting_entity: Optional[str] = None
