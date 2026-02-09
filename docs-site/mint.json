@@ -111,6 +111,7 @@
     {
       "group": "Integration",
       "pages": [
+        "integration/choosing",
         "integration/claude-code",
         "integration/openclaw",
         "integration/claude-desktop",

@@ -41,6 +41,53 @@ kernle --version
 # Both should show the same version
 ```
 
+## CLI Breaking Changes
+
+### 0.10.0: `-a/--agent` renamed to `-s/--stack`
+
+In v0.10.0, the global `-a/--agent` flag was renamed to `-s/--stack` to better reflect the architecture. The old flag is no longer recognized.
+
+**What changed:**
+
+| Old syntax (pre-0.10) | New syntax (0.10+) |
+|----------------------|-------------------|
+| `kernle -a my-project load` | `kernle -s my-project load` |
+| `kernle -a ash episode ...` | `kernle -s ash episode ...` |
+| `kernle --agent my-project status` | `kernle --stack my-project status` |
+
+**What to update:**
+
+1. **Shell scripts and aliases** — find-and-replace `-a ` with `-s ` and `--agent ` with `--stack `:
+   ```bash
+   # Before
+   alias kl="kernle -a my-project load"
+   # After
+   alias kl="kernle -s my-project load"
+   ```
+
+2. **CLAUDE.md / AGENTS.md** — update any CLI examples:
+   ```bash
+   # Search project docs for old syntax
+   grep -rn "kernle -a\|kernle --agent" .
+   ```
+
+3. **OpenClaw plugin config** — if you have custom hook commands referencing `-a`, update them. The bundled plugin was updated automatically.
+
+4. **Claude Code hooks** — re-run setup to regenerate hooks with the new flag:
+   ```bash
+   kernle setup claude-code
+   # or
+   kernle setup claude-code --global
+   ```
+
+5. **Environment variable** — `KERNLE_STACK_ID` is unchanged and still works as before.
+
+<Note>
+The environment variable `KERNLE_STACK_ID` was not renamed. Only the CLI flag changed. If you rely on the env var for stack resolution, no changes are needed.
+</Note>
+
+---
+
 ## Database Migrations
 
 Kernle automatically migrates your local SQLite database when you run any command after upgrading. Migrations are non-destructive and preserve all existing data.
@@ -164,7 +211,8 @@ Rollback is safe for data but new features won't be available. The database sche
 
 | Version | Key Migration Changes |
 |---------|----------------------|
-| 0.10.0 | Strength cascade, memory processing, export-full, provenance on MCP tools |
+| 0.11.0 | Hook CLI commands, Claude Code setup, OpenClaw plugin |
+| 0.10.0 | Strength cascade, memory processing, export-full, provenance on MCP tools, `-a` → `-s` CLI rename |
 | 0.9.0 | Continuous strength field, `memory_audit` table, `stack_settings` table, provenance enforcement, strict mode |
 | 0.2.0 | Raw layer blob refactor, FTS5 search, budget-aware loading |
 | 0.1.0 | Initial release |

@@ -271,6 +271,110 @@ Entity models capture behavioral observations about other entities. They complem
 
 ---
 
+## Practical Workflows
+
+### Onboarding a New Collaborator
+
+When an SI starts working with a new entity (person, agent, or data source), build trust incrementally:
+
+```bash
+# 1. Check current trust — starts at DEFAULT_TRUST (0.5)
+kernle -s my-project trust show new-colleague
+# → Entity not found (uses default 0.5)
+
+# 2. After initial positive interaction, set domain-specific trust
+kernle -s my-project trust set new-colleague 0.6
+kernle -s my-project trust set new-colleague 0.85 --domain coding
+
+# 3. Record episodes about interactions (builds evidence base)
+kernle -s my-project episode "Code review with new-colleague" "success" \
+  --lesson "Caught a subtle race condition I missed" \
+  --source-entity new-colleague
+
+# 4. After several interactions, compute trust from evidence
+kernle -s my-project trust compute new-colleague --apply
+# → Score: 78% (based on 5 episodes: 4.5 positive, 0.5 negative)
+
+# 5. Gate actions based on accumulated trust
+kernle -s my-project trust gate new-colleague suggest_belief
+# → ALLOWED (0.78 >= 0.30)
+
+kernle -s my-project trust gate new-colleague suggest_value_change
+# → DENIED (0.78 < 0.80)
+```
+
+### Domain-Scoped Trust
+
+Trust a source for some things but not others:
+
+```bash
+# Trust a web API for factual data but not for value judgments
+kernle -s my-project trust set external-api 0.7 --domain factual
+kernle -s my-project trust set external-api 0.2 --domain values
+
+# Trust a colleague highly for code but less for architecture
+kernle -s my-project trust set senior-dev 0.9 --domain coding
+kernle -s my-project trust set senior-dev 0.6 --domain architecture
+
+# Gating checks the domain-specific score when available
+kernle -s my-project trust gate external-api suggest_value_change
+# → DENIED: uses 'values' domain score (0.20)
+```
+
+### Trust and Provenance Integration
+
+Trust scores affect how provenance chains are evaluated. When a memory's source entity has low trust, downstream memories derived from it carry that context:
+
+```bash
+# 1. A belief arrives from a low-trust source
+kernle -s my-project belief add "Redis is faster than Postgres for all queries" \
+  --source-entity web-forum --source-type hearsay
+
+# 2. Check trust for that source
+kernle -s my-project trust show web-forum
+# → General: 35%
+
+# 3. The belief is accepted (35% > suggest_belief threshold of 30%)
+# but gated from higher-trust operations
+
+# 4. If the belief tries to change a value, it's blocked
+kernle -s my-project trust gate web-forum suggest_value_change
+# → DENIED (0.35 < 0.80)
+```
+
+### Trust and Strength Cascade
+
+When a source entity's trust drops, you can weaken memories derived from that source:
+
+```bash
+# 1. Discover a source was unreliable
+kernle -s my-project trust set unreliable-source 0.1
+
+# 2. Find memories from that source
+kernle -s my-project search "unreliable-source" --type belief
+
+# 3. Weaken those beliefs (strength cascade propagates)
+kernle -s my-project forget weaken <belief-id> --reason "Source trust dropped"
+# Cascade flag propagates weakness to any memories derived from this belief
+```
+
+### Monitoring Trust Over Time
+
+```bash
+# List all trust assessments with scores
+kernle -s my-project trust list
+
+# Simulate what happens after 60 days of no interaction
+kernle -s my-project trust decay collaborator-agent 60
+# → general: 43% (was 72%)
+# → coding: 58% (was 90%)
+
+# Re-seed defaults if trust assessments were deleted
+kernle -s my-project trust seed
+```
+
+---
+
 ## Python API
 
 ```python
