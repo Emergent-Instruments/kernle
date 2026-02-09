@@ -89,15 +89,15 @@ def _mock_kernle():
 
 
 class TestDetectPlatform:
-    def test_clawdbot_detected(self, tmp_path, monkeypatch):
-        clawdbot_dir = tmp_path / ".clawdbot"
-        clawdbot_dir.mkdir()
-        (clawdbot_dir / "clawdbot.json").write_text("{}")
+    def test_openclaw_detected(self, tmp_path, monkeypatch):
+        openclaw_dir = tmp_path / ".openclaw"
+        openclaw_dir.mkdir()
+        (openclaw_dir / "openclaw.json").write_text("{}")
 
         monkeypatch.setattr(Path, "home", staticmethod(lambda: tmp_path))
         monkeypatch.setattr(Path, "cwd", staticmethod(lambda: tmp_path / "project"))
 
-        assert detect_platform() == "clawdbot"
+        assert detect_platform() == "openclaw"
 
     def test_claude_code_global_detected(self, tmp_path, monkeypatch):
         claude_dir = tmp_path / ".claude"
@@ -265,20 +265,20 @@ class TestCheckHooks:
         assert len(checks) == 1
         assert checks[0].name == "claude_code_hook"
 
-    def test_clawdbot_platform_delegates(self, monkeypatch):
-        monkeypatch.setattr("kernle.cli.commands.doctor.detect_platform", lambda: "clawdbot")
-        mock_result = ComplianceCheck("clawdbot_hook", True, "ok")
-        monkeypatch.setattr("kernle.cli.commands.doctor.check_clawdbot_hook", lambda: mock_result)
+    def test_openclaw_platform_delegates(self, monkeypatch):
+        monkeypatch.setattr("kernle.cli.commands.doctor.detect_platform", lambda: "openclaw")
+        mock_result = ComplianceCheck("openclaw_hook", True, "ok")
+        monkeypatch.setattr("kernle.cli.commands.doctor.check_openclaw_hook", lambda: mock_result)
 
         checks = check_hooks("test-stack")
         assert len(checks) == 1
-        assert checks[0].name == "clawdbot_hook"
+        assert checks[0].name == "openclaw_hook"
 
     def test_unknown_platform_both_fail(self, monkeypatch):
         monkeypatch.setattr("kernle.cli.commands.doctor.detect_platform", lambda: "unknown")
         monkeypatch.setattr(
-            "kernle.cli.commands.doctor.check_clawdbot_hook",
-            lambda: ComplianceCheck("clawdbot_hook", False, "not installed"),
+            "kernle.cli.commands.doctor.check_openclaw_hook",
+            lambda: ComplianceCheck("openclaw_hook", False, "not installed"),
         )
         monkeypatch.setattr(
             "kernle.cli.commands.doctor.check_claude_code_hook",
@@ -291,10 +291,10 @@ class TestCheckHooks:
         assert checks[0].passed is False
         assert "No platform hooks" in checks[0].message
 
-    def test_unknown_platform_clawdbot_passes(self, monkeypatch):
+    def test_unknown_platform_openclaw_passes(self, monkeypatch):
         monkeypatch.setattr("kernle.cli.commands.doctor.detect_platform", lambda: "unknown")
-        clawdbot_ok = ComplianceCheck("clawdbot_hook", True, "installed")
-        monkeypatch.setattr("kernle.cli.commands.doctor.check_clawdbot_hook", lambda: clawdbot_ok)
+        openclaw_ok = ComplianceCheck("openclaw_hook", True, "installed")
+        monkeypatch.setattr("kernle.cli.commands.doctor.check_openclaw_hook", lambda: openclaw_ok)
         monkeypatch.setattr(
             "kernle.cli.commands.doctor.check_claude_code_hook",
             lambda sid: ComplianceCheck("claude_code_hook", False, "not configured"),
@@ -302,14 +302,14 @@ class TestCheckHooks:
 
         checks = check_hooks("test-stack")
         assert len(checks) == 1
-        assert checks[0].name == "clawdbot_hook"
+        assert checks[0].name == "openclaw_hook"
         assert checks[0].passed is True
 
     def test_unknown_platform_claude_passes(self, monkeypatch):
         monkeypatch.setattr("kernle.cli.commands.doctor.detect_platform", lambda: "unknown")
         monkeypatch.setattr(
-            "kernle.cli.commands.doctor.check_clawdbot_hook",
-            lambda: ComplianceCheck("clawdbot_hook", False, "not installed"),
+            "kernle.cli.commands.doctor.check_openclaw_hook",
+            lambda: ComplianceCheck("openclaw_hook", False, "not installed"),
         )
         claude_ok = ComplianceCheck("claude_code_hook", True, "configured")
         monkeypatch.setattr(

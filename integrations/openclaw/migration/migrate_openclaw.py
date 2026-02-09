@@ -1,12 +1,18 @@
-"""Clawdbot/Moltbot migration importer for Kernle.
+"""OpenClaw workspace migration importer for Kernle.
 
-Migrates memory from Clawdbot workspace structure:
+Migrates memory from OpenClaw (formerly OpenClaw) workspace structure:
 - SOUL.md - Behavioral instructions (mostly skipped, not identity)
 - USER.md - User context → Relationships
 - MEMORY.md - Curated long-term memory → Mixed types
 - memory/*.md - Daily session notes → Episodes, lessons
 - AGENTS.md - Boot sequence (keep as-is, don't migrate)
 - IDENTITY.md - Core identity → Values, beliefs
+
+Usage:
+    python -m integrations.openclaw.migration.migrate_openclaw --stack my-project ~/workspace
+
+Or from the kernle importers package:
+    from kernle.importers.markdown import ImportItem, parse_markdown
 """
 
 import re
@@ -14,7 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
-from .markdown import ImportItem, parse_markdown
+from kernle.importers.markdown import ImportItem, parse_markdown
 
 if TYPE_CHECKING:
     from kernle import Kernle
@@ -31,8 +37,8 @@ class MigrationResult:
 
 
 @dataclass
-class ClawdbotMigration:
-    """Complete migration plan from Clawdbot workspace."""
+class OpenClawMigration:
+    """Complete migration plan from OpenClaw workspace."""
 
     soul: MigrationResult = field(default_factory=MigrationResult)
     user: MigrationResult = field(default_factory=MigrationResult)
@@ -58,7 +64,7 @@ class ClawdbotMigration:
 
     def summary(self) -> str:
         """Generate human-readable summary."""
-        lines = ["=== Clawdbot Migration Plan ===\n"]
+        lines = ["=== OpenClaw Migration Plan ===\n"]
 
         if self.soul.items or self.soul.skipped:
             lines.append(f"SOUL.md: {len(self.soul.items)} items, {len(self.soul.skipped)} skipped")
@@ -84,14 +90,14 @@ class ClawdbotMigration:
         return "\n".join(lines)
 
 
-class ClawdbotImporter:
-    """Import memories from a Clawdbot workspace.
+class OpenClawImporter:
+    """Import memories from a OpenClaw workspace.
 
-    Handles the specific file structure used by Clawdbot/Moltbot agents:
-    - ~/clawd/ or ~/.clawdbot/agents/<name>/
+    Handles the specific file structure used by OpenClaw agents:
+    - ~/.openclaw/ or workspace directory
 
     Usage:
-        importer = ClawdbotImporter("~/clawd")
+        importer = OpenClawImporter("~/my-project")
         plan = importer.analyze()
         print(plan.summary())
         importer.import_to(kernle_instance, dry_run=True)
@@ -112,10 +118,10 @@ class ClawdbotImporter:
     ]
 
     def __init__(self, workspace_path: str, existing_kernle: Optional["Kernle"] = None):
-        """Initialize with path to Clawdbot workspace.
+        """Initialize with path to OpenClaw workspace.
 
         Args:
-            workspace_path: Path to workspace (~/clawd or ~/.clawdbot/agents/X)
+            workspace_path: Path to workspace (~/.openclaw/ or workspace directory)
             existing_kernle: Optional Kernle instance to check for duplicates
         """
         self.workspace = Path(workspace_path).expanduser().resolve()
@@ -165,13 +171,13 @@ class ClawdbotImporter:
                 return True
         return False
 
-    def analyze(self) -> ClawdbotMigration:
+    def analyze(self) -> OpenClawMigration:
         """Analyze workspace and create migration plan.
 
         Returns:
-            ClawdbotMigration with all items categorized
+            OpenClawMigration with all items categorized
         """
-        plan = ClawdbotMigration()
+        plan = OpenClawMigration()
 
         # Parse each file type
         plan.soul = self._parse_soul()
@@ -676,7 +682,7 @@ class ClawdbotImporter:
 
                 if not dry_run:
                     try:
-                        _import_clawdbot_item(item, k)
+                        _import_openclaw_item(item, k)
                         stats["imported"] += 1
                         stats["by_type"][item.type] = stats["by_type"].get(item.type, 0) + 1
                     except Exception as e:
@@ -688,8 +694,8 @@ class ClawdbotImporter:
         return stats
 
 
-def _import_clawdbot_item(item: ImportItem, k: "Kernle") -> Optional[str]:
-    """Import a single Clawdbot item into Kernle.
+def _import_openclaw_item(item: ImportItem, k: "Kernle") -> Optional[str]:
+    """Import a single OpenClaw item into Kernle.
 
     Handles the 'relationship' type which isn't in base markdown importer.
     """

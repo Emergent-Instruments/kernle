@@ -298,10 +298,10 @@ def check_seed_beliefs(k: "Kernle") -> Tuple[ComplianceCheck, dict]:
 
 def detect_platform() -> str:
     """Detect which platform we're running on based on available configs."""
-    # Check for Clawdbot
-    clawdbot_config = Path.home() / ".clawdbot" / "clawdbot.json"
-    if clawdbot_config.exists():
-        return "clawdbot"
+    # Check for OpenClaw
+    openclaw_config = Path.home() / ".openclaw" / "openclaw.json"
+    if openclaw_config.exists():
+        return "openclaw"
 
     # Check for Claude Code
     claude_global = Path.home() / ".claude" / "settings.json"
@@ -313,32 +313,32 @@ def detect_platform() -> str:
     return "unknown"
 
 
-def check_clawdbot_hook() -> ComplianceCheck:
-    """Check if Clawdbot kernle-load hook is installed and enabled."""
+def check_openclaw_hook() -> ComplianceCheck:
+    """Check if OpenClaw kernle-load hook is installed and enabled."""
     # Check if hook files exist
-    user_hooks = Path.home() / ".config" / "moltbot" / "hooks" / "kernle-load"
-    bundled_hooks = Path.home() / "clawd" / "moltbot" / "src" / "hooks" / "bundled" / "kernle-load"
+    user_hooks = Path.home() / ".config" / "openclaw" / "hooks" / "kernle-load"
+    bundled_hooks = Path.home() / "openclaw" / "src" / "hooks" / "bundled" / "kernle-load"
 
     hook_installed = user_hooks.exists() or bundled_hooks.exists()
     hook_location = "bundled" if bundled_hooks.exists() else "user" if user_hooks.exists() else None
 
     if not hook_installed:
         return ComplianceCheck(
-            name="clawdbot_hook",
+            name="openclaw_hook",
             passed=False,
-            message="✗ Clawdbot hook not installed",
-            fix="Run: kernle setup clawdbot",
+            message="✗ OpenClaw hook not installed",
+            fix="Run: kernle setup openclaw",
             category="recommended",
         )
 
     # Check if enabled in config
-    config_path = Path.home() / ".clawdbot" / "clawdbot.json"
+    config_path = Path.home() / ".openclaw" / "openclaw.json"
     if not config_path.exists():
         return ComplianceCheck(
-            name="clawdbot_hook",
+            name="openclaw_hook",
             passed=False,
-            message=f"⚠ Hook installed ({hook_location}) but clawdbot.json not found",
-            fix="Create ~/.clawdbot/clawdbot.json with hook config",
+            message=f"⚠ Hook installed ({hook_location}) but openclaw.json not found",
+            fix="Create ~/.openclaw/openclaw.json with hook config",
             category="recommended",
         )
 
@@ -356,25 +356,25 @@ def check_clawdbot_hook() -> ComplianceCheck:
 
         if enabled:
             return ComplianceCheck(
-                name="clawdbot_hook",
+                name="openclaw_hook",
                 passed=True,
-                message=f"✓ Clawdbot hook installed ({hook_location}) and enabled",
+                message=f"✓ OpenClaw hook installed ({hook_location}) and enabled",
                 category="recommended",
             )
         else:
             return ComplianceCheck(
-                name="clawdbot_hook",
+                name="openclaw_hook",
                 passed=False,
                 message=f"⚠ Hook installed ({hook_location}) but NOT enabled in config",
-                fix="Run: kernle setup clawdbot --enable",
+                fix="Run: kernle setup openclaw --enable",
                 category="recommended",
             )
     except Exception as e:
         return ComplianceCheck(
-            name="clawdbot_hook",
+            name="openclaw_hook",
             passed=False,
             message=f"⚠ Hook installed but could not read config: {e}",
-            fix="Check ~/.clawdbot/clawdbot.json",
+            fix="Check ~/.openclaw/openclaw.json",
             category="recommended",
         )
 
@@ -435,28 +435,28 @@ def check_hooks(stack_id: str) -> List[ComplianceCheck]:
     platform = detect_platform()
     checks = []
 
-    if platform == "clawdbot":
-        checks.append(check_clawdbot_hook())
+    if platform == "openclaw":
+        checks.append(check_openclaw_hook())
     elif platform == "claude-code":
         checks.append(check_claude_code_hook(stack_id))
     else:
         # Check both if platform unknown
-        clawdbot_check = check_clawdbot_hook()
+        openclaw_check = check_openclaw_hook()
         claude_check = check_claude_code_hook(stack_id)
 
         # Only report as failed if BOTH are not installed
-        if not clawdbot_check.passed and not claude_check.passed:
+        if not openclaw_check.passed and not claude_check.passed:
             checks.append(
                 ComplianceCheck(
                     name="hooks",
                     passed=False,
                     message="⚠ No platform hooks detected",
-                    fix="Run: kernle setup clawdbot (or claude-code)",
+                    fix="Run: kernle setup openclaw (or claude-code)",
                     category="recommended",
                 )
             )
-        elif clawdbot_check.passed:
-            checks.append(clawdbot_check)
+        elif openclaw_check.passed:
+            checks.append(openclaw_check)
         else:
             checks.append(claude_check)
 
@@ -469,7 +469,7 @@ def cmd_doctor(args, k: "Kernle"):
     Checks:
     1. Instruction file (CLAUDE.md, AGENTS.md, etc.) for boot sequence
     2. Seed beliefs presence and version
-    3. Platform hooks (Clawdbot/Claude Code) installation
+    3. Platform hooks (OpenClaw/Claude Code) installation
 
     Use --full for comprehensive check including beliefs and hooks.
     """
@@ -537,7 +537,7 @@ def cmd_doctor(args, k: "Kernle"):
         "checkpoint_instruction",
         "memory_section",
         "seed_beliefs",
-        "clawdbot_hook",
+        "openclaw_hook",
         "claude_code_hook",
         "hooks",
     ]
@@ -681,7 +681,7 @@ def cmd_doctor(args, k: "Kernle"):
             print()
             print("Note: --fix only updates the instruction file.")
             print("For beliefs: kernle migrate seed-beliefs")
-            print("For hooks: kernle setup clawdbot (or claude-code)")
+            print("For hooks: kernle setup openclaw (or claude-code)")
     else:
         print()
         print("✓ All checks passed!")

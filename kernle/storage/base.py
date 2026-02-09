@@ -3,7 +3,6 @@
 This defines the interface that all storage backends must implement.
 Currently supported:
 - SQLiteStorage: Local-first storage with sqlite-vec for semantic search
-- SupabaseStorage: Cloud storage with pgvector (future: extracted from core.py)
 
 Memory dataclasses and shared types have been moved to kernle.types.
 They are re-exported here for backwards compatibility.

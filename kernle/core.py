@@ -40,10 +40,10 @@ from kernle.storage import (
     Note,
     Relationship,
     SelfNarrative,
+    SQLiteStorage,
     Summary,
     TrustAssessment,
     Value,
-    get_storage,
 )
 from kernle.storage.base import (
     DEFAULT_TRUST,
@@ -414,8 +414,7 @@ class Kernle(
         if storage is not None:
             self._storage = storage
         else:
-            # Auto-detect storage based on environment
-            self._storage = get_storage(
+            self._storage = SQLiteStorage(
                 stack_id=self.stack_id,
             )
 
@@ -526,18 +525,15 @@ class Kernle(
     def client(self):
         """Backwards-compatible access to Supabase client.
 
-        DEPRECATED: Use storage abstraction methods instead.
+        DEPRECATED: Supabase storage has been removed from kernle core.
+        Use kernle-cloud for cloud storage functionality.
 
         Raises:
-            ValueError: If using SQLite storage (no Supabase client available)
+            ValueError: Always — Supabase storage is no longer bundled.
         """
-        from kernle.storage import SupabaseStorage
-
-        if isinstance(self._storage, SupabaseStorage):
-            return self._storage.client
         raise ValueError(
-            "Direct Supabase client access not available with SQLite storage. "
-            "Use storage abstraction methods instead, or configure Supabase credentials."
+            "Direct Supabase client access is no longer available. "
+            "Supabase storage has been moved to kernle-cloud."
         )
 
     @property

@@ -42,7 +42,6 @@ from kernle.cli.commands import (
     cmd_promote,
     cmd_raw,
     cmd_stats,
-    cmd_subscription,
     cmd_suggestions,
     cmd_summary,
 )
@@ -446,7 +445,7 @@ def cmd_init(args, k: Kernle):
         if has_claude_md:
             detected.append("claude-code")
         if has_agents_md:
-            detected.append("clawdbot")
+            detected.append("openclaw")
         if has_clinerules:
             detected.append("cline")
         if has_cursorrules:
@@ -460,7 +459,7 @@ def cmd_init(args, k: Kernle):
 
         print("Select your environment:")
         print("  1. Claude Code (CLAUDE.md)")
-        print("  2. Clawdbot (AGENTS.md)")
+        print("  2. OpenClaw (AGENTS.md)")
         print("  3. Cline (.clinerules)")
         print("  4. Cursor (.cursorrules)")
         print("  5. Claude Desktop (MCP only)")
@@ -471,7 +470,7 @@ def cmd_init(args, k: Kernle):
             choice = input("Enter choice [1-6]: ").strip()
             env_map = {
                 "1": "claude-code",
-                "2": "clawdbot",
+                "2": "openclaw",
                 "3": "cline",
                 "4": "cursor",
                 "5": "desktop",
@@ -528,9 +527,9 @@ def cmd_init(args, k: Kernle):
         )
         print()
 
-    elif env == "clawdbot":
+    elif env == "openclaw":
         print("=" * 50)
-        print("  Clawdbot Setup")
+        print("  OpenClaw Setup")
         print("=" * 50)
         print()
         print("Add to your AGENTS.md:")
@@ -4145,49 +4144,6 @@ Typical usage:
     keys_cycle.add_argument("--force", "-f", action="store_true", help="Skip confirmation prompt")
     keys_cycle.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 
-    # =========================================================================
-    # Subscription Management (kernle sub ...)
-    # =========================================================================
-
-    p_sub = subparsers.add_parser(
-        "sub",
-        help="Subscription & tier management",
-        aliases=["subscription"],
-    )
-    sub_sub = p_sub.add_subparsers(dest="sub_action")
-
-    # kernle sub tier (default when no subcommand given)
-    sub_tier = sub_sub.add_parser("tier", help="Show current tier, usage, and renewal info")
-    sub_tier.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
-    # kernle sub upgrade <tier>
-    sub_upgrade = sub_sub.add_parser("upgrade", help="Upgrade to a higher tier")
-    sub_upgrade.add_argument("tier", choices=["core", "pro", "enterprise"], help="Target tier")
-    sub_upgrade.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
-    sub_upgrade.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
-    # kernle sub downgrade <tier>
-    sub_downgrade = sub_sub.add_parser(
-        "downgrade", help="Downgrade to a lower tier (effective next period)"
-    )
-    sub_downgrade.add_argument("tier", choices=["free", "core", "pro"], help="Target tier")
-    sub_downgrade.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
-    sub_downgrade.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
-    # kernle sub cancel
-    sub_cancel = sub_sub.add_parser("cancel", help="Cancel auto-renewal")
-    sub_cancel.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompt")
-    sub_cancel.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
-    # kernle sub usage
-    sub_usage = sub_sub.add_parser("usage", help="Show detailed usage for current billing period")
-    sub_usage.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
-    # kernle sub payments [--limit N]
-    sub_payments = sub_sub.add_parser("payments", help="List payment history")
-    sub_payments.add_argument("--limit", "-l", type=int, default=20, help="Max payments to show")
-    sub_payments.add_argument("--json", "-j", action="store_true", help="Output as JSON")
-
     # stack - stack management
     p_stack = subparsers.add_parser("stack", help="Stack management (list, delete)")
     stack_sub = p_stack.add_subparsers(dest="stack_action", required=True)
@@ -4250,44 +4206,9 @@ Typical usage:
         help="Source memory ID for all imported items (repeatable)",
     )
 
-    # migrate - migrate from other platforms (Clawdbot, etc.)
+    # migrate - migrate from other platforms
     p_migrate = subparsers.add_parser("migrate", help="Migrate memory from other platforms")
     migrate_sub = p_migrate.add_subparsers(dest="migrate_action", required=True)
-
-    # migrate from-clawdbot
-    migrate_clawdbot = migrate_sub.add_parser(
-        "from-clawdbot", help="Migrate from Clawdbot/Moltbot workspace"
-    )
-    migrate_clawdbot.add_argument(
-        "workspace",
-        help="Path to Clawdbot workspace (e.g., ~/clawd or ~/.clawdbot/agents/main)",
-    )
-    migrate_clawdbot.add_argument(
-        "--dry-run",
-        "-n",
-        action="store_true",
-        help="Preview what would be migrated without making changes",
-    )
-    migrate_clawdbot.add_argument(
-        "--interactive",
-        "-i",
-        action="store_true",
-        help="Confirm each item before importing",
-    )
-    migrate_clawdbot.add_argument(
-        "--skip-duplicates",
-        "-s",
-        action="store_true",
-        default=True,
-        dest="skip_duplicates",
-        help="Skip items already in Kernle (default: enabled)",
-    )
-    migrate_clawdbot.add_argument(
-        "--no-skip-duplicates",
-        action="store_false",
-        dest="skip_duplicates",
-        help="Import all items even if they already exist",
-    )
 
     # migrate seed-beliefs - add foundational beliefs to existing agent
     migrate_seed_beliefs = migrate_sub.add_parser(
@@ -4390,14 +4311,14 @@ Beliefs already present in the agent's memory will be skipped.
     p_setup.add_argument(
         "platform",
         nargs="?",
-        choices=["clawdbot", "claude-code", "cowork"],
-        help="Platform to install hooks for (clawdbot, claude-code, cowork)",
+        choices=["openclaw", "claude-code", "cowork"],
+        help="Platform to install hooks for (openclaw, claude-code, cowork)",
     )
     p_setup.add_argument(
         "--force", "-f", action="store_true", help="Overwrite existing hook installation"
     )
     p_setup.add_argument(
-        "--enable", "-e", action="store_true", help="Auto-enable hook in config (clawdbot only)"
+        "--enable", "-e", action="store_true", help="Auto-enable hook in config (openclaw only)"
     )
     p_setup.add_argument(
         "--global",
@@ -4597,9 +4518,6 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_migrate(args, k)
         elif args.command == "setup":
             cmd_setup(args, k)
-        # Subscription management
-        elif args.command in ("sub", "subscription"):
-            cmd_subscription(args, k)
     except (ValueError, TypeError) as e:
         logger.error(f"Input validation error: {e}")
         sys.exit(1)
