@@ -1809,3 +1809,547 @@ class TestMCPProvenanceParams:
         await call_tool("memory_belief", {"statement": "Test belief"})
         call_args = patched_get_kernle.belief.call_args
         assert call_args.kwargs["source_type"] is None
+
+
+class TestSuggestionTools:
+    """Test suggestion and sync MCP tools via call_tool (sync.py handlers)."""
+
+    @pytest.fixture
+    def suggestion_mock_kernle(self):
+        """Create a mock Kernle with suggestion/sync methods configured."""
+        kernle_mock = Mock()
+
+        kernle_mock.get_suggestions.return_value = [
+            {
+                "id": "sug-11111111-aaaa-bbbb-cccc-dddddddddddd",
+                "memory_type": "episode",
+                "status": "pending",
+                "confidence": 0.85,
+                "content": {"objective": "Built auth module", "outcome": "success"},
+                "promoted_to": None,
+            },
+            {
+                "id": "sug-22222222-aaaa-bbbb-cccc-dddddddddddd",
+                "memory_type": "belief",
+                "status": "promoted",
+                "confidence": 0.72,
+                "content": {"statement": "Testing improves quality"},
+                "promoted_to": "belief-99999999",
+            },
+            {
+                "id": "sug-33333333-aaaa-bbbb-cccc-dddddddddddd",
+                "memory_type": "note",
+                "status": "rejected",
+                "confidence": 0.55,
+                "content": {"content": "Random note text here"},
+                "promoted_to": None,
+            },
+        ]
+
+        kernle_mock.promote_suggestion.return_value = "mem-promoted-id-1234"
+        kernle_mock.reject_suggestion.return_value = True
+
+        kernle_mock.extract_suggestions_from_unprocessed.return_value = [
+            {"memory_type": "episode", "content": {"objective": "Task A"}},
+            {"memory_type": "episode", "content": {"objective": "Task B"}},
+            {"memory_type": "belief", "content": {"statement": "Belief A"}},
+        ]
+
+        kernle_mock.sync.return_value = {
+            "pushed": 10,
+            "pulled": 7,
+            "conflicts": 2,
+            "errors": ["Timeout on record X", "Hash mismatch on Y"],
+        }
+
+        return kernle_mock
+
+    @pytest.fixture
+    def patched_suggestion_kernle(self, suggestion_mock_kernle):
+        """Patch get_kernle to return the suggestion mock."""
+        with patch("kernle.mcp.server.get_kernle", return_value=suggestion_mock_kernle):
+            yield suggestion_mock_kernle
+
+    # -- memory_suggestions_extract --
+
+    @pytest.mark.asyncio
+    async def test_suggestions_extract_returns_summary(self, patched_suggestion_kernle):
+        """Test memory_suggestions_extract returns type-grouped summary."""
+        result = await call_tool("memory_suggestions_extract", {"limit": 100})
+
+        assert len(result) == 1
+        text = result[0].text
+        assert "Extracted 3 suggestion(s):" in text
+        assert "episode: 2" in text
+        assert "belief: 1" in text
+        assert "memory_suggestions_list" in text
+
+        patched_suggestion_kernle.extract_suggestions_from_unprocessed.assert_called_once_with(
+            limit=100,
+        )
+
+    @pytest.mark.asyncio
+    async def test_suggestions_extract_empty(self, patched_suggestion_kernle):
+        """Test memory_suggestions_extract when no suggestions extracted."""
+        patched_suggestion_kernle.extract_suggestions_from_unprocessed.return_value = []
+
+        result = await call_tool("memory_suggestions_extract", {})
+
+        assert len(result) == 1
+        assert "No suggestions extracted from raw entries." in result[0].text
+
+    @pytest.mark.asyncio
+    async def test_suggestions_extract_default_limit(self, patched_suggestion_kernle):
+        """Test memory_suggestions_extract uses default limit of 50."""
+        await call_tool("memory_suggestions_extract", {})
+
+        patched_suggestion_kernle.extract_suggestions_from_unprocessed.assert_called_once_with(
+            limit=50,
+        )
+
+    # -- memory_suggestions_list --
+
+    @pytest.mark.asyncio
+    async def test_suggestions_list_text_format(self, patched_suggestion_kernle):
+        """Test memory_suggestions_list text output with all statuses."""
+        result = await call_tool(
+            "memory_suggestions_list", {"status": "all", "format": "text", "limit": 20}
+        )
+
+        assert len(result) == 1
+        text = result[0].text
+        assert "Memory Suggestions (3 total)" in text
+        # Unfiltered (status=None) shows breakdown
+        assert "Pending:" in text and "Approved:" in text and "Rejected:" in text
+        # Status icons
+        assert "[?]" in text  # pending
+        assert "[+]" in text  # promoted
+        assert "[x]" in text  # rejected
+        # Type labels
+        assert "[EPI]" in text
+        assert "[BEL]" in text
+        assert "[NOT]" in text
+        # Promoted-to link
+        assert "-> belief-99999999" in text
+
+        patched_suggestion_kernle.get_suggestions.assert_called_once_with(
+            status=None, memory_type=None, limit=20
+        )
+
+    @pytest.mark.asyncio
+    async def test_suggestions_list_json_format(self, patched_suggestion_kernle):
+        """Test memory_suggestions_list json output returns valid JSON."""
+        result = await call_tool("memory_suggestions_list", {"status": "pending", "format": "json"})
+
+        assert len(result) == 1
+        data = json.loads(result[0].text)
+        assert isinstance(data, list)
+        assert len(data) == 3
+
+    @pytest.mark.asyncio
+    async def test_suggestions_list_filtered_status(self, patched_suggestion_kernle):
+        """Test memory_suggestions_list with specific status filter."""
+        result = await call_tool("memory_suggestions_list", {"status": "pending", "format": "text"})
+
+        assert len(result) == 1
+        text = result[0].text
+        # When filtered (status is not None), breakdown is NOT shown
+        assert "Pending:" not in text or "Approved:" not in text
+
+        patched_suggestion_kernle.get_suggestions.assert_called_once_with(
+            status="pending", memory_type=None, limit=20
+        )
+
+    @pytest.mark.asyncio
+    async def test_suggestions_list_with_memory_type_filter(self, patched_suggestion_kernle):
+        """Test memory_suggestions_list passes memory_type filter."""
+        await call_tool(
+            "memory_suggestions_list",
+            {"status": "pending", "memory_type": "episode", "limit": 5},
+        )
+
+        patched_suggestion_kernle.get_suggestions.assert_called_once_with(
+            status="pending", memory_type="episode", limit=5
+        )
+
+    @pytest.mark.asyncio
+    async def test_suggestions_list_empty(self, patched_suggestion_kernle):
+        """Test memory_suggestions_list when no suggestions exist."""
+        patched_suggestion_kernle.get_suggestions.return_value = []
+
+        result = await call_tool("memory_suggestions_list", {"status": "pending"})
+
+        assert len(result) == 1
+        assert "No pending suggestions found." in result[0].text
+
+    @pytest.mark.asyncio
+    async def test_suggestions_list_empty_no_status(self, patched_suggestion_kernle):
+        """Test memory_suggestions_list empty with no status filter."""
+        patched_suggestion_kernle.get_suggestions.return_value = []
+
+        result = await call_tool("memory_suggestions_list", {"status": "all"})
+
+        assert len(result) == 1
+        assert "No suggestions found." in result[0].text
+
+    # -- memory_suggestions_promote --
+
+    @pytest.mark.asyncio
+    async def test_suggestions_promote_success(self, patched_suggestion_kernle):
+        """Test memory_suggestions_promote with no modifications."""
+        result = await call_tool(
+            "memory_suggestions_promote",
+            {"suggestion_id": "sug-11111111-aaaa-bbbb-cccc-dddddddddddd"},
+        )
+
+        assert len(result) == 1
+        text = result[0].text
+        assert "sug-1111..." in text
+        assert "promoted" in text
+        assert "mem-prom..." in text or "mem-promo..." in text
+
+        patched_suggestion_kernle.promote_suggestion.assert_called_once_with(
+            "sug-11111111-aaaa-bbbb-cccc-dddddddddddd", None
+        )
+
+    @pytest.mark.asyncio
+    async def test_suggestions_promote_with_modifications(self, patched_suggestion_kernle):
+        """Test memory_suggestions_promote with field modifications."""
+        result = await call_tool(
+            "memory_suggestions_promote",
+            {
+                "suggestion_id": "sug-11111111-aaaa-bbbb-cccc-dddddddddddd",
+                "objective": "Modified objective",
+                "statement": "Modified statement",
+            },
+        )
+
+        assert len(result) == 1
+        text = result[0].text
+        assert "modified" in text
+
+        call_args = patched_suggestion_kernle.promote_suggestion.call_args
+        assert call_args[0][0] == "sug-11111111-aaaa-bbbb-cccc-dddddddddddd"
+        modifications = call_args[0][1]
+        assert modifications["objective"] == "Modified objective"
+        assert modifications["statement"] == "Modified statement"
+
+    @pytest.mark.asyncio
+    async def test_suggestions_promote_with_outcome_and_content(self, patched_suggestion_kernle):
+        """Test memory_suggestions_promote with outcome and content modifications."""
+        result = await call_tool(
+            "memory_suggestions_promote",
+            {
+                "suggestion_id": "sug-11111111-aaaa-bbbb-cccc-dddddddddddd",
+                "outcome": "Modified outcome",
+                "content": "Modified content body",
+            },
+        )
+
+        assert len(result) == 1
+        assert "modified" in result[0].text
+
+        call_args = patched_suggestion_kernle.promote_suggestion.call_args
+        modifications = call_args[0][1]
+        assert modifications["outcome"] == "Modified outcome"
+        assert modifications["content"] == "Modified content body"
+        assert "objective" not in modifications
+        assert "statement" not in modifications
+
+    @pytest.mark.asyncio
+    async def test_suggestions_promote_not_found(self, patched_suggestion_kernle):
+        """Test memory_suggestions_promote when suggestion not found."""
+        patched_suggestion_kernle.promote_suggestion.return_value = None
+
+        result = await call_tool(
+            "memory_suggestions_promote", {"suggestion_id": "nonexistent-id-here"}
+        )
+
+        assert len(result) == 1
+        text = result[0].text
+        assert "Could not promote" in text
+        assert "not found or not pending" in text
+
+    # -- memory_suggestions_reject --
+
+    @pytest.mark.asyncio
+    async def test_suggestions_reject_success(self, patched_suggestion_kernle):
+        """Test memory_suggestions_reject without reason."""
+        result = await call_tool(
+            "memory_suggestions_reject",
+            {"suggestion_id": "sug-33333333-aaaa-bbbb-cccc-dddddddddddd"},
+        )
+
+        assert len(result) == 1
+        text = result[0].text
+        assert "sug-3333..." in text
+        assert "rejected" in text
+        # No reason provided, so "(reason: ...)" should NOT appear
+        assert "reason:" not in text
+
+        patched_suggestion_kernle.reject_suggestion.assert_called_once_with(
+            "sug-33333333-aaaa-bbbb-cccc-dddddddddddd", None
+        )
+
+    @pytest.mark.asyncio
+    async def test_suggestions_reject_with_reason(self, patched_suggestion_kernle):
+        """Test memory_suggestions_reject with a reason."""
+        result = await call_tool(
+            "memory_suggestions_reject",
+            {
+                "suggestion_id": "sug-33333333-aaaa-bbbb-cccc-dddddddddddd",
+                "reason": "Not relevant anymore",
+            },
+        )
+
+        assert len(result) == 1
+        text = result[0].text
+        assert "rejected" in text
+        assert "(reason: Not relevant anymore)" in text
+
+        patched_suggestion_kernle.reject_suggestion.assert_called_once_with(
+            "sug-33333333-aaaa-bbbb-cccc-dddddddddddd", "Not relevant anymore"
+        )
+
+    @pytest.mark.asyncio
+    async def test_suggestions_reject_not_found(self, patched_suggestion_kernle):
+        """Test memory_suggestions_reject when suggestion not found."""
+        patched_suggestion_kernle.reject_suggestion.return_value = False
+
+        result = await call_tool(
+            "memory_suggestions_reject", {"suggestion_id": "nonexistent-id-here"}
+        )
+
+        assert len(result) == 1
+        text = result[0].text
+        assert "Could not reject" in text
+        assert "not found or not pending" in text
+
+    # -- memory_sync (via sync.py handler) --
+
+    @pytest.mark.asyncio
+    async def test_sync_with_conflicts_and_errors(self, patched_suggestion_kernle):
+        """Test memory_sync formats conflicts and errors."""
+        result = await call_tool("memory_sync", {})
+
+        assert len(result) == 1
+        text = result[0].text
+        assert "Sync complete:" in text
+        assert "Pushed: 10" in text
+        assert "Pulled: 7" in text
+        assert "Conflicts: 2" in text
+        assert "Errors: 2" in text
+        assert "Timeout on record X" in text
+        assert "Hash mismatch on Y" in text
+
+    @pytest.mark.asyncio
+    async def test_sync_clean(self, patched_suggestion_kernle):
+        """Test memory_sync with no conflicts or errors."""
+        patched_suggestion_kernle.sync.return_value = {
+            "pushed": 3,
+            "pulled": 1,
+        }
+
+        result = await call_tool("memory_sync", {})
+
+        assert len(result) == 1
+        text = result[0].text
+        assert "Sync complete:" in text
+        assert "Pushed: 3" in text
+        assert "Pulled: 1" in text
+        assert "Conflicts" not in text
+        assert "Errors" not in text
+
+    @pytest.mark.asyncio
+    async def test_sync_errors_truncated(self, patched_suggestion_kernle):
+        """Test memory_sync truncates errors to first 3."""
+        patched_suggestion_kernle.sync.return_value = {
+            "pushed": 0,
+            "pulled": 0,
+            "errors": ["err1", "err2", "err3", "err4", "err5"],
+        }
+
+        result = await call_tool("memory_sync", {})
+
+        text = result[0].text
+        assert "Errors: 5" in text
+        assert "err1" in text
+        assert "err2" in text
+        assert "err3" in text
+        assert "err4" not in text
+        assert "err5" not in text
+
+
+class TestSyncValidators:
+    """Direct tests for sync.py validator functions."""
+
+    def test_validate_memory_sync_returns_empty(self):
+        """validate_memory_sync always returns empty dict."""
+        from kernle.mcp.handlers.sync import validate_memory_sync
+
+        assert validate_memory_sync({}) == {}
+        assert validate_memory_sync({"extra": "ignored"}) == {}
+
+    # -- validate_memory_suggestions_list --
+
+    def test_validate_suggestions_list_defaults(self):
+        """validate_memory_suggestions_list returns correct defaults."""
+        from kernle.mcp.handlers.sync import validate_memory_suggestions_list
+
+        result = validate_memory_suggestions_list({})
+        assert result["status"] == "pending"
+        assert result["memory_type"] is None
+        assert result["limit"] == 20
+        assert result["format"] == "text"
+
+    def test_validate_suggestions_list_status_all(self):
+        """validate_memory_suggestions_list converts 'all' to None."""
+        from kernle.mcp.handlers.sync import validate_memory_suggestions_list
+
+        result = validate_memory_suggestions_list({"status": "all"})
+        assert result["status"] is None
+
+    def test_validate_suggestions_list_valid_status(self):
+        """validate_memory_suggestions_list accepts valid status values."""
+        from kernle.mcp.handlers.sync import validate_memory_suggestions_list
+
+        for status in ["pending", "promoted", "rejected"]:
+            result = validate_memory_suggestions_list({"status": status})
+            assert result["status"] == status
+
+    def test_validate_suggestions_list_invalid_status(self):
+        """validate_memory_suggestions_list rejects invalid status."""
+        from kernle.mcp.handlers.sync import validate_memory_suggestions_list
+
+        with pytest.raises(ValueError, match="status"):
+            validate_memory_suggestions_list({"status": "bogus"})
+
+    def test_validate_suggestions_list_memory_type(self):
+        """validate_memory_suggestions_list validates memory_type."""
+        from kernle.mcp.handlers.sync import validate_memory_suggestions_list
+
+        for mt in ["episode", "belief", "note"]:
+            result = validate_memory_suggestions_list({"memory_type": mt})
+            assert result["memory_type"] == mt
+
+    def test_validate_suggestions_list_invalid_memory_type(self):
+        """validate_memory_suggestions_list rejects invalid memory_type."""
+        from kernle.mcp.handlers.sync import validate_memory_suggestions_list
+
+        with pytest.raises(ValueError, match="memory_type"):
+            validate_memory_suggestions_list({"memory_type": "invalid"})
+
+    def test_validate_suggestions_list_limit_bounds(self):
+        """validate_memory_suggestions_list clamps limit to [1, 100]."""
+        from kernle.mcp.handlers.sync import validate_memory_suggestions_list
+
+        result = validate_memory_suggestions_list({"limit": 50})
+        assert result["limit"] == 50
+
+        with pytest.raises(ValueError, match="limit"):
+            validate_memory_suggestions_list({"limit": 0})
+
+        with pytest.raises(ValueError, match="limit"):
+            validate_memory_suggestions_list({"limit": 200})
+
+    def test_validate_suggestions_list_format(self):
+        """validate_memory_suggestions_list validates format."""
+        from kernle.mcp.handlers.sync import validate_memory_suggestions_list
+
+        assert validate_memory_suggestions_list({"format": "json"})["format"] == "json"
+        assert validate_memory_suggestions_list({"format": "text"})["format"] == "text"
+
+        with pytest.raises(ValueError, match="format"):
+            validate_memory_suggestions_list({"format": "xml"})
+
+    # -- validate_memory_suggestions_promote --
+
+    def test_validate_suggestions_promote_required_id(self):
+        """validate_memory_suggestions_promote requires suggestion_id."""
+        from kernle.mcp.handlers.sync import validate_memory_suggestions_promote
+
+        with pytest.raises(ValueError, match="suggestion_id"):
+            validate_memory_suggestions_promote({})
+
+    def test_validate_suggestions_promote_all_fields(self):
+        """validate_memory_suggestions_promote sanitizes optional fields."""
+        from kernle.mcp.handlers.sync import validate_memory_suggestions_promote
+
+        result = validate_memory_suggestions_promote(
+            {
+                "suggestion_id": "sug-123",
+                "objective": "New obj",
+                "outcome": "New out",
+                "statement": "New stmt",
+                "content": "New content",
+            }
+        )
+        assert result["suggestion_id"] == "sug-123"
+        assert result["objective"] == "New obj"
+        assert result["outcome"] == "New out"
+        assert result["statement"] == "New stmt"
+        assert result["content"] == "New content"
+
+    def test_validate_suggestions_promote_optional_fields_absent(self):
+        """validate_memory_suggestions_promote sets absent optional fields to None."""
+        from kernle.mcp.handlers.sync import validate_memory_suggestions_promote
+
+        result = validate_memory_suggestions_promote({"suggestion_id": "sug-123"})
+        assert result["suggestion_id"] == "sug-123"
+        assert result["objective"] is None
+        assert result["outcome"] is None
+        assert result["statement"] is None
+        assert result["content"] is None
+
+    # -- validate_memory_suggestions_reject --
+
+    def test_validate_suggestions_reject_required_id(self):
+        """validate_memory_suggestions_reject requires suggestion_id."""
+        from kernle.mcp.handlers.sync import validate_memory_suggestions_reject
+
+        with pytest.raises(ValueError, match="suggestion_id"):
+            validate_memory_suggestions_reject({})
+
+    def test_validate_suggestions_reject_with_reason(self):
+        """validate_memory_suggestions_reject sanitizes reason."""
+        from kernle.mcp.handlers.sync import validate_memory_suggestions_reject
+
+        result = validate_memory_suggestions_reject(
+            {"suggestion_id": "sug-456", "reason": "Duplicate entry"}
+        )
+        assert result["suggestion_id"] == "sug-456"
+        assert result["reason"] == "Duplicate entry"
+
+    def test_validate_suggestions_reject_without_reason(self):
+        """validate_memory_suggestions_reject sets absent reason to None."""
+        from kernle.mcp.handlers.sync import validate_memory_suggestions_reject
+
+        result = validate_memory_suggestions_reject({"suggestion_id": "sug-456"})
+        assert result["suggestion_id"] == "sug-456"
+        assert result["reason"] is None
+
+    # -- validate_memory_suggestions_extract --
+
+    def test_validate_suggestions_extract_defaults(self):
+        """validate_memory_suggestions_extract returns default limit of 50."""
+        from kernle.mcp.handlers.sync import validate_memory_suggestions_extract
+
+        result = validate_memory_suggestions_extract({})
+        assert result["limit"] == 50
+
+    def test_validate_suggestions_extract_custom_limit(self):
+        """validate_memory_suggestions_extract accepts custom limit."""
+        from kernle.mcp.handlers.sync import validate_memory_suggestions_extract
+
+        result = validate_memory_suggestions_extract({"limit": 100})
+        assert result["limit"] == 100
+
+    def test_validate_suggestions_extract_limit_bounds(self):
+        """validate_memory_suggestions_extract rejects out-of-bounds limit."""
+        from kernle.mcp.handlers.sync import validate_memory_suggestions_extract
+
+        with pytest.raises(ValueError, match="limit"):
+            validate_memory_suggestions_extract({"limit": 0})
+
+        with pytest.raises(ValueError, match="limit"):
+            validate_memory_suggestions_extract({"limit": 300})
