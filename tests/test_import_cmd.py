@@ -30,11 +30,13 @@ from kernle.cli.commands.import_cmd import (
     _import_json,
     _import_markdown,
     _interactive_import,
+    _preview_item,
+    cmd_import,
+)
+from kernle.cli.commands.migrate import (
     _migrate_backfill_provenance,
     _migrate_link_raw,
     _migrate_seed_beliefs,
-    _preview_item,
-    cmd_import,
     cmd_migrate,
 )
 from kernle.storage import SQLiteStorage
@@ -222,8 +224,8 @@ class TestImportJson:
         )
         _import_json(f, k, dry_run=False, skip_duplicates=False)
         episodes = k._storage.get_episodes(limit=10)
-        assert len(episodes) >= 1
-        assert any(e.objective == "E1" for e in episodes)
+        assert len(episodes) == 1
+        assert episodes[0].objective == "E1"
 
     def test_import_notes(self, k, tmp_path, capsys):
         """Note import uses k.note() which prefixes content with type label."""
@@ -237,9 +239,8 @@ class TestImportJson:
         )
         _import_json(f, k, dry_run=False, skip_duplicates=False)
         notes = k._storage.get_notes(limit=10)
-        assert len(notes) >= 1
-        # k.note() may prefix content with type label; check content exists
-        assert any("N1" in n.content for n in notes)
+        assert len(notes) == 1
+        assert "N1" in notes[0].content
 
     def test_import_notes_insight_type(self, k, tmp_path, capsys):
         """Insight-type notes get prefixed by k.note()."""
@@ -251,8 +252,8 @@ class TestImportJson:
         )
         _import_json(f, k, dry_run=False, skip_duplicates=False)
         notes = k._storage.get_notes(limit=10)
-        assert len(notes) >= 1
-        assert any("InsightContent" in n.content for n in notes)
+        assert len(notes) == 1
+        assert "InsightContent" in notes[0].content
 
     def test_import_values_errors_caught(self, k, tmp_path, capsys):
         """Value import has API mismatch (description vs statement) — errors are caught."""
@@ -353,8 +354,8 @@ class TestImportJson:
         )
         _import_json(f, k, dry_run=False, skip_duplicates=False)
         raw = k._storage.list_raw(limit=10)
-        assert len(raw) >= 1
-        assert any(r.content == "Raw thought 1" for r in raw)
+        assert len(raw) == 1
+        assert raw[0].content == "Raw thought 1"
 
     def test_import_relationships(self, k, tmp_path, capsys):
         """Relationship import may fail due to API mismatch — errors caught."""
@@ -671,9 +672,9 @@ class TestImportCsv:
         )
         f = self._write_csv(tmp_path, content)
         _import_csv(f, k, dry_run=False, target_layer=None, skip_duplicates=False)
-        assert len(k._storage.get_beliefs(limit=10)) >= 1
-        assert len(k._storage.get_notes(limit=10)) >= 1
-        assert len(k._storage.get_episodes(limit=10)) >= 1
+        assert len(k._storage.get_beliefs(limit=10)) == 1
+        assert len(k._storage.get_notes(limit=10)) == 1
+        assert len(k._storage.get_episodes(limit=10)) == 1
 
     def test_csv_no_type_column_no_layer_error(self, k, tmp_path, capsys):
         f = self._write_csv(tmp_path, "statement,confidence\nBelief,0.9\n")
@@ -686,7 +687,7 @@ class TestImportCsv:
         f = self._write_csv(tmp_path, "content\nForced note 1\nForced note 2\n")
         _import_csv(f, k, dry_run=False, target_layer="note", skip_duplicates=False)
         notes = k._storage.get_notes(limit=10)
-        assert len(notes) >= 2
+        assert len(notes) == 2
 
     def test_csv_target_layer_belief(self, k, tmp_path, capsys):
         """--layer=belief forces all rows to belief type."""
@@ -728,8 +729,8 @@ class TestImportCsv:
         )
         _import_csv(f, k, dry_run=False, target_layer=None, skip_duplicates=False)
         notes = k._storage.get_notes(limit=10)
-        assert len(notes) >= 1
-        assert any("CSV note content" in n.content for n in notes)
+        assert len(notes) == 1
+        assert "CSV note content" in notes[0].content
 
     def test_csv_value_columns_error(self, k, tmp_path, capsys):
         """Value import via CSV uses description= which doesn't match k.value() API."""
@@ -822,7 +823,7 @@ class TestImportCsv:
         f = self._write_csv(tmp_path, "type,title\nepisode,Task via title alias\n")
         _import_csv(f, k, dry_run=False, target_layer=None, skip_duplicates=False)
         episodes = k._storage.get_episodes(limit=10)
-        assert len(episodes) >= 1
+        assert len(episodes) == 1
 
     def test_csv_missing_type_row_skipped(self, k, tmp_path, capsys):
         """Rows without a type value are skipped."""
@@ -857,19 +858,19 @@ class TestImportMarkdown:
         f = self._write_md(tmp_path, "## Beliefs\n\n- MD imported belief (90%)\n- Another belief\n")
         _import_markdown(f, k, dry_run=False, interactive=False, target_layer=None)
         beliefs = k._storage.get_beliefs(limit=10)
-        assert len(beliefs) >= 2
+        assert len(beliefs) == 2
 
     def test_markdown_episodes_imported(self, k, tmp_path, capsys):
         f = self._write_md(tmp_path, "## Episodes\n\n- Fixed the bug -> Test first\n")
         _import_markdown(f, k, dry_run=False, interactive=False, target_layer=None)
         episodes = k._storage.get_episodes(limit=10)
-        assert len(episodes) >= 1
+        assert len(episodes) == 1
 
     def test_markdown_notes_imported(self, k, tmp_path, capsys):
         f = self._write_md(tmp_path, "## Notes\n\n- Important note from MD\n")
         _import_markdown(f, k, dry_run=False, interactive=False, target_layer=None)
         notes = k._storage.get_notes(limit=10)
-        assert len(notes) >= 1
+        assert len(notes) == 1
 
     def test_markdown_goals_batch_errors_caught(self, k, tmp_path, capsys):
         """Goal import from markdown may fail due to _import_item API mismatch."""
@@ -891,7 +892,7 @@ class TestImportMarkdown:
         f = self._write_md(tmp_path, "## Thoughts\n\n- Random thought\n")
         _import_markdown(f, k, dry_run=False, interactive=False, target_layer=None)
         raw = k._storage.list_raw(limit=10)
-        assert len(raw) >= 1
+        assert len(raw) == 1
 
     def test_markdown_all_working_sections(self, k, tmp_path, capsys):
         """Import all sections that are known to work (beliefs, episodes, notes, raw)."""
@@ -904,10 +905,10 @@ class TestImportMarkdown:
         f = self._write_md(tmp_path, content)
         _import_markdown(f, k, dry_run=False, interactive=False, target_layer=None)
 
-        assert len(k._storage.get_beliefs(limit=10)) >= 1
-        assert len(k._storage.get_episodes(limit=10)) >= 1
-        assert len(k._storage.get_notes(limit=10)) >= 1
-        assert len(k._storage.list_raw(limit=10)) >= 1
+        assert len(k._storage.get_beliefs(limit=10)) == 1
+        assert len(k._storage.get_episodes(limit=10)) == 1
+        assert len(k._storage.get_notes(limit=10)) == 1
+        assert len(k._storage.list_raw(limit=10)) == 1
 
     def test_markdown_dry_run(self, k, tmp_path, capsys):
         f = self._write_md(tmp_path, "## Beliefs\n\n- Dry run belief\n")
@@ -966,7 +967,7 @@ class TestImportMarkdown:
         f = self._write_md(tmp_path, "This preamble text has no headers.\n\nAnother paragraph.\n")
         _import_markdown(f, k, dry_run=False, interactive=False, target_layer=None)
         raw = k._storage.list_raw(limit=10)
-        assert len(raw) >= 1
+        assert len(raw) == 2  # two paragraphs
 
     def test_markdown_type_count_output(self, k, tmp_path, capsys):
         f = self._write_md(tmp_path, "## Beliefs\n\n- B1\n- B2\n\n## Notes\n\n- N1\n")
@@ -981,7 +982,7 @@ class TestImportMarkdown:
         with patch("builtins.input", return_value="y"):
             _import_markdown(f, k, dry_run=False, interactive=True, target_layer=None)
         beliefs = k._storage.get_beliefs(limit=10)
-        assert len(beliefs) >= 1
+        assert len(beliefs) == 1
 
 
 # ============================================================================
@@ -999,9 +1000,9 @@ class TestBatchImport:
             {"type": "episode", "objective": "Batch task", "outcome": "Done"},
         ]
         _batch_import(items, k)
-        assert len(k._storage.get_beliefs(limit=10)) >= 1
-        assert len(k._storage.get_notes(limit=10)) >= 1
-        assert len(k._storage.get_episodes(limit=10)) >= 1
+        assert len(k._storage.get_beliefs(limit=10)) == 1
+        assert len(k._storage.get_notes(limit=10)) == 1
+        assert len(k._storage.get_episodes(limit=10)) == 1
         assert "Imported 3" in capsys.readouterr().out
 
     def test_batch_import_skip_duplicates(self, k, capsys):
@@ -1055,7 +1056,7 @@ class TestBatchImport:
         ]
         _batch_import(items, k)
         raw = k._storage.list_raw(limit=10)
-        assert len(raw) >= 2
+        assert len(raw) == 2
 
     def test_batch_import_no_skip_duplicates(self, k, capsys):
         """Without skip_duplicates, duplicates are imported again."""
@@ -1461,7 +1462,7 @@ class TestInteractiveImport:
             result = _interactive_import(items, k)
         assert len(result) == 1
         beliefs = k._storage.get_beliefs(limit=10)
-        assert len(beliefs) >= 1
+        assert len(beliefs) == 1
 
     def test_accept_then_accept_all(self, k):
         """Accept first item, then 'a' should accept all remaining."""
@@ -1740,7 +1741,7 @@ class TestMigrateSeedBeliefs:
         out = capsys.readouterr().out
         assert "Added" in out
         beliefs = k._storage.get_beliefs(limit=100)
-        assert len(beliefs) >= 3
+        assert len(beliefs) == 3
 
     def test_add_full(self, k, capsys):
         args = self._args(level="full")
@@ -1748,7 +1749,7 @@ class TestMigrateSeedBeliefs:
         out = capsys.readouterr().out
         assert "Added" in out
         beliefs = k._storage.get_beliefs(limit=100)
-        assert len(beliefs) >= 16
+        assert len(beliefs) == 16
 
     def test_skip_existing(self, k, capsys):
         """If seed beliefs already exist, they should be skipped."""
