@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from kernle import Kernle
 
 # Import seed beliefs version for comparison
-from kernle.cli.commands.import_cmd import (
+from kernle.cli.commands.migrate import (
     _FULL_SEED_BELIEFS,
     _MINIMAL_SEED_BELIEFS,
     SEED_BELIEFS_VERSION,

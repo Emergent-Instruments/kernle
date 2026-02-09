@@ -1,5 +1,6 @@
 """Shared helper functions for CLI commands."""
 
+import argparse
 import json
 import re
 from typing import Any
@@ -22,3 +23,21 @@ def validate_input(value: str, field_name: str, max_length: int = 1000) -> str:
 def print_json(data: Any) -> None:
     """Print data as formatted JSON."""
     print(json.dumps(data, indent=2, default=str))
+
+
+def validate_budget(value: str) -> int:
+    """Validate budget argument for token budget."""
+    from kernle.core import MAX_TOKEN_BUDGET, MIN_TOKEN_BUDGET
+
+    try:
+        ivalue = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"Budget must be an integer, got '{value}'")
+
+    if ivalue < MIN_TOKEN_BUDGET:
+        raise argparse.ArgumentTypeError(
+            f"Budget must be at least {MIN_TOKEN_BUDGET}, got {ivalue}"
+        )
+    if ivalue > MAX_TOKEN_BUDGET:
+        raise argparse.ArgumentTypeError(f"Budget cannot exceed {MAX_TOKEN_BUDGET}, got {ivalue}")
+    return ivalue

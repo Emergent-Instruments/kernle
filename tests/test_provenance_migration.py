@@ -180,7 +180,7 @@ class TestBackfillProvenance:
         ep = _ep()
         stack.save_episode(ep)
 
-        from kernle.cli.commands.import_cmd import _migrate_backfill_provenance
+        from kernle.cli.commands.migrate import _migrate_backfill_provenance
 
         mock_k = MagicMock()
         mock_k._storage = stack._backend
@@ -206,7 +206,7 @@ class TestBackfillProvenance:
         note = _note()
         stack.save_note(note)
 
-        from kernle.cli.commands.import_cmd import _migrate_backfill_provenance
+        from kernle.cli.commands.migrate import _migrate_backfill_provenance
 
         mock_k = MagicMock()
         mock_k._storage = stack._backend
@@ -229,7 +229,7 @@ class TestBackfillProvenance:
         ep.derived_from = [f"raw:{raw_id}"]
         stack.save_episode(ep)
 
-        from kernle.cli.commands.import_cmd import _migrate_backfill_provenance
+        from kernle.cli.commands.migrate import _migrate_backfill_provenance
 
         mock_k = MagicMock()
         mock_k._storage = stack._backend
@@ -250,7 +250,7 @@ class TestBackfillProvenance:
         ep = _ep()
         stack.save_episode(ep)
 
-        from kernle.cli.commands.import_cmd import _migrate_backfill_provenance
+        from kernle.cli.commands.migrate import _migrate_backfill_provenance
 
         mock_k = MagicMock()
         mock_k._storage = stack._backend
@@ -289,7 +289,7 @@ class TestLinkRaw:
         )
         stack.save_episode(ep)
 
-        from kernle.cli.commands.import_cmd import _migrate_link_raw
+        from kernle.cli.commands.migrate import _migrate_link_raw
 
         mock_k = MagicMock()
         mock_k._storage = stack._backend
@@ -321,7 +321,7 @@ class TestLinkRaw:
         ep = _ep(objective="deployed api service", outcome="success", created_at=now)
         stack.save_episode(ep)
 
-        from kernle.cli.commands.import_cmd import _migrate_link_raw
+        from kernle.cli.commands.migrate import _migrate_link_raw
 
         mock_k = MagicMock()
         mock_k._storage = stack._backend
@@ -346,7 +346,7 @@ class TestLinkRaw:
         ep.derived_from = [f"raw:{raw_id}"]
         stack.save_episode(ep)
 
-        from kernle.cli.commands.import_cmd import _migrate_link_raw
+        from kernle.cli.commands.migrate import _migrate_link_raw
 
         mock_k = MagicMock()
         mock_k._storage = stack._backend
@@ -374,7 +374,7 @@ class TestLinkRaw:
         ep = _ep(objective="matching content dry run", created_at=now)
         stack.save_episode(ep)
 
-        from kernle.cli.commands.import_cmd import _migrate_link_raw
+        from kernle.cli.commands.migrate import _migrate_link_raw
 
         mock_k = MagicMock()
         mock_k._storage = stack._backend
@@ -402,7 +402,7 @@ class TestLinkRaw:
         note = _note(content="insight about testing prevents bugs from production", created_at=now)
         stack.save_note(note)
 
-        from kernle.cli.commands.import_cmd import _migrate_link_raw
+        from kernle.cli.commands.migrate import _migrate_link_raw
 
         mock_k = MagicMock()
         mock_k._storage = stack._backend
@@ -440,7 +440,7 @@ class TestLinkRaw:
         )
         stack.save_episode(ep)
 
-        from kernle.cli.commands.import_cmd import _migrate_link_raw
+        from kernle.cli.commands.migrate import _migrate_link_raw
 
         mock_k = MagicMock()
         mock_k._storage = stack._backend
@@ -464,7 +464,7 @@ class TestLinkRaw:
         ep = _ep()
         stack.save_episode(ep)
 
-        from kernle.cli.commands.import_cmd import _migrate_link_raw
+        from kernle.cli.commands.migrate import _migrate_link_raw
 
         mock_k = MagicMock()
         mock_k._storage = stack._backend
@@ -496,7 +496,7 @@ class TestLinkRaw:
             )
             conn.commit()
 
-        from kernle.cli.commands.import_cmd import _migrate_link_raw
+        from kernle.cli.commands.migrate import _migrate_link_raw
 
         mock_k = MagicMock()
         mock_k._storage = stack._backend
@@ -531,7 +531,7 @@ class TestLinkRaw:
         ep = _ep(objective="deployed api service", outcome="success", created_at=now)
         stack.save_episode(ep)
 
-        from kernle.cli.commands.import_cmd import _migrate_link_raw
+        from kernle.cli.commands.migrate import _migrate_link_raw
 
         args = MagicMock()
         args.dry_run = False
@@ -576,7 +576,7 @@ class TestLinkRaw:
         ep = _ep(objective="unmatched task", outcome="done", created_at=now)
         stack.save_episode(ep)
 
-        from kernle.cli.commands.import_cmd import _migrate_link_raw
+        from kernle.cli.commands.migrate import _migrate_link_raw
 
         args = MagicMock()
         args.dry_run = True
@@ -605,7 +605,7 @@ class TestLinkRaw:
         ep = _ep(objective="deployed api service", outcome="success", created_at=now)
         stack.save_episode(ep)
 
-        from kernle.cli.commands.import_cmd import _migrate_link_raw
+        from kernle.cli.commands.migrate import _migrate_link_raw
 
         mock_k = MagicMock()
         mock_k._storage = stack._backend
