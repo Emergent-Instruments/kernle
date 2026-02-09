@@ -7,14 +7,10 @@ Verifies:
 - External components default to priority 200
 """
 
-import uuid
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock
 
 import pytest
 
-from kernle.protocols import InferenceService, SearchResult
 from kernle.stack import SQLiteStack
 from kernle.stack.components import (
     AnxietyComponent,
@@ -59,8 +55,7 @@ class TestComponentPriority:
     def test_priority_matches_expected(self, component_cls, expected_priority):
         component = component_cls()
         assert component.priority == expected_priority, (
-            f"{component.name}: expected priority {expected_priority}, "
-            f"got {component.priority}"
+            f"{component.name}: expected priority {expected_priority}, " f"got {component.priority}"
         )
 
     def test_all_defaults_have_priority(self):
@@ -74,9 +69,9 @@ class TestComponentPriority:
         """Priorities should fall within documented ranges."""
         components = get_default_components()
         for c in components:
-            assert 0 <= c.priority <= 999, (
-                f"Component {c.name} has priority {c.priority} outside valid range"
-            )
+            assert (
+                0 <= c.priority <= 999
+            ), f"Component {c.name} has priority {c.priority} outside valid range"
 
 
 class TestComponentOrdering:
@@ -93,9 +88,7 @@ class TestComponentOrdering:
             db_path=tmp_db,
             enforce_provenance=False,
         )
-        priorities = [
-            getattr(c, "priority", 200) for c in stack.components.values()
-        ]
+        priorities = [getattr(c, "priority", 200) for c in stack.components.values()]
         assert priorities == sorted(priorities), (
             f"Components not sorted by priority: {list(stack.components.keys())} "
             f"with priorities {priorities}"
@@ -109,9 +102,7 @@ class TestComponentOrdering:
             enforce_provenance=False,
         )
         first_name = list(stack.components.keys())[0]
-        assert first_name == "embedding-ngram", (
-            f"Expected embedding-ngram first, got {first_name}"
-        )
+        assert first_name == "embedding-ngram", f"Expected embedding-ngram first, got {first_name}"
 
     def test_forgetting_runs_last(self, tmp_db):
         """ForgettingComponent (priority 300) should be last in the registry."""
@@ -121,9 +112,7 @@ class TestComponentOrdering:
             enforce_provenance=False,
         )
         last_name = list(stack.components.keys())[-1]
-        assert last_name == "forgetting", (
-            f"Expected forgetting last, got {last_name}"
-        )
+        assert last_name == "forgetting", f"Expected forgetting last, got {last_name}"
 
     def test_add_component_maintains_order(self, tmp_db):
         """Adding a component re-sorts the registry by priority."""
@@ -136,13 +125,15 @@ class TestComponentOrdering:
 
         # Add in reverse priority order
         stack.add_component(ForgettingComponent())  # 300
-        stack.add_component(EmbeddingComponent())   # 10
+        stack.add_component(EmbeddingComponent())  # 10
         stack.add_component(ConsolidationComponent())  # 200
 
         names = list(stack.components.keys())
-        assert names == ["embedding-ngram", "consolidation", "forgetting"], (
-            f"Components not in priority order: {names}"
-        )
+        assert names == [
+            "embedding-ngram",
+            "consolidation",
+            "forgetting",
+        ], f"Components not in priority order: {names}"
 
     def test_external_component_default_priority(self, tmp_db):
         """Components without explicit priority default to 200."""
@@ -185,13 +176,15 @@ class TestComponentOrdering:
         )
 
         stack.add_component(ForgettingComponent())  # 300
-        stack.add_component(ExternalComponent())     # 200 (default)
-        stack.add_component(EmbeddingComponent())   # 10
+        stack.add_component(ExternalComponent())  # 200 (default)
+        stack.add_component(EmbeddingComponent())  # 10
 
         names = list(stack.components.keys())
-        assert names == ["embedding-ngram", "external-test", "forgetting"], (
-            f"External component not sorted with default priority: {names}"
-        )
+        assert names == [
+            "embedding-ngram",
+            "external-test",
+            "forgetting",
+        ], f"External component not sorted with default priority: {names}"
 
     def test_dispatch_order_on_save(self, tmp_db):
         """on_save dispatch should follow priority order."""
@@ -246,6 +239,8 @@ class TestComponentOrdering:
 
         stack._dispatch_on_save("episode", "test-id", MagicMock())
 
-        assert call_order == ["first", "second", "third"], (
-            f"on_save dispatch order wrong: {call_order}"
-        )
+        assert call_order == [
+            "first",
+            "second",
+            "third",
+        ], f"on_save dispatch order wrong: {call_order}"
