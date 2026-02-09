@@ -10,20 +10,14 @@ Verifies:
 - Maintenance sweep still works as batch catch-all
 """
 
-import math
 import uuid
 from datetime import datetime, timedelta, timezone
-from unittest.mock import patch
 
 import pytest
 
 from kernle.stack import SQLiteStack
-from kernle.stack.components.forgetting import (
-    DEFAULT_HALF_LIFE,
-    ForgettingComponent,
-    compute_decayed_strength,
-)
-from kernle.types import Belief, Episode, Goal, Note, Value
+from kernle.stack.components.forgetting import compute_decayed_strength
+from kernle.types import Belief, Episode, Note
 
 
 @pytest.fixture
@@ -183,9 +177,7 @@ class TestLazyDecayOnRead:
 
     def test_protected_records_not_decayed(self, bare_stack):
         """Protected records should never be decayed."""
-        ep = _make_episode(
-            bare_stack.stack_id, days_old=365, strength=1.0, is_protected=True
-        )
+        ep = _make_episode(bare_stack.stack_id, days_old=365, strength=1.0, is_protected=True)
         bare_stack.save_episode(ep)
 
         episodes = bare_stack.get_episodes(include_forgotten=True)
@@ -224,9 +216,9 @@ class TestLazyDecayOnRead:
         episodes2 = bare_stack.get_episodes(include_forgotten=True)
         strength2 = [e for e in episodes2 if e.id == ep.id][0].strength
 
-        assert abs(strength1 - strength2) < 0.002, (
-            f"Expected consistent strength across reads: {strength1} vs {strength2}"
-        )
+        assert (
+            abs(strength1 - strength2) < 0.002
+        ), f"Expected consistent strength across reads: {strength1} vs {strength2}"
 
 
 class TestLazyDecaySetting:

@@ -30,27 +30,36 @@ from .base import (
     MemorySuggestion,
     Note,
     Playbook,
-    QueuedChange,
     RawEntry,
     Relationship,
     RelationshipHistoryEntry,
     SearchResult,
     SelfNarrative,
     Summary,
-    SyncConflict,
-    SyncResult,
     TrustAssessment,
     Value,
     VersionConflictError,
     parse_datetime,
     utc_now,
 )
+from .cloud import CloudClient
 from .embeddings import (
     EmbeddingProvider,
     HashEmbedder,
     pack_embedding,
 )
+from .flat_files import (
+    init_flat_files,
+    sync_beliefs_to_file,
+    sync_goals_to_file,
+    sync_relationships_to_file,
+    sync_values_to_file,
+)
+from .health import get_health_check_stats as _get_health_check_stats
+from .health import log_health_check as _log_health_check
 from .lineage import check_derived_from_cycle
+from .memory_ops import MemoryOps
+from .sync_engine import SyncEngine
 
 if TYPE_CHECKING:
     from .base import Storage as StorageProtocol
@@ -61,61 +70,6 @@ logger = logging.getLogger(__name__)
 SCHEMA_VERSION = (
     24  # Memory integrity: strength field replaces is_forgotten, add audit/processing tables
 )
-
-# Maximum size for merged arrays during sync to prevent resource exhaustion
-MAX_SYNC_ARRAY_SIZE = 500
-
-# Array fields that should be merged (set union) during sync rather than overwritten
-# These are fields where both local and cloud additions should be preserved
-SYNC_ARRAY_FIELDS: Dict[str, List[str]] = {
-    "episodes": [
-        "lessons",
-        "tags",
-        "emotional_tags",
-        "source_episodes",
-        "derived_from",
-        "context_tags",
-    ],
-    "beliefs": [
-        "source_episodes",
-        "derived_from",
-        "context_tags",
-    ],
-    "notes": [
-        "tags",
-        "source_episodes",
-        "derived_from",
-        "context_tags",
-    ],
-    "drives": [
-        "focus_areas",
-        "source_episodes",
-        "derived_from",
-        "context_tags",
-    ],
-    "agent_values": [
-        "source_episodes",
-        "derived_from",
-        "context_tags",
-    ],
-    "relationships": [
-        "source_episodes",
-        "derived_from",
-        "context_tags",
-    ],
-    "goals": [
-        "source_episodes",
-        "derived_from",
-        "context_tags",
-    ],
-    "playbooks": [
-        "trigger_conditions",
-        "failure_modes",
-        "recovery_steps",
-        "source_episodes",
-        "tags",
-    ],
-}
 
 # Allowed table names for SQL queries (security: prevents SQL injection via table names)
 ALLOWED_TABLES = frozenset(
@@ -955,9 +909,21 @@ class SQLiteStorage:
         self._is_online_cached: bool = False
         self._connectivity_cache_ttl = 30  # seconds
 
-        # Cloud search credentials cache
-        self._cloud_credentials: Optional[Dict[str, str]] = None
-        self._cloud_credentials_loaded: bool = False
+        # Cloud search client
+        self._cloud = CloudClient(stack_id, self.CLOUD_SEARCH_TIMEOUT)
+
+        # Memory lifecycle operations
+        self._memory_ops = MemoryOps(
+            connect_fn=self._connect,
+            stack_id=stack_id,
+            now_fn=self._now,
+            safe_get_fn=self._safe_get,
+            queue_sync_fn=self._queue_sync,
+            validate_table_name_fn=validate_table_name,
+        )
+
+        # Sync engine
+        self._sync_engine = SyncEngine(self, validate_table_name)
 
         # Ensure directory exists
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -991,25 +957,17 @@ class SQLiteStorage:
             logger.info("sqlite-vec not available, semantic search will use text matching")
 
     def _init_flat_files(self) -> None:
-        """Initialize flat files from existing database data.
-
-        Called on startup to ensure flat files exist and are in sync.
-        """
-        try:
-            # Only sync if files don't exist or are empty
-            if not self._beliefs_file.exists() or self._beliefs_file.stat().st_size == 0:
-                self._sync_beliefs_to_file()
-            if not self._values_file.exists() or self._values_file.stat().st_size == 0:
-                self._sync_values_to_file()
-            if (
-                not self._relationships_file.exists()
-                or self._relationships_file.stat().st_size == 0
-            ):
-                self._sync_relationships_to_file()
-            if not self._goals_file.exists() or self._goals_file.stat().st_size == 0:
-                self._sync_goals_to_file()
-        except Exception as e:
-            logger.warning(f"Failed to initialize flat files: {e}")
+        """Initialize flat files from existing database data."""
+        init_flat_files(
+            self._beliefs_file,
+            self._values_file,
+            self._relationships_file,
+            self._goals_file,
+            self._sync_beliefs_to_file,
+            self._sync_values_to_file,
+            self._sync_goals_to_file,
+            self._sync_relationships_to_file,
+        )
 
     def _resolve_db_path(self, db_path: Optional[Path]) -> Path:
         """Resolve the database path, falling back to temp dir if home is not writable."""
@@ -1121,154 +1079,15 @@ class SQLiteStorage:
         """
         pass  # No persistent connections to close
 
-    # === Cloud Search Methods ===
-
-    def _validate_backend_url(self, backend_url: str) -> Optional[str]:
-        """Validate backend URL to avoid leaking auth tokens to unsafe endpoints."""
-        from urllib.parse import urlparse
-
-        parsed = urlparse(backend_url)
-        if parsed.scheme not in {"https", "http"}:
-            logger.warning("Invalid backend_url scheme; only http/https allowed.")
-            return None
-        if not parsed.netloc:
-            logger.warning("Invalid backend_url; missing host.")
-            return None
-        if parsed.scheme == "http":
-            host = parsed.hostname or ""
-            if host not in {"localhost", "127.0.0.1"}:
-                logger.warning("Refusing non-local http backend_url for security.")
-                return None
-        return backend_url
-
-    def _load_cloud_credentials(self) -> Optional[Dict[str, str]]:
-        """Load cloud credentials from config files or environment variables.
-
-        Priority:
-        1. ~/.kernle/credentials.json
-        2. Environment variables (KERNLE_BACKEND_URL, KERNLE_AUTH_TOKEN)
-        3. ~/.kernle/config.json (legacy)
-
-        Returns:
-            Dict with 'backend_url' and 'auth_token', or None if not configured.
-        """
-        import os
-
-        if self._cloud_credentials_loaded:
-            return self._cloud_credentials
-
-        self._cloud_credentials_loaded = True
-        backend_url = None
-        auth_token = None
-
-        # Try credentials.json first
-        credentials_path = get_kernle_home() / "credentials.json"
-        if credentials_path.exists():
-            try:
-                with open(credentials_path) as f:
-                    creds = json.load(f)
-                    backend_url = creds.get("backend_url")
-                    # Accept both "auth_token" (preferred) and "token" (legacy) for compatibility
-                    auth_token = creds.get("auth_token") or creds.get("token")
-            except (json.JSONDecodeError, OSError):
-                pass
-
-        # Override with environment variables
-        backend_url = os.environ.get("KERNLE_BACKEND_URL") or backend_url
-        auth_token = os.environ.get("KERNLE_AUTH_TOKEN") or auth_token
-
-        # Try config.json as fallback
-        if not backend_url or not auth_token:
-            config_path = get_kernle_home() / "config.json"
-            if config_path.exists():
-                try:
-                    with open(config_path) as f:
-                        config = json.load(f)
-                        backend_url = backend_url or config.get("backend_url")
-                        auth_token = auth_token or config.get("auth_token")
-                except (json.JSONDecodeError, OSError):
-                    pass
-
-        if backend_url:
-            backend_url = self._validate_backend_url(backend_url)
-
-        if backend_url and auth_token:
-            self._cloud_credentials = {
-                "backend_url": backend_url.rstrip("/"),
-                "auth_token": auth_token,
-            }
-        else:
-            self._cloud_credentials = None
-
-        return self._cloud_credentials
+    # === Cloud Search Methods (delegated to CloudClient) ===
 
     def has_cloud_credentials(self) -> bool:
-        """Check if cloud credentials are available.
-
-        Returns:
-            True if backend_url and auth_token are configured.
-        """
-        creds = self._load_cloud_credentials()
-        return creds is not None
+        """Check if cloud credentials are available."""
+        return self._cloud.has_cloud_credentials()
 
     def cloud_health_check(self, timeout: float = 3.0) -> Dict[str, Any]:
-        """Test cloud backend connectivity.
-
-        Args:
-            timeout: Request timeout in seconds (default 3s)
-
-        Returns:
-            Dict with keys:
-            - 'healthy': bool indicating if cloud is reachable
-            - 'latency_ms': response time in milliseconds (if healthy)
-            - 'error': error message (if not healthy)
-        """
-        import time
-
-        creds = self._load_cloud_credentials()
-        if not creds:
-            return {
-                "healthy": False,
-                "error": "No cloud credentials configured",
-            }
-
-        try:
-            import urllib.error
-            import urllib.request
-
-            url = f"{creds['backend_url']}/health"
-            req = urllib.request.Request(
-                url,
-                headers={
-                    "Authorization": f"Bearer {creds['auth_token']}",
-                    "Content-Type": "application/json",
-                },
-                method="GET",
-            )
-
-            start = time.time()
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                latency_ms = (time.time() - start) * 1000
-                if resp.status == 200:
-                    return {
-                        "healthy": True,
-                        "latency_ms": round(latency_ms, 2),
-                    }
-                else:
-                    return {
-                        "healthy": False,
-                        "error": f"HTTP {resp.status}",
-                    }
-        except urllib.error.URLError as e:
-            return {
-                "healthy": False,
-                "error": f"Connection failed: {e.reason}",
-            }
-        except Exception as e:
-            return {
-                "healthy": False,
-                "error": str(e),
-            }
+        """Test cloud backend connectivity."""
+        return self._cloud.cloud_health_check(timeout)
 
     def _cloud_search(
         self,
@@ -1277,177 +1096,8 @@ class SQLiteStorage:
         record_types: Optional[List[str]] = None,
         timeout: Optional[float] = None,
     ) -> Optional[List[SearchResult]]:
-        """Search memories via cloud backend.
-
-        Args:
-            query: Search query
-            limit: Maximum results
-            record_types: Filter by type (episode, note, belief, etc.)
-            timeout: Request timeout in seconds (default: CLOUD_SEARCH_TIMEOUT)
-
-        Returns:
-            List of SearchResult, or None if cloud search failed/unavailable.
-        """
-        creds = self._load_cloud_credentials()
-        if not creds:
-            return None
-
-        timeout = timeout or self.CLOUD_SEARCH_TIMEOUT
-
-        try:
-            import urllib.error
-            import urllib.request
-
-            url = f"{creds['backend_url']}/memories/search"
-            payload = {
-                "query": query,
-                "limit": limit,
-            }
-            if record_types:
-                # Map internal types to backend table names
-                type_map = {
-                    "episode": "episodes",
-                    "note": "notes",
-                    "belief": "beliefs",
-                    "value": "values",
-                    "goal": "goals",
-                }
-                payload["memory_types"] = [type_map.get(t, t) for t in record_types]
-
-            data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(
-                url,
-                data=data,
-                headers={
-                    "Authorization": f"Bearer {creds['auth_token']}",
-                    "Content-Type": "application/json",
-                },
-                method="POST",
-            )
-
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                if resp.status == 200:
-                    response_data = json.loads(resp.read().decode("utf-8"))
-                    return self._parse_cloud_search_results(response_data)
-                else:
-                    logger.debug(f"Cloud search returned HTTP {resp.status}")
-                    return None
-
-        except urllib.error.URLError as e:
-            logger.debug(f"Cloud search failed: {e.reason}")
-            return None
-        except json.JSONDecodeError as e:
-            logger.debug(f"Cloud search response parse error: {e}")
-            return None
-        except Exception as e:
-            logger.debug(f"Cloud search error: {e}")
-            return None
-
-    def _parse_cloud_search_results(self, response_data: Dict[str, Any]) -> List[SearchResult]:
-        """Parse cloud search response into SearchResult objects.
-
-        Args:
-            response_data: Response from /memories/search endpoint
-
-        Returns:
-            List of SearchResult objects
-        """
-        results = []
-        cloud_results = response_data.get("results", [])
-
-        # Map backend types to internal types
-        type_map = {
-            "episodes": "episode",
-            "notes": "note",
-            "beliefs": "belief",
-            "values": "value",
-            "goals": "goal",
-        }
-
-        for item in cloud_results:
-            memory_type = type_map.get(item.get("memory_type"), item.get("memory_type"))
-            metadata = item.get("metadata", {})
-
-            # Create a minimal record object based on type
-            record = self._create_record_from_cloud(memory_type, item, metadata)
-
-            if record:
-                results.append(
-                    SearchResult(
-                        record=record,
-                        record_type=memory_type,
-                        score=item.get("score", 1.0),
-                    )
-                )
-
-        return results
-
-    def _create_record_from_cloud(
-        self, memory_type: str, item: Dict[str, Any], metadata: Dict[str, Any]
-    ) -> Optional[Any]:
-        """Create a record object from cloud search result.
-
-        Args:
-            memory_type: Type of memory (episode, note, etc.)
-            item: Search result item
-            metadata: Additional metadata from result
-
-        Returns:
-            Record object or None
-        """
-        record_id = item.get("id", "")
-        created_at = parse_datetime(item.get("created_at"))
-
-        if memory_type == "episode":
-            return Episode(
-                id=record_id,
-                stack_id=self.stack_id,
-                objective=metadata.get("objective", item.get("content", "")),
-                outcome=metadata.get("outcome", ""),
-                outcome_type=metadata.get("outcome_type"),
-                lessons=metadata.get("lessons_learned"),
-                tags=metadata.get("tags"),
-                created_at=created_at,
-            )
-        elif memory_type == "note":
-            return Note(
-                id=record_id,
-                stack_id=self.stack_id,
-                content=item.get("content", ""),
-                note_type=metadata.get("note_type", "note"),
-                tags=metadata.get("tags"),
-                created_at=created_at,
-            )
-        elif memory_type == "belief":
-            return Belief(
-                id=record_id,
-                stack_id=self.stack_id,
-                statement=item.get("content", ""),
-                belief_type=metadata.get("belief_type", "fact"),
-                confidence=metadata.get("confidence", 0.8),
-                created_at=created_at,
-            )
-        elif memory_type == "value":
-            return Value(
-                id=record_id,
-                stack_id=self.stack_id,
-                name=metadata.get("name", ""),
-                statement=item.get("content", ""),
-                priority=metadata.get("priority", 50),
-                created_at=created_at,
-            )
-        elif memory_type == "goal":
-            return Goal(
-                id=record_id,
-                stack_id=self.stack_id,
-                title=metadata.get("title", item.get("content", "")),
-                description=metadata.get("description"),
-                priority=metadata.get("priority", "medium"),
-                status=metadata.get("status", "active"),
-                created_at=created_at,
-            )
-
-        return None
+        """Search memories via cloud backend."""
+        return self._cloud._cloud_search(query, limit, record_types, timeout)
 
     def _init_db(self):
         """Initialize the database schema."""
@@ -2525,23 +2175,17 @@ class SQLiteStorage:
 
         Handles datetime conversion and nested objects.
         """
-        import dataclasses
+        from dataclasses import asdict
 
-        if not dataclasses.is_dataclass(record):
-            return {}
-
-        result = {}
-        for field in dataclasses.fields(record):
-            value = getattr(record, field.name)
-            if value is None:
-                result[field.name] = None
-            elif isinstance(value, datetime):
-                result[field.name] = value.isoformat()
-            elif isinstance(value, (list, dict)):
-                result[field.name] = value
-            else:
-                result[field.name] = value
-        return result
+        try:
+            d = asdict(record)
+            for k, v in d.items():
+                if isinstance(v, datetime):
+                    d[k] = v.isoformat()
+            return d
+        except Exception as e:
+            logger.debug(f"Failed to serialize record, using fallback: {e}")
+            return {"id": getattr(record, "id", "unknown")}
 
     def _build_access_filter(
         self, requesting_entity: Optional[str] = None
@@ -3483,26 +3127,9 @@ class SQLiteStorage:
 
     def _sync_beliefs_to_file(self) -> None:
         """Write all active beliefs to flat file."""
-        try:
-            beliefs = self.get_beliefs(limit=500, include_inactive=False)
-            lines = ["# Beliefs", f"_Last updated: {self._now()}_", ""]
-
-            for b in sorted(beliefs, key=lambda x: x.confidence, reverse=True):
-                conf_bar = "█" * int(b.confidence * 5) + "░" * (5 - int(b.confidence * 5))
-                lines.append(f"## [{conf_bar}] {int(b.confidence * 100)}% - {b.id[:8]}")
-                lines.append(b.statement)
-                if b.source_episodes:
-                    lines.append(f"Sources: {', '.join(b.source_episodes[:3])}")
-                lines.append("")
-
-            with open(self._beliefs_file, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines))
-            # Secure permissions
-            import os
-
-            os.chmod(self._beliefs_file, 0o600)
-        except Exception as e:
-            logger.warning(f"Failed to sync beliefs to file: {e}")
+        sync_beliefs_to_file(
+            self._beliefs_file, self.get_beliefs(limit=500, include_inactive=False), self._now()
+        )
 
     def get_beliefs(
         self,
@@ -3682,19 +3309,7 @@ class SQLiteStorage:
 
     def _sync_values_to_file(self) -> None:
         """Write all values to flat file."""
-        try:
-            values = self.get_values(limit=100)
-            lines = ["# Values", f"_Last updated: {self._now()}_", ""]
-
-            for v in sorted(values, key=lambda x: x.priority, reverse=True):
-                lines.append(f"## {v.name} (priority: {v.priority}) - {v.id[:8]}")
-                lines.append(v.statement)
-                lines.append("")
-
-            with open(self._values_file, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines))
-        except Exception as e:
-            logger.warning(f"Failed to sync values to file: {e}")
+        sync_values_to_file(self._values_file, self.get_values(limit=100), self._now())
 
     def get_values(self, limit: int = 100, requesting_entity: Optional[str] = None) -> List[Value]:
         """Get values ordered by priority."""
@@ -3815,34 +3430,7 @@ class SQLiteStorage:
 
     def _sync_goals_to_file(self) -> None:
         """Write all active goals to flat file."""
-        try:
-            goals = self.get_goals(status=None, limit=100)  # All goals
-            lines = ["# Goals", f"_Last updated: {self._now()}_", ""]
-
-            # Group by status
-            for status in ["active", "completed", "paused"]:
-                status_goals = [g for g in goals if g.status == status]
-                if status_goals:
-                    lines.append(f"## {status.title()}")
-                    for g in sorted(status_goals, key=lambda x: x.priority or "", reverse=True):
-                        priority = f" [{g.priority}]" if g.priority else ""
-                        goal_type_label = (
-                            f" ({g.goal_type})" if g.goal_type and g.goal_type != "task" else ""
-                        )
-                        status_icon = (
-                            "○" if status == "active" else "✓" if status == "completed" else "⏸"
-                        )
-                        lines.append(
-                            f"- {status_icon} {g.title}{priority}{goal_type_label} ({g.id[:8]})"
-                        )
-                        if g.description:
-                            lines.append(f"  {g.description[:100]}")
-                    lines.append("")
-
-            with open(self._goals_file, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines))
-        except Exception as e:
-            logger.warning(f"Failed to sync goals to file: {e}")
+        sync_goals_to_file(self._goals_file, self.get_goals(status=None, limit=100), self._now())
 
     def get_goals(
         self,
@@ -4405,26 +3993,7 @@ class SQLiteStorage:
 
     def _sync_relationships_to_file(self) -> None:
         """Write all relationships to flat file."""
-        try:
-            relationships = self.get_relationships()
-            lines = ["# Relationships", f"_Last updated: {self._now()}_", ""]
-
-            for r in sorted(relationships, key=lambda x: x.sentiment, reverse=True):
-                trust_pct = int(((r.sentiment + 1) / 2) * 100)
-                trust_bar = "█" * (trust_pct // 10) + "░" * (10 - trust_pct // 10)
-                lines.append(f"## {r.entity_name} ({r.entity_type}) - {r.id[:8]}")
-                lines.append(f"Trust: [{trust_bar}] {trust_pct}%")
-                lines.append(f"Interactions: {r.interaction_count}")
-                if r.last_interaction:
-                    lines.append(f"Last: {r.last_interaction.strftime('%Y-%m-%d')}")
-                if r.notes:
-                    lines.append(f"Notes: {r.notes}")
-                lines.append("")
-
-            with open(self._relationships_file, "w", encoding="utf-8") as f:
-                f.write("\n".join(lines))
-        except Exception as e:
-            logger.warning(f"Failed to sync relationships to file: {e}")
+        sync_relationships_to_file(self._relationships_file, self.get_relationships(), self._now())
 
     def get_relationships(
         self, entity_type: Optional[str] = None, requesting_entity: Optional[str] = None
@@ -7609,186 +7178,19 @@ class SQLiteStorage:
 
         return results
 
-    def forget_memory(
-        self,
-        memory_type: str,
-        memory_id: str,
-        reason: Optional[str] = None,
-    ) -> bool:
-        """Tombstone a memory (mark as forgotten, don't delete).
+    # === Memory Lifecycle Operations (delegated to MemoryOps) ===
 
-        Args:
-            memory_type: Type of memory
-            memory_id: ID of the memory
-            reason: Optional reason for forgetting
-
-        Returns:
-            True if forgotten, False if not found, already forgotten, or protected
-        """
-        table_map = {
-            "episode": "episodes",
-            "belief": "beliefs",
-            "value": "agent_values",
-            "goal": "goals",
-            "note": "notes",
-            "drive": "drives",
-            "relationship": "relationships",
-        }
-
-        table = table_map.get(memory_type)
-        if not table:
-            return False
-        validate_table_name(table)  # Security: validate before SQL use
-
-        now = self._now()
-
-        with self._connect() as conn:
-            # Check if memory exists and is not protected
-            row = conn.execute(
-                f"SELECT is_protected, strength FROM {table} WHERE id = ? AND stack_id = ?",
-                (memory_id, self.stack_id),
-            ).fetchone()
-
-            if not row:
-                return False
-
-            if self._safe_get(row, "is_protected", 0):
-                logger.debug(f"Cannot forget protected memory {memory_type}:{memory_id}")
-                return False
-
-            if float(self._safe_get(row, "strength", 1.0)) == 0.0:
-                return False  # Already forgotten
-
-            cursor = conn.execute(
-                f"""UPDATE {table}
-                   SET strength = 0.0,
-                       local_updated_at = ?
-                   WHERE id = ? AND stack_id = ?""",
-                (now, memory_id, self.stack_id),
-            )
-            if cursor.rowcount > 0:
-                conn.execute(
-                    """INSERT INTO memory_audit (id, memory_type, memory_id, operation, details, actor, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        str(uuid.uuid4()),
-                        memory_type,
-                        memory_id,
-                        "forget",
-                        json.dumps({"reason": reason}) if reason else None,
-                        "system",
-                        now,
-                    ),
-                )
-            self._queue_sync(conn, table, memory_id, "update")
-            conn.commit()
-            return cursor.rowcount > 0
+    def forget_memory(self, memory_type: str, memory_id: str, reason: Optional[str] = None) -> bool:
+        """Tombstone a memory (mark as forgotten, don't delete)."""
+        return self._memory_ops.forget_memory(memory_type, memory_id, reason)
 
     def recover_memory(self, memory_type: str, memory_id: str) -> bool:
-        """Recover a forgotten memory.
-
-        Args:
-            memory_type: Type of memory
-            memory_id: ID of the memory
-
-        Returns:
-            True if recovered, False if not found or not forgotten
-        """
-        table_map = {
-            "episode": "episodes",
-            "belief": "beliefs",
-            "value": "agent_values",
-            "goal": "goals",
-            "note": "notes",
-            "drive": "drives",
-            "relationship": "relationships",
-        }
-
-        table = table_map.get(memory_type)
-        if not table:
-            return False
-
-        now = self._now()
-
-        with self._connect() as conn:
-            # Check if memory is forgotten (strength = 0.0)
-            row = conn.execute(
-                f"SELECT strength FROM {table} WHERE id = ? AND stack_id = ?",
-                (memory_id, self.stack_id),
-            ).fetchone()
-
-            if not row or float(self._safe_get(row, "strength", 1.0)) > 0.0:
-                return False
-
-            cursor = conn.execute(
-                f"""UPDATE {table}
-                   SET strength = 0.2,
-                       local_updated_at = ?
-                   WHERE id = ? AND stack_id = ?""",
-                (now, memory_id, self.stack_id),
-            )
-            if cursor.rowcount > 0:
-                conn.execute(
-                    """INSERT INTO memory_audit (id, memory_type, memory_id, operation, details, actor, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (str(uuid.uuid4()), memory_type, memory_id, "recover", None, "system", now),
-                )
-            self._queue_sync(conn, table, memory_id, "update")
-            conn.commit()
-            return cursor.rowcount > 0
+        """Recover a forgotten memory."""
+        return self._memory_ops.recover_memory(memory_type, memory_id)
 
     def protect_memory(self, memory_type: str, memory_id: str, protected: bool = True) -> bool:
-        """Mark a memory as protected from forgetting.
-
-        Args:
-            memory_type: Type of memory
-            memory_id: ID of the memory
-            protected: True to protect, False to unprotect
-
-        Returns:
-            True if updated, False if memory not found
-        """
-        table_map = {
-            "episode": "episodes",
-            "belief": "beliefs",
-            "value": "agent_values",
-            "goal": "goals",
-            "note": "notes",
-            "drive": "drives",
-            "relationship": "relationships",
-        }
-
-        table = table_map.get(memory_type)
-        if not table:
-            return False
-
-        now = self._now()
-
-        with self._connect() as conn:
-            cursor = conn.execute(
-                f"""UPDATE {table}
-                   SET is_protected = ?,
-                       local_updated_at = ?
-                   WHERE id = ? AND stack_id = ?""",
-                (1 if protected else 0, now, memory_id, self.stack_id),
-            )
-            if cursor.rowcount > 0:
-                conn.execute(
-                    """INSERT INTO memory_audit (id, memory_type, memory_id, operation, details, actor, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                    (
-                        str(uuid.uuid4()),
-                        memory_type,
-                        memory_id,
-                        "protect" if protected else "unprotect",
-                        None,
-                        "system",
-                        now,
-                    ),
-                )
-            self._queue_sync(conn, table, memory_id, "update")
-            conn.commit()
-            return cursor.rowcount > 0
+        """Mark a memory as protected from forgetting."""
+        return self._memory_ops.protect_memory(memory_type, memory_id, protected)
 
     def log_audit(
         self,
@@ -7798,37 +7200,8 @@ class SQLiteStorage:
         actor: str,
         details: Optional[Dict[str, Any]] = None,
     ) -> str:
-        """Log an audit entry for a memory operation.
-
-        Args:
-            memory_type: Type of memory affected
-            memory_id: ID of the memory affected
-            operation: Operation name (forget, recover, protect, weaken, verify)
-            actor: Who performed the operation (e.g. 'core:{id}', 'plugin:{name}')
-            details: Optional JSON-serializable details about the operation
-
-        Returns:
-            The audit entry ID
-        """
-        audit_id = str(uuid.uuid4())
-        now = self._now()
-
-        with self._connect() as conn:
-            conn.execute(
-                """INSERT INTO memory_audit (id, memory_type, memory_id, operation, details, actor, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    audit_id,
-                    memory_type,
-                    memory_id,
-                    operation,
-                    json.dumps(details) if details else None,
-                    actor,
-                    now,
-                ),
-            )
-            conn.commit()
-        return audit_id
+        """Log an audit entry for a memory operation."""
+        return self._memory_ops.log_audit(memory_type, memory_id, operation, actor, details)
 
     def get_audit_log(
         self,
@@ -7838,387 +7211,34 @@ class SQLiteStorage:
         operation: Optional[str] = None,
         limit: int = 50,
     ) -> List[Dict[str, Any]]:
-        """Get audit log entries.
+        """Get audit log entries."""
+        return self._memory_ops.get_audit_log(
+            memory_type=memory_type, memory_id=memory_id, operation=operation, limit=limit
+        )
 
-        Args:
-            memory_type: Filter by memory type
-            memory_id: Filter by memory ID
-            operation: Filter by operation type
-            limit: Max entries to return
+    def weaken_memory(self, memory_type: str, memory_id: str, amount: float) -> bool:
+        """Reduce a memory's strength by a given amount."""
+        return self._memory_ops.weaken_memory(memory_type, memory_id, amount)
 
-        Returns:
-            List of audit entry dicts
-        """
-        conditions = ["1=1"]
-        params: list = []
+    def verify_memory(self, memory_type: str, memory_id: str) -> bool:
+        """Verify a memory: boost strength and increment verification count."""
+        return self._memory_ops.verify_memory(memory_type, memory_id)
 
-        if memory_type:
-            conditions.append("memory_type = ?")
-            params.append(memory_type)
-        if memory_id:
-            conditions.append("memory_id = ?")
-            params.append(memory_id)
-        if operation:
-            conditions.append("operation = ?")
-            params.append(operation)
-
-        params.append(limit)
-
-        with self._connect() as conn:
-            rows = conn.execute(
-                f"""SELECT id, memory_type, memory_id, operation, details, actor, created_at
-                   FROM memory_audit
-                   WHERE {' AND '.join(conditions)}
-                   ORDER BY created_at DESC
-                   LIMIT ?""",
-                params,
-            ).fetchall()
-
-        results = []
-        for row in rows:
-            entry = {
-                "id": row["id"],
-                "memory_type": row["memory_type"],
-                "memory_id": row["memory_id"],
-                "operation": row["operation"],
-                "details": json.loads(row["details"]) if row["details"] else None,
-                "actor": row["actor"],
-                "created_at": row["created_at"],
-            }
-            results.append(entry)
-        return results
-
-    def weaken_memory(
-        self,
-        memory_type: str,
-        memory_id: str,
-        amount: float,
-    ) -> bool:
-        """Reduce a memory's strength by a given amount.
-
-        Args:
-            memory_type: Type of memory
-            memory_id: ID of the memory
-            amount: Amount to reduce strength by (positive value)
-
-        Returns:
-            True if updated, False if memory not found or protected
-        """
-        table_map = {
-            "episode": "episodes",
-            "belief": "beliefs",
-            "value": "agent_values",
-            "goal": "goals",
-            "note": "notes",
-            "drive": "drives",
-            "relationship": "relationships",
-        }
-
-        table = table_map.get(memory_type)
-        if not table:
-            return False
-
-        amount = abs(amount)  # Ensure positive
-        now = self._now()
-
-        with self._connect() as conn:
-            cursor = conn.execute(
-                f"""UPDATE {table}
-                   SET strength = MAX(0.0, COALESCE(strength, 1.0) - ?),
-                       local_updated_at = ?
-                   WHERE id = ? AND stack_id = ? AND deleted = 0
-                     AND COALESCE(is_protected, 0) = 0""",
-                (amount, now, memory_id, self.stack_id),
-            )
-            self._queue_sync(conn, table, memory_id, "update")
-            conn.commit()
-            return cursor.rowcount > 0
-
-    def verify_memory(
-        self,
-        memory_type: str,
-        memory_id: str,
-    ) -> bool:
-        """Verify a memory: boost strength and increment verification count.
-
-        Args:
-            memory_type: Type of memory
-            memory_id: ID of the memory
-
-        Returns:
-            True if updated, False if memory not found
-        """
-        table_map = {
-            "episode": "episodes",
-            "belief": "beliefs",
-            "value": "agent_values",
-            "goal": "goals",
-            "note": "notes",
-            "drive": "drives",
-            "relationship": "relationships",
-        }
-
-        table = table_map.get(memory_type)
-        if not table:
-            return False
-
-        now = self._now()
-
-        with self._connect() as conn:
-            cursor = conn.execute(
-                f"""UPDATE {table}
-                   SET strength = MIN(1.0, COALESCE(strength, 1.0) + 0.1),
-                       verification_count = COALESCE(verification_count, 0) + 1,
-                       last_verified = ?,
-                       local_updated_at = ?
-                   WHERE id = ? AND stack_id = ? AND deleted = 0""",
-                (now, now, memory_id, self.stack_id),
-            )
-            self._queue_sync(conn, table, memory_id, "update")
-            conn.commit()
-            return cursor.rowcount > 0
-
-    def boost_memory_strength(
-        self,
-        memory_type: str,
-        memory_id: str,
-        amount: float,
-    ) -> bool:
-        """Boost a memory's strength by a given amount (capped at 1.0).
-
-        Args:
-            memory_type: Type of memory
-            memory_id: ID of the memory
-            amount: Amount to increase strength by (positive value)
-
-        Returns:
-            True if updated, False if memory not found
-        """
-        table_map = {
-            "episode": "episodes",
-            "belief": "beliefs",
-            "value": "agent_values",
-            "goal": "goals",
-            "note": "notes",
-            "drive": "drives",
-            "relationship": "relationships",
-        }
-
-        table = table_map.get(memory_type)
-        if not table:
-            return False
-        validate_table_name(table)
-
-        amount = abs(amount)
-        now = self._now()
-
-        with self._connect() as conn:
-            cursor = conn.execute(
-                f"""UPDATE {table}
-                   SET strength = MIN(1.0, COALESCE(strength, 1.0) + ?),
-                       local_updated_at = ?
-                   WHERE id = ? AND stack_id = ? AND deleted = 0""",
-                (amount, now, memory_id, self.stack_id),
-            )
-            self._queue_sync(conn, table, memory_id, "update")
-            conn.commit()
-            return cursor.rowcount > 0
+    def boost_memory_strength(self, memory_type: str, memory_id: str, amount: float) -> bool:
+        """Boost a memory's strength by a given amount (capped at 1.0)."""
+        return self._memory_ops.boost_memory_strength(memory_type, memory_id, amount)
 
     def get_memories_derived_from(self, memory_type: str, memory_id: str) -> List[tuple]:
-        """Find all memories that cite 'type:id' in their derived_from.
-
-        Args:
-            memory_type: Type of the source memory (e.g. 'episode')
-            memory_id: ID of the source memory
-
-        Returns:
-            List of (child_memory_type, child_memory_id) tuples
-        """
-        table_map = {
-            "episode": "episodes",
-            "belief": "beliefs",
-            "value": "agent_values",
-            "goal": "goals",
-            "note": "notes",
-            "drive": "drives",
-            "relationship": "relationships",
-        }
-
-        # Build the search pattern: look for "type:id" in the JSON array text
-        search_pattern = f'%"{memory_type}:{memory_id}"%'
-        results: List[tuple] = []
-
-        with self._connect() as conn:
-            for mem_type, table in table_map.items():
-                rows = conn.execute(
-                    f"""SELECT id FROM {table}
-                       WHERE stack_id = ? AND deleted = 0
-                         AND derived_from LIKE ?""",
-                    (self.stack_id, search_pattern),
-                ).fetchall()
-                for row in rows:
-                    results.append((mem_type, row["id"]))
-
-        return results
+        """Find all memories that cite 'type:id' in their derived_from."""
+        return self._memory_ops.get_memories_derived_from(memory_type, memory_id)
 
     def get_ungrounded_memories(self, stack_id: str) -> List[tuple]:
-        """Find memories where ALL source refs have strength 0.0 or don't exist.
-
-        Only considers refs in type:id format (skips context: and kernle: prefixes).
-        Returns memories that have derived_from entries but every referenced
-        source is either forgotten (strength 0.0) or missing.
-
-        Args:
-            stack_id: Stack ID to search in
-
-        Returns:
-            List of (memory_type, memory_id, [source_refs]) tuples
-        """
-        table_map = {
-            "episode": "episodes",
-            "belief": "beliefs",
-            "value": "agent_values",
-            "goal": "goals",
-            "note": "notes",
-            "drive": "drives",
-            "relationship": "relationships",
-        }
-
-        # Annotation ref types to skip
-        skip_prefixes = {"context", "kernle"}
-
-        # Lookup tables for checking strength
-        strength_table_map = {
-            "raw": "raw_entries",
-            "episode": "episodes",
-            "belief": "beliefs",
-            "value": "agent_values",
-            "goal": "goals",
-            "note": "notes",
-            "drive": "drives",
-            "relationship": "relationships",
-        }
-
-        results: List[tuple] = []
-
-        with self._connect() as conn:
-            for mem_type, table in table_map.items():
-                rows = conn.execute(
-                    f"""SELECT id, derived_from FROM {table}
-                       WHERE stack_id = ? AND deleted = 0
-                         AND derived_from IS NOT NULL AND derived_from != '[]' AND derived_from != 'null'""",
-                    (stack_id,),
-                ).fetchall()
-
-                for row in rows:
-                    derived_from_raw = row["derived_from"]
-                    if not derived_from_raw:
-                        continue
-                    try:
-                        derived_from = json.loads(derived_from_raw)
-                    except (json.JSONDecodeError, TypeError):
-                        continue
-                    if not isinstance(derived_from, list) or not derived_from:
-                        continue
-
-                    # Filter to real source refs only
-                    source_refs = []
-                    for ref in derived_from:
-                        if not ref or ":" not in ref:
-                            continue
-                        ref_type = ref.split(":", 1)[0]
-                        if ref_type in skip_prefixes:
-                            continue
-                        source_refs.append(ref)
-
-                    if not source_refs:
-                        continue
-
-                    # Check if ALL source refs are dead (strength 0.0 or missing)
-                    all_dead = True
-                    for ref in source_refs:
-                        ref_type, ref_id = ref.split(":", 1)
-                        ref_table = strength_table_map.get(ref_type)
-                        if not ref_table:
-                            all_dead = False  # Unknown type treated as alive
-                            break
-                        if ref_type == "raw":
-                            # Raw entries have no strength column — existing + not deleted = alive
-                            ref_row = conn.execute(
-                                f"""SELECT id FROM {ref_table}
-                                   WHERE id = ? AND stack_id = ? AND deleted = 0""",
-                                (ref_id, stack_id),
-                            ).fetchone()
-                            if ref_row is not None:
-                                all_dead = False
-                                break
-                        else:
-                            ref_row = conn.execute(
-                                f"""SELECT strength FROM {ref_table}
-                                   WHERE id = ? AND stack_id = ? AND deleted = 0""",
-                                (ref_id, stack_id),
-                            ).fetchone()
-                            if ref_row is not None:
-                                strength = float(self._safe_get(ref_row, "strength", 1.0))
-                                if strength > 0.0:
-                                    all_dead = False
-                                    break
-
-                    if all_dead:
-                        results.append((mem_type, row["id"], source_refs))
-
-        return results
+        """Find memories where ALL source refs have strength 0.0 or don't exist."""
+        return self._memory_ops.get_ungrounded_memories(stack_id)
 
     def get_pre_v09_memories(self, stack_id: str) -> List[tuple]:
-        """Find memories annotated with kernle:pre-v0.9-migration.
-
-        These are memories that existed before provenance enforcement was
-        introduced in v0.9. They have a migration annotation but no real
-        provenance chain (no raw, episode, or note refs).
-
-        Returns:
-            List of (memory_type, memory_id, has_auto_link) tuples.
-            has_auto_link is True if the memory was also linked to a raw
-            entry via migrate link-raw.
-        """
-        table_map = {
-            "episode": "episodes",
-            "belief": "beliefs",
-            "value": "agent_values",
-            "goal": "goals",
-            "note": "notes",
-            "drive": "drives",
-            "relationship": "relationships",
-        }
-        annotation_prefixes = {"context", "kernle"}
-        results: List[tuple] = []
-
-        with self._connect() as conn:
-            for mem_type, table in table_map.items():
-                rows = conn.execute(
-                    f"""SELECT id, derived_from FROM {table}
-                       WHERE stack_id = ? AND deleted = 0
-                         AND derived_from LIKE '%pre-v0.9-migration%'""",
-                    (stack_id,),
-                ).fetchall()
-
-                for row in rows:
-                    derived_from_raw = row["derived_from"]
-                    if not derived_from_raw:
-                        continue
-                    try:
-                        derived_from = json.loads(derived_from_raw)
-                    except (json.JSONDecodeError, TypeError):
-                        continue
-                    if not isinstance(derived_from, list):
-                        continue
-
-                    has_auto_link = any(
-                        ref.startswith("raw:") for ref in derived_from if ref and ":" in ref
-                    )
-                    results.append((mem_type, row["id"], has_auto_link))
-
-        return results
+        """Find memories annotated with kernle:pre-v0.9-migration."""
+        return self._memory_ops.get_pre_v09_memories(stack_id)
 
     def get_forgetting_candidates(
         self,
@@ -8226,1198 +7246,135 @@ class SQLiteStorage:
         limit: int = 100,
         threshold: float = 0.5,
     ) -> List[SearchResult]:
-        """Get memories that are candidates for forgetting.
-
-        Returns memories that are:
-        - Not protected
-        - Not already forgotten (strength > 0.0)
-        - Below the strength threshold
-        - Sorted by strength (lowest first = best candidates)
-
-        Args:
-            memory_types: Filter by memory type
-            limit: Maximum results
-            threshold: Strength threshold (memories below this are candidates)
-
-        Returns:
-            List of candidate memories with strength as score
-        """
-        results = []
-        types = memory_types or ["episode", "belief", "goal", "note", "relationship"]
-        # Exclude values and drives by default since they're protected by default
-
-        table_map = {
-            "episode": ("episodes", self._row_to_episode),
-            "belief": ("beliefs", self._row_to_belief),
-            "value": ("agent_values", self._row_to_value),
-            "goal": ("goals", self._row_to_goal),
-            "note": ("notes", self._row_to_note),
-            "drive": ("drives", self._row_to_drive),
-            "relationship": ("relationships", self._row_to_relationship),
-        }
-
-        with self._connect() as conn:
-            for memory_type in types:
-                if memory_type not in table_map:
-                    continue
-
-                table, converter = table_map[memory_type]
-                # Build query — exclude protected/forgotten, and for beliefs
-                # also exclude foundational beliefs (identity-critical)
-                foundational_filter = ""
-                if memory_type == "belief":
-                    foundational_filter = "AND COALESCE(is_foundational, 0) = 0"
-
-                query = f"""
-                    SELECT * FROM {table}
-                    WHERE stack_id = ?
-                    AND deleted = 0
-                    AND COALESCE(is_protected, 0) = 0
-                    AND COALESCE(strength, 1.0) > 0.0
-                    AND COALESCE(strength, 1.0) < ?
-                    {foundational_filter}
-                    ORDER BY strength ASC
-                    LIMIT ?
-                """
-
-                try:
-                    rows = conn.execute(query, (self.stack_id, threshold, limit * 2)).fetchall()
-                    for row in rows:
-                        record = converter(row)
-                        strength = float(self._safe_get(row, "strength", 1.0))
-
-                        results.append(
-                            SearchResult(record=record, record_type=memory_type, score=strength)
-                        )
-                except Exception as e:
-                    logger.debug(f"Could not get forgetting candidates from {table}: {e}")
-
-        # Sort by strength (lowest first = best candidates for forgetting)
-        results.sort(key=lambda x: x.score)
-        return results[:limit]
+        """Get memories that are candidates for forgetting."""
+        return self._memory_ops.get_forgetting_candidates(
+            self._row_converters(), memory_types, limit, threshold
+        )
 
     def get_forgotten_memories(
         self,
         memory_types: Optional[List[str]] = None,
         limit: int = 100,
     ) -> List[SearchResult]:
-        """Get all forgotten (tombstoned) memories.
+        """Get all forgotten (tombstoned) memories."""
+        return self._memory_ops.get_forgotten_memories(self._row_converters(), memory_types, limit)
 
-        Args:
-            memory_types: Filter by memory type
-            limit: Maximum results
-
-        Returns:
-            List of forgotten memories
-        """
-        results = []
-        types = memory_types or [
-            "episode",
-            "belief",
-            "value",
-            "goal",
-            "note",
-            "drive",
-            "relationship",
-        ]
-
-        table_map = {
-            "episode": ("episodes", self._row_to_episode),
-            "belief": ("beliefs", self._row_to_belief),
-            "value": ("agent_values", self._row_to_value),
-            "goal": ("goals", self._row_to_goal),
-            "note": ("notes", self._row_to_note),
-            "drive": ("drives", self._row_to_drive),
-            "relationship": ("relationships", self._row_to_relationship),
-        }
-
-        with self._connect() as conn:
-            for memory_type in types:
-                if memory_type not in table_map:
-                    continue
-
-                table, converter = table_map[memory_type]
-                query = f"""
-                    SELECT * FROM {table}
-                    WHERE stack_id = ?
-                    AND deleted = 0
-                    AND COALESCE(strength, 1.0) = 0.0
-                    ORDER BY created_at DESC
-                    LIMIT ?
-                """
-
-                try:
-                    rows = conn.execute(query, (self.stack_id, limit)).fetchall()
-                    for row in rows:
-                        results.append(
-                            SearchResult(
-                                record=converter(row),
-                                record_type=memory_type,
-                                score=0.0,  # Forgotten memories have 0 active salience
-                            )
-                        )
-                except Exception as e:
-                    logger.debug(f"Could not get forgotten memories from {table}: {e}")
-
-        return results[:limit]
-
-    # === Sync Queue ===
-
-    def queue_sync_operation(
-        self, operation: str, table: str, record_id: str, data: Optional[Dict[str, Any]] = None
-    ) -> int:
-        """Queue a sync operation for later synchronization.
-
-        Uses atomic UPSERT (INSERT ... ON CONFLICT DO UPDATE) to prevent
-        race conditions between concurrent writes to the same record.
-
-        Args:
-            operation: Operation type ('insert', 'update', 'delete')
-            table: Table name (e.g., 'episodes', 'notes')
-            record_id: ID of the record
-            data: Optional JSON-serializable data payload
-
-        Returns:
-            The queue entry ID (or 0 if upsert updated existing row)
-        """
-        now = self._now()
-        data_json = self._to_json(data) if data else None
-
-        with self._connect() as conn:
-            # Use atomic UPSERT to prevent race condition between SELECT and UPDATE/INSERT
-            # This requires a unique partial index on (table_name, record_id) where synced = 0
-            cursor = conn.execute(
-                """INSERT INTO sync_queue
-                   (table_name, record_id, operation, data, local_updated_at, synced, queued_at)
-                   VALUES (?, ?, ?, ?, ?, 0, ?)
-                   ON CONFLICT(table_name, record_id) WHERE synced = 0
-                   DO UPDATE SET
-                       operation = excluded.operation,
-                       data = excluded.data,
-                       local_updated_at = excluded.local_updated_at,
-                       queued_at = excluded.queued_at""",
-                (table, record_id, operation, data_json, now, now),
-            )
-            conn.commit()
-            return cursor.lastrowid or 0
-
-    def get_pending_sync_operations(self, limit: int = 100) -> List[Dict[str, Any]]:
-        """Get all unsynced operations from the queue.
-
-        Returns:
-            List of dicts with: id, operation, table_name, record_id, data, local_updated_at
-        """
-        with self._connect() as conn:
-            rows = conn.execute(
-                """SELECT id, operation, table_name, record_id, data, local_updated_at
-                   FROM sync_queue
-                   WHERE synced = 0
-                   ORDER BY id
-                   LIMIT ?""",
-                (limit,),
-            ).fetchall()
-
-        return [
-            {
-                "id": row["id"],
-                "operation": row["operation"],
-                "table_name": row["table_name"],
-                "record_id": row["record_id"],
-                "data": self._from_json(row["data"]) if row["data"] else None,
-                "local_updated_at": self._parse_datetime(row["local_updated_at"]),
-            }
-            for row in rows
-        ]
-
-    def mark_synced(self, ids: List[int]) -> int:
-        """Mark sync queue entries as synced.
-
-        Args:
-            ids: List of sync queue entry IDs to mark as synced
-
-        Returns:
-            Number of entries marked as synced
-        """
-        if not ids:
-            return 0
-
-        with self._connect() as conn:
-            placeholders = ",".join("?" * len(ids))
-            cursor = conn.execute(
-                f"UPDATE sync_queue SET synced = 1 WHERE id IN ({placeholders})", ids
-            )
-            conn.commit()
-            return cursor.rowcount
-
-    def get_sync_status(self) -> Dict[str, Any]:
-        """Get sync queue status with counts.
-
-        Returns:
-            Dict with:
-                - pending: count of unsynced operations
-                - synced: count of synced operations
-                - total: total queue entries
-                - by_table: breakdown by table name
-                - by_operation: breakdown by operation type
-        """
-        with self._connect() as conn:
-            # Overall counts
-            pending = conn.execute("SELECT COUNT(*) FROM sync_queue WHERE synced = 0").fetchone()[0]
-            synced = conn.execute("SELECT COUNT(*) FROM sync_queue WHERE synced = 1").fetchone()[0]
-
-            # Breakdown by table (pending only)
-            table_rows = conn.execute("""SELECT table_name, COUNT(*) as count
-                   FROM sync_queue WHERE synced = 0
-                   GROUP BY table_name""").fetchall()
-            by_table = {row["table_name"]: row["count"] for row in table_rows}
-
-            # Breakdown by operation (pending only)
-            op_rows = conn.execute("""SELECT operation, COUNT(*) as count
-                   FROM sync_queue WHERE synced = 0
-                   GROUP BY operation""").fetchall()
-            by_operation = {row["operation"]: row["count"] for row in op_rows}
-
+    def _row_converters(self) -> Dict[str, Any]:
+        """Return a dict of memory_type -> row converter callable."""
         return {
-            "pending": pending,
-            "synced": synced,
-            "total": pending + synced,
-            "by_table": by_table,
-            "by_operation": by_operation,
+            "episode": self._row_to_episode,
+            "belief": self._row_to_belief,
+            "value": self._row_to_value,
+            "goal": self._row_to_goal,
+            "note": self._row_to_note,
+            "drive": self._row_to_drive,
+            "relationship": self._row_to_relationship,
         }
+
+    # === Sync Engine (delegated to SyncEngine) ===
+
+    def queue_sync_operation(self, operation: str, table: str, record_id: str, data=None) -> int:
+        """Queue a sync operation for later synchronization."""
+        return self._sync_engine.queue_sync_operation(operation, table, record_id, data)
+
+    def get_pending_sync_operations(self, limit: int = 100):
+        """Get all unsynced operations from the queue."""
+        return self._sync_engine.get_pending_sync_operations(limit)
+
+    def mark_synced(self, ids) -> int:
+        """Mark sync queue entries as synced."""
+        return self._sync_engine.mark_synced(ids)
+
+    def get_sync_status(self):
+        """Get sync queue status with counts."""
+        return self._sync_engine.get_sync_status()
 
     def get_pending_sync_count(self) -> int:
         """Get count of records pending sync."""
-        with self._connect() as conn:
-            count = conn.execute("SELECT COUNT(*) FROM sync_queue WHERE synced = 0").fetchone()[0]
-        return count
+        return self._sync_engine.get_pending_sync_count()
 
-    def get_queued_changes(self, limit: int = 100, max_retries: int = 5) -> List[QueuedChange]:
-        """Get queued changes for sync (returns unsynced items with retries < max).
+    def get_queued_changes(self, limit: int = 100, max_retries: int = 5):
+        """Get queued changes for sync."""
+        return self._sync_engine.get_queued_changes(limit, max_retries)
 
-        Uses COALESCE to read from either `payload` or `data` column,
-        handling the historical inconsistency where some entries only
-        populated one column.
+    def _clear_queued_change(self, conn, queue_id: int):
+        """Mark a change as synced."""
+        self._sync_engine._clear_queued_change(conn, queue_id)
 
-        Args:
-            limit: Maximum number of changes to return.
-            max_retries: Skip records with retry_count >= this value.
-        """
-        with self._connect() as conn:
-            rows = conn.execute(
-                """SELECT id, table_name, record_id, operation,
-                          COALESCE(payload, data) as payload, queued_at,
-                          COALESCE(retry_count, 0) as retry_count,
-                          last_error, last_attempt_at
-                   FROM sync_queue
-                   WHERE synced = 0 AND COALESCE(retry_count, 0) < ?
-                   ORDER BY id
-                   LIMIT ?""",
-                (max_retries, limit),
-            ).fetchall()
+    def _record_sync_failure(self, conn, queue_id: int, error: str) -> int:
+        """Record a sync failure and increment retry count."""
+        return self._sync_engine._record_sync_failure(conn, queue_id, error)
 
-        return [
-            QueuedChange(
-                id=row["id"],
-                table_name=row["table_name"],
-                record_id=row["record_id"],
-                operation=row["operation"],
-                payload=row["payload"],
-                queued_at=self._parse_datetime(row["queued_at"]),
-                retry_count=row["retry_count"] or 0,
-                last_error=row["last_error"],
-                last_attempt_at=self._parse_datetime(row["last_attempt_at"]),
-            )
-            for row in rows
-        ]
-
-    def _clear_queued_change(self, conn: sqlite3.Connection, queue_id: int):
-        """Mark a change as synced (legacy behavior kept for compatibility)."""
-        conn.execute("UPDATE sync_queue SET synced = 1 WHERE id = ?", (queue_id,))
-
-    def _record_sync_failure(self, conn: sqlite3.Connection, queue_id: int, error: str) -> int:
-        """Record a sync failure and increment retry count.
-
-        Returns:
-            The new retry count.
-        """
-        now = self._now()
-        conn.execute(
-            """UPDATE sync_queue
-               SET retry_count = COALESCE(retry_count, 0) + 1,
-                   last_error = ?,
-                   last_attempt_at = ?
-               WHERE id = ?""",
-            (error[:500], now, queue_id),  # Truncate error to 500 chars
-        )
-        row = conn.execute(
-            "SELECT retry_count FROM sync_queue WHERE id = ?", (queue_id,)
-        ).fetchone()
-        return row["retry_count"] if row else 0
-
-    def get_failed_sync_records(self, min_retries: int = 5) -> List[QueuedChange]:
-        """Get sync records that have exceeded max retries (dead letter queue).
-
-        Args:
-            min_retries: Minimum retry count to include.
-        """
-        with self._connect() as conn:
-            rows = conn.execute(
-                """SELECT id, table_name, record_id, operation,
-                          COALESCE(payload, data) as payload, queued_at,
-                          COALESCE(retry_count, 0) as retry_count,
-                          last_error, last_attempt_at
-                   FROM sync_queue
-                   WHERE synced = 0 AND COALESCE(retry_count, 0) >= ?
-                   ORDER BY last_attempt_at DESC
-                   LIMIT 100""",
-                (min_retries,),
-            ).fetchall()
-
-        return [
-            QueuedChange(
-                id=row["id"],
-                table_name=row["table_name"],
-                record_id=row["record_id"],
-                operation=row["operation"],
-                payload=row["payload"],
-                queued_at=self._parse_datetime(row["queued_at"]),
-                retry_count=row["retry_count"] or 0,
-                last_error=row["last_error"],
-                last_attempt_at=self._parse_datetime(row["last_attempt_at"]),
-            )
-            for row in rows
-        ]
+    def get_failed_sync_records(self, min_retries: int = 5):
+        """Get sync records that have exceeded max retries."""
+        return self._sync_engine.get_failed_sync_records(min_retries)
 
     def clear_failed_sync_records(self, older_than_days: int = 7) -> int:
-        """Clear failed sync records older than the specified days.
+        """Clear failed sync records older than the specified days."""
+        return self._sync_engine.clear_failed_sync_records(older_than_days)
 
-        Returns:
-            Number of records cleared.
-        """
-        from datetime import timedelta
-
-        cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
-        cutoff_str = cutoff.isoformat()
-
-        with self._connect() as conn:
-            cursor = conn.execute(
-                """UPDATE sync_queue
-                   SET synced = 1
-                   WHERE synced = 0
-                     AND COALESCE(retry_count, 0) >= 5
-                     AND last_attempt_at < ?""",
-                (cutoff_str,),
-            )
-            count = cursor.rowcount
-            conn.commit()
-
-        return count
-
-    def _get_sync_meta(self, key: str) -> Optional[str]:
+    def _get_sync_meta(self, key: str):
         """Get a sync metadata value."""
-        with self._connect() as conn:
-            row = conn.execute("SELECT value FROM sync_meta WHERE key = ?", (key,)).fetchone()
-        return row["value"] if row else None
+        return self._sync_engine._get_sync_meta(key)
 
     def _set_sync_meta(self, key: str, value: str):
         """Set a sync metadata value."""
-        with self._connect() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO sync_meta (key, value, updated_at) VALUES (?, ?, ?)",
-                (key, value, self._now()),
-            )
-            conn.commit()
+        self._sync_engine._set_sync_meta(key, value)
 
-    def get_last_sync_time(self) -> Optional[datetime]:
+    def get_last_sync_time(self):
         """Get the timestamp of the last successful sync."""
-        value = self._get_sync_meta("last_sync_time")
-        return self._parse_datetime(value) if value else None
+        return self._sync_engine.get_last_sync_time()
 
-    def get_sync_conflicts(self, limit: int = 100) -> List[SyncConflict]:
-        """Get recent sync conflict history.
+    def get_sync_conflicts(self, limit: int = 100):
+        """Get recent sync conflict history."""
+        return self._sync_engine.get_sync_conflicts(limit)
 
-        Args:
-            limit: Maximum number of conflicts to return
+    def save_sync_conflict(self, conflict) -> str:
+        """Save a sync conflict record."""
+        return self._sync_engine.save_sync_conflict(conflict)
 
-        Returns:
-            List of SyncConflict records, most recent first
-        """
-        with self._connect() as conn:
-            rows = conn.execute(
-                """SELECT id, table_name, record_id, local_version, cloud_version,
-                          resolution, resolved_at, local_summary, cloud_summary
-                   FROM sync_conflicts
-                   ORDER BY resolved_at DESC
-                   LIMIT ?""",
-                (limit,),
-            ).fetchall()
-
-        return [
-            SyncConflict(
-                id=row["id"],
-                table=row["table_name"],
-                record_id=row["record_id"],
-                local_version=json.loads(row["local_version"]),
-                cloud_version=json.loads(row["cloud_version"]),
-                resolution=row["resolution"],
-                resolved_at=self._parse_datetime(row["resolved_at"]) or datetime.now(timezone.utc),
-                local_summary=row["local_summary"],
-                cloud_summary=row["cloud_summary"],
-            )
-            for row in rows
-        ]
-
-    def save_sync_conflict(self, conflict: SyncConflict) -> str:
-        """Save a sync conflict record.
-
-        Args:
-            conflict: The conflict to save
-
-        Returns:
-            The conflict ID
-        """
-        with self._connect() as conn:
-            conn.execute(
-                """INSERT INTO sync_conflicts
-                   (id, table_name, record_id, local_version, cloud_version,
-                    resolution, resolved_at, local_summary, cloud_summary)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    conflict.id,
-                    conflict.table,
-                    conflict.record_id,
-                    json.dumps(conflict.local_version),
-                    json.dumps(conflict.cloud_version),
-                    conflict.resolution,
-                    (
-                        conflict.resolved_at.isoformat()
-                        if isinstance(conflict.resolved_at, datetime)
-                        else conflict.resolved_at
-                    ),
-                    conflict.local_summary,
-                    conflict.cloud_summary,
-                ),
-            )
-            conn.commit()
-        return conflict.id
-
-    def clear_sync_conflicts(self, before: Optional[datetime] = None) -> int:
-        """Clear sync conflict history.
-
-        Args:
-            before: If provided, only clear conflicts before this timestamp.
-                    If None, clear all conflicts.
-
-        Returns:
-            Number of conflicts cleared
-        """
-        with self._connect() as conn:
-            if before:
-                cursor = conn.execute(
-                    "DELETE FROM sync_conflicts WHERE resolved_at < ?", (before.isoformat(),)
-                )
-            else:
-                cursor = conn.execute("DELETE FROM sync_conflicts")
-            conn.commit()
-            return cursor.rowcount
+    def clear_sync_conflicts(self, before=None) -> int:
+        """Clear sync conflict history."""
+        return self._sync_engine.clear_sync_conflicts(before)
 
     def is_online(self) -> bool:
-        """Check if cloud storage is reachable.
+        """Check if cloud storage is reachable."""
+        return self._sync_engine.is_online()
 
-        Uses cached result if checked recently.
-        Returns True if connected, False if offline or no cloud configured.
-        """
-        if not self.cloud_storage:
-            return False
-
-        # Check cache
-        now = datetime.now(timezone.utc)
-        if self._last_connectivity_check:
-            elapsed = (now - self._last_connectivity_check).total_seconds()
-            if elapsed < self._connectivity_cache_ttl:
-                return self._is_online_cached
-
-        # Perform connectivity check
-        try:
-            # Try a lightweight operation - get stats with timeout
-            import socket
-
-            old_timeout = socket.getdefaulttimeout()
-            try:
-                socket.setdefaulttimeout(self.CONNECTIVITY_TIMEOUT)
-                # A simple operation to verify connectivity
-                self.cloud_storage.get_stats()
-                self._is_online_cached = True
-            except Exception as e:
-                logger.debug(f"Connectivity check failed: {e}")
-                self._is_online_cached = False
-            finally:
-                socket.setdefaulttimeout(old_timeout)
-        except Exception as e:
-            logger.debug(f"Connectivity check error: {e}")
-            self._is_online_cached = False
-
-        self._last_connectivity_check = now
-        return self._is_online_cached
-
-    def _mark_synced(self, conn: sqlite3.Connection, table: str, record_id: str):
+    def _mark_synced(self, conn, table: str, record_id: str):
         """Mark a record as synced with the cloud."""
-        validate_table_name(table)  # Security: validate before SQL use
-        now = self._now()
-        # Security: include stack_id filter for defense-in-depth
-        conn.execute(
-            f"UPDATE {table} SET cloud_synced_at = ? WHERE id = ? AND stack_id = ?",
-            (now, record_id, self.stack_id),
-        )
+        self._sync_engine._mark_synced(conn, table, record_id)
 
-    def _get_record_for_push(self, table: str, record_id: str) -> Optional[Any]:
+    def _get_record_for_push(self, table: str, record_id: str):
         """Get a record by table and ID for pushing to cloud."""
-        validate_table_name(table)  # Security: validate before SQL use
-        with self._connect() as conn:
-            row = conn.execute(
-                f"SELECT * FROM {table} WHERE id = ? AND stack_id = ?", (record_id, self.stack_id)
-            ).fetchone()
-
-        if not row:
-            return None
-
-        converters = {
-            "episodes": self._row_to_episode,
-            "notes": self._row_to_note,
-            "beliefs": self._row_to_belief,
-            "agent_values": self._row_to_value,
-            "goals": self._row_to_goal,
-            "drives": self._row_to_drive,
-            "relationships": self._row_to_relationship,
-            "playbooks": self._row_to_playbook,
-            "raw_entries": self._row_to_raw_entry,
-        }
-
-        converter = converters.get(table)
-        return converter(row) if converter else None
-
-    def _push_record(self, table: str, record: Any) -> bool:
-        """Push a single record to cloud storage.
-
-        Returns True if successful, False otherwise.
-        """
-        if not self.cloud_storage:
-            return False
-
-        try:
-            if table == "episodes":
-                self.cloud_storage.save_episode(record)
-            elif table == "notes":
-                self.cloud_storage.save_note(record)
-            elif table == "beliefs":
-                self.cloud_storage.save_belief(record)
-            elif table == "agent_values":
-                self.cloud_storage.save_value(record)
-            elif table == "goals":
-                self.cloud_storage.save_goal(record)
-            elif table == "drives":
-                self.cloud_storage.save_drive(record)
-            elif table == "relationships":
-                self.cloud_storage.save_relationship(record)
-            elif table == "playbooks":
-                self.cloud_storage.save_playbook(record)
-            else:
-                logger.warning(f"Unknown table for push: {table}")
-                return False
-            return True
-        except Exception as e:
-            logger.error(f"Failed to push record {table}:{record.id}: {e}")
-            return False
-
-    def sync(self) -> SyncResult:
-        """Sync with cloud storage.
-
-        Pushes queued local changes to cloud, then pulls remote changes.
-        Uses last-write-wins for conflict resolution.
-
-        Returns:
-            SyncResult with counts of pushed/pulled records and any errors.
-        """
-        result = SyncResult()
-
-        if not self.cloud_storage:
-            logger.debug("No cloud storage configured, skipping sync")
-            return result
-
-        # Check connectivity first
-        if not self.is_online():
-            logger.info("Offline - sync skipped, changes queued")
-            result.errors.append("Offline - cannot reach cloud storage")
-            return result
-
-        # Phase 1: Push queued changes (resilient - continues on failures)
-        queued = self.get_queued_changes(limit=100, max_retries=5)
-        failed_count = len(self.get_failed_sync_records(min_retries=5))
-        if failed_count > 0:
-            logger.info(f"Skipping {failed_count} records that exceeded max retries")
-
-        logger.debug(f"Pushing {len(queued)} queued changes")
-
-        with self._connect() as conn:
-            for change in queued:
-                try:
-                    # Get the current record
-                    record = self._get_record_for_push(change.table_name, change.record_id)
-
-                    if record is None:
-                        # Record was deleted or doesn't exist
-                        if change.operation == "delete":
-                            # TODO: Handle soft delete in cloud
-                            self._clear_queued_change(conn, change.id)
-                            result.pushed += 1
-                        else:
-                            # Record no longer exists locally, clear from queue
-                            self._clear_queued_change(conn, change.id)
-                        continue
-
-                    # Push to cloud
-                    if self._push_record(change.table_name, record):
-                        self._mark_synced(conn, change.table_name, change.record_id)
-                        self._clear_queued_change(conn, change.id)
-                        result.pushed += 1
-                    else:
-                        # Record failure and continue with next record
-                        retry_count = self._record_sync_failure(
-                            conn, change.id, "Push failed - cloud returned error"
-                        )
-                        if retry_count >= 5:
-                            logger.warning(
-                                f"Record {change.table_name}:{change.record_id} "
-                                f"exceeded max retries, moving to dead letter queue"
-                            )
-                        result.errors.append(
-                            f"Failed to push {change.table_name}:{change.record_id} "
-                            f"(retry {retry_count}/5)"
-                        )
-
-                except Exception as e:
-                    # Unexpected error - record and continue
-                    error_msg = str(e)[:500]
-                    retry_count = self._record_sync_failure(conn, change.id, error_msg)
-                    logger.error(
-                        f"Error pushing {change.table_name}:{change.record_id}: {e} "
-                        f"(retry {retry_count}/5)"
-                    )
-                    result.errors.append(
-                        f"Error pushing {change.table_name}:{change.record_id}: {error_msg}"
-                    )
-                    # Continue with next record instead of stopping
-
-            conn.commit()
-
-        # Phase 2: Pull remote changes
-        pull_result = self.pull_changes()
-        result.pulled = pull_result.pulled
-        result.conflicts = pull_result.conflicts
-        result.errors.extend(pull_result.errors)
-
-        # Update last sync time
-        if result.success or (result.pushed > 0 or result.pulled > 0):
-            self._set_sync_meta("last_sync_time", self._now())
-
-        logger.info(
-            f"Sync complete: pushed={result.pushed}, pulled={result.pulled}, conflicts={result.conflict_count}"
-        )
-        return result
-
-    def pull_changes(self, since: Optional[datetime] = None) -> SyncResult:
-        """Pull changes from cloud since the given timestamp.
-
-        Uses last-write-wins for conflict resolution:
-        - If cloud record is newer (cloud_synced_at > local_updated_at), use cloud version
-        - If local record is newer, keep local version (it will be pushed on next sync)
-
-        Args:
-            since: Pull changes since this time. If None, uses last sync time.
-
-        Returns:
-            SyncResult with pulled count and any conflicts.
-        """
-        result = SyncResult()
-
-        if not self.cloud_storage:
-            return result
-
-        # Determine the since timestamp
-        if since is None:
-            since = self.get_last_sync_time()
-
-        # Pull from each table
-        tables_and_getters = [
-            ("episodes", self.cloud_storage.get_episodes, self._merge_episode),
-            ("notes", self.cloud_storage.get_notes, self._merge_note),
-            ("beliefs", self.cloud_storage.get_beliefs, self._merge_belief),
-            ("agent_values", self.cloud_storage.get_values, self._merge_value),
-            ("goals", self.cloud_storage.get_goals, self._merge_goal),
-            ("drives", self.cloud_storage.get_drives, self._merge_drive),
-            ("relationships", self.cloud_storage.get_relationships, self._merge_relationship),
-            ("playbooks", self.cloud_storage.list_playbooks, self._merge_playbook),
-        ]
-
-        for table, getter, merger in tables_and_getters:
-            try:
-                # Get records from cloud (filtered by since if supported)
-                if table == "episodes":
-                    cloud_records = getter(limit=1000, since=since)
-                elif table == "notes":
-                    cloud_records = getter(limit=1000, since=since)
-                elif table == "goals":
-                    cloud_records = getter(status=None, limit=1000)  # Get all statuses
-                else:
-                    cloud_records = getter(limit=1000) if callable(getter) else getter()
-
-                for cloud_record in cloud_records:
-                    pull_count, conflict = merger(cloud_record)
-                    result.pulled += pull_count
-                    if conflict:
-                        result.conflicts.append(conflict)
-
-            except Exception as e:
-                logger.error(f"Failed to pull from {table}: {e}")
-                result.errors.append(f"Failed to pull {table}: {str(e)}")
-
-        return result
-
-    def _merge_episode(self, cloud_record: Episode) -> tuple[int, Optional[SyncConflict]]:
-        """Merge a cloud episode with local. Returns (pulled, conflict_or_none)."""
-        return self._merge_record("episodes", cloud_record, self.get_episode)
-
-    def _merge_note(self, cloud_record: Note) -> tuple[int, Optional[SyncConflict]]:
-        """Merge a cloud note with local. Returns (pulled, conflict_or_none)."""
-        local = None
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM notes WHERE id = ? AND stack_id = ?",
-                (cloud_record.id, self.stack_id),
-            ).fetchone()
-            if row:
-                local = self._row_to_note(row)
-        return self._merge_generic(
-            "notes", cloud_record, local, lambda: self.save_note(cloud_record)
-        )
-
-    def _merge_belief(self, cloud_record: Belief) -> tuple[int, Optional[SyncConflict]]:
-        """Merge a cloud belief with local. Returns (pulled, conflict_or_none)."""
-        local = None
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM beliefs WHERE id = ? AND stack_id = ?",
-                (cloud_record.id, self.stack_id),
-            ).fetchone()
-            if row:
-                local = self._row_to_belief(row)
-        return self._merge_generic(
-            "beliefs", cloud_record, local, lambda: self.save_belief(cloud_record)
-        )
-
-    def _merge_value(self, cloud_record: Value) -> tuple[int, Optional[SyncConflict]]:
-        """Merge a cloud value with local. Returns (pulled, conflict_or_none)."""
-        local = None
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM agent_values WHERE id = ? AND stack_id = ?",
-                (cloud_record.id, self.stack_id),
-            ).fetchone()
-            if row:
-                local = self._row_to_value(row)
-        return self._merge_generic(
-            "agent_values", cloud_record, local, lambda: self.save_value(cloud_record)
-        )
-
-    def _merge_goal(self, cloud_record: Goal) -> tuple[int, Optional[SyncConflict]]:
-        """Merge a cloud goal with local. Returns (pulled, conflict_or_none)."""
-        local = None
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM goals WHERE id = ? AND stack_id = ?",
-                (cloud_record.id, self.stack_id),
-            ).fetchone()
-            if row:
-                local = self._row_to_goal(row)
-        return self._merge_generic(
-            "goals", cloud_record, local, lambda: self.save_goal(cloud_record)
-        )
-
-    def _merge_drive(self, cloud_record: Drive) -> tuple[int, Optional[SyncConflict]]:
-        """Merge a cloud drive with local. Returns (pulled, conflict_or_none)."""
-        local = self.get_drive(cloud_record.drive_type)
-        return self._merge_generic(
-            "drives", cloud_record, local, lambda: self.save_drive(cloud_record)
-        )
-
-    def _merge_relationship(self, cloud_record: Relationship) -> tuple[int, Optional[SyncConflict]]:
-        """Merge a cloud relationship with local. Returns (pulled, conflict_or_none)."""
-        local = self.get_relationship(cloud_record.entity_name)
-        return self._merge_generic(
-            "relationships", cloud_record, local, lambda: self.save_relationship(cloud_record)
-        )
-
-    def _merge_playbook(self, cloud_record: Playbook) -> tuple[int, Optional[SyncConflict]]:
-        """Merge a cloud playbook with local. Returns (pulled, conflict_or_none)."""
-        local = self.get_playbook(cloud_record.id)
-        return self._merge_generic(
-            "playbooks", cloud_record, local, lambda: self.save_playbook(cloud_record)
-        )
-
-    def _merge_record(
-        self, table: str, cloud_record: Any, get_local
-    ) -> tuple[int, Optional[SyncConflict]]:
-        """Generic merge for records with an ID-based getter."""
-        local = get_local(cloud_record.id)
-        return self._merge_generic(
-            table, cloud_record, local, lambda: self._save_from_cloud(table, cloud_record)
-        )
-
-    def _merge_array_fields(self, table: str, winner: Any, loser: Any) -> Any:
-        """Merge array fields from loser into winner using set union.
-
-        This preserves array items from both records rather than losing data
-        when one record wins via last-write-wins. For example, if local has
-        tags=["A", "B"] and cloud has tags=["C"], the merged result will be
-        tags=["A", "B", "C"].
-
-        Args:
-            table: The table name (used to look up which fields to merge)
-            winner: The record that won timestamp comparison (will be modified)
-            loser: The record that lost (arrays will be merged from here)
-
-        Returns:
-            The winner record with merged array fields
-        """
-        from dataclasses import replace
-
-        array_fields = SYNC_ARRAY_FIELDS.get(table, [])
-        if not array_fields:
-            return winner
-
-        updates = {}
-        for field_name in array_fields:
-            if not hasattr(winner, field_name) or not hasattr(loser, field_name):
-                continue
-
-            winner_val = getattr(winner, field_name)
-            loser_val = getattr(loser, field_name)
-
-            # Skip if both are None/empty or loser has nothing to add
-            if not loser_val:
-                continue
-            if not winner_val:
-                # Winner has nothing, use loser's array
-                updates[field_name] = list(loser_val)
-                continue
-
-            # Both have values - merge using set union
-            # Handle both string arrays and dict arrays (like steps in playbooks)
-            try:
-                if winner_val and isinstance(winner_val[0], dict):
-                    # For dict arrays (like playbook steps), use JSON for dedup
-                    seen = set()
-                    merged = []
-                    for item in winner_val:
-                        key = json.dumps(item, sort_keys=True)
-                        if key not in seen:
-                            seen.add(key)
-                            merged.append(item)
-                    for item in loser_val:
-                        key = json.dumps(item, sort_keys=True)
-                        if key not in seen:
-                            seen.add(key)
-                            merged.append(item)
-                    # Enforce size limit to prevent resource exhaustion
-                    if len(merged) > MAX_SYNC_ARRAY_SIZE:
-                        logger.warning(
-                            f"Array field {field_name} exceeded max size ({len(merged)} > {MAX_SYNC_ARRAY_SIZE}), truncating"
-                        )
-                        merged = merged[:MAX_SYNC_ARRAY_SIZE]
-                    updates[field_name] = merged
-                else:
-                    # For string arrays, use simple set union
-                    merged = list(set(winner_val) | set(loser_val))
-                    # Enforce size limit to prevent resource exhaustion
-                    if len(merged) > MAX_SYNC_ARRAY_SIZE:
-                        logger.warning(
-                            f"Array field {field_name} exceeded max size ({len(merged)} > {MAX_SYNC_ARRAY_SIZE}), truncating"
-                        )
-                        merged = merged[:MAX_SYNC_ARRAY_SIZE]
-                    updates[field_name] = merged
-            except (TypeError, KeyError):
-                # If anything goes wrong, just keep winner's value
-                logger.warning(f"Failed to merge array field {field_name}, keeping winner's value")
-                continue
-
-        if updates:
-            # Create a new record with merged fields
-            return replace(winner, **updates)
-        return winner
-
-    def _merge_generic(
-        self, table: str, cloud_record: Any, local_record: Optional[Any], save_fn
-    ) -> tuple[int, Optional[SyncConflict]]:
-        """Generic merge logic with last-write-wins for scalar fields, set union for arrays.
-
-        Returns (pulled_count, conflict_or_none).
-        If a conflict occurred, returns a SyncConflict with details.
-
-        Array fields (like tags, lessons, focus_areas) are merged using set union
-        rather than last-write-wins to preserve data from both sides.
-        """
-        if local_record is None:
-            # No local record - just save the cloud version
-            save_fn()
-            # Mark as synced (don't queue for push)
-            with self._connect() as conn:
-                self._mark_synced(conn, table, cloud_record.id)
-                # Remove from queue if present
-                conn.execute(
-                    "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
-                    (table, cloud_record.id),
-                )
-                conn.commit()
-            return (1, None)
-
-        # Both exist - use last-write-wins for scalar fields, merge arrays
-        cloud_time = cloud_record.cloud_synced_at or cloud_record.local_updated_at
-        local_time = local_record.local_updated_at
-
-        if cloud_time and local_time:
-            if cloud_time > local_time:
-                # Cloud is newer - cloud wins for scalar fields
-                # But merge array fields from local into cloud
-                merged_record = self._merge_array_fields(table, cloud_record, local_record)
-
-                # Create conflict record before overwriting (uses original records for history)
-                conflict = self._create_conflict(
-                    table, cloud_record.id, local_record, cloud_record, "cloud_wins_arrays_merged"
-                )
-
-                # Save the merged record
-                self._save_from_cloud(table, merged_record)
-
-                with self._connect() as conn:
-                    self._mark_synced(conn, table, cloud_record.id)
-                    conn.execute(
-                        "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
-                        (table, cloud_record.id),
-                    )
-                    conn.commit()
-                # Save conflict to history
-                self.save_sync_conflict(conflict)
-                return (1, conflict)  # Pulled with conflict
-            else:
-                # Local is newer - local wins for scalar fields
-                # But merge array fields from cloud into local
-                merged_record = self._merge_array_fields(table, local_record, cloud_record)
-
-                # If arrays were merged, save the updated local record
-                if merged_record is not local_record:
-                    self._save_from_cloud(table, merged_record)
-
-                conflict = self._create_conflict(
-                    table, cloud_record.id, local_record, cloud_record, "local_wins_arrays_merged"
-                )
-                # Save conflict to history
-                self.save_sync_conflict(conflict)
-                return (0, conflict)  # Conflict, but local wins (with merged arrays)
-        elif cloud_time:
-            # Only cloud has timestamp - use cloud
-            save_fn()
-            with self._connect() as conn:
-                self._mark_synced(conn, table, cloud_record.id)
-                conn.commit()
-            return (1, None)
-        else:
-            # Only local has timestamp or neither - keep local
-            return (0, None)
-
-    def _create_conflict(
-        self, table: str, record_id: str, local_record: Any, cloud_record: Any, resolution: str
-    ) -> SyncConflict:
-        """Create a SyncConflict record with human-readable summaries."""
-        import uuid
-
-        local_summary = self._get_record_summary(table, local_record)
-        cloud_summary = self._get_record_summary(table, cloud_record)
-        local_dict = self._record_to_dict(local_record)
-        cloud_dict = self._record_to_dict(cloud_record)
-        return SyncConflict(
-            id=str(uuid.uuid4()),
-            table=table,
-            record_id=record_id,
-            local_version=local_dict,
-            cloud_version=cloud_dict,
-            resolution=resolution,
-            resolved_at=datetime.now(timezone.utc),
-            local_summary=local_summary,
-            cloud_summary=cloud_summary,
-        )
-
-    def _get_record_summary(self, table: str, record: Any) -> str:
-        """Get a human-readable summary of a record for conflict display."""
-        if table == "episodes":
-            return record.objective[:50] + "..." if len(record.objective) > 50 else record.objective
-        elif table == "notes":
-            return record.content[:50] + "..." if len(record.content) > 50 else record.content
-        elif table == "beliefs":
-            return record.statement[:50] + "..." if len(record.statement) > 50 else record.statement
-        elif table == "agent_values":
-            stmt = record.statement[:40] + "..." if len(record.statement) > 40 else record.statement
-            return f"{record.name}: {stmt}"
-        elif table == "goals":
-            return record.title[:50] + "..." if len(record.title) > 50 else record.title
-        elif table == "drives":
-            return f"{record.drive_type} (intensity: {record.intensity})"
-        elif table == "relationships":
-            return f"{record.entity_name} ({record.relationship_type})"
-        return f"{table}:{record.id}"
-
-    def _record_to_dict(self, record: Any) -> Dict[str, Any]:
-        """Convert a dataclass record to a dict for JSON storage."""
-        from dataclasses import asdict
-
-        try:
-            d = asdict(record)
-            for k, v in d.items():
-                if isinstance(v, datetime):
-                    d[k] = v.isoformat()
-            return d
-        except Exception as e:
-            logger.debug(f"Failed to serialize record, using fallback: {e}")
-            return {"id": getattr(record, "id", "unknown")}
-
-    def _save_from_cloud(self, table: str, record: Any):
-        """Save a record that came from cloud (used in _merge_record)."""
-        if table == "episodes":
-            self.save_episode(record)
-        elif table == "notes":
-            self.save_note(record)
-        elif table == "beliefs":
-            self.save_belief(record)
-        elif table == "agent_values":
-            self.save_value(record)
-        elif table == "goals":
-            self.save_goal(record)
-        elif table == "drives":
-            self.save_drive(record)
-        elif table == "relationships":
-            self.save_relationship(record)
+        return self._sync_engine._get_record_for_push(table, record_id)
+
+    def _push_record(self, table: str, record) -> bool:
+        """Push a single record to cloud storage."""
+        return self._sync_engine._push_record(table, record)
+
+    def sync(self):
+        """Sync with cloud storage."""
+        return self._sync_engine.sync()
+
+    def pull_changes(self, since=None):
+        """Pull changes from cloud since the given timestamp."""
+        return self._sync_engine.pull_changes(since)
+
+    def _merge_array_fields(self, table: str, winner, loser):
+        """Merge array fields from loser into winner using set union."""
+        return self._sync_engine._merge_array_fields(table, winner, loser)
 
     # === Health Check Compliance Tracking ===
 
     def log_health_check(
         self, anxiety_score: Optional[int] = None, source: str = "cli", triggered_by: str = "manual"
     ) -> str:
-        """Log a health check event for compliance tracking.
-
-        Args:
-            anxiety_score: The anxiety score at time of check (0-100)
-            source: Where the check originated from (cli, mcp)
-            triggered_by: What triggered the check (boot, heartbeat, manual)
-
-        Returns:
-            The ID of the logged event
-        """
-        event_id = str(uuid.uuid4())
-        now = self._now()
-
-        with self._connect() as conn:
-            conn.execute(
-                """INSERT INTO health_check_events
-                   (id, stack_id, checked_at, anxiety_score, source, triggered_by)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (event_id, self.stack_id, now, anxiety_score, source, triggered_by),
-            )
-            conn.commit()
-
-        logger.debug(
-            f"Logged health check: score={anxiety_score}, source={source}, triggered_by={triggered_by}"
+        """Log a health check event for compliance tracking."""
+        return _log_health_check(
+            self._connect, self.stack_id, self._now(), anxiety_score, source, triggered_by
         )
-        return event_id
 
     def get_health_check_stats(self) -> Dict[str, Any]:
-        """Get health check compliance statistics.
-
-        Returns:
-            Dict with:
-            - total_checks: Total number of health checks
-            - avg_per_day: Average checks per day
-            - last_check_at: Timestamp of last check
-            - last_anxiety_score: Anxiety score at last check
-            - checks_by_source: Breakdown by source (cli/mcp)
-            - checks_by_trigger: Breakdown by trigger (boot/heartbeat/manual)
-        """
-        with self._connect() as conn:
-            # Total checks
-            cur = conn.execute(
-                "SELECT COUNT(*) FROM health_check_events WHERE stack_id = ?", (self.stack_id,)
-            )
-            total_checks = cur.fetchone()[0]
-
-            if total_checks == 0:
-                return {
-                    "total_checks": 0,
-                    "avg_per_day": 0.0,
-                    "last_check_at": None,
-                    "last_anxiety_score": None,
-                    "checks_by_source": {},
-                    "checks_by_trigger": {},
-                }
-
-            # Get first and last check for calculating avg per day
-            cur = conn.execute(
-                """SELECT MIN(checked_at), MAX(checked_at)
-                   FROM health_check_events WHERE stack_id = ?""",
-                (self.stack_id,),
-            )
-            first_check, last_check = cur.fetchone()
-
-            # Calculate days spanned
-            if first_check and last_check:
-                first_dt = parse_datetime(first_check)
-                last_dt = parse_datetime(last_check)
-                if first_dt and last_dt:
-                    days_spanned = max(1, (last_dt - first_dt).days + 1)
-                    avg_per_day = total_checks / days_spanned
-                else:
-                    avg_per_day = float(total_checks)
-            else:
-                avg_per_day = float(total_checks)
-
-            # Last check details
-            cur = conn.execute(
-                """SELECT checked_at, anxiety_score FROM health_check_events
-                   WHERE stack_id = ? ORDER BY checked_at DESC LIMIT 1""",
-                (self.stack_id,),
-            )
-            row = cur.fetchone()
-            last_check_at = row[0] if row else None
-            last_anxiety_score = row[1] if row else None
-
-            # Checks by source
-            cur = conn.execute(
-                """SELECT source, COUNT(*) FROM health_check_events
-                   WHERE stack_id = ? GROUP BY source""",
-                (self.stack_id,),
-            )
-            checks_by_source = {row[0]: row[1] for row in cur.fetchall()}
-
-            # Checks by trigger
-            cur = conn.execute(
-                """SELECT triggered_by, COUNT(*) FROM health_check_events
-                   WHERE stack_id = ? GROUP BY triggered_by""",
-                (self.stack_id,),
-            )
-            checks_by_trigger = {row[0]: row[1] for row in cur.fetchall()}
-
-            return {
-                "total_checks": total_checks,
-                "avg_per_day": round(avg_per_day, 2),
-                "last_check_at": last_check_at,
-                "last_anxiety_score": last_anxiety_score,
-                "checks_by_source": checks_by_source,
-                "checks_by_trigger": checks_by_trigger,
-            }
+        """Get health check compliance statistics."""
+        return _get_health_check_stats(self._connect, self.stack_id)
