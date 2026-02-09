@@ -6,8 +6,18 @@ Tests:
 - Pulling changes from cloud
 - Conflict resolution (last-write-wins)
 - Sync metadata tracking
+- Merge array fields (dict dedup, truncation, fallback)
+- Push record dispatch and error paths
+- Pull/push phase edge cases in sync()
+- _merge_generic edge cases
+- _get_record_summary for all table types
+- _record_to_dict success and failure
+- _save_from_cloud dispatch for all table types
+- is_online caching and outer exception
+- clear_sync_conflicts with before parameter
 """
 
+import logging
 import tempfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -21,6 +31,7 @@ from kernle.storage import (
     Episode,
     Goal,
     Note,
+    Playbook,
     QueuedChange,
     Relationship,
     SQLiteStorage,
@@ -28,6 +39,7 @@ from kernle.storage import (
     SyncResult,
     Value,
 )
+from kernle.storage.sync_engine import MAX_SYNC_ARRAY_SIZE
 
 
 @pytest.fixture
@@ -1234,3 +1246,1115 @@ class TestSyncQueueResilience:
         # Should no longer appear in failed records
         failed = storage.get_failed_sync_records(min_retries=5)
         assert not any(c.id == change.id for c in failed)
+
+
+class TestMergeArrayFieldsDictDedup:
+    """Test _merge_array_fields with dict arrays and edge cases."""
+
+    def test_dict_array_dedup_overlapping(self, storage):
+        """Dict arrays from winner and loser are deduped by JSON key."""
+        engine = storage._sync_engine
+        winner = Episode(
+            id="1",
+            stack_id="test",
+            objective="W",
+            outcome="O",
+            source_episodes=None,
+            derived_from=[{"type": "episode", "id": "a"}, {"type": "episode", "id": "b"}],
+        )
+        loser = Episode(
+            id="1",
+            stack_id="test",
+            objective="L",
+            outcome="O",
+            source_episodes=None,
+            derived_from=[{"type": "episode", "id": "b"}, {"type": "episode", "id": "c"}],
+        )
+        result = engine._merge_array_fields("episodes", winner, loser)
+        # Should have 3 unique dicts: a, b, c — "b" is deduped
+        assert len(result.derived_from) == 3
+        ids_in_merged = {d["id"] for d in result.derived_from}
+        assert ids_in_merged == {"a", "b", "c"}
+
+    def test_dict_array_max_size_truncation(self, storage, caplog):
+        """Arrays exceeding MAX_SYNC_ARRAY_SIZE are truncated with a warning."""
+        engine = storage._sync_engine
+        # Create arrays that together exceed 500
+        big_winner = [{"idx": i} for i in range(300)]
+        big_loser = [{"idx": i} for i in range(300, 600)]
+        winner = Episode(
+            id="1",
+            stack_id="test",
+            objective="W",
+            outcome="O",
+            derived_from=big_winner,
+        )
+        loser = Episode(
+            id="1",
+            stack_id="test",
+            objective="L",
+            outcome="O",
+            derived_from=big_loser,
+        )
+        with caplog.at_level(logging.WARNING, logger="kernle.storage.sync_engine"):
+            result = engine._merge_array_fields("episodes", winner, loser)
+        assert len(result.derived_from) == MAX_SYNC_ARRAY_SIZE
+        assert any("exceeded max size" in r.message for r in caplog.records)
+
+    def test_non_dict_array_max_size_truncation(self, storage, caplog):
+        """Non-dict arrays exceeding MAX_SYNC_ARRAY_SIZE are also truncated."""
+        engine = storage._sync_engine
+        big_winner = [f"tag-{i}" for i in range(300)]
+        big_loser = [f"tag-{i}" for i in range(300, 600)]
+        winner = Episode(
+            id="1",
+            stack_id="test",
+            objective="W",
+            outcome="O",
+            tags=big_winner,
+        )
+        loser = Episode(
+            id="1",
+            stack_id="test",
+            objective="L",
+            outcome="O",
+            tags=big_loser,
+        )
+        with caplog.at_level(logging.WARNING, logger="kernle.storage.sync_engine"):
+            result = engine._merge_array_fields("episodes", winner, loser)
+        assert len(result.tags) == MAX_SYNC_ARRAY_SIZE
+        assert any("exceeded max size" in r.message for r in caplog.records)
+
+    def test_type_error_fallback_keeps_winner(self, storage, caplog):
+        """When set() fails on unhashable items, winner's value is kept."""
+        engine = storage._sync_engine
+        # lists are unhashable — set() on them will raise TypeError
+        winner = Episode(
+            id="1",
+            stack_id="test",
+            objective="W",
+            outcome="O",
+            tags=[["nested", "list"]],
+        )
+        loser = Episode(
+            id="1",
+            stack_id="test",
+            objective="L",
+            outcome="O",
+            tags=[["other"]],
+        )
+        with caplog.at_level(logging.WARNING, logger="kernle.storage.sync_engine"):
+            result = engine._merge_array_fields("episodes", winner, loser)
+        # Winner's value kept due to TypeError fallback
+        assert result.tags == [["nested", "list"]]
+        assert any("Failed to merge array field" in r.message for r in caplog.records)
+
+    def test_non_dict_array_set_union(self, storage):
+        """Non-dict arrays merge via set union."""
+        engine = storage._sync_engine
+        winner = Episode(
+            id="1",
+            stack_id="test",
+            objective="W",
+            outcome="O",
+            tags=["a", "b"],
+            lessons=["l1"],
+        )
+        loser = Episode(
+            id="1",
+            stack_id="test",
+            objective="L",
+            outcome="O",
+            tags=["b", "c"],
+            lessons=["l2"],
+        )
+        result = engine._merge_array_fields("episodes", winner, loser)
+        assert set(result.tags) == {"a", "b", "c"}
+        assert set(result.lessons) == {"l1", "l2"}
+
+
+class TestPushRecord:
+    """Test _push_record dispatch and error paths."""
+
+    def test_push_record_no_cloud_returns_false(self, storage):
+        """Without cloud storage, _push_record returns False."""
+        engine = storage._sync_engine
+        ep = Episode(id="1", stack_id="test", objective="O", outcome="Out")
+        assert engine._push_record("episodes", ep) is False
+
+    def test_push_record_unknown_table_returns_false(self, storage_with_cloud, caplog):
+        """Unknown table name logs warning and returns False."""
+        engine = storage_with_cloud._sync_engine
+        ep = Episode(id="1", stack_id="test", objective="O", outcome="Out")
+        with caplog.at_level(logging.WARNING, logger="kernle.storage.sync_engine"):
+            result = engine._push_record("unknown_table", ep)
+        assert result is False
+        assert any("Unknown table for push" in r.message for r in caplog.records)
+
+    def test_push_record_exception_returns_false(
+        self, storage_with_cloud, mock_cloud_storage, caplog
+    ):
+        """Exception during push logs error and returns False."""
+        engine = storage_with_cloud._sync_engine
+        mock_cloud_storage.save_episode.side_effect = Exception("Cloud error")
+        ep = Episode(id="ep1", stack_id="test", objective="O", outcome="Out")
+        with caplog.at_level(logging.ERROR, logger="kernle.storage.sync_engine"):
+            result = engine._push_record("episodes", ep)
+        assert result is False
+        assert any("Failed to push record" in r.message for r in caplog.records)
+
+    def test_push_record_dispatches_episodes(self, storage_with_cloud, mock_cloud_storage):
+        """Push episodes dispatches to cloud save_episode."""
+        engine = storage_with_cloud._sync_engine
+        ep = Episode(id="ep1", stack_id="test", objective="O", outcome="Out")
+        assert engine._push_record("episodes", ep) is True
+        mock_cloud_storage.save_episode.assert_called_once_with(ep)
+
+    def test_push_record_dispatches_notes(self, storage_with_cloud, mock_cloud_storage):
+        """Push notes dispatches to cloud save_note."""
+        engine = storage_with_cloud._sync_engine
+        note = Note(id="n1", stack_id="test", content="C")
+        assert engine._push_record("notes", note) is True
+        mock_cloud_storage.save_note.assert_called_once_with(note)
+
+    def test_push_record_dispatches_beliefs(self, storage_with_cloud, mock_cloud_storage):
+        """Push beliefs dispatches to cloud save_belief."""
+        engine = storage_with_cloud._sync_engine
+        b = Belief(id="b1", stack_id="test", statement="S")
+        assert engine._push_record("beliefs", b) is True
+        mock_cloud_storage.save_belief.assert_called_once_with(b)
+
+    def test_push_record_dispatches_values(self, storage_with_cloud, mock_cloud_storage):
+        """Push agent_values dispatches to cloud save_value."""
+        engine = storage_with_cloud._sync_engine
+        v = Value(id="v1", stack_id="test", name="N", statement="S")
+        assert engine._push_record("agent_values", v) is True
+        mock_cloud_storage.save_value.assert_called_once_with(v)
+
+    def test_push_record_dispatches_goals(self, storage_with_cloud, mock_cloud_storage):
+        """Push goals dispatches to cloud save_goal."""
+        engine = storage_with_cloud._sync_engine
+        g = Goal(id="g1", stack_id="test", title="T")
+        assert engine._push_record("goals", g) is True
+        mock_cloud_storage.save_goal.assert_called_once_with(g)
+
+    def test_push_record_dispatches_drives(self, storage_with_cloud, mock_cloud_storage):
+        """Push drives dispatches to cloud save_drive."""
+        engine = storage_with_cloud._sync_engine
+        d = Drive(id="d1", stack_id="test", drive_type="curiosity")
+        assert engine._push_record("drives", d) is True
+        mock_cloud_storage.save_drive.assert_called_once_with(d)
+
+    def test_push_record_dispatches_relationships(self, storage_with_cloud, mock_cloud_storage):
+        """Push relationships dispatches to cloud save_relationship."""
+        engine = storage_with_cloud._sync_engine
+        r = Relationship(
+            id="r1",
+            stack_id="test",
+            entity_name="Alice",
+            entity_type="human",
+            relationship_type="friend",
+        )
+        assert engine._push_record("relationships", r) is True
+        mock_cloud_storage.save_relationship.assert_called_once_with(r)
+
+    def test_push_record_dispatches_playbooks(self, storage_with_cloud, mock_cloud_storage):
+        """Push playbooks dispatches to cloud save_playbook."""
+        engine = storage_with_cloud._sync_engine
+        p = Playbook(
+            id="p1",
+            stack_id="test",
+            name="PB",
+            description="D",
+            trigger_conditions=["t"],
+            steps=[{"action": "a"}],
+            failure_modes=["f"],
+        )
+        assert engine._push_record("playbooks", p) is True
+        mock_cloud_storage.save_playbook.assert_called_once_with(p)
+
+
+class TestSyncPushPhaseEdgeCases:
+    """Test sync() push-phase edge cases: retry tracking, dead letter, exceptions."""
+
+    def test_push_failure_records_retry_and_error(self, storage_with_cloud, mock_cloud_storage):
+        """Push failure increments retry count and adds error to result."""
+        mock_cloud_storage.get_stats.return_value = {"episodes": 0}
+        # save_note succeeds on cloud but save_episode fails
+        mock_cloud_storage.save_episode.side_effect = None
+        mock_cloud_storage.save_note.return_value = None
+
+        storage_with_cloud.save_note(Note(id="n1", stack_id="test-agent", content="C"))
+
+        # Make the push return False (unknown table trick won't work, so use exception)
+        mock_cloud_storage.save_note.side_effect = Exception("Cloud reject")
+
+        result = storage_with_cloud.sync()
+        assert len(result.errors) >= 1
+        # The error should mention the record
+        assert any("n1" in e for e in result.errors)
+
+    def test_push_retry_reaches_dead_letter(self, storage_with_cloud, mock_cloud_storage, caplog):
+        """After 5 retries, dead letter warning is logged."""
+        mock_cloud_storage.get_stats.return_value = {"episodes": 0}
+
+        storage_with_cloud.save_note(Note(id="dl1", stack_id="test-agent", content="DL"))
+
+        # Set retry count to 4 so next failure = 5 (dead letter)
+        with storage_with_cloud._connect() as conn:
+            conn.execute("UPDATE sync_queue SET retry_count = 4 WHERE record_id = 'dl1'")
+            conn.commit()
+
+        # Make push fail (not exception, but cloud method fails)
+        # We need _push_record to return False — make cloud save raise
+        mock_cloud_storage.save_note.side_effect = Exception("still failing")
+
+        # Clear connectivity cache to re-check
+        storage_with_cloud._last_connectivity_check = None
+
+        with caplog.at_level(logging.WARNING, logger="kernle.storage.sync_engine"):
+            result = storage_with_cloud.sync()
+
+        # retry_count was 4, exception increments to 5 → dead letter
+        assert any(
+            "exceeded max retries" in r.message or "dead letter" in r.message
+            for r in caplog.records
+        ) or any("retry" in e for e in result.errors)
+
+    def test_record_not_found_for_non_delete_clears_queue(
+        self, storage_with_cloud, mock_cloud_storage
+    ):
+        """When record is not found and operation is not delete, queue entry is cleared."""
+        mock_cloud_storage.get_stats.return_value = {"episodes": 0}
+
+        # Queue a change for a record that doesn't exist
+        storage_with_cloud.queue_sync_operation("upsert", "notes", "ghost-record")
+
+        # Verify it's queued
+        assert storage_with_cloud.get_pending_sync_count() >= 1
+
+        # Clear connectivity cache
+        storage_with_cloud._last_connectivity_check = None
+
+        storage_with_cloud.sync()
+
+        # The ghost record should be cleared from queue (not stuck forever)
+        changes = storage_with_cloud.get_queued_changes()
+        assert not any(c.record_id == "ghost-record" for c in changes)
+
+    def test_failed_records_count_logged(self, storage_with_cloud, mock_cloud_storage, caplog):
+        """When there are failed records, info log is emitted."""
+        mock_cloud_storage.get_stats.return_value = {"episodes": 0}
+
+        # Create a record that has exceeded retries
+        storage_with_cloud.save_note(Note(id="fail1", stack_id="test-agent", content="F"))
+        with storage_with_cloud._connect() as conn:
+            conn.execute("UPDATE sync_queue SET retry_count = 6 WHERE record_id = 'fail1'")
+            conn.commit()
+
+        storage_with_cloud._last_connectivity_check = None
+
+        with caplog.at_level(logging.INFO, logger="kernle.storage.sync_engine"):
+            storage_with_cloud.sync()
+
+        assert any(
+            "Skipping" in r.message and "exceeded max retries" in r.message for r in caplog.records
+        )
+
+    def test_exception_in_push_loop_records_error(self, storage_with_cloud, mock_cloud_storage):
+        """Exception in _get_record_for_push is caught by outer except in push loop."""
+        mock_cloud_storage.get_stats.return_value = {"episodes": 0}
+
+        storage_with_cloud.save_note(Note(id="exc1", stack_id="test-agent", content="E"))
+
+        # Make _get_record_for_push raise to hit the outer except block (lines 535-542)
+        engine = storage_with_cloud._sync_engine
+        original = engine._get_record_for_push
+        engine._get_record_for_push = MagicMock(side_effect=RuntimeError("DB corrupt"))
+
+        storage_with_cloud._last_connectivity_check = None
+        try:
+            result = storage_with_cloud.sync()
+        finally:
+            engine._get_record_for_push = original
+
+        assert any("exc1" in e for e in result.errors)
+        assert any("DB corrupt" in e for e in result.errors)
+
+
+class TestMergeGenericEdgeCases:
+    """Test _merge_generic edge cases."""
+
+    def test_cloud_time_no_local_time_saves(self, storage):
+        """When cloud has time but local has no local_updated_at, save_fn is called."""
+        engine = storage._sync_engine
+
+        # Cloud record has timestamps, local record has local_updated_at = None
+        cloud = Note(
+            id="no-local-time",
+            stack_id="test-agent",
+            content="Cloud",
+            cloud_synced_at=datetime.now(timezone.utc),
+            local_updated_at=datetime.now(timezone.utc),
+        )
+        local = Note(
+            id="no-local-time",
+            stack_id="test-agent",
+            content="Local",
+            cloud_synced_at=None,
+            local_updated_at=None,
+        )
+        save_called = []
+        count, conflict = engine._merge_generic(
+            "notes", cloud, local, lambda: save_called.append(True)
+        )
+        # cloud_time is set, local_time is None → elif cloud_time branch → save_fn called
+        assert count == 1
+        assert conflict is None
+        assert len(save_called) == 1
+
+    def test_neither_has_time_returns_zero(self, storage_with_cloud, mock_cloud_storage):
+        """When neither cloud nor local has time, returns (0, None)."""
+        engine = storage_with_cloud._sync_engine
+
+        # Both records have no timestamps
+        cloud = Note(
+            id="no-time",
+            stack_id="test-agent",
+            content="Cloud",
+            cloud_synced_at=None,
+            local_updated_at=None,
+        )
+        local = Note(
+            id="no-time",
+            stack_id="test-agent",
+            content="Local",
+            cloud_synced_at=None,
+            local_updated_at=None,
+        )
+        save_called = []
+        count, conflict = engine._merge_generic(
+            "notes", cloud, local, lambda: save_called.append(True)
+        )
+        assert count == 0
+        assert conflict is None
+        assert save_called == []  # save_fn should NOT be called
+
+
+class TestGetRecordSummary:
+    """Test _get_record_summary for all 7 table types + unknown fallback."""
+
+    def test_episode_summary(self, storage):
+        engine = storage._sync_engine
+        ep = Episode(id="1", stack_id="t", objective="Short obj", outcome="O")
+        assert engine._get_record_summary("episodes", ep) == "Short obj"
+
+    def test_episode_summary_truncated(self, storage):
+        engine = storage._sync_engine
+        long_obj = "A" * 60
+        ep = Episode(id="1", stack_id="t", objective=long_obj, outcome="O")
+        summary = engine._get_record_summary("episodes", ep)
+        assert summary.endswith("...")
+        assert len(summary) == 53  # 50 chars + "..."
+
+    def test_note_summary(self, storage):
+        engine = storage._sync_engine
+        note = Note(id="1", stack_id="t", content="My note content")
+        assert engine._get_record_summary("notes", note) == "My note content"
+
+    def test_note_summary_truncated(self, storage):
+        engine = storage._sync_engine
+        note = Note(id="1", stack_id="t", content="X" * 60)
+        summary = engine._get_record_summary("notes", note)
+        assert len(summary) == 53
+
+    def test_belief_summary(self, storage):
+        engine = storage._sync_engine
+        b = Belief(id="1", stack_id="t", statement="I believe X")
+        assert engine._get_record_summary("beliefs", b) == "I believe X"
+
+    def test_value_summary(self, storage):
+        engine = storage._sync_engine
+        v = Value(id="1", stack_id="t", name="honesty", statement="Always be honest")
+        summary = engine._get_record_summary("agent_values", v)
+        assert summary == "honesty: Always be honest"
+
+    def test_value_summary_truncated_statement(self, storage):
+        engine = storage._sync_engine
+        v = Value(id="1", stack_id="t", name="val", statement="S" * 50)
+        summary = engine._get_record_summary("agent_values", v)
+        # statement truncated at 40 + "..."
+        assert "..." in summary
+        assert summary.startswith("val: ")
+
+    def test_goal_summary(self, storage):
+        engine = storage._sync_engine
+        g = Goal(id="1", stack_id="t", title="Learn Python")
+        assert engine._get_record_summary("goals", g) == "Learn Python"
+
+    def test_drive_summary(self, storage):
+        engine = storage._sync_engine
+        d = Drive(id="1", stack_id="t", drive_type="curiosity", intensity=0.7)
+        summary = engine._get_record_summary("drives", d)
+        assert summary == "curiosity (intensity: 0.7)"
+
+    def test_relationship_summary(self, storage):
+        engine = storage._sync_engine
+        r = Relationship(
+            id="1",
+            stack_id="t",
+            entity_name="Alice",
+            entity_type="human",
+            relationship_type="mentor",
+        )
+        summary = engine._get_record_summary("relationships", r)
+        assert summary == "Alice (mentor)"
+
+    def test_unknown_table_fallback(self, storage):
+        engine = storage._sync_engine
+        ep = Episode(id="ep-id", stack_id="t", objective="O", outcome="Out")
+        summary = engine._get_record_summary("unknown_table", ep)
+        assert summary == "unknown_table:ep-id"
+
+
+class TestRecordToDict:
+    """Test _record_to_dict success and failure paths."""
+
+    def test_success_with_datetime_fields(self, storage):
+        engine = storage._sync_engine
+        now = datetime.now(timezone.utc)
+        note = Note(
+            id="n1",
+            stack_id="t",
+            content="C",
+            local_updated_at=now,
+            cloud_synced_at=now,
+        )
+        d = engine._record_to_dict(note)
+        assert d["id"] == "n1"
+        assert d["content"] == "C"
+        # datetime fields should be ISO strings
+        assert isinstance(d["local_updated_at"], str)
+        assert isinstance(d["cloud_synced_at"], str)
+
+    def test_failure_fallback_non_dataclass(self, storage):
+        """Non-dataclass objects fall back to {'id': ...}."""
+        engine = storage._sync_engine
+
+        class FakeRecord:
+            id = "fake-id"
+
+        result = engine._record_to_dict(FakeRecord())
+        assert result == {"id": "fake-id"}
+
+    def test_failure_fallback_no_id(self, storage):
+        """Objects without id fall back to {'id': 'unknown'}."""
+        engine = storage._sync_engine
+
+        class NoId:
+            pass
+
+        result = engine._record_to_dict(NoId())
+        assert result == {"id": "unknown"}
+
+
+class TestSaveFromCloud:
+    """Test _save_from_cloud dispatches to all 7 table types."""
+
+    def test_save_episode_from_cloud(self, storage):
+        engine = storage._sync_engine
+        ep = Episode(id="ep1", stack_id="test-agent", objective="O", outcome="Out")
+        engine._save_from_cloud("episodes", ep)
+        assert storage.get_episode("ep1") is not None
+
+    def test_save_note_from_cloud(self, storage):
+        engine = storage._sync_engine
+        note = Note(id="n1", stack_id="test-agent", content="C")
+        engine._save_from_cloud("notes", note)
+        notes = storage.get_notes()
+        assert any(n.id == "n1" for n in notes)
+
+    def test_save_belief_from_cloud(self, storage):
+        engine = storage._sync_engine
+        b = Belief(id="b1", stack_id="test-agent", statement="S")
+        engine._save_from_cloud("beliefs", b)
+        beliefs = storage.get_beliefs()
+        assert any(bl.id == "b1" for bl in beliefs)
+
+    def test_save_value_from_cloud(self, storage):
+        engine = storage._sync_engine
+        v = Value(id="v1", stack_id="test-agent", name="N", statement="S")
+        engine._save_from_cloud("agent_values", v)
+        values = storage.get_values()
+        assert any(val.id == "v1" for val in values)
+
+    def test_save_goal_from_cloud(self, storage):
+        engine = storage._sync_engine
+        g = Goal(id="g1", stack_id="test-agent", title="T")
+        engine._save_from_cloud("goals", g)
+        goals = storage.get_goals()
+        assert any(gl.id == "g1" for gl in goals)
+
+    def test_save_drive_from_cloud(self, storage):
+        engine = storage._sync_engine
+        d = Drive(id="d1", stack_id="test-agent", drive_type="curiosity")
+        engine._save_from_cloud("drives", d)
+        assert storage.get_drive("curiosity") is not None
+
+    def test_save_relationship_from_cloud(self, storage):
+        engine = storage._sync_engine
+        r = Relationship(
+            id="r1",
+            stack_id="test-agent",
+            entity_name="Alice",
+            entity_type="human",
+            relationship_type="friend",
+        )
+        engine._save_from_cloud("relationships", r)
+        assert storage.get_relationship("Alice") is not None
+
+
+class TestIsOnlineEdgeCases:
+    """Test is_online caching and outer exception paths."""
+
+    def test_cached_within_ttl(self, storage_with_cloud, mock_cloud_storage):
+        """Second call within TTL uses cached value, no additional get_stats call."""
+        mock_cloud_storage.get_stats.return_value = {"episodes": 0}
+        engine = storage_with_cloud._sync_engine
+
+        # First call
+        result1 = engine.is_online()
+        assert result1 is True
+        assert mock_cloud_storage.get_stats.call_count == 1
+
+        # Second call within TTL — should use cache
+        result2 = engine.is_online()
+        assert result2 is True
+        assert mock_cloud_storage.get_stats.call_count == 1  # still 1
+
+    def test_cache_expired_rechecks(self, storage_with_cloud, mock_cloud_storage):
+        """After TTL expires, is_online re-checks connectivity."""
+        mock_cloud_storage.get_stats.return_value = {"episodes": 0}
+        engine = storage_with_cloud._sync_engine
+
+        # First call
+        engine.is_online()
+        assert mock_cloud_storage.get_stats.call_count == 1
+
+        # Expire the cache by backdating the check time
+        storage_with_cloud._last_connectivity_check = datetime.now(timezone.utc) - timedelta(
+            seconds=120
+        )
+
+        # Second call after expiry
+        engine.is_online()
+        assert mock_cloud_storage.get_stats.call_count == 2
+
+    def test_outer_exception_during_socket_ops(self, storage_with_cloud, mock_cloud_storage):
+        """Outer exception during socket operations marks offline."""
+        engine = storage_with_cloud._sync_engine
+        storage_with_cloud._last_connectivity_check = None
+
+        # socket.getdefaulttimeout() is called in the inner try; if it raises
+        # an error that propagates past the inner except (which only catches
+        # exceptions from get_stats), the outer except catches it.
+        # We mock socket.getdefaulttimeout to raise inside the inner try.
+        import socket
+
+        original = socket.getdefaulttimeout
+        socket.getdefaulttimeout = MagicMock(side_effect=Exception("socket broken"))
+        try:
+            result = engine.is_online()
+        finally:
+            socket.getdefaulttimeout = original
+
+        assert result is False
+        assert storage_with_cloud._is_online_cached is False
+
+    def test_is_online_inner_exception_marks_offline(self, storage_with_cloud, mock_cloud_storage):
+        """When cloud get_stats raises, is_online returns False and caches it."""
+        mock_cloud_storage.get_stats.side_effect = ConnectionError("refused")
+        engine = storage_with_cloud._sync_engine
+        storage_with_cloud._last_connectivity_check = None
+
+        result = engine.is_online()
+        assert result is False
+        assert storage_with_cloud._is_online_cached is False
+
+
+class TestClearSyncConflictsWithBefore:
+    """Test clear_sync_conflicts with a before datetime parameter."""
+
+    def test_clear_conflicts_before_date(self, storage):
+        """Only conflicts resolved before the given date are cleared."""
+        engine = storage._sync_engine
+        now = datetime.now(timezone.utc)
+        old_time = now - timedelta(days=10)
+        recent_time = now - timedelta(hours=1)
+
+        # Save two conflicts: one old, one recent
+        old_conflict = SyncConflict(
+            id="old-c",
+            table="notes",
+            record_id="n-old",
+            local_version={"content": "local"},
+            cloud_version={"content": "cloud"},
+            resolution="cloud_wins",
+            resolved_at=old_time,
+            local_summary="old local",
+            cloud_summary="old cloud",
+        )
+        recent_conflict = SyncConflict(
+            id="recent-c",
+            table="notes",
+            record_id="n-recent",
+            local_version={"content": "local"},
+            cloud_version={"content": "cloud"},
+            resolution="local_wins",
+            resolved_at=recent_time,
+            local_summary="recent local",
+            cloud_summary="recent cloud",
+        )
+        engine.save_sync_conflict(old_conflict)
+        engine.save_sync_conflict(recent_conflict)
+
+        # Clear conflicts older than 5 days ago
+        cutoff = now - timedelta(days=5)
+        cleared = engine.clear_sync_conflicts(before=cutoff)
+        assert cleared == 1
+
+        # Only the recent conflict should remain
+        remaining = engine.get_sync_conflicts()
+        assert len(remaining) == 1
+        assert remaining[0].id == "recent-c"
+
+    def test_clear_conflicts_no_before_clears_all(self, storage):
+        """Without before parameter, all conflicts are cleared."""
+        engine = storage._sync_engine
+        for i in range(3):
+            conflict = SyncConflict(
+                id=f"c-{i}",
+                table="notes",
+                record_id=f"n-{i}",
+                local_version={},
+                cloud_version={},
+                resolution="cloud_wins",
+                resolved_at=datetime.now(timezone.utc),
+                local_summary="l",
+                cloud_summary="c",
+            )
+            engine.save_sync_conflict(conflict)
+
+        cleared = engine.clear_sync_conflicts()
+        assert cleared == 3
+        assert len(engine.get_sync_conflicts()) == 0
+
+
+class TestQueueUtilityMethods:
+    """Tests for get_pending_sync_operations, mark_synced, get_sync_status."""
+
+    def test_get_pending_sync_operations(self, storage):
+        """get_pending_sync_operations returns dicts with correct keys."""
+        engine = storage._sync_engine
+        storage.save_note(Note(id="n-ops1", stack_id="test-agent", content="C"))
+        ops = engine.get_pending_sync_operations(limit=10)
+        assert len(ops) >= 1
+        op = next(o for o in ops if o["record_id"] == "n-ops1")
+        assert "id" in op
+        assert op["operation"] in ("upsert", "insert", "update")
+        assert op["table_name"] == "notes"
+        assert op["local_updated_at"] is not None
+
+    def test_mark_synced_empty_ids(self, storage):
+        """mark_synced with empty list returns 0."""
+        engine = storage._sync_engine
+        assert engine.mark_synced([]) == 0
+
+    def test_mark_synced_marks_records(self, storage):
+        """mark_synced marks specific queue entries as synced."""
+        engine = storage._sync_engine
+        storage.save_note(Note(id="n-ms1", stack_id="test-agent", content="C"))
+        ops = engine.get_pending_sync_operations(limit=10)
+        ids = [o["id"] for o in ops]
+        count = engine.mark_synced(ids)
+        assert count == len(ids)
+        # After marking synced, pending count should be 0
+        assert engine.get_pending_sync_count() == 0
+
+    def test_get_sync_status(self, storage):
+        """get_sync_status returns counts by table and operation."""
+        engine = storage._sync_engine
+        storage.save_note(Note(id="n-st1", stack_id="test-agent", content="C"))
+        storage.save_episode(
+            Episode(id="ep-st1", stack_id="test-agent", objective="O", outcome="Out")
+        )
+        status = engine.get_sync_status()
+        assert status["pending"] >= 2
+        assert "notes" in status["by_table"]
+        assert "episodes" in status["by_table"]
+        assert status["total"] == status["pending"] + status["synced"]
+        # by_operation should have at least one key
+        assert len(status["by_operation"]) >= 1
+
+
+class TestSyncPushDeletePath:
+    """Test sync push phase handles delete operations."""
+
+    def test_delete_operation_for_missing_record(self, storage_with_cloud, mock_cloud_storage):
+        """Delete operation for a record that doesn't exist locally is counted as pushed."""
+        mock_cloud_storage.get_stats.return_value = {"episodes": 0}
+
+        # Queue a delete for a record that doesn't exist
+        storage_with_cloud.queue_sync_operation("delete", "notes", "deleted-note-1")
+
+        # Clear connectivity cache
+        storage_with_cloud._last_connectivity_check = None
+
+        result = storage_with_cloud.sync()
+
+        # Delete for missing record should still be marked as pushed
+        assert result.pushed >= 1
+        # Queue should be cleared
+        changes = storage_with_cloud.get_queued_changes()
+        assert not any(c.record_id == "deleted-note-1" for c in changes)
+
+
+class TestSyncPushReturnsFalse:
+    """Test sync push when _push_record returns False (not exception)."""
+
+    def test_push_returns_false_records_failure(
+        self, storage_with_cloud, mock_cloud_storage, caplog
+    ):
+        """When _push_record returns False, retry is recorded with error message."""
+        mock_cloud_storage.get_stats.return_value = {"episodes": 0}
+
+        # Save a note
+        storage_with_cloud.save_note(Note(id="pf1", stack_id="test-agent", content="C"))
+
+        # Make save_note return without error but make push return False
+        # by patching the engine's _push_record directly
+        engine = storage_with_cloud._sync_engine
+        original_push = engine._push_record
+        engine._push_record = lambda table, record: False
+
+        storage_with_cloud._last_connectivity_check = None
+
+        try:
+            with caplog.at_level(logging.WARNING, logger="kernle.storage.sync_engine"):
+                result = storage_with_cloud.sync()
+        finally:
+            engine._push_record = original_push
+
+        # Should have error about failed push with retry count
+        assert any("pf1" in e and "retry" in e for e in result.errors)
+
+
+class TestPullChangesExceptionPath:
+    """Test pull_changes handles exceptions from cloud getters."""
+
+    def test_pull_exception_from_cloud_getter(self, storage_with_cloud, mock_cloud_storage, caplog):
+        """Exception from a cloud getter is caught and recorded."""
+        mock_cloud_storage.get_stats.return_value = {"episodes": 0}
+        mock_cloud_storage.get_episodes.side_effect = RuntimeError("network timeout")
+        mock_cloud_storage.get_notes.return_value = []
+
+        engine = storage_with_cloud._sync_engine
+
+        with caplog.at_level(logging.ERROR, logger="kernle.storage.sync_engine"):
+            result = engine.pull_changes()
+
+        assert any("episodes" in e for e in result.errors)
+        assert any("Failed to pull from episodes" in r.message for r in caplog.records)
+
+
+class TestPullMergesAllTypes:
+    """Test that pull_changes exercises merge paths for beliefs, values, goals, relationships, playbooks."""
+
+    def test_pull_new_belief(self, storage_with_cloud, mock_cloud_storage):
+        """Pulling a new belief from cloud saves it locally."""
+        mock_cloud_storage.get_stats.return_value = {}
+        cloud_belief = Belief(
+            id="cb1",
+            stack_id="test-agent",
+            statement="Cloud belief",
+            cloud_synced_at=datetime.now(timezone.utc),
+            local_updated_at=datetime.now(timezone.utc),
+        )
+        mock_cloud_storage.get_beliefs.return_value = [cloud_belief]
+        mock_cloud_storage.get_episodes.return_value = []
+        mock_cloud_storage.get_notes.return_value = []
+        mock_cloud_storage.get_values.return_value = []
+        mock_cloud_storage.get_goals.return_value = []
+        mock_cloud_storage.get_drives.return_value = []
+        mock_cloud_storage.get_relationships.return_value = []
+        mock_cloud_storage.list_playbooks.return_value = []
+
+        result = storage_with_cloud._sync_engine.pull_changes()
+        assert result.pulled >= 1
+        beliefs = storage_with_cloud.get_beliefs()
+        assert any(b.id == "cb1" for b in beliefs)
+
+    def test_pull_new_value(self, storage_with_cloud, mock_cloud_storage):
+        """Pulling a new value from cloud saves it locally."""
+        mock_cloud_storage.get_stats.return_value = {}
+        cloud_value = Value(
+            id="cv1",
+            stack_id="test-agent",
+            name="N",
+            statement="S",
+            cloud_synced_at=datetime.now(timezone.utc),
+            local_updated_at=datetime.now(timezone.utc),
+        )
+        mock_cloud_storage.get_values.return_value = [cloud_value]
+        mock_cloud_storage.get_episodes.return_value = []
+        mock_cloud_storage.get_notes.return_value = []
+        mock_cloud_storage.get_beliefs.return_value = []
+        mock_cloud_storage.get_goals.return_value = []
+        mock_cloud_storage.get_drives.return_value = []
+        mock_cloud_storage.get_relationships.return_value = []
+        mock_cloud_storage.list_playbooks.return_value = []
+
+        result = storage_with_cloud._sync_engine.pull_changes()
+        assert result.pulled >= 1
+        values = storage_with_cloud.get_values()
+        assert any(v.id == "cv1" for v in values)
+
+    def test_pull_new_goal(self, storage_with_cloud, mock_cloud_storage):
+        """Pulling a new goal from cloud saves it locally."""
+        mock_cloud_storage.get_stats.return_value = {}
+        cloud_goal = Goal(
+            id="cg1",
+            stack_id="test-agent",
+            title="Cloud goal",
+            cloud_synced_at=datetime.now(timezone.utc),
+            local_updated_at=datetime.now(timezone.utc),
+        )
+        mock_cloud_storage.get_goals.return_value = [cloud_goal]
+        mock_cloud_storage.get_episodes.return_value = []
+        mock_cloud_storage.get_notes.return_value = []
+        mock_cloud_storage.get_beliefs.return_value = []
+        mock_cloud_storage.get_values.return_value = []
+        mock_cloud_storage.get_drives.return_value = []
+        mock_cloud_storage.get_relationships.return_value = []
+        mock_cloud_storage.list_playbooks.return_value = []
+
+        result = storage_with_cloud._sync_engine.pull_changes()
+        assert result.pulled >= 1
+        goals = storage_with_cloud.get_goals()
+        assert any(g.id == "cg1" for g in goals)
+
+    def test_pull_new_relationship(self, storage_with_cloud, mock_cloud_storage):
+        """Pulling a new relationship from cloud saves it locally."""
+        mock_cloud_storage.get_stats.return_value = {}
+        cloud_rel = Relationship(
+            id="cr1",
+            stack_id="test-agent",
+            entity_name="Bob",
+            entity_type="human",
+            relationship_type="colleague",
+            cloud_synced_at=datetime.now(timezone.utc),
+            local_updated_at=datetime.now(timezone.utc),
+        )
+        mock_cloud_storage.get_relationships.return_value = [cloud_rel]
+        mock_cloud_storage.get_episodes.return_value = []
+        mock_cloud_storage.get_notes.return_value = []
+        mock_cloud_storage.get_beliefs.return_value = []
+        mock_cloud_storage.get_values.return_value = []
+        mock_cloud_storage.get_goals.return_value = []
+        mock_cloud_storage.get_drives.return_value = []
+        mock_cloud_storage.list_playbooks.return_value = []
+
+        result = storage_with_cloud._sync_engine.pull_changes()
+        assert result.pulled >= 1
+        rel = storage_with_cloud.get_relationship("Bob")
+        assert rel is not None
+
+    def test_pull_new_playbook(self, storage_with_cloud, mock_cloud_storage):
+        """Pulling a new playbook from cloud saves it locally."""
+        mock_cloud_storage.get_stats.return_value = {}
+        cloud_pb = Playbook(
+            id="cp1",
+            stack_id="test-agent",
+            name="PB",
+            description="D",
+            trigger_conditions=["t"],
+            steps=[{"action": "a"}],
+            failure_modes=["f"],
+            cloud_synced_at=datetime.now(timezone.utc),
+            local_updated_at=datetime.now(timezone.utc),
+        )
+        mock_cloud_storage.list_playbooks.return_value = [cloud_pb]
+        mock_cloud_storage.get_episodes.return_value = []
+        mock_cloud_storage.get_notes.return_value = []
+        mock_cloud_storage.get_beliefs.return_value = []
+        mock_cloud_storage.get_values.return_value = []
+        mock_cloud_storage.get_goals.return_value = []
+        mock_cloud_storage.get_drives.return_value = []
+        mock_cloud_storage.get_relationships.return_value = []
+
+        result = storage_with_cloud._sync_engine.pull_changes()
+        assert result.pulled >= 1
+        pb = storage_with_cloud.get_playbook("cp1")
+        assert pb is not None
+
+
+class TestPullMergesConflictForAllTypes:
+    """Test that pull with existing local records exercises merge paths for beliefs/values/goals."""
+
+    def _setup_cloud_defaults(self, mock_cloud_storage):
+        """Set all cloud getters to return empty lists."""
+        mock_cloud_storage.get_stats.return_value = {}
+        mock_cloud_storage.get_episodes.return_value = []
+        mock_cloud_storage.get_notes.return_value = []
+        mock_cloud_storage.get_beliefs.return_value = []
+        mock_cloud_storage.get_values.return_value = []
+        mock_cloud_storage.get_goals.return_value = []
+        mock_cloud_storage.get_drives.return_value = []
+        mock_cloud_storage.get_relationships.return_value = []
+        mock_cloud_storage.list_playbooks.return_value = []
+
+    def test_pull_belief_conflict_cloud_wins(self, storage_with_cloud, mock_cloud_storage):
+        """Pulling a belief that already exists locally exercises _merge_belief local lookup."""
+        self._setup_cloud_defaults(mock_cloud_storage)
+        old_time = datetime.now(timezone.utc) - timedelta(hours=1)
+        storage_with_cloud.save_belief(
+            Belief(
+                id="cb-conflict",
+                stack_id="test-agent",
+                statement="Old local",
+                local_updated_at=old_time,
+            )
+        )
+        with storage_with_cloud._get_conn() as conn:
+            conn.execute("DELETE FROM sync_queue")
+            conn.commit()
+
+        new_time = datetime.now(timezone.utc)
+        mock_cloud_storage.get_beliefs.return_value = [
+            Belief(
+                id="cb-conflict",
+                stack_id="test-agent",
+                statement="Cloud belief",
+                cloud_synced_at=new_time,
+                local_updated_at=new_time,
+            )
+        ]
+        result = storage_with_cloud._sync_engine.pull_changes()
+        assert result.pulled >= 1
+        assert result.conflict_count >= 1
+
+    def test_pull_value_conflict_cloud_wins(self, storage_with_cloud, mock_cloud_storage):
+        """Pulling a value that already exists exercises _merge_value local lookup."""
+        self._setup_cloud_defaults(mock_cloud_storage)
+        old_time = datetime.now(timezone.utc) - timedelta(hours=1)
+        storage_with_cloud.save_value(
+            Value(
+                id="cv-conflict",
+                stack_id="test-agent",
+                name="V",
+                statement="Old",
+                local_updated_at=old_time,
+            )
+        )
+        with storage_with_cloud._get_conn() as conn:
+            conn.execute("DELETE FROM sync_queue")
+            conn.commit()
+
+        new_time = datetime.now(timezone.utc)
+        mock_cloud_storage.get_values.return_value = [
+            Value(
+                id="cv-conflict",
+                stack_id="test-agent",
+                name="V",
+                statement="Cloud",
+                cloud_synced_at=new_time,
+                local_updated_at=new_time,
+            )
+        ]
+        result = storage_with_cloud._sync_engine.pull_changes()
+        assert result.pulled >= 1
+
+    def test_pull_goal_conflict_cloud_wins(self, storage_with_cloud, mock_cloud_storage):
+        """Pulling a goal that already exists exercises _merge_goal local lookup."""
+        self._setup_cloud_defaults(mock_cloud_storage)
+        old_time = datetime.now(timezone.utc) - timedelta(hours=1)
+        storage_with_cloud.save_goal(
+            Goal(
+                id="cg-conflict", stack_id="test-agent", title="Old goal", local_updated_at=old_time
+            )
+        )
+        with storage_with_cloud._get_conn() as conn:
+            conn.execute("DELETE FROM sync_queue")
+            conn.commit()
+
+        new_time = datetime.now(timezone.utc)
+        mock_cloud_storage.get_goals.return_value = [
+            Goal(
+                id="cg-conflict",
+                stack_id="test-agent",
+                title="Cloud goal",
+                cloud_synced_at=new_time,
+                local_updated_at=new_time,
+            )
+        ]
+        result = storage_with_cloud._sync_engine.pull_changes()
+        assert result.pulled >= 1
+
+
+class TestMergeArrayFieldsMissingAttribute:
+    """Test _merge_array_fields when winner/loser lacks an expected field."""
+
+    def test_missing_field_skipped(self, storage):
+        """If winner lacks a configured array field, that field is skipped."""
+        engine = storage._sync_engine
+        from dataclasses import dataclass
+
+        @dataclass
+        class PartialRecord:
+            id: str
+            tags: list  # has tags but not other fields like lessons, derived_from
+
+        winner = PartialRecord(id="1", tags=["a"])
+        loser = PartialRecord(id="1", tags=["b"])
+        # episodes expects lessons, emotional_tags etc. which PartialRecord lacks
+        result = engine._merge_array_fields("episodes", winner, loser)
+        # Should still merge the field it does have (tags)
+        assert set(result.tags) == {"a", "b"}
+
+
+class TestPlaybookMergeArrayFields:
+    """Test _merge_array_fields for playbook-specific array fields."""
+
+    def test_playbook_arrays_merged(self, storage):
+        """Playbook trigger_conditions, failure_modes, recovery_steps merge."""
+        engine = storage._sync_engine
+        winner = Playbook(
+            id="p1",
+            stack_id="test",
+            name="PB",
+            description="D",
+            trigger_conditions=["when-a"],
+            steps=[{"action": "a"}],
+            failure_modes=["fail-a"],
+            recovery_steps=["recover-a"],
+            source_episodes=["ep-1"],
+            tags=["tag-w"],
+        )
+        loser = Playbook(
+            id="p1",
+            stack_id="test",
+            name="PB",
+            description="D",
+            trigger_conditions=["when-b"],
+            steps=[{"action": "a"}],
+            failure_modes=["fail-b"],
+            recovery_steps=["recover-b"],
+            source_episodes=["ep-2"],
+            tags=["tag-l"],
+        )
+        result = engine._merge_array_fields("playbooks", winner, loser)
+        assert set(result.trigger_conditions) == {"when-a", "when-b"}
+        assert set(result.failure_modes) == {"fail-a", "fail-b"}
+        assert set(result.recovery_steps) == {"recover-a", "recover-b"}
+        assert set(result.source_episodes) == {"ep-1", "ep-2"}
+        assert set(result.tags) == {"tag-w", "tag-l"}
