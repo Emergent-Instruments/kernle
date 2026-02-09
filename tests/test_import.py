@@ -228,43 +228,31 @@ class TestJsonExportFormat:
 
 
 class TestCsvFormatRequirements:
-    """Tests for CSV parsing via production _import_csv code paths."""
+    """Tests for CSV parsing via production parse_csv code paths."""
 
-    def test_csv_belief_confidence_normalization(self, tmp_path):
-        """CSV import should normalize confidence > 1 by dividing by 100."""
+    def test_csv_belief_confidence_preserved(self, tmp_path):
+        """CSV parse_csv extracts confidence as string data for downstream normalization."""
+        from kernle.importers.csv_importer import parse_csv
+
         csv_content = (
             "type,statement,confidence\nbelief,Test high conf,90\nbelief,Test decimal,0.85\n"
         )
-        csv_file = tmp_path / "beliefs.csv"
-        csv_file.write_text(csv_content)
+        items = parse_csv(csv_content)
+        assert len(items) == 2
+        assert items[0].type == "belief"
+        assert items[0].data["statement"] == "Test high conf"
+        assert items[1].data["statement"] == "Test decimal"
 
-        # Parse beliefs from CSV content using _parse_beliefs on extracted statements
-        import csv
-        import io
+    def test_csv_type_column_variants_parsed(self):
+        """CSV with type/memory_type/kind columns should all produce items."""
+        from kernle.importers.csv_importer import parse_csv
 
-        reader = csv.DictReader(io.StringIO(csv_content))
-        for row in reader:
-            row = {rk.lower().strip(): rv.strip() for rk, rv in row.items()}
-            conf = float(row["confidence"])
-            if conf > 1:
-                conf = conf / 100
-            # Production code does this normalization (import_cmd.py lines 441-442)
-            assert 0.0 <= conf <= 1.0
-
-    def test_csv_type_column_variants_parsed(self, tmp_path):
-        """CSV with type/memory_type/kind columns should all work."""
         for col_name in ["type", "memory_type", "kind"]:
             csv_content = f"{col_name},statement,confidence\nbelief,A belief,0.8\n"
-            csv_file = tmp_path / f"test_{col_name}.csv"
-            csv_file.write_text(csv_content)
-
-            import csv
-            import io
-
-            reader = csv.DictReader(io.StringIO(csv_content))
-            headers = [h.lower().strip() for h in (reader.fieldnames or [])]
-            has_type = any(h in ["type", "memory_type", "kind"] for h in headers)
-            assert has_type
+            items = parse_csv(csv_content)
+            assert len(items) == 1, f"Failed for column name: {col_name}"
+            assert items[0].type == "belief"
+            assert items[0].data["statement"] == "A belief"
 
 
 class TestImportIntegration:

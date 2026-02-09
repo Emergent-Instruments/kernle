@@ -2090,7 +2090,7 @@ class TestPullMergesAllTypes:
         mock_cloud_storage.list_playbooks.return_value = []
 
         result = storage_with_cloud._sync_engine.pull_changes()
-        assert result.pulled >= 1
+        assert result.pulled == 1
         beliefs = storage_with_cloud.get_beliefs()
         assert any(b.id == "cb1" for b in beliefs)
 
@@ -2115,7 +2115,7 @@ class TestPullMergesAllTypes:
         mock_cloud_storage.list_playbooks.return_value = []
 
         result = storage_with_cloud._sync_engine.pull_changes()
-        assert result.pulled >= 1
+        assert result.pulled == 1
         values = storage_with_cloud.get_values()
         assert any(v.id == "cv1" for v in values)
 
@@ -2139,7 +2139,7 @@ class TestPullMergesAllTypes:
         mock_cloud_storage.list_playbooks.return_value = []
 
         result = storage_with_cloud._sync_engine.pull_changes()
-        assert result.pulled >= 1
+        assert result.pulled == 1
         goals = storage_with_cloud.get_goals()
         assert any(g.id == "cg1" for g in goals)
 
@@ -2165,7 +2165,7 @@ class TestPullMergesAllTypes:
         mock_cloud_storage.list_playbooks.return_value = []
 
         result = storage_with_cloud._sync_engine.pull_changes()
-        assert result.pulled >= 1
+        assert result.pulled == 1
         rel = storage_with_cloud.get_relationship("Bob")
         assert rel is not None
 
@@ -2193,7 +2193,7 @@ class TestPullMergesAllTypes:
         mock_cloud_storage.get_relationships.return_value = []
 
         result = storage_with_cloud._sync_engine.pull_changes()
-        assert result.pulled >= 1
+        assert result.pulled == 1
         pb = storage_with_cloud.get_playbook("cp1")
         assert pb is not None
 
@@ -2240,8 +2240,8 @@ class TestPullMergesConflictForAllTypes:
             )
         ]
         result = storage_with_cloud._sync_engine.pull_changes()
-        assert result.pulled >= 1
-        assert result.conflict_count >= 1
+        assert result.pulled == 1
+        assert result.conflict_count == 1
 
     def test_pull_value_conflict_cloud_wins(self, storage_with_cloud, mock_cloud_storage):
         """Pulling a value that already exists exercises _merge_value local lookup."""
@@ -2272,7 +2272,7 @@ class TestPullMergesConflictForAllTypes:
             )
         ]
         result = storage_with_cloud._sync_engine.pull_changes()
-        assert result.pulled >= 1
+        assert result.pulled == 1
 
     def test_pull_goal_conflict_cloud_wins(self, storage_with_cloud, mock_cloud_storage):
         """Pulling a goal that already exists exercises _merge_goal local lookup."""
@@ -2298,7 +2298,7 @@ class TestPullMergesConflictForAllTypes:
             )
         ]
         result = storage_with_cloud._sync_engine.pull_changes()
-        assert result.pulled >= 1
+        assert result.pulled == 1
 
 
 class TestMergeArrayFieldsMissingAttribute:
