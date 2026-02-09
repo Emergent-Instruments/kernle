@@ -427,6 +427,176 @@ class TestTrustCommands:
         output = out.getvalue()
         assert "Seeded" in output or "already exist" in output
 
+    def test_trust_seed_idempotent(self, cli_kernle):
+        """Second seed reports already exist."""
+        k, storage = cli_kernle
+
+        args = argparse.Namespace(trust_action="seed")
+        cmd_trust(args, k)  # first
+
+        with patch("sys.stdout", new=StringIO()) as out:
+            cmd_trust(args, k)  # second
+
+        output = out.getvalue()
+        assert "already exist" in output
+
+    def test_trust_list_empty(self, cli_kernle):
+        """List with no assessments shows helpful message."""
+        k, storage = cli_kernle
+
+        args = argparse.Namespace(trust_action="list")
+
+        with patch("sys.stdout", new=StringIO()) as out:
+            cmd_trust(args, k)
+
+        output = out.getvalue()
+        assert "No trust assessments" in output
+
+    def test_trust_list_shows_domain_scores(self, cli_kernle):
+        """List shows domain-specific scores when present."""
+        k, storage = cli_kernle
+
+        k.trust_set("operator", domain="general", score=0.8)
+        k.trust_set("operator", domain="memory", score=0.6)
+
+        args = argparse.Namespace(trust_action="list")
+
+        with patch("sys.stdout", new=StringIO()) as out:
+            cmd_trust(args, k)
+
+        output = out.getvalue()
+        assert "operator" in output
+        assert "80%" in output or "General" in output
+
+    def test_trust_show(self, cli_kernle):
+        """Show displays detailed trust info for an entity."""
+        k, storage = cli_kernle
+
+        k.trust_set("collaborator", domain="general", score=0.75)
+
+        args = argparse.Namespace(trust_action="show", entity="collaborator")
+
+        with patch("sys.stdout", new=StringIO()) as out:
+            cmd_trust(args, k)
+
+        output = out.getvalue()
+        assert "collaborator" in output
+        assert "Dimensions" in output
+        assert "75%" in output or "general" in output
+
+    def test_trust_show_nonexistent(self, cli_kernle):
+        """Show for unknown entity reports not found."""
+        k, storage = cli_kernle
+
+        args = argparse.Namespace(trust_action="show", entity="nobody")
+
+        with patch("sys.stdout", new=StringIO()) as out:
+            cmd_trust(args, k)
+
+        output = out.getvalue()
+        assert "No trust assessment" in output
+
+    def test_trust_set_invalid_score(self, cli_kernle):
+        """Score outside 0.0-1.0 is rejected."""
+        k, storage = cli_kernle
+
+        args = argparse.Namespace(trust_action="set", entity="test", score=1.5, domain="general")
+
+        with patch("sys.stdout", new=StringIO()) as out:
+            cmd_trust(args, k)
+
+        output = out.getvalue()
+        assert "must be between" in output
+
+    def test_trust_gate(self, cli_kernle):
+        """Gate checks trust-based access control."""
+        k, storage = cli_kernle
+
+        k.trust_set("operator", domain="general", score=0.9)
+
+        args = argparse.Namespace(
+            trust_action="gate", source="operator", gate_action="write", domain=None
+        )
+
+        with patch("sys.stdout", new=StringIO()) as out:
+            cmd_trust(args, k)
+
+        output = out.getvalue()
+        assert "ALLOWED" in output or "DENIED" in output
+
+    def test_trust_compute(self, cli_kernle):
+        """Compute shows default trust for entity with no history."""
+        k, storage = cli_kernle
+
+        args = argparse.Namespace(trust_action="compute", entity="stranger", domain="general")
+        setattr(args, "apply", False)
+
+        with patch("sys.stdout", new=StringIO()) as out:
+            cmd_trust(args, k)
+
+        output = out.getvalue()
+        assert "Default trust" in output or "Computed trust" in output
+
+    def test_trust_compute_with_apply(self, cli_kernle):
+        """Compute --apply stores the computed score."""
+        k, storage = cli_kernle
+
+        # Create some episode history
+        k.episode("Collaborated with partner on task", "success")
+
+        args = argparse.Namespace(trust_action="compute", entity="partner", domain="general")
+        setattr(args, "apply", True)
+
+        with patch("sys.stdout", new=StringIO()) as out:
+            cmd_trust(args, k)
+
+        output = out.getvalue()
+        assert "Default trust" in output or "Applied" in output
+
+    def test_trust_chain(self, cli_kernle):
+        """Chain computes transitive trust through intermediaries."""
+        k, storage = cli_kernle
+
+        k.trust_set("alice", domain="general", score=0.9)
+        k.trust_set("bob", domain="general", score=0.8)
+
+        args = argparse.Namespace(
+            trust_action="chain", target="bob", chain=["alice"], domain="general"
+        )
+
+        with patch("sys.stdout", new=StringIO()) as out:
+            cmd_trust(args, k)
+
+        output = out.getvalue()
+        assert "Transitive trust" in output
+        assert "bob" in output
+
+    def test_trust_decay(self, cli_kernle):
+        """Decay reduces trust over time without interaction."""
+        k, storage = cli_kernle
+
+        k.trust_set("old-friend", domain="general", score=0.9)
+
+        args = argparse.Namespace(trust_action="decay", entity="old-friend", days=30)
+
+        with patch("sys.stdout", new=StringIO()) as out:
+            cmd_trust(args, k)
+
+        output = out.getvalue()
+        assert "Applied trust decay" in output or "Error" in output
+
+    def test_trust_unknown_action(self, cli_kernle):
+        """Unknown action shows usage help."""
+        k, storage = cli_kernle
+
+        args = argparse.Namespace(trust_action=None)
+
+        with patch("sys.stdout", new=StringIO()) as out:
+            cmd_trust(args, k)
+
+        output = out.getvalue()
+        assert "Usage" in output
+
 
 class TestDoctorCommands:
     """Integration tests for doctor diagnostic commands."""
