@@ -63,6 +63,8 @@ class SuggestionComponent:
     version = "1.0.0"
     required = False
     needs_inference = True
+    inference_scope = "capable"
+    priority = 210
 
     def __init__(self) -> None:
         self._stack_id: Optional[str] = None

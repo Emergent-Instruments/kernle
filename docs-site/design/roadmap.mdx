@@ -318,6 +318,7 @@ These areas are acknowledged but not yet designed in detail:
 
 | Area | Description |
 |------|-------------|
+| **Scope-based inference routing** | Components now declare `inference_scope` ('fast', 'capable', 'embedding', 'none') indicating what kind of model they need. A future core could route `infer()` calls to different models based on scope — e.g., cheap/fast models for tagging, capable models for consolidation, dedicated embedding models for vectors. The declarations are in place (v0.12); routing is future work. |
 | **Multi-stack synthesis** | How to merge context from multiple stacks for richer reasoning |
 | **Embedding strategy** | Current 384-dim vectors may need updating for longer-lived stacks |
 | **MCP tool coverage** | Each new table/feature needs corresponding MCP tools |

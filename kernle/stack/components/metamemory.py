@@ -31,6 +31,8 @@ class MetaMemoryComponent:
     version = "1.0.0"
     required = False
     needs_inference = False
+    inference_scope = "fast"
+    priority = 110
 
     def __init__(
         self,

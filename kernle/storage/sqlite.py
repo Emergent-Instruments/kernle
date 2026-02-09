@@ -8169,6 +8169,57 @@ class SQLiteStorage:
 
         return results
 
+    def get_pre_v09_memories(self, stack_id: str) -> List[tuple]:
+        """Find memories annotated with kernle:pre-v0.9-migration.
+
+        These are memories that existed before provenance enforcement was
+        introduced in v0.9. They have a migration annotation but no real
+        provenance chain (no raw, episode, or note refs).
+
+        Returns:
+            List of (memory_type, memory_id, has_auto_link) tuples.
+            has_auto_link is True if the memory was also linked to a raw
+            entry via migrate link-raw.
+        """
+        table_map = {
+            "episode": "episodes",
+            "belief": "beliefs",
+            "value": "agent_values",
+            "goal": "goals",
+            "note": "notes",
+            "drive": "drives",
+            "relationship": "relationships",
+        }
+        annotation_prefixes = {"context", "kernle"}
+        results: List[tuple] = []
+
+        with self._connect() as conn:
+            for mem_type, table in table_map.items():
+                rows = conn.execute(
+                    f"""SELECT id, derived_from FROM {table}
+                       WHERE stack_id = ? AND deleted = 0
+                         AND derived_from LIKE '%pre-v0.9-migration%'""",
+                    (stack_id,),
+                ).fetchall()
+
+                for row in rows:
+                    derived_from_raw = row["derived_from"]
+                    if not derived_from_raw:
+                        continue
+                    try:
+                        derived_from = json.loads(derived_from_raw)
+                    except (json.JSONDecodeError, TypeError):
+                        continue
+                    if not isinstance(derived_from, list):
+                        continue
+
+                    has_auto_link = any(
+                        ref.startswith("raw:") for ref in derived_from if ref and ":" in ref
+                    )
+                    results.append((mem_type, row["id"], has_auto_link))
+
+        return results
+
     def get_forgetting_candidates(
         self,
         memory_types: Optional[List[str]] = None,

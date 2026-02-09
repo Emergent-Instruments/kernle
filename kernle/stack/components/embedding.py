@@ -53,6 +53,14 @@ class EmbeddingComponent:
     def needs_inference(self) -> bool:
         return False
 
+    @property
+    def inference_scope(self) -> str:
+        return "embedding"
+
+    @property
+    def priority(self) -> int:
+        return 10
+
     # ---- Lifecycle ----
 
     def attach(

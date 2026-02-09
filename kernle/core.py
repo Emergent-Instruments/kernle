@@ -1304,6 +1304,7 @@ class Kernle(
                 outcome_type="partial",
                 lessons=pending or [],
                 tags=["checkpoint", "working_state"],
+                source_entity="kernle:checkpoint",
                 created_at=datetime.now(timezone.utc),
             )
             self._write_backend.save_episode(episode)

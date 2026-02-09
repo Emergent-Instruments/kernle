@@ -27,6 +27,58 @@ GOAL_TYPE_HALF_LIVES = {
 }
 
 
+def compute_decayed_strength(
+    memory_type: str,
+    record: Any,
+    *,
+    half_life: Optional[float] = None,
+) -> float:
+    """Compute decayed strength for a record based on elapsed time.
+
+    This is the shared decay formula used by both ForgettingComponent
+    (during maintenance) and SQLiteStack (lazy decay-on-read).
+
+    Formula:
+        decay = days_since_last_access / half_life
+        reinforcement = log(times_accessed + 1) * 0.1
+        new_strength = clamp(current_strength - decay * 0.01 + reinforcement * 0.01, 0.0, 1.0)
+
+    Args:
+        memory_type: The memory type (used for goal half-life lookup).
+        record: The memory record (must have strength, times_accessed,
+                last_accessed, created_at attributes).
+        half_life: Override the default half-life. If None, uses
+                   DEFAULT_HALF_LIFE (or goal-type-specific values).
+
+    Returns:
+        The decayed strength value (0.0-1.0).
+    """
+    current_strength = getattr(record, "strength", 1.0)
+    times_accessed = getattr(record, "times_accessed", 0) or 0
+    last_accessed = getattr(record, "last_accessed", None)
+    created_at = getattr(record, "created_at", None)
+
+    reference_time = last_accessed or created_at
+    now = datetime.now(timezone.utc)
+    if reference_time:
+        days_since = (now - reference_time).total_seconds() / 86400
+    else:
+        days_since = 365
+
+    if half_life is None:
+        if memory_type == "goal":
+            goal_type = getattr(record, "goal_type", "task")
+            half_life = GOAL_TYPE_HALF_LIVES.get(goal_type, DEFAULT_HALF_LIFE)
+        else:
+            half_life = DEFAULT_HALF_LIFE
+
+    decay = days_since / half_life
+    reinforcement = math.log(times_accessed + 1) * 0.1
+
+    new_strength = current_strength - (decay * 0.01) + (reinforcement * 0.01)
+    return max(0.0, min(1.0, new_strength))
+
+
 class ForgettingComponent:
     """Salience-based forgetting component.
 
@@ -38,6 +90,8 @@ class ForgettingComponent:
     version = "1.0.0"
     required = False
     needs_inference = False
+    inference_scope = "none"
+    priority = 300
 
     def __init__(self) -> None:
         self._stack_id: Optional[str] = None
@@ -134,32 +188,10 @@ class ForgettingComponent:
     def _compute_decayed_strength(self, memory_type: str, record: Any) -> float:
         """Compute new strength value after time-based decay.
 
-        Formula:
-        decay = days_since_last_access / half_life
-        reinforcement = log(times_accessed + 1) * 0.1
-        new_strength = max(0.0, current_strength - decay * 0.01 + reinforcement * 0.01)
-
-        The decay is gentle — 0.01 per half-life period — so memories fade
-        gradually over many maintenance cycles rather than all at once.
+        Delegates to the module-level compute_decayed_strength() function.
         """
-        current_strength = getattr(record, "strength", 1.0)
-        times_accessed = getattr(record, "times_accessed", 0) or 0
-        last_accessed = getattr(record, "last_accessed", None)
-        created_at = getattr(record, "created_at", None)
-
-        reference_time = last_accessed or created_at
-        now = datetime.now(timezone.utc)
-        if reference_time:
-            days_since = (now - reference_time).total_seconds() / 86400
-        else:
-            days_since = 365
-
         half_life = self._get_half_life(memory_type, record)
-        decay = days_since / half_life
-        reinforcement = math.log(times_accessed + 1) * 0.1
-
-        new_strength = current_strength - (decay * 0.01) + (reinforcement * 0.01)
-        return max(0.0, min(1.0, new_strength))
+        return compute_decayed_strength(memory_type, record, half_life=half_life)
 
     # ---- Core Logic ----
 
