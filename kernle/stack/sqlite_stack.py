@@ -542,6 +542,12 @@ class SQLiteStack(
         if not self._enforce_provenance:
             return  # Provenance enforcement disabled
 
+        # System-generated writes (kernle:*) bypass provenance.
+        # These are internal operations (checkpoints, maintenance, sync)
+        # that produce valid memories without raw-entry derivation.
+        if source_entity and source_entity.startswith("kernle:"):
+            return
+
         # Plugin-sourced writes have relaxed provenance requirements,
         # but only for plugins actually registered with this stack
         if source_entity and source_entity.startswith("plugin:"):
