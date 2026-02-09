@@ -71,9 +71,9 @@ class TestInferenceScope:
         component = component_cls()
         expected = EXPECTED_SCOPES.get(component.name)
         assert expected is not None, f"No expected scope for {component.name}"
-        assert component.inference_scope == expected, (
-            f"{component.name}: expected scope '{expected}', got '{component.inference_scope}'"
-        )
+        assert (
+            component.inference_scope == expected
+        ), f"{component.name}: expected scope '{expected}', got '{component.inference_scope}'"
 
     def test_needs_inference_consistency(self):
         """Components with scope 'none' should have needs_inference=False."""
@@ -84,9 +84,9 @@ class TestInferenceScope:
                 # (knowledge has needs_inference=True for optional use) but
                 # forgetting and anxiety should be False
                 if c.name in ("forgetting", "anxiety"):
-                    assert not c.needs_inference, (
-                        f"{c.name} has scope 'none' but needs_inference=True"
-                    )
+                    assert (
+                        not c.needs_inference
+                    ), f"{c.name} has scope 'none' but needs_inference=True"
 
     def test_all_default_components_have_scope(self):
         """All 8 default components should have inference_scope."""
@@ -95,9 +95,7 @@ class TestInferenceScope:
         components = get_default_components()
         assert len(components) == 8
         for c in components:
-            assert hasattr(c, "inference_scope"), (
-                f"Component {c.name} missing inference_scope"
-            )
-            assert c.inference_scope in VALID_SCOPES, (
-                f"Component {c.name} has invalid scope '{c.inference_scope}'"
-            )
+            assert hasattr(c, "inference_scope"), f"Component {c.name} missing inference_scope"
+            assert (
+                c.inference_scope in VALID_SCOPES
+            ), f"Component {c.name} has invalid scope '{c.inference_scope}'"
