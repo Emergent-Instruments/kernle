@@ -476,8 +476,7 @@ class TestSyncPush:
         assert call_args is not None
         sent_json = call_args[1]["json"] if "json" in call_args[1] else call_args[0][1]
         ops = sent_json.get("operations", [])
-        # At least one operation should exist
-        assert len(ops) >= 1
+        assert len(ops) == 1
 
 
 # ============================================================================
