@@ -30,15 +30,12 @@ from .base import (
     MemorySuggestion,
     Note,
     Playbook,
-    QueuedChange,
     RawEntry,
     Relationship,
     RelationshipHistoryEntry,
     SearchResult,
     SelfNarrative,
     Summary,
-    SyncConflict,
-    SyncResult,
     TrustAssessment,
     Value,
     VersionConflictError,
@@ -62,6 +59,7 @@ from .health import get_health_check_stats as _get_health_check_stats
 from .health import log_health_check as _log_health_check
 from .lineage import check_derived_from_cycle
 from .memory_ops import MemoryOps
+from .sync_engine import SyncEngine
 
 if TYPE_CHECKING:
     from .base import Storage as StorageProtocol
@@ -72,61 +70,6 @@ logger = logging.getLogger(__name__)
 SCHEMA_VERSION = (
     24  # Memory integrity: strength field replaces is_forgotten, add audit/processing tables
 )
-
-# Maximum size for merged arrays during sync to prevent resource exhaustion
-MAX_SYNC_ARRAY_SIZE = 500
-
-# Array fields that should be merged (set union) during sync rather than overwritten
-# These are fields where both local and cloud additions should be preserved
-SYNC_ARRAY_FIELDS: Dict[str, List[str]] = {
-    "episodes": [
-        "lessons",
-        "tags",
-        "emotional_tags",
-        "source_episodes",
-        "derived_from",
-        "context_tags",
-    ],
-    "beliefs": [
-        "source_episodes",
-        "derived_from",
-        "context_tags",
-    ],
-    "notes": [
-        "tags",
-        "source_episodes",
-        "derived_from",
-        "context_tags",
-    ],
-    "drives": [
-        "focus_areas",
-        "source_episodes",
-        "derived_from",
-        "context_tags",
-    ],
-    "agent_values": [
-        "source_episodes",
-        "derived_from",
-        "context_tags",
-    ],
-    "relationships": [
-        "source_episodes",
-        "derived_from",
-        "context_tags",
-    ],
-    "goals": [
-        "source_episodes",
-        "derived_from",
-        "context_tags",
-    ],
-    "playbooks": [
-        "trigger_conditions",
-        "failure_modes",
-        "recovery_steps",
-        "source_episodes",
-        "tags",
-    ],
-}
 
 # Allowed table names for SQL queries (security: prevents SQL injection via table names)
 ALLOWED_TABLES = frozenset(
@@ -978,6 +921,9 @@ class SQLiteStorage:
             queue_sync_fn=self._queue_sync,
             validate_table_name_fn=validate_table_name,
         )
+
+        # Sync engine
+        self._sync_engine = SyncEngine(self, validate_table_name)
 
         # Ensure directory exists
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2229,23 +2175,17 @@ class SQLiteStorage:
 
         Handles datetime conversion and nested objects.
         """
-        import dataclasses
+        from dataclasses import asdict
 
-        if not dataclasses.is_dataclass(record):
-            return {}
-
-        result = {}
-        for field in dataclasses.fields(record):
-            value = getattr(record, field.name)
-            if value is None:
-                result[field.name] = None
-            elif isinstance(value, datetime):
-                result[field.name] = value.isoformat()
-            elif isinstance(value, (list, dict)):
-                result[field.name] = value
-            else:
-                result[field.name] = value
-        return result
+        try:
+            d = asdict(record)
+            for k, v in d.items():
+                if isinstance(v, datetime):
+                    d[k] = v.isoformat()
+            return d
+        except Exception as e:
+            logger.debug(f"Failed to serialize record, using fallback: {e}")
+            return {"id": getattr(record, "id", "unknown")}
 
     def _build_access_filter(
         self, requesting_entity: Optional[str] = None
@@ -7331,950 +7271,99 @@ class SQLiteStorage:
             "relationship": self._row_to_relationship,
         }
 
-    # === Sync Queue ===
+    # === Sync Engine (delegated to SyncEngine) ===
 
-    def queue_sync_operation(
-        self, operation: str, table: str, record_id: str, data: Optional[Dict[str, Any]] = None
-    ) -> int:
-        """Queue a sync operation for later synchronization.
+    def queue_sync_operation(self, operation: str, table: str, record_id: str, data=None) -> int:
+        """Queue a sync operation for later synchronization."""
+        return self._sync_engine.queue_sync_operation(operation, table, record_id, data)
 
-        Uses atomic UPSERT (INSERT ... ON CONFLICT DO UPDATE) to prevent
-        race conditions between concurrent writes to the same record.
+    def get_pending_sync_operations(self, limit: int = 100):
+        """Get all unsynced operations from the queue."""
+        return self._sync_engine.get_pending_sync_operations(limit)
 
-        Args:
-            operation: Operation type ('insert', 'update', 'delete')
-            table: Table name (e.g., 'episodes', 'notes')
-            record_id: ID of the record
-            data: Optional JSON-serializable data payload
+    def mark_synced(self, ids) -> int:
+        """Mark sync queue entries as synced."""
+        return self._sync_engine.mark_synced(ids)
 
-        Returns:
-            The queue entry ID (or 0 if upsert updated existing row)
-        """
-        now = self._now()
-        data_json = self._to_json(data) if data else None
-
-        with self._connect() as conn:
-            # Use atomic UPSERT to prevent race condition between SELECT and UPDATE/INSERT
-            # This requires a unique partial index on (table_name, record_id) where synced = 0
-            cursor = conn.execute(
-                """INSERT INTO sync_queue
-                   (table_name, record_id, operation, data, local_updated_at, synced, queued_at)
-                   VALUES (?, ?, ?, ?, ?, 0, ?)
-                   ON CONFLICT(table_name, record_id) WHERE synced = 0
-                   DO UPDATE SET
-                       operation = excluded.operation,
-                       data = excluded.data,
-                       local_updated_at = excluded.local_updated_at,
-                       queued_at = excluded.queued_at""",
-                (table, record_id, operation, data_json, now, now),
-            )
-            conn.commit()
-            return cursor.lastrowid or 0
-
-    def get_pending_sync_operations(self, limit: int = 100) -> List[Dict[str, Any]]:
-        """Get all unsynced operations from the queue.
-
-        Returns:
-            List of dicts with: id, operation, table_name, record_id, data, local_updated_at
-        """
-        with self._connect() as conn:
-            rows = conn.execute(
-                """SELECT id, operation, table_name, record_id, data, local_updated_at
-                   FROM sync_queue
-                   WHERE synced = 0
-                   ORDER BY id
-                   LIMIT ?""",
-                (limit,),
-            ).fetchall()
-
-        return [
-            {
-                "id": row["id"],
-                "operation": row["operation"],
-                "table_name": row["table_name"],
-                "record_id": row["record_id"],
-                "data": self._from_json(row["data"]) if row["data"] else None,
-                "local_updated_at": self._parse_datetime(row["local_updated_at"]),
-            }
-            for row in rows
-        ]
-
-    def mark_synced(self, ids: List[int]) -> int:
-        """Mark sync queue entries as synced.
-
-        Args:
-            ids: List of sync queue entry IDs to mark as synced
-
-        Returns:
-            Number of entries marked as synced
-        """
-        if not ids:
-            return 0
-
-        with self._connect() as conn:
-            placeholders = ",".join("?" * len(ids))
-            cursor = conn.execute(
-                f"UPDATE sync_queue SET synced = 1 WHERE id IN ({placeholders})", ids
-            )
-            conn.commit()
-            return cursor.rowcount
-
-    def get_sync_status(self) -> Dict[str, Any]:
-        """Get sync queue status with counts.
-
-        Returns:
-            Dict with:
-                - pending: count of unsynced operations
-                - synced: count of synced operations
-                - total: total queue entries
-                - by_table: breakdown by table name
-                - by_operation: breakdown by operation type
-        """
-        with self._connect() as conn:
-            # Overall counts
-            pending = conn.execute("SELECT COUNT(*) FROM sync_queue WHERE synced = 0").fetchone()[0]
-            synced = conn.execute("SELECT COUNT(*) FROM sync_queue WHERE synced = 1").fetchone()[0]
-
-            # Breakdown by table (pending only)
-            table_rows = conn.execute("""SELECT table_name, COUNT(*) as count
-                   FROM sync_queue WHERE synced = 0
-                   GROUP BY table_name""").fetchall()
-            by_table = {row["table_name"]: row["count"] for row in table_rows}
-
-            # Breakdown by operation (pending only)
-            op_rows = conn.execute("""SELECT operation, COUNT(*) as count
-                   FROM sync_queue WHERE synced = 0
-                   GROUP BY operation""").fetchall()
-            by_operation = {row["operation"]: row["count"] for row in op_rows}
-
-        return {
-            "pending": pending,
-            "synced": synced,
-            "total": pending + synced,
-            "by_table": by_table,
-            "by_operation": by_operation,
-        }
+    def get_sync_status(self):
+        """Get sync queue status with counts."""
+        return self._sync_engine.get_sync_status()
 
     def get_pending_sync_count(self) -> int:
         """Get count of records pending sync."""
-        with self._connect() as conn:
-            count = conn.execute("SELECT COUNT(*) FROM sync_queue WHERE synced = 0").fetchone()[0]
-        return count
+        return self._sync_engine.get_pending_sync_count()
 
-    def get_queued_changes(self, limit: int = 100, max_retries: int = 5) -> List[QueuedChange]:
-        """Get queued changes for sync (returns unsynced items with retries < max).
+    def get_queued_changes(self, limit: int = 100, max_retries: int = 5):
+        """Get queued changes for sync."""
+        return self._sync_engine.get_queued_changes(limit, max_retries)
 
-        Uses COALESCE to read from either `payload` or `data` column,
-        handling the historical inconsistency where some entries only
-        populated one column.
+    def _clear_queued_change(self, conn, queue_id: int):
+        """Mark a change as synced."""
+        self._sync_engine._clear_queued_change(conn, queue_id)
 
-        Args:
-            limit: Maximum number of changes to return.
-            max_retries: Skip records with retry_count >= this value.
-        """
-        with self._connect() as conn:
-            rows = conn.execute(
-                """SELECT id, table_name, record_id, operation,
-                          COALESCE(payload, data) as payload, queued_at,
-                          COALESCE(retry_count, 0) as retry_count,
-                          last_error, last_attempt_at
-                   FROM sync_queue
-                   WHERE synced = 0 AND COALESCE(retry_count, 0) < ?
-                   ORDER BY id
-                   LIMIT ?""",
-                (max_retries, limit),
-            ).fetchall()
+    def _record_sync_failure(self, conn, queue_id: int, error: str) -> int:
+        """Record a sync failure and increment retry count."""
+        return self._sync_engine._record_sync_failure(conn, queue_id, error)
 
-        return [
-            QueuedChange(
-                id=row["id"],
-                table_name=row["table_name"],
-                record_id=row["record_id"],
-                operation=row["operation"],
-                payload=row["payload"],
-                queued_at=self._parse_datetime(row["queued_at"]),
-                retry_count=row["retry_count"] or 0,
-                last_error=row["last_error"],
-                last_attempt_at=self._parse_datetime(row["last_attempt_at"]),
-            )
-            for row in rows
-        ]
-
-    def _clear_queued_change(self, conn: sqlite3.Connection, queue_id: int):
-        """Mark a change as synced (legacy behavior kept for compatibility)."""
-        conn.execute("UPDATE sync_queue SET synced = 1 WHERE id = ?", (queue_id,))
-
-    def _record_sync_failure(self, conn: sqlite3.Connection, queue_id: int, error: str) -> int:
-        """Record a sync failure and increment retry count.
-
-        Returns:
-            The new retry count.
-        """
-        now = self._now()
-        conn.execute(
-            """UPDATE sync_queue
-               SET retry_count = COALESCE(retry_count, 0) + 1,
-                   last_error = ?,
-                   last_attempt_at = ?
-               WHERE id = ?""",
-            (error[:500], now, queue_id),  # Truncate error to 500 chars
-        )
-        row = conn.execute(
-            "SELECT retry_count FROM sync_queue WHERE id = ?", (queue_id,)
-        ).fetchone()
-        return row["retry_count"] if row else 0
-
-    def get_failed_sync_records(self, min_retries: int = 5) -> List[QueuedChange]:
-        """Get sync records that have exceeded max retries (dead letter queue).
-
-        Args:
-            min_retries: Minimum retry count to include.
-        """
-        with self._connect() as conn:
-            rows = conn.execute(
-                """SELECT id, table_name, record_id, operation,
-                          COALESCE(payload, data) as payload, queued_at,
-                          COALESCE(retry_count, 0) as retry_count,
-                          last_error, last_attempt_at
-                   FROM sync_queue
-                   WHERE synced = 0 AND COALESCE(retry_count, 0) >= ?
-                   ORDER BY last_attempt_at DESC
-                   LIMIT 100""",
-                (min_retries,),
-            ).fetchall()
-
-        return [
-            QueuedChange(
-                id=row["id"],
-                table_name=row["table_name"],
-                record_id=row["record_id"],
-                operation=row["operation"],
-                payload=row["payload"],
-                queued_at=self._parse_datetime(row["queued_at"]),
-                retry_count=row["retry_count"] or 0,
-                last_error=row["last_error"],
-                last_attempt_at=self._parse_datetime(row["last_attempt_at"]),
-            )
-            for row in rows
-        ]
+    def get_failed_sync_records(self, min_retries: int = 5):
+        """Get sync records that have exceeded max retries."""
+        return self._sync_engine.get_failed_sync_records(min_retries)
 
     def clear_failed_sync_records(self, older_than_days: int = 7) -> int:
-        """Clear failed sync records older than the specified days.
+        """Clear failed sync records older than the specified days."""
+        return self._sync_engine.clear_failed_sync_records(older_than_days)
 
-        Returns:
-            Number of records cleared.
-        """
-        from datetime import timedelta
-
-        cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
-        cutoff_str = cutoff.isoformat()
-
-        with self._connect() as conn:
-            cursor = conn.execute(
-                """UPDATE sync_queue
-                   SET synced = 1
-                   WHERE synced = 0
-                     AND COALESCE(retry_count, 0) >= 5
-                     AND last_attempt_at < ?""",
-                (cutoff_str,),
-            )
-            count = cursor.rowcount
-            conn.commit()
-
-        return count
-
-    def _get_sync_meta(self, key: str) -> Optional[str]:
+    def _get_sync_meta(self, key: str):
         """Get a sync metadata value."""
-        with self._connect() as conn:
-            row = conn.execute("SELECT value FROM sync_meta WHERE key = ?", (key,)).fetchone()
-        return row["value"] if row else None
+        return self._sync_engine._get_sync_meta(key)
 
     def _set_sync_meta(self, key: str, value: str):
         """Set a sync metadata value."""
-        with self._connect() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO sync_meta (key, value, updated_at) VALUES (?, ?, ?)",
-                (key, value, self._now()),
-            )
-            conn.commit()
+        self._sync_engine._set_sync_meta(key, value)
 
-    def get_last_sync_time(self) -> Optional[datetime]:
+    def get_last_sync_time(self):
         """Get the timestamp of the last successful sync."""
-        value = self._get_sync_meta("last_sync_time")
-        return self._parse_datetime(value) if value else None
+        return self._sync_engine.get_last_sync_time()
 
-    def get_sync_conflicts(self, limit: int = 100) -> List[SyncConflict]:
-        """Get recent sync conflict history.
+    def get_sync_conflicts(self, limit: int = 100):
+        """Get recent sync conflict history."""
+        return self._sync_engine.get_sync_conflicts(limit)
 
-        Args:
-            limit: Maximum number of conflicts to return
+    def save_sync_conflict(self, conflict) -> str:
+        """Save a sync conflict record."""
+        return self._sync_engine.save_sync_conflict(conflict)
 
-        Returns:
-            List of SyncConflict records, most recent first
-        """
-        with self._connect() as conn:
-            rows = conn.execute(
-                """SELECT id, table_name, record_id, local_version, cloud_version,
-                          resolution, resolved_at, local_summary, cloud_summary
-                   FROM sync_conflicts
-                   ORDER BY resolved_at DESC
-                   LIMIT ?""",
-                (limit,),
-            ).fetchall()
-
-        return [
-            SyncConflict(
-                id=row["id"],
-                table=row["table_name"],
-                record_id=row["record_id"],
-                local_version=json.loads(row["local_version"]),
-                cloud_version=json.loads(row["cloud_version"]),
-                resolution=row["resolution"],
-                resolved_at=self._parse_datetime(row["resolved_at"]) or datetime.now(timezone.utc),
-                local_summary=row["local_summary"],
-                cloud_summary=row["cloud_summary"],
-            )
-            for row in rows
-        ]
-
-    def save_sync_conflict(self, conflict: SyncConflict) -> str:
-        """Save a sync conflict record.
-
-        Args:
-            conflict: The conflict to save
-
-        Returns:
-            The conflict ID
-        """
-        with self._connect() as conn:
-            conn.execute(
-                """INSERT INTO sync_conflicts
-                   (id, table_name, record_id, local_version, cloud_version,
-                    resolution, resolved_at, local_summary, cloud_summary)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    conflict.id,
-                    conflict.table,
-                    conflict.record_id,
-                    json.dumps(conflict.local_version),
-                    json.dumps(conflict.cloud_version),
-                    conflict.resolution,
-                    (
-                        conflict.resolved_at.isoformat()
-                        if isinstance(conflict.resolved_at, datetime)
-                        else conflict.resolved_at
-                    ),
-                    conflict.local_summary,
-                    conflict.cloud_summary,
-                ),
-            )
-            conn.commit()
-        return conflict.id
-
-    def clear_sync_conflicts(self, before: Optional[datetime] = None) -> int:
-        """Clear sync conflict history.
-
-        Args:
-            before: If provided, only clear conflicts before this timestamp.
-                    If None, clear all conflicts.
-
-        Returns:
-            Number of conflicts cleared
-        """
-        with self._connect() as conn:
-            if before:
-                cursor = conn.execute(
-                    "DELETE FROM sync_conflicts WHERE resolved_at < ?", (before.isoformat(),)
-                )
-            else:
-                cursor = conn.execute("DELETE FROM sync_conflicts")
-            conn.commit()
-            return cursor.rowcount
+    def clear_sync_conflicts(self, before=None) -> int:
+        """Clear sync conflict history."""
+        return self._sync_engine.clear_sync_conflicts(before)
 
     def is_online(self) -> bool:
-        """Check if cloud storage is reachable.
+        """Check if cloud storage is reachable."""
+        return self._sync_engine.is_online()
 
-        Uses cached result if checked recently.
-        Returns True if connected, False if offline or no cloud configured.
-        """
-        if not self.cloud_storage:
-            return False
-
-        # Check cache
-        now = datetime.now(timezone.utc)
-        if self._last_connectivity_check:
-            elapsed = (now - self._last_connectivity_check).total_seconds()
-            if elapsed < self._connectivity_cache_ttl:
-                return self._is_online_cached
-
-        # Perform connectivity check
-        try:
-            # Try a lightweight operation - get stats with timeout
-            import socket
-
-            old_timeout = socket.getdefaulttimeout()
-            try:
-                socket.setdefaulttimeout(self.CONNECTIVITY_TIMEOUT)
-                # A simple operation to verify connectivity
-                self.cloud_storage.get_stats()
-                self._is_online_cached = True
-            except Exception as e:
-                logger.debug(f"Connectivity check failed: {e}")
-                self._is_online_cached = False
-            finally:
-                socket.setdefaulttimeout(old_timeout)
-        except Exception as e:
-            logger.debug(f"Connectivity check error: {e}")
-            self._is_online_cached = False
-
-        self._last_connectivity_check = now
-        return self._is_online_cached
-
-    def _mark_synced(self, conn: sqlite3.Connection, table: str, record_id: str):
+    def _mark_synced(self, conn, table: str, record_id: str):
         """Mark a record as synced with the cloud."""
-        validate_table_name(table)  # Security: validate before SQL use
-        now = self._now()
-        # Security: include stack_id filter for defense-in-depth
-        conn.execute(
-            f"UPDATE {table} SET cloud_synced_at = ? WHERE id = ? AND stack_id = ?",
-            (now, record_id, self.stack_id),
-        )
+        self._sync_engine._mark_synced(conn, table, record_id)
 
-    def _get_record_for_push(self, table: str, record_id: str) -> Optional[Any]:
+    def _get_record_for_push(self, table: str, record_id: str):
         """Get a record by table and ID for pushing to cloud."""
-        validate_table_name(table)  # Security: validate before SQL use
-        with self._connect() as conn:
-            row = conn.execute(
-                f"SELECT * FROM {table} WHERE id = ? AND stack_id = ?", (record_id, self.stack_id)
-            ).fetchone()
-
-        if not row:
-            return None
-
-        converters = {
-            "episodes": self._row_to_episode,
-            "notes": self._row_to_note,
-            "beliefs": self._row_to_belief,
-            "agent_values": self._row_to_value,
-            "goals": self._row_to_goal,
-            "drives": self._row_to_drive,
-            "relationships": self._row_to_relationship,
-            "playbooks": self._row_to_playbook,
-            "raw_entries": self._row_to_raw_entry,
-        }
-
-        converter = converters.get(table)
-        return converter(row) if converter else None
-
-    def _push_record(self, table: str, record: Any) -> bool:
-        """Push a single record to cloud storage.
-
-        Returns True if successful, False otherwise.
-        """
-        if not self.cloud_storage:
-            return False
-
-        try:
-            if table == "episodes":
-                self.cloud_storage.save_episode(record)
-            elif table == "notes":
-                self.cloud_storage.save_note(record)
-            elif table == "beliefs":
-                self.cloud_storage.save_belief(record)
-            elif table == "agent_values":
-                self.cloud_storage.save_value(record)
-            elif table == "goals":
-                self.cloud_storage.save_goal(record)
-            elif table == "drives":
-                self.cloud_storage.save_drive(record)
-            elif table == "relationships":
-                self.cloud_storage.save_relationship(record)
-            elif table == "playbooks":
-                self.cloud_storage.save_playbook(record)
-            else:
-                logger.warning(f"Unknown table for push: {table}")
-                return False
-            return True
-        except Exception as e:
-            logger.error(f"Failed to push record {table}:{record.id}: {e}")
-            return False
-
-    def sync(self) -> SyncResult:
-        """Sync with cloud storage.
-
-        Pushes queued local changes to cloud, then pulls remote changes.
-        Uses last-write-wins for conflict resolution.
-
-        Returns:
-            SyncResult with counts of pushed/pulled records and any errors.
-        """
-        result = SyncResult()
-
-        if not self.cloud_storage:
-            logger.debug("No cloud storage configured, skipping sync")
-            return result
-
-        # Check connectivity first
-        if not self.is_online():
-            logger.info("Offline - sync skipped, changes queued")
-            result.errors.append("Offline - cannot reach cloud storage")
-            return result
-
-        # Phase 1: Push queued changes (resilient - continues on failures)
-        queued = self.get_queued_changes(limit=100, max_retries=5)
-        failed_count = len(self.get_failed_sync_records(min_retries=5))
-        if failed_count > 0:
-            logger.info(f"Skipping {failed_count} records that exceeded max retries")
-
-        logger.debug(f"Pushing {len(queued)} queued changes")
-
-        with self._connect() as conn:
-            for change in queued:
-                try:
-                    # Get the current record
-                    record = self._get_record_for_push(change.table_name, change.record_id)
-
-                    if record is None:
-                        # Record was deleted or doesn't exist
-                        if change.operation == "delete":
-                            # TODO: Handle soft delete in cloud
-                            self._clear_queued_change(conn, change.id)
-                            result.pushed += 1
-                        else:
-                            # Record no longer exists locally, clear from queue
-                            self._clear_queued_change(conn, change.id)
-                        continue
-
-                    # Push to cloud
-                    if self._push_record(change.table_name, record):
-                        self._mark_synced(conn, change.table_name, change.record_id)
-                        self._clear_queued_change(conn, change.id)
-                        result.pushed += 1
-                    else:
-                        # Record failure and continue with next record
-                        retry_count = self._record_sync_failure(
-                            conn, change.id, "Push failed - cloud returned error"
-                        )
-                        if retry_count >= 5:
-                            logger.warning(
-                                f"Record {change.table_name}:{change.record_id} "
-                                f"exceeded max retries, moving to dead letter queue"
-                            )
-                        result.errors.append(
-                            f"Failed to push {change.table_name}:{change.record_id} "
-                            f"(retry {retry_count}/5)"
-                        )
-
-                except Exception as e:
-                    # Unexpected error - record and continue
-                    error_msg = str(e)[:500]
-                    retry_count = self._record_sync_failure(conn, change.id, error_msg)
-                    logger.error(
-                        f"Error pushing {change.table_name}:{change.record_id}: {e} "
-                        f"(retry {retry_count}/5)"
-                    )
-                    result.errors.append(
-                        f"Error pushing {change.table_name}:{change.record_id}: {error_msg}"
-                    )
-                    # Continue with next record instead of stopping
-
-            conn.commit()
-
-        # Phase 2: Pull remote changes
-        pull_result = self.pull_changes()
-        result.pulled = pull_result.pulled
-        result.conflicts = pull_result.conflicts
-        result.errors.extend(pull_result.errors)
-
-        # Update last sync time
-        if result.success or (result.pushed > 0 or result.pulled > 0):
-            self._set_sync_meta("last_sync_time", self._now())
-
-        logger.info(
-            f"Sync complete: pushed={result.pushed}, pulled={result.pulled}, conflicts={result.conflict_count}"
-        )
-        return result
-
-    def pull_changes(self, since: Optional[datetime] = None) -> SyncResult:
-        """Pull changes from cloud since the given timestamp.
-
-        Uses last-write-wins for conflict resolution:
-        - If cloud record is newer (cloud_synced_at > local_updated_at), use cloud version
-        - If local record is newer, keep local version (it will be pushed on next sync)
-
-        Args:
-            since: Pull changes since this time. If None, uses last sync time.
-
-        Returns:
-            SyncResult with pulled count and any conflicts.
-        """
-        result = SyncResult()
-
-        if not self.cloud_storage:
-            return result
-
-        # Determine the since timestamp
-        if since is None:
-            since = self.get_last_sync_time()
-
-        # Pull from each table
-        tables_and_getters = [
-            ("episodes", self.cloud_storage.get_episodes, self._merge_episode),
-            ("notes", self.cloud_storage.get_notes, self._merge_note),
-            ("beliefs", self.cloud_storage.get_beliefs, self._merge_belief),
-            ("agent_values", self.cloud_storage.get_values, self._merge_value),
-            ("goals", self.cloud_storage.get_goals, self._merge_goal),
-            ("drives", self.cloud_storage.get_drives, self._merge_drive),
-            ("relationships", self.cloud_storage.get_relationships, self._merge_relationship),
-            ("playbooks", self.cloud_storage.list_playbooks, self._merge_playbook),
-        ]
-
-        for table, getter, merger in tables_and_getters:
-            try:
-                # Get records from cloud (filtered by since if supported)
-                if table == "episodes":
-                    cloud_records = getter(limit=1000, since=since)
-                elif table == "notes":
-                    cloud_records = getter(limit=1000, since=since)
-                elif table == "goals":
-                    cloud_records = getter(status=None, limit=1000)  # Get all statuses
-                else:
-                    cloud_records = getter(limit=1000) if callable(getter) else getter()
-
-                for cloud_record in cloud_records:
-                    pull_count, conflict = merger(cloud_record)
-                    result.pulled += pull_count
-                    if conflict:
-                        result.conflicts.append(conflict)
-
-            except Exception as e:
-                logger.error(f"Failed to pull from {table}: {e}")
-                result.errors.append(f"Failed to pull {table}: {str(e)}")
-
-        return result
-
-    def _merge_episode(self, cloud_record: Episode) -> tuple[int, Optional[SyncConflict]]:
-        """Merge a cloud episode with local. Returns (pulled, conflict_or_none)."""
-        return self._merge_record("episodes", cloud_record, self.get_episode)
-
-    def _merge_note(self, cloud_record: Note) -> tuple[int, Optional[SyncConflict]]:
-        """Merge a cloud note with local. Returns (pulled, conflict_or_none)."""
-        local = None
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM notes WHERE id = ? AND stack_id = ?",
-                (cloud_record.id, self.stack_id),
-            ).fetchone()
-            if row:
-                local = self._row_to_note(row)
-        return self._merge_generic(
-            "notes", cloud_record, local, lambda: self.save_note(cloud_record)
-        )
-
-    def _merge_belief(self, cloud_record: Belief) -> tuple[int, Optional[SyncConflict]]:
-        """Merge a cloud belief with local. Returns (pulled, conflict_or_none)."""
-        local = None
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM beliefs WHERE id = ? AND stack_id = ?",
-                (cloud_record.id, self.stack_id),
-            ).fetchone()
-            if row:
-                local = self._row_to_belief(row)
-        return self._merge_generic(
-            "beliefs", cloud_record, local, lambda: self.save_belief(cloud_record)
-        )
-
-    def _merge_value(self, cloud_record: Value) -> tuple[int, Optional[SyncConflict]]:
-        """Merge a cloud value with local. Returns (pulled, conflict_or_none)."""
-        local = None
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM agent_values WHERE id = ? AND stack_id = ?",
-                (cloud_record.id, self.stack_id),
-            ).fetchone()
-            if row:
-                local = self._row_to_value(row)
-        return self._merge_generic(
-            "agent_values", cloud_record, local, lambda: self.save_value(cloud_record)
-        )
-
-    def _merge_goal(self, cloud_record: Goal) -> tuple[int, Optional[SyncConflict]]:
-        """Merge a cloud goal with local. Returns (pulled, conflict_or_none)."""
-        local = None
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM goals WHERE id = ? AND stack_id = ?",
-                (cloud_record.id, self.stack_id),
-            ).fetchone()
-            if row:
-                local = self._row_to_goal(row)
-        return self._merge_generic(
-            "goals", cloud_record, local, lambda: self.save_goal(cloud_record)
-        )
-
-    def _merge_drive(self, cloud_record: Drive) -> tuple[int, Optional[SyncConflict]]:
-        """Merge a cloud drive with local. Returns (pulled, conflict_or_none)."""
-        local = self.get_drive(cloud_record.drive_type)
-        return self._merge_generic(
-            "drives", cloud_record, local, lambda: self.save_drive(cloud_record)
-        )
-
-    def _merge_relationship(self, cloud_record: Relationship) -> tuple[int, Optional[SyncConflict]]:
-        """Merge a cloud relationship with local. Returns (pulled, conflict_or_none)."""
-        local = self.get_relationship(cloud_record.entity_name)
-        return self._merge_generic(
-            "relationships", cloud_record, local, lambda: self.save_relationship(cloud_record)
-        )
-
-    def _merge_playbook(self, cloud_record: Playbook) -> tuple[int, Optional[SyncConflict]]:
-        """Merge a cloud playbook with local. Returns (pulled, conflict_or_none)."""
-        local = self.get_playbook(cloud_record.id)
-        return self._merge_generic(
-            "playbooks", cloud_record, local, lambda: self.save_playbook(cloud_record)
-        )
-
-    def _merge_record(
-        self, table: str, cloud_record: Any, get_local
-    ) -> tuple[int, Optional[SyncConflict]]:
-        """Generic merge for records with an ID-based getter."""
-        local = get_local(cloud_record.id)
-        return self._merge_generic(
-            table, cloud_record, local, lambda: self._save_from_cloud(table, cloud_record)
-        )
-
-    def _merge_array_fields(self, table: str, winner: Any, loser: Any) -> Any:
-        """Merge array fields from loser into winner using set union.
-
-        This preserves array items from both records rather than losing data
-        when one record wins via last-write-wins. For example, if local has
-        tags=["A", "B"] and cloud has tags=["C"], the merged result will be
-        tags=["A", "B", "C"].
-
-        Args:
-            table: The table name (used to look up which fields to merge)
-            winner: The record that won timestamp comparison (will be modified)
-            loser: The record that lost (arrays will be merged from here)
-
-        Returns:
-            The winner record with merged array fields
-        """
-        from dataclasses import replace
-
-        array_fields = SYNC_ARRAY_FIELDS.get(table, [])
-        if not array_fields:
-            return winner
-
-        updates = {}
-        for field_name in array_fields:
-            if not hasattr(winner, field_name) or not hasattr(loser, field_name):
-                continue
-
-            winner_val = getattr(winner, field_name)
-            loser_val = getattr(loser, field_name)
-
-            # Skip if both are None/empty or loser has nothing to add
-            if not loser_val:
-                continue
-            if not winner_val:
-                # Winner has nothing, use loser's array
-                updates[field_name] = list(loser_val)
-                continue
-
-            # Both have values - merge using set union
-            # Handle both string arrays and dict arrays (like steps in playbooks)
-            try:
-                if winner_val and isinstance(winner_val[0], dict):
-                    # For dict arrays (like playbook steps), use JSON for dedup
-                    seen = set()
-                    merged = []
-                    for item in winner_val:
-                        key = json.dumps(item, sort_keys=True)
-                        if key not in seen:
-                            seen.add(key)
-                            merged.append(item)
-                    for item in loser_val:
-                        key = json.dumps(item, sort_keys=True)
-                        if key not in seen:
-                            seen.add(key)
-                            merged.append(item)
-                    # Enforce size limit to prevent resource exhaustion
-                    if len(merged) > MAX_SYNC_ARRAY_SIZE:
-                        logger.warning(
-                            f"Array field {field_name} exceeded max size ({len(merged)} > {MAX_SYNC_ARRAY_SIZE}), truncating"
-                        )
-                        merged = merged[:MAX_SYNC_ARRAY_SIZE]
-                    updates[field_name] = merged
-                else:
-                    # For string arrays, use simple set union
-                    merged = list(set(winner_val) | set(loser_val))
-                    # Enforce size limit to prevent resource exhaustion
-                    if len(merged) > MAX_SYNC_ARRAY_SIZE:
-                        logger.warning(
-                            f"Array field {field_name} exceeded max size ({len(merged)} > {MAX_SYNC_ARRAY_SIZE}), truncating"
-                        )
-                        merged = merged[:MAX_SYNC_ARRAY_SIZE]
-                    updates[field_name] = merged
-            except (TypeError, KeyError):
-                # If anything goes wrong, just keep winner's value
-                logger.warning(f"Failed to merge array field {field_name}, keeping winner's value")
-                continue
-
-        if updates:
-            # Create a new record with merged fields
-            return replace(winner, **updates)
-        return winner
-
-    def _merge_generic(
-        self, table: str, cloud_record: Any, local_record: Optional[Any], save_fn
-    ) -> tuple[int, Optional[SyncConflict]]:
-        """Generic merge logic with last-write-wins for scalar fields, set union for arrays.
-
-        Returns (pulled_count, conflict_or_none).
-        If a conflict occurred, returns a SyncConflict with details.
-
-        Array fields (like tags, lessons, focus_areas) are merged using set union
-        rather than last-write-wins to preserve data from both sides.
-        """
-        if local_record is None:
-            # No local record - just save the cloud version
-            save_fn()
-            # Mark as synced (don't queue for push)
-            with self._connect() as conn:
-                self._mark_synced(conn, table, cloud_record.id)
-                # Remove from queue if present
-                conn.execute(
-                    "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
-                    (table, cloud_record.id),
-                )
-                conn.commit()
-            return (1, None)
-
-        # Both exist - use last-write-wins for scalar fields, merge arrays
-        cloud_time = cloud_record.cloud_synced_at or cloud_record.local_updated_at
-        local_time = local_record.local_updated_at
-
-        if cloud_time and local_time:
-            if cloud_time > local_time:
-                # Cloud is newer - cloud wins for scalar fields
-                # But merge array fields from local into cloud
-                merged_record = self._merge_array_fields(table, cloud_record, local_record)
-
-                # Create conflict record before overwriting (uses original records for history)
-                conflict = self._create_conflict(
-                    table, cloud_record.id, local_record, cloud_record, "cloud_wins_arrays_merged"
-                )
-
-                # Save the merged record
-                self._save_from_cloud(table, merged_record)
-
-                with self._connect() as conn:
-                    self._mark_synced(conn, table, cloud_record.id)
-                    conn.execute(
-                        "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
-                        (table, cloud_record.id),
-                    )
-                    conn.commit()
-                # Save conflict to history
-                self.save_sync_conflict(conflict)
-                return (1, conflict)  # Pulled with conflict
-            else:
-                # Local is newer - local wins for scalar fields
-                # But merge array fields from cloud into local
-                merged_record = self._merge_array_fields(table, local_record, cloud_record)
-
-                # If arrays were merged, save the updated local record
-                if merged_record is not local_record:
-                    self._save_from_cloud(table, merged_record)
-
-                conflict = self._create_conflict(
-                    table, cloud_record.id, local_record, cloud_record, "local_wins_arrays_merged"
-                )
-                # Save conflict to history
-                self.save_sync_conflict(conflict)
-                return (0, conflict)  # Conflict, but local wins (with merged arrays)
-        elif cloud_time:
-            # Only cloud has timestamp - use cloud
-            save_fn()
-            with self._connect() as conn:
-                self._mark_synced(conn, table, cloud_record.id)
-                conn.commit()
-            return (1, None)
-        else:
-            # Only local has timestamp or neither - keep local
-            return (0, None)
-
-    def _create_conflict(
-        self, table: str, record_id: str, local_record: Any, cloud_record: Any, resolution: str
-    ) -> SyncConflict:
-        """Create a SyncConflict record with human-readable summaries."""
-        import uuid
-
-        local_summary = self._get_record_summary(table, local_record)
-        cloud_summary = self._get_record_summary(table, cloud_record)
-        local_dict = self._record_to_dict(local_record)
-        cloud_dict = self._record_to_dict(cloud_record)
-        return SyncConflict(
-            id=str(uuid.uuid4()),
-            table=table,
-            record_id=record_id,
-            local_version=local_dict,
-            cloud_version=cloud_dict,
-            resolution=resolution,
-            resolved_at=datetime.now(timezone.utc),
-            local_summary=local_summary,
-            cloud_summary=cloud_summary,
-        )
-
-    def _get_record_summary(self, table: str, record: Any) -> str:
-        """Get a human-readable summary of a record for conflict display."""
-        if table == "episodes":
-            return record.objective[:50] + "..." if len(record.objective) > 50 else record.objective
-        elif table == "notes":
-            return record.content[:50] + "..." if len(record.content) > 50 else record.content
-        elif table == "beliefs":
-            return record.statement[:50] + "..." if len(record.statement) > 50 else record.statement
-        elif table == "agent_values":
-            stmt = record.statement[:40] + "..." if len(record.statement) > 40 else record.statement
-            return f"{record.name}: {stmt}"
-        elif table == "goals":
-            return record.title[:50] + "..." if len(record.title) > 50 else record.title
-        elif table == "drives":
-            return f"{record.drive_type} (intensity: {record.intensity})"
-        elif table == "relationships":
-            return f"{record.entity_name} ({record.relationship_type})"
-        return f"{table}:{record.id}"
-
-    def _record_to_dict(self, record: Any) -> Dict[str, Any]:
-        """Convert a dataclass record to a dict for JSON storage."""
-        from dataclasses import asdict
-
-        try:
-            d = asdict(record)
-            for k, v in d.items():
-                if isinstance(v, datetime):
-                    d[k] = v.isoformat()
-            return d
-        except Exception as e:
-            logger.debug(f"Failed to serialize record, using fallback: {e}")
-            return {"id": getattr(record, "id", "unknown")}
-
-    def _save_from_cloud(self, table: str, record: Any):
-        """Save a record that came from cloud (used in _merge_record)."""
-        if table == "episodes":
-            self.save_episode(record)
-        elif table == "notes":
-            self.save_note(record)
-        elif table == "beliefs":
-            self.save_belief(record)
-        elif table == "agent_values":
-            self.save_value(record)
-        elif table == "goals":
-            self.save_goal(record)
-        elif table == "drives":
-            self.save_drive(record)
-        elif table == "relationships":
-            self.save_relationship(record)
+        return self._sync_engine._get_record_for_push(table, record_id)
+
+    def _push_record(self, table: str, record) -> bool:
+        """Push a single record to cloud storage."""
+        return self._sync_engine._push_record(table, record)
+
+    def sync(self):
+        """Sync with cloud storage."""
+        return self._sync_engine.sync()
+
+    def pull_changes(self, since=None):
+        """Pull changes from cloud since the given timestamp."""
+        return self._sync_engine.pull_changes(since)
+
+    def _merge_array_fields(self, table: str, winner, loser):
+        """Merge array fields from loser into winner using set union."""
+        return self._sync_engine._merge_array_fields(table, winner, loser)
 
     # === Health Check Compliance Tracking ===
 
