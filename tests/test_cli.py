@@ -449,12 +449,11 @@ class TestSearchCommand:
         # Verify correct method called with correct args
         mock_kernle.search.assert_called_once_with("testing", 10, min_score=None)
 
-        # Verify output formatting logic (not mock values)
+        # Verify output formatting logic (mock returns exactly 2 results)
         output = fake_out.getvalue()
-        assert "Found" in output and "result(s)" in output, "Should show result count"
+        assert "Found 2 result(s)" in output, "Should show exact result count"
         assert "[episode]" in output, "Should format episode results with type prefix"
         assert "[belief]" in output, "Should format belief results with type prefix"
-        # These verify formatting logic exists, not specific mock content
 
     def test_cmd_search_no_results(self, mock_kernle):
         """Test search command with no results."""
@@ -488,15 +487,14 @@ class TestStatusCommand:
         # Verify correct method was called
         mock_kernle.status.assert_called_once()
 
-        # Verify output has expected structure (tests formatting logic)
+        # Verify output has expected structure with correct formatted values
         output = fake_out.getvalue()
-        assert "Memory Status for" in output, "Should have status header"
-        assert "Values:" in output, "Should show values count"
-        assert "Beliefs:" in output, "Should show beliefs count"
-        assert "Goals:" in output, "Should show goals count"
-        assert "Episodes:" in output, "Should show episodes count"
-        assert "Checkpoint:" in output, "Should show checkpoint status"
-        # Don't assert specific numbers - those come from mock, not production code
+        assert "Memory Status for test_agent" in output, "Should have status header with stack_id"
+        assert "Values:     5" in output, "Should show values count"
+        assert "Beliefs:    10" in output, "Should show beliefs count"
+        assert "Goals:      3" in output, "Should show goals count"
+        assert "Episodes:   25" in output, "Should show episodes count"
+        assert "Checkpoint: Yes" in output, "Should show checkpoint as Yes"
 
     def test_cmd_status_no_checkpoint(self, mock_kernle):
         """Test status command when no checkpoint exists."""
@@ -530,12 +528,12 @@ class TestDriveCommands:
         # Verify correct method was called
         mock_kernle.load_drives.assert_called_once()
 
-        # Verify output has expected structure (tests formatting logic)
+        # Verify output has expected structure with formatted values from mock
         output = fake_out.getvalue()
         assert "Drives:" in output, "Should have drives header"
-        # Verify percentage formatting exists (the code converts intensity to %)
-        assert "%" in output, "Should format intensity as percentage"
-        # Don't assert specific mock values like "curiosity: 80%"
+        assert "curiosity: 80%" in output, "Should format first drive with percentage"
+        assert "growth: 60%" in output, "Should format second drive with percentage"
+        assert "AI, ML" in output, "Should show focus areas for curiosity drive"
 
     def test_cmd_drive_list_empty(self, mock_kernle):
         """Test drive list when no drives exist."""
@@ -1053,9 +1051,9 @@ class TestCLIIntegration:
         output = fake_out.getvalue()
         assert "Episode saved:" in output
 
-        # Verify episode was actually saved
+        # Verify episode was actually saved (exactly one created in this test)
         episodes = storage.get_episodes()
-        assert len(episodes) >= 1
+        assert len(episodes) == 1
         matching = [e for e in episodes if e.objective == "Integration test episode"]
         assert len(matching) == 1
         assert matching[0].outcome_type == "success"
@@ -1081,9 +1079,9 @@ class TestCLIIntegration:
         output = fake_out.getvalue()
         assert "Note saved:" in output
 
-        # Verify note was actually saved
+        # Verify note was actually saved (exactly one created in this test)
         notes = storage.get_notes()
-        assert len(notes) >= 1
+        assert len(notes) == 1
         matching = [n for n in notes if "Integration test note" in n.content]
         assert len(matching) == 1
         assert matching[0].note_type == "decision"
