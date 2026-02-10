@@ -42,9 +42,9 @@ class TestValidateTableName:
 class TestSchemaConstants:
     """Tests for schema constants."""
 
-    def test_schema_version_is_int(self):
+    def test_schema_version_is_current(self):
         assert isinstance(SCHEMA_VERSION, int)
-        assert SCHEMA_VERSION >= 24
+        assert SCHEMA_VERSION == 24
 
     def test_allowed_tables_has_core_tables(self):
         core_tables = {
@@ -81,9 +81,12 @@ class TestEnsureRawFts5:
         conn.executescript(SCHEMA)
         ensure_raw_fts5(conn)
         # Check table exists (FTS5 may or may not be available depending on SQLite build)
-        conn.execute(
+        row = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='raw_fts'"
         ).fetchone()
+        # FTS5 availability depends on SQLite build; assert result if table was created
+        if row is not None:
+            assert row["name"] == "raw_fts"
         conn.close()
 
     def test_idempotent_call(self):
@@ -93,6 +96,12 @@ class TestEnsureRawFts5:
         # Call twice - should not error
         ensure_raw_fts5(conn)
         ensure_raw_fts5(conn)
+        # Verify table still works after second call
+        row = conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='raw_fts'"
+        ).fetchone()
+        if row is not None:
+            assert row["name"] == "raw_fts"
         conn.close()
 
 

@@ -156,7 +156,7 @@ class TestSaveRaw:
             should_sync_raw_fn=lambda: False,
         )
 
-        assert raw_id is not None
+        assert isinstance(raw_id, str) and len(raw_id) > 0
         row = conn.execute("SELECT * FROM raw_entries WHERE id = ?", (raw_id,)).fetchone()
         assert row is not None
         assert row["blob"] == "Hello world"
