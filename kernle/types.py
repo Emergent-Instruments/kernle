@@ -36,13 +36,25 @@ def parse_datetime(s: Optional[str]) -> Optional[datetime]:
 
 
 class SourceType(Enum):
-    """How a memory was created/acquired."""
+    """How a memory was created/acquired.
+
+    This is the single authoritative taxonomy for source_type values.
+    All components, CLI, MCP, and processing code must use these values.
+    """
 
     DIRECT_EXPERIENCE = "direct_experience"  # Directly observed/experienced
     INFERENCE = "inference"  # Inferred from other memories
     EXTERNAL = "external"  # Information received from another being (entity-neutral)
     CONSOLIDATION = "consolidation"  # Created during consolidation
+    PROCESSING = "processing"  # Created by automated memory processing/promotion
+    SEED = "seed"  # Initial seed memories provided at setup
+    OBSERVATION = "observation"  # Passive observation (not direct interaction)
     UNKNOWN = "unknown"  # Legacy or untracked
+
+
+# Canonical set of valid source_type string values, derived from the enum.
+# Use this for validation instead of maintaining separate lists.
+VALID_SOURCE_TYPE_VALUES = frozenset(st.value for st in SourceType)
 
 
 class SyncStatus(Enum):

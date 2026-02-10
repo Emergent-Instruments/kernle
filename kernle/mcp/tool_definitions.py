@@ -6,15 +6,11 @@ Validators and handlers live in kernle.mcp.handlers.
 
 from mcp.types import Tool
 
-VALID_SOURCE_TYPES = [
-    "direct_experience",
-    "inference",
-    "consolidation",
-    "external",
-    "seed",
-    "observation",
-    "unknown",
-]
+from kernle.types import VALID_SOURCE_TYPE_VALUES
+
+# Re-export as a list for JSON Schema enum validation and backward compat.
+# Single source of truth is SourceType enum in kernle.types.
+VALID_SOURCE_TYPES = sorted(VALID_SOURCE_TYPE_VALUES)
 
 TOOLS = [
     Tool(

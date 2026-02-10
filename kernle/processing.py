@@ -596,7 +596,7 @@ class MemoryProcessor:
                         outcome_type=item.get("outcome_type", "neutral"),
                         lessons=item.get("lessons"),
                         created_at=now,
-                        source_type="processed",
+                        source_type="processing",
                         source_entity=f"core:{self._core_id}",
                         derived_from=derived_from,
                     )
@@ -612,7 +612,7 @@ class MemoryProcessor:
                         content=item["content"],
                         note_type=item.get("note_type", "observation"),
                         created_at=now,
-                        source_type="processed",
+                        source_type="processing",
                         source_entity=f"core:{self._core_id}",
                         derived_from=derived_from,
                     )
@@ -629,7 +629,7 @@ class MemoryProcessor:
                         belief_type=item.get("belief_type", "factual"),
                         confidence=item.get("confidence", 0.7),
                         created_at=now,
-                        source_type="processed",
+                        source_type="processing",
                         source_entity=f"core:{self._core_id}",
                         derived_from=derived_from,
                     )
@@ -647,7 +647,7 @@ class MemoryProcessor:
                         goal_type=item.get("goal_type", "task"),
                         priority=item.get("priority", "medium"),
                         created_at=now,
-                        source_type="processed",
+                        source_type="processing",
                         derived_from=derived_from,
                     )
                     gid = self._stack.save_goal(goal)
@@ -665,7 +665,7 @@ class MemoryProcessor:
                         notes=item.get("context_note"),
                         sentiment=item.get("sentiment", 0.0),
                         created_at=now,
-                        source_type="processed",
+                        source_type="processing",
                         derived_from=derived_from,
                     )
                     rid = self._stack.save_relationship(rel)
@@ -681,7 +681,7 @@ class MemoryProcessor:
                         statement=item.get("statement", item["name"]),
                         priority=item.get("priority", 50),
                         created_at=now,
-                        source_type="processed",
+                        source_type="processing",
                         derived_from=derived_from,
                     )
                     vid = self._stack.save_value(value)
@@ -696,7 +696,7 @@ class MemoryProcessor:
                         drive_type=item.get("drive_type", "motivation"),
                         intensity=item.get("intensity", 0.5),
                         created_at=now,
-                        source_type="processed",
+                        source_type="processing",
                         derived_from=derived_from,
                     )
                     did = self._stack.save_drive(drive)
