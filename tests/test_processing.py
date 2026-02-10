@@ -717,7 +717,12 @@ class TestMarkProcessed:
             ]
         )
         inference = MockInference(response)
-        processor = MemoryProcessor(stack=stack, inference=inference, core_id="test")
+        processor = MemoryProcessor(
+            stack=stack,
+            inference=inference,
+            core_id="test",
+            promotion_gates=_NO_GATES,
+        )
         processor.process("episode_to_belief", force=True)
 
         # Episode should be marked as processed
@@ -2120,3 +2125,274 @@ class TestProcessingResultInferenceBlocked:
             inference_blocked=True,
         )
         assert result.inference_blocked is True
+
+
+class TestGateBlockedSourcesNotConsumed:
+    """P1 fix: when promotion gates block ALL items, sources must NOT be
+    marked as processed so they remain available for future processing."""
+
+    def test_gate_blocks_all_items_sources_stay_unprocessed(self, stack):
+        """When gate blocks every parsed item, source episodes stay unprocessed."""
+        ep = Episode(
+            id=str(uuid.uuid4()),
+            stack_id=STACK_ID,
+            objective="Evidence A",
+            outcome="Happened once",
+            source_type="observation",
+            source_entity="test",
+            processed=False,
+        )
+        stack.save_episode(ep)
+
+        # Gate requires 3 episodes — parsed item references only 1
+        strict_gates = PromotionGateConfig(
+            belief_min_evidence=3,
+            belief_min_confidence=0.0,
+            value_min_evidence=0,
+            value_requires_protection=False,
+        )
+
+        response = json.dumps(
+            [
+                {
+                    "statement": "A belief from thin evidence",
+                    "belief_type": "factual",
+                    "confidence": 0.8,
+                    "source_episode_ids": [ep.id],
+                }
+            ]
+        )
+        inference = MockInference(response)
+        processor = MemoryProcessor(
+            stack=stack,
+            inference=inference,
+            core_id="test",
+            auto_promote=True,
+            promotion_gates=strict_gates,
+        )
+        results = processor.process("episode_to_belief", force=True)
+        result = results[0]
+
+        # Gate should have blocked the item
+        assert result.gate_blocked == 1
+        assert len(result.created) == 0
+
+        # Source episode must still be unprocessed
+        episodes = stack.get_episodes(limit=10)
+        unprocessed = [e for e in episodes if not e.processed]
+        assert len(unprocessed) == 1
+        assert unprocessed[0].id == ep.id
+
+    def test_gate_allows_promotion_sources_marked_processed(self, stack):
+        """When gate allows promotion, sources are marked processed as before."""
+        ep = Episode(
+            id=str(uuid.uuid4()),
+            stack_id=STACK_ID,
+            objective="Well-evidenced",
+            outcome="Confirmed",
+            source_type="observation",
+            source_entity="test",
+            processed=False,
+        )
+        stack.save_episode(ep)
+
+        # Gate with no minimum evidence — everything passes
+        response = json.dumps(
+            [
+                {
+                    "statement": "A well-founded belief",
+                    "belief_type": "factual",
+                    "confidence": 0.9,
+                    "source_episode_ids": [ep.id],
+                }
+            ]
+        )
+        inference = MockInference(response)
+        processor = MemoryProcessor(
+            stack=stack,
+            inference=inference,
+            core_id="test",
+            auto_promote=True,
+            promotion_gates=_NO_GATES,
+        )
+        results = processor.process("episode_to_belief", force=True)
+        result = results[0]
+
+        assert result.gate_blocked == 0
+        assert len(result.created) == 1
+
+        # Source episode should now be processed
+        episodes = stack.get_episodes(limit=10)
+        unprocessed = [e for e in episodes if not e.processed]
+        assert len(unprocessed) == 0
+
+    def test_previously_blocked_sources_promoted_after_conditions_improve(self, stack):
+        """Sources blocked by gates can be promoted when conditions change."""
+        # Create 3 episodes to eventually meet the evidence threshold
+        ep_ids = []
+        for i in range(3):
+            ep = Episode(
+                id=str(uuid.uuid4()),
+                stack_id=STACK_ID,
+                objective=f"Evidence {i}",
+                outcome=f"Result {i}",
+                source_type="observation",
+                source_entity="test",
+                processed=False,
+            )
+            stack.save_episode(ep)
+            ep_ids.append(ep.id)
+
+        # First attempt: gate requires 5 episodes — only 3 referenced, blocks
+        strict_gates = PromotionGateConfig(
+            belief_min_evidence=5,
+            belief_min_confidence=0.0,
+            value_min_evidence=0,
+            value_requires_protection=False,
+        )
+
+        response = json.dumps(
+            [
+                {
+                    "statement": "A belief needing more evidence",
+                    "belief_type": "factual",
+                    "confidence": 0.8,
+                    "source_episode_ids": ep_ids,
+                }
+            ]
+        )
+        inference = MockInference(response)
+        processor = MemoryProcessor(
+            stack=stack,
+            inference=inference,
+            core_id="test",
+            auto_promote=True,
+            promotion_gates=strict_gates,
+        )
+        results = processor.process("episode_to_belief", force=True)
+        assert results[0].gate_blocked == 1
+        assert len(results[0].created) == 0
+
+        # Episodes should still be unprocessed
+        episodes = stack.get_episodes(limit=10)
+        unprocessed = [e for e in episodes if not e.processed]
+        assert len(unprocessed) == 3
+
+        # Second attempt: relax gate to 3 episodes — now passes
+        relaxed_gates = PromotionGateConfig(
+            belief_min_evidence=3,
+            belief_min_confidence=0.0,
+            value_min_evidence=0,
+            value_requires_protection=False,
+        )
+
+        inference2 = MockInference(response)
+        processor2 = MemoryProcessor(
+            stack=stack,
+            inference=inference2,
+            core_id="test",
+            auto_promote=True,
+            promotion_gates=relaxed_gates,
+        )
+        results2 = processor2.process("episode_to_belief", force=True)
+        assert results2[0].gate_blocked == 0
+        assert len(results2[0].created) == 1
+
+        # Now episodes should be processed
+        episodes = stack.get_episodes(limit=10)
+        unprocessed = [e for e in episodes if not e.processed]
+        assert len(unprocessed) == 0
+
+    def test_gate_blocks_suggestion_mode_sources_stay_unprocessed(self, stack):
+        """In suggestion mode (auto_promote=False), gate-blocked items
+        should also leave sources unprocessed."""
+        ep = Episode(
+            id=str(uuid.uuid4()),
+            stack_id=STACK_ID,
+            objective="Evidence for suggestion",
+            outcome="Only once",
+            source_type="observation",
+            source_entity="test",
+            processed=False,
+        )
+        stack.save_episode(ep)
+
+        strict_gates = PromotionGateConfig(
+            belief_min_evidence=3,
+            belief_min_confidence=0.0,
+            value_min_evidence=0,
+            value_requires_protection=False,
+        )
+
+        response = json.dumps(
+            [
+                {
+                    "statement": "A suggestion from thin evidence",
+                    "belief_type": "factual",
+                    "confidence": 0.8,
+                    "source_episode_ids": [ep.id],
+                }
+            ]
+        )
+        inference = MockInference(response)
+        processor = MemoryProcessor(
+            stack=stack,
+            inference=inference,
+            core_id="test",
+            auto_promote=False,
+            promotion_gates=strict_gates,
+        )
+        results = processor.process("episode_to_belief", force=True)
+        result = results[0]
+
+        assert result.gate_blocked == 1
+        assert len(result.suggestions) == 0
+
+        # Source episode must still be unprocessed
+        episodes = stack.get_episodes(limit=10)
+        unprocessed = [e for e in episodes if not e.processed]
+        assert len(unprocessed) == 1
+
+    def test_mock_gate_blocks_no_mark_called(self):
+        """Unit test: when gate blocks all items, _mark_processed is not called."""
+        mock_stack = _make_mock_stack()
+        mock_stack.get_episodes.return_value = [
+            MagicMock(id="ep-1", processed=False),
+        ]
+        mock_stack._backend.list_raw.return_value = []
+        mock_stack.get_beliefs.return_value = []
+
+        strict_gates = PromotionGateConfig(
+            belief_min_evidence=5,
+            belief_min_confidence=0.0,
+            value_min_evidence=0,
+            value_requires_protection=False,
+        )
+
+        response = json.dumps(
+            [
+                {
+                    "statement": "blocked belief",
+                    "belief_type": "factual",
+                    "confidence": 0.8,
+                    "source_episode_ids": ["ep-1"],
+                }
+            ]
+        )
+        inference = MockInference(response)
+        processor = MemoryProcessor(
+            stack=mock_stack,
+            inference=inference,
+            core_id="test",
+            auto_promote=True,
+            promotion_gates=strict_gates,
+        )
+
+        processor._process_layer(
+            "episode_to_belief",
+            LayerConfig(layer_transition="episode_to_belief"),
+            auto_promote=True,
+        )
+
+        # mark_episode_processed should NOT have been called
+        mock_stack._backend.mark_episode_processed.assert_not_called()
