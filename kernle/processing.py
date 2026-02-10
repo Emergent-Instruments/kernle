@@ -1297,6 +1297,31 @@ class MemoryProcessor:
                     did = self._stack.save_drive(drive)
                     created.append({"type": "drive", "id": did})
 
+                # Update dedup index with newly created memory so subsequent
+                # items in this batch are checked against it (intra-batch dedup).
+                if dedup_index is not None and created:
+                    new_entry = created[-1]
+                    new_id = new_entry["id"]
+
+                    # Create a lightweight record for the index
+                    class _Ref:
+                        pass
+
+                    ref = _Ref()
+                    ref.id = new_id
+
+                    derived_from = _extract_derived_from(transition, item)
+                    if derived_from:
+                        phash = compute_provenance_hash(derived_from)
+                        if phash:
+                            dedup_index["provenance"][phash] = ref
+
+                    content_text = _extract_content_text(transition, item)
+                    if content_text:
+                        chash = compute_content_hash(content_text)
+                        if chash:
+                            dedup_index["content"][chash] = ref
+
             except Exception as e:
                 logger.error("Failed to write %s memory: %s", transition, e)
 
