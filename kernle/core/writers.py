@@ -384,7 +384,9 @@ class WritersMixin:
             for e in entries
         ]
 
-    def process(self, transition=None, force=False, allow_no_inference_override=False, auto_promote=False):
+    def process(
+        self, transition=None, force=False, allow_no_inference_override=False, auto_promote=False
+    ):
         """Run memory processing.
 
         By default, creates suggestions for review rather than directly

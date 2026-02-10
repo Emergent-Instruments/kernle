@@ -44,7 +44,10 @@ class TestKernleProcess:
 
         result = k.process(transition="raw_to_episode", force=True)
         mock_entity.process.assert_called_once_with(
-            transition="raw_to_episode", force=True, allow_no_inference_override=False, auto_promote=False
+            transition="raw_to_episode",
+            force=True,
+            allow_no_inference_override=False,
+            auto_promote=False,
         )
         assert result == []
 
