@@ -837,3 +837,442 @@ class TestFullSyncPushPaths:
 
         output = capsys.readouterr().out
         assert "Pushed 1 changes" in output
+
+
+# ============================================================================
+# format_datetime string pass-through (line 122)
+# ============================================================================
+
+
+class TestFormatDatetimeStringPassthrough:
+    """Test format_datetime when dt is already a string."""
+
+    def test_pull_with_string_last_sync_time(self, k, capsys, tmp_path):
+        """When last_sync_time is stored as a string, format_datetime returns it unchanged."""
+        # Set last sync time as an ISO string — get_last_sync_time will parse it,
+        # but we can mock it to return a string to hit the isinstance(dt, str) branch.
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok"}
+        creds_path = _setup_creds(tmp_path, creds=creds, dirname="fmt_str")
+
+        pull_resp = _make_response(200, json_data={"operations": [], "has_more": False})
+        mock_httpx = MagicMock()
+        mock_httpx.post.return_value = pull_resp
+
+        # Mock get_last_sync_time to return a string (triggers line 122)
+        original_get_last = k._storage.get_last_sync_time
+
+        def mock_get_last():
+            return "2024-01-15T10:30:00"
+
+        k._storage.get_last_sync_time = mock_get_last
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="pull"), k)
+
+        k._storage.get_last_sync_time = original_get_last
+
+        # Verify the string was passed through to the request
+        call_args = mock_httpx.post.call_args
+        sent_json = call_args[1]["json"]
+        assert sent_json["since"] == "2024-01-15T10:30:00"
+
+
+# ============================================================================
+# Naive datetime in status display (lines 184-186)
+# ============================================================================
+
+
+class TestNaiveDatetimeStatus:
+    """Test status display when last_sync is a naive datetime (no tzinfo)."""
+
+    def test_status_naive_datetime_gets_utc(self, k, capsys, tmp_path):
+        """Naive datetime without tzinfo gets UTC attached for elapsed calculation."""
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok"}
+        creds_path = _setup_creds(tmp_path, creds=creds, dirname="naive_dt")
+
+        mock_httpx = MagicMock()
+        mock_httpx.get.return_value = _make_response(200)
+
+        # Return a naive datetime (no tzinfo) to trigger lines 184-186
+        naive_dt = datetime(2024, 1, 15, 10, 30, 0)  # no timezone
+        original_get_last = k._storage.get_last_sync_time
+        k._storage.get_last_sync_time = lambda: naive_dt
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="status"), k)
+
+        k._storage.get_last_sync_time = original_get_last
+
+        output = capsys.readouterr().out
+        # Should show days ago since 2024-01-15 is far in the past
+        assert "days ago" in output
+
+
+# ============================================================================
+# Push with live record fallback — dataclass extraction (lines 288-297)
+# ============================================================================
+
+
+class TestPushLiveRecordFallback:
+    """Test push when payload is missing but source record exists in DB."""
+
+    def test_push_uses_live_record_when_no_payload(self, k, capsys, tmp_path):
+        """Push extracts dataclass fields from live record when no stored payload."""
+        from kernle.storage import Note
+
+        # Save a note so it exists in the source table
+        k._storage.save_note(Note(id="n-live", stack_id="test-sync-cov", content="live content"))
+
+        # Clear both payload and data columns so it must use the live record
+        with k._storage._connect() as conn:
+            conn.execute(
+                "UPDATE sync_queue SET payload = NULL, data = NULL WHERE record_id = ?",
+                ("n-live",),
+            )
+            conn.commit()
+
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok"}
+        creds_path = _setup_creds(tmp_path, creds=creds, dirname="push_live")
+
+        push_resp = _make_response(200, json_data={"synced": 1, "conflicts": []})
+        mock_httpx = MagicMock()
+        mock_httpx.post.return_value = push_resp
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="push"), k)
+
+        output = capsys.readouterr().out
+        assert "Pushed 1 changes" in output
+
+        # Verify the data was extracted from the live record
+        call_args = mock_httpx.post.call_args
+        sent_json = call_args[1]["json"]
+        ops = sent_json["operations"]
+        assert len(ops) == 1
+        assert ops[0]["data"]["content"] == "live content"
+        assert ops[0]["data"]["id"] == "n-live"
+
+
+# ============================================================================
+# Push response with conflicts (lines 354-359)
+# ============================================================================
+
+
+class TestPushResponseConflicts:
+    """Test push output when backend reports conflicts."""
+
+    def test_push_with_conflicts_display(self, k, capsys, tmp_path):
+        """Push shows conflict details when backend reports them."""
+        from kernle.storage import Note
+
+        k._storage.save_note(Note(id="n-conf", stack_id="test-sync-cov", content="conflict data"))
+
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok", "user_id": "u1"}
+        creds_path = _setup_creds(tmp_path, creds=creds, dirname="push_conf")
+
+        conflicts_list = [
+            {"record_id": "n-conf", "error": "version mismatch"},
+            {"record_id": "n-other", "error": "stale data"},
+        ]
+        push_resp = _make_response(200, json_data={"synced": 1, "conflicts": conflicts_list})
+        mock_httpx = MagicMock()
+        mock_httpx.post.return_value = push_resp
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="push"), k)
+
+        output = capsys.readouterr().out
+        assert "2 conflicts:" in output
+        assert "n-conf" in output
+        assert "version mismatch" in output
+        assert "Synced as: u1/test-sync-cov" in output
+
+
+# ============================================================================
+# Pull with since parameter (line 399) and conflict + has_more display
+# ============================================================================
+
+
+class TestPullWithSinceAndConflicts:
+    """Test pull with incremental since time and conflict/has_more branches."""
+
+    def test_pull_incremental_with_since(self, k, capsys, tmp_path):
+        """Pull sends since parameter when last_sync_time exists and full=False."""
+        # Set a last sync time so since is non-None
+        k._storage._set_sync_meta("last_sync_time", "2024-06-01T12:00:00+00:00")
+
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok"}
+        creds_path = _setup_creds(tmp_path, creds=creds, dirname="pull_since")
+
+        pull_resp = _make_response(200, json_data={"operations": [], "has_more": False})
+        mock_httpx = MagicMock()
+        mock_httpx.post.return_value = pull_resp
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="pull", full=False), k)
+
+        # Verify since was included in the request
+        call_args = mock_httpx.post.call_args
+        sent_json = call_args[1]["json"]
+        assert "since" in sent_json
+
+    def test_pull_exception_during_apply_counts_conflict(self, k, capsys, tmp_path):
+        """Pull counts exceptions during record apply as conflicts."""
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok", "user_id": "u1"}
+        creds_path = _setup_creds(tmp_path, creds=creds, dirname="pull_exc")
+
+        # Create episode operation that will raise during save_episode
+        ops = [
+            {
+                "table": "episodes",
+                "record_id": "ep-crash",
+                "operation": "upsert",
+                "data": {"objective": "test", "outcome_type": "success"},
+            }
+        ]
+        pull_resp = _make_response(200, json_data={"operations": ops, "has_more": True})
+        mock_httpx = MagicMock()
+        mock_httpx.post.return_value = pull_resp
+
+        # Make save_episode raise to trigger the except path
+        original_save = k._storage.save_episode
+        k._storage.save_episode = MagicMock(side_effect=ValueError("bad episode"))
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="pull"), k)
+
+        k._storage.save_episode = original_save
+
+        output = capsys.readouterr().out
+        assert "1 conflicts during apply" in output
+        assert "More changes available" in output
+        assert "From: u1/test-sync-cov" in output
+
+
+# ============================================================================
+# Full sync push with bad payload + live record fallback (lines 615-616, 623-633)
+# ============================================================================
+
+
+class TestFullSyncBadPayloadLiveRecord:
+    """Test full sync push when payload is invalid JSON but live record exists."""
+
+    def test_full_sync_bad_payload_falls_back_to_live_record(self, k, capsys, tmp_path):
+        """Full sync push falls back to live record when payload is bad JSON."""
+        from kernle.storage import Note
+
+        # Save a note so it exists in the source table
+        k._storage.save_note(Note(id="n-badpl", stack_id="test-sync-cov", content="live fallback"))
+
+        # Corrupt both payload and data in the sync queue so bad JSON hits the except
+        # path and then falls through to the live record lookup
+        with k._storage._connect() as conn:
+            conn.execute(
+                "UPDATE sync_queue SET payload = ?, data = ? WHERE record_id = ?",
+                ("not valid json", "not valid json", "n-badpl"),
+            )
+            conn.commit()
+
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok"}
+        creds_path = _setup_creds(tmp_path, creds=creds, dirname="full_badpl")
+
+        call_count = {"n": 0}
+
+        def route_post(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return _make_response(200, json_data={"operations": [], "has_more": False})
+            return _make_response(200, json_data={"synced": 1, "conflicts": []})
+
+        mock_httpx = MagicMock()
+        mock_httpx.post.side_effect = route_post
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="full"), k)
+
+        output = capsys.readouterr().out
+        assert "Pushed 1 changes" in output
+
+        # Verify the live record data was sent (from dataclass extraction)
+        push_call = mock_httpx.post.call_args_list[1]
+        sent_json = push_call[1]["json"]
+        ops = sent_json["operations"]
+        assert len(ops) == 1
+        assert ops[0]["data"]["content"] == "live fallback"
+
+
+# ============================================================================
+# Conflicts display with local/cloud summaries (lines 733-737)
+# ============================================================================
+
+
+class TestConflictsDisplaySummaries:
+    """Test conflict history display with local and cloud summaries."""
+
+    def test_conflicts_display_with_summaries(self, k, capsys, tmp_path):
+        """Conflict display shows local and cloud summaries when present."""
+        from kernle.types import SyncConflict
+
+        # Save a conflict record with both summaries
+        conflict = SyncConflict(
+            id="conf-1",
+            table="notes",
+            record_id="n-conflict-123456",
+            local_version={"content": "local version"},
+            cloud_version={"content": "cloud version"},
+            resolution="cloud_wins",
+            resolved_at=datetime(2024, 6, 15, 14, 30, 0, tzinfo=timezone.utc),
+            local_summary="My local note",
+            cloud_summary="Remote updated note",
+        )
+        k._storage.save_sync_conflict(conflict)
+
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok"}
+        creds_path = _setup_creds(tmp_path, creds=creds, dirname="conf_summ")
+
+        mock_httpx = MagicMock()
+        mock_httpx.get.return_value = _make_response(200)
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="conflicts"), k)
+
+        output = capsys.readouterr().out
+        assert "Sync Conflict History" in output
+        assert "cloud wins" in output
+        assert 'Local:  "My local note"' in output
+        assert 'Cloud:  "Remote updated note"' in output
+        assert "n-confli..." in output
+        assert "2024-06-15 14:30" in output
+
+    def test_conflicts_display_without_summaries(self, k, capsys, tmp_path):
+        """Conflict display handles missing summaries (neither local nor cloud)."""
+        from kernle.types import SyncConflict
+
+        conflict = SyncConflict(
+            id="conf-2",
+            table="episodes",
+            record_id="ep-nosumm-12345678",
+            local_version={"objective": "local"},
+            cloud_version={"objective": "cloud"},
+            resolution="local_wins",
+            resolved_at=datetime(2024, 7, 20, 8, 0, 0, tzinfo=timezone.utc),
+            local_summary=None,
+            cloud_summary=None,
+        )
+        k._storage.save_sync_conflict(conflict)
+
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok"}
+        creds_path = _setup_creds(tmp_path, creds=creds, dirname="conf_nosumm")
+
+        mock_httpx = MagicMock()
+        mock_httpx.get.return_value = _make_response(200)
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="conflicts"), k)
+
+        output = capsys.readouterr().out
+        assert "local wins" in output
+        assert "Local:" not in output  # No summary means no "Local:" line
+        assert "Cloud:" not in output
+
+
+# ============================================================================
+# Push/full-sync with delete operations (branch 270->311, 609->646)
+# ============================================================================
+
+
+class TestPushDeleteOperations:
+    """Test push and full sync with delete operations in the sync queue."""
+
+    def test_push_delete_operation_skips_record_extraction(self, k, capsys, tmp_path):
+        """Push with delete operation skips record data extraction entirely."""
+        # Insert a delete operation into the sync queue
+        with k._storage._connect() as conn:
+            conn.execute(
+                """INSERT INTO sync_queue (table_name, record_id, operation, local_updated_at, synced)
+                   VALUES (?, ?, ?, datetime('now'), 0)""",
+                ("notes", "n-deleted", "delete"),
+            )
+            conn.commit()
+
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok"}
+        creds_path = _setup_creds(tmp_path, creds=creds, dirname="push_del")
+
+        push_resp = _make_response(200, json_data={"synced": 1, "conflicts": []})
+        mock_httpx = MagicMock()
+        mock_httpx.post.return_value = push_resp
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="push"), k)
+
+        output = capsys.readouterr().out
+        assert "Pushed 1 changes" in output
+
+        # Verify the delete operation was sent without data field
+        call_args = mock_httpx.post.call_args
+        sent_json = call_args[1]["json"]
+        ops = sent_json["operations"]
+        assert len(ops) == 1
+        assert ops[0]["operation"] == "delete"
+        assert "data" not in ops[0]
+
+    def test_full_sync_delete_operation(self, k, capsys, tmp_path):
+        """Full sync push with delete operation skips record extraction."""
+        # Insert a delete operation
+        with k._storage._connect() as conn:
+            conn.execute(
+                """INSERT INTO sync_queue (table_name, record_id, operation, local_updated_at, synced)
+                   VALUES (?, ?, ?, datetime('now'), 0)""",
+                ("notes", "n-full-del", "delete"),
+            )
+            conn.commit()
+
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok"}
+        creds_path = _setup_creds(tmp_path, creds=creds, dirname="full_del")
+
+        call_count = {"n": 0}
+
+        def route_post(*args, **kwargs):
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return _make_response(200, json_data={"operations": [], "has_more": False})
+            return _make_response(200, json_data={"synced": 1, "conflicts": []})
+
+        mock_httpx = MagicMock()
+        mock_httpx.post.side_effect = route_post
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="full"), k)
+
+        output = capsys.readouterr().out
+        assert "Pushed 1 changes" in output
+
+        # Verify delete sent without data
+        push_call = mock_httpx.post.call_args_list[1]
+        sent_json = push_call[1]["json"]
+        ops = sent_json["operations"]
+        assert len(ops) == 1
+        assert ops[0]["operation"] == "delete"
+        assert "data" not in ops[0]
