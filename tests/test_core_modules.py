@@ -210,6 +210,13 @@ class TestWritersEdgeCases:
             avoid=["bad pattern"],
         )
         assert ep_id is not None
+        # Verify stored data
+        ep = k._storage.get_episode(ep_id)
+        assert ep.objective == "Test"
+        assert ep.outcome == "Done successfully"
+        assert ep.outcome_type == "success"
+        assert ep.repeat == ["good pattern"]
+        assert ep.avoid == ["bad pattern"]
 
     def test_episode_failure_outcome_type(self):
         """Episode detects failure outcome type."""
@@ -285,6 +292,13 @@ class TestWritersEdgeCases:
             speaker="Mulder",
         )
         assert note_id is not None
+        # Verify quote formatting in stored content
+        notes = k._storage.get_notes(limit=100)
+        matched = [n for n in notes if n.id == note_id]
+        assert len(matched) == 1
+        assert '> "The truth is out there"' in matched[0].content
+        assert "Mulder" in matched[0].content
+        assert matched[0].note_type == "quote"
 
     def test_note_decision_type(self):
         """Note formats decision type correctly."""
@@ -295,12 +309,25 @@ class TestWritersEdgeCases:
             reason="Team expertise",
         )
         assert note_id is not None
+        # Verify decision formatting in stored content
+        notes = k._storage.get_notes(limit=100)
+        matched = [n for n in notes if n.id == note_id]
+        assert len(matched) == 1
+        assert "**Decision**: Use Python for backend" in matched[0].content
+        assert "**Reason**: Team expertise" in matched[0].content
+        assert matched[0].note_type == "decision"
 
     def test_note_insight_type(self):
         """Note formats insight type correctly."""
         k = self._make_kernle()
         note_id = k.note(content="Users prefer simplicity", type="insight")
         assert note_id is not None
+        # Verify insight formatting in stored content
+        notes = k._storage.get_notes(limit=100)
+        matched = [n for n in notes if n.id == note_id]
+        assert len(matched) == 1
+        assert "**Insight**: Users prefer simplicity" in matched[0].content
+        assert matched[0].note_type == "insight"
 
     def test_note_invalid_type(self):
         """Note rejects invalid type."""
@@ -316,8 +343,11 @@ class TestWritersEdgeCases:
             type="quote",
             source="from a book",
         )
-        # The source_type should be external for quotes with a source
-        assert note_id is not None
+        # Verify source_type is external for quotes with a source
+        notes = k._storage.get_notes(limit=100)
+        matched = [n for n in notes if n.id == note_id]
+        assert len(matched) == 1
+        assert matched[0].source_type == "external"
 
     def test_belief_source_consolidation(self):
         """Belief infers consolidation source_type."""
@@ -353,12 +383,26 @@ class TestWritersEdgeCases:
         k = self._make_kernle()
         goal_id = k.goal(title="Become wise", goal_type="aspiration")
         assert goal_id is not None
+        # Verify goal is stored as protected
+        goals = k._storage.get_goals(status="active", limit=100)
+        matched = [g for g in goals if g.id == goal_id]
+        assert len(matched) == 1
+        assert matched[0].is_protected is True
+        assert matched[0].goal_type == "aspiration"
+        assert matched[0].title == "Become wise"
 
     def test_goal_commitment_protected(self):
         """Commitment goals are auto-protected."""
         k = self._make_kernle()
         goal_id = k.goal(title="Always help", goal_type="commitment")
         assert goal_id is not None
+        # Verify goal is stored as protected
+        goals = k._storage.get_goals(status="active", limit=100)
+        matched = [g for g in goals if g.id == goal_id]
+        assert len(matched) == 1
+        assert matched[0].is_protected is True
+        assert matched[0].goal_type == "commitment"
+        assert matched[0].title == "Always help"
 
     def test_update_goal_invalid_status(self):
         """update_goal rejects invalid status."""
@@ -436,6 +480,15 @@ class TestWritersEdgeCases:
             entity_type="person",
         )
         assert rel_id is not None
+        # Verify stored relationship data
+        rel = k._storage.get_relationship("Alice")
+        assert rel is not None
+        assert rel.id == rel_id
+        assert rel.entity_name == "Alice"
+        assert rel.entity_type == "person"
+        assert rel.notes == "A colleague"
+        # trust_level 0.8 -> sentiment (0.8 * 2) - 1 = 0.6
+        assert abs(rel.sentiment - 0.6) < 0.01
 
     def test_relationship_update_existing(self):
         """relationship() updates existing relationship."""
