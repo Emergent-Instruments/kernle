@@ -15,6 +15,7 @@ recursive self-invocation) by swapping the process_layer implementation.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import uuid
@@ -23,6 +24,76 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Deduplication Utilities
+# =============================================================================
+
+
+def compute_provenance_hash(derived_from: List[str]) -> str:
+    """Compute a stable hash from a sorted provenance set.
+
+    Given a list of derived_from refs (e.g. ["raw:abc", "raw:def"]),
+    produces a deterministic hex digest. Two memories with the same
+    provenance set will always produce the same hash.
+    """
+    if not derived_from:
+        return ""
+    canonical = "|".join(sorted(derived_from))
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def compute_content_hash(content: str) -> str:
+    """Compute a hash from normalized content text.
+
+    Normalizes whitespace and lowercases before hashing to catch
+    near-identical content from different inference runs.
+    """
+    if not content:
+        return ""
+    normalized = " ".join(content.lower().split())
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def _extract_content_text(transition: str, item: dict) -> str:
+    """Extract the primary content text from a parsed item for hashing."""
+    if transition in ("raw_to_episode", "episode_to_goal"):
+        parts = [item.get("objective", ""), item.get("outcome", "")]
+        if transition == "episode_to_goal":
+            parts = [item.get("title", ""), item.get("description", "")]
+        return " ".join(p for p in parts if p)
+    elif transition == "raw_to_note":
+        return item.get("content", "")
+    elif transition == "episode_to_belief":
+        return item.get("statement", "")
+    elif transition == "episode_to_relationship":
+        return item.get("entity_name", "")
+    elif transition == "belief_to_value":
+        parts = [item.get("name", ""), item.get("statement", "")]
+        return " ".join(p for p in parts if p)
+    elif transition == "episode_to_drive":
+        return item.get("drive_type", "")
+    return ""
+
+
+def _extract_derived_from(transition: str, item: dict) -> List[str]:
+    """Extract the derived_from list from a parsed item."""
+    if transition in ("raw_to_episode", "raw_to_note"):
+        raw_ids = item.get("source_raw_ids", [])
+        return [f"raw:{rid}" for rid in raw_ids]
+    elif transition in (
+        "episode_to_belief",
+        "episode_to_goal",
+        "episode_to_relationship",
+        "episode_to_drive",
+    ):
+        ep_ids = item.get("source_episode_ids", [])
+        return [f"episode:{eid}" for eid in ep_ids]
+    elif transition == "belief_to_value":
+        belief_ids = item.get("source_belief_ids", [])
+        return [f"belief:{bid}" for bid in belief_ids]
+    return []
 
 
 # =============================================================================
@@ -109,6 +180,7 @@ class ProcessingResult:
     skip_reason: Optional[str] = None
     inference_blocked: bool = False  # True if blocked by no-inference safety
     auto_promote: bool = False  # Whether direct promotion was used
+    deduplicated: int = 0  # Items skipped due to provenance/content match
 
 
 # =============================================================================
@@ -570,21 +642,26 @@ class MemoryProcessor:
             result.errors.append(f"Parse failed: {e}")
             return result
 
-        # 6. Write memories or create suggestions
+        # 6. Build dedup index from target memories for idempotent transitions
+        dedup_targets = self._gather_dedup_targets(transition)
+        dedup_index = self._build_existing_index(transition, dedup_targets)
+
+        # 7. Write memories or create suggestions (dedup-aware)
         if auto_promote:
             # Direct promotion (opt-in): write memories immediately
-            created = self._write_memories(transition, parsed, sources)
+            created = self._write_memories(transition, parsed, sources, dedup_index)
             result.created = created
         else:
             # Default: create suggestions for review
             suggestions = self._write_suggestions(transition, parsed, sources)
             result.suggestions = suggestions
+        result.deduplicated = getattr(self, "_last_deduplicated", 0)
 
-        # 7. Mark sources as processed
+        # 8. Mark sources as processed
         created_or_suggested = result.created or result.suggestions
         self._mark_processed(transition, sources, created_or_suggested)
 
-        # 8. Log audit
+        # 9. Log audit
         self._stack.log_audit(
             "processing",
             transition,
@@ -595,6 +672,7 @@ class MemoryProcessor:
                 "created_count": len(result.created),
                 "suggestion_count": len(result.suggestions),
                 "auto_promote": auto_promote,
+                "deduplicated": result.deduplicated,
                 "errors": result.errors,
             },
         )
@@ -643,6 +721,36 @@ class MemoryProcessor:
 
         if transition == "belief_to_value":
             return self._stack.get_values(limit=20)
+
+        if transition == "episode_to_drive":
+            return self._stack.get_drives()
+
+        return []
+
+    def _gather_dedup_targets(self, transition: str) -> list:
+        """Load existing target-type memories for deduplication.
+
+        Unlike _gather_context (which provides prompt context for the LLM),
+        this queries the actual target memory type that the transition produces.
+        For example, raw_to_note produces notes, so we query notes here.
+        """
+        if transition == "raw_to_episode":
+            return self._stack.get_episodes(limit=100)
+
+        if transition == "raw_to_note":
+            return self._stack.get_notes(limit=100)
+
+        if transition == "episode_to_belief":
+            return self._stack.get_beliefs(limit=100)
+
+        if transition == "episode_to_goal":
+            return self._stack.get_goals(limit=100)
+
+        if transition == "episode_to_relationship":
+            return self._stack.get_relationships()
+
+        if transition == "belief_to_value":
+            return self._stack.get_values(limit=100)
 
         if transition == "episode_to_drive":
             return self._stack.get_drives()
@@ -708,17 +816,127 @@ class MemoryProcessor:
 
         return json.loads(text)
 
+    # ---- Deduplication ----
+
+    def _build_existing_index(self, transition: str, context: list) -> Dict[str, Any]:
+        """Build an index of existing memories for deduplication.
+
+        Returns a dict mapping provenance_hash -> existing memory record,
+        and a set of content hashes for content-based dedup.
+
+        The index covers memories already present in the stack that could
+        be duplicates of what this processing pass would create.
+        """
+        prov_index: Dict[str, Any] = {}  # provenance_hash -> record
+        content_index: Dict[str, Any] = {}  # content_hash -> record
+
+        for record in context:
+            derived = getattr(record, "derived_from", None) or []
+            if derived:
+                phash = compute_provenance_hash(derived)
+                if phash:
+                    prov_index[phash] = record
+
+            # Build content hash based on what type of record this is
+            content_text = ""
+            if hasattr(record, "objective"):
+                content_text = f"{record.objective} {record.outcome}"
+            elif hasattr(record, "statement") and hasattr(record, "belief_type"):
+                content_text = record.statement
+            elif hasattr(record, "content") and hasattr(record, "note_type"):
+                content_text = record.content
+            elif hasattr(record, "title"):
+                content_text = f"{record.title} {getattr(record, 'description', '') or ''}"
+            elif hasattr(record, "drive_type"):
+                content_text = record.drive_type
+            elif hasattr(record, "entity_name"):
+                content_text = record.entity_name
+            elif hasattr(record, "name") and hasattr(record, "statement"):
+                content_text = f"{record.name} {record.statement}"
+
+            if content_text:
+                chash = compute_content_hash(content_text)
+                if chash:
+                    content_index[chash] = record
+
+        return {"provenance": prov_index, "content": content_index}
+
+    def _check_duplicate(
+        self, transition: str, item: dict, dedup_index: Dict[str, Any]
+    ) -> Optional[str]:
+        """Check if a parsed item is a duplicate of an existing memory.
+
+        Returns:
+            None if not a duplicate.
+            The existing memory ID if it's a duplicate (skip creation).
+        """
+        derived_from = _extract_derived_from(transition, item)
+        content_text = _extract_content_text(transition, item)
+
+        # 1. Check provenance hash match
+        if derived_from:
+            phash = compute_provenance_hash(derived_from)
+            if phash and phash in dedup_index["provenance"]:
+                existing = dedup_index["provenance"][phash]
+                existing_id = getattr(existing, "id", None)
+                logger.info(
+                    "Dedup: skipping %s item — provenance match with %s",
+                    transition,
+                    existing_id,
+                )
+                return existing_id
+
+        # 2. Check content hash match
+        if content_text:
+            chash = compute_content_hash(content_text)
+            if chash and chash in dedup_index["content"]:
+                existing = dedup_index["content"][chash]
+                existing_id = getattr(existing, "id", None)
+                logger.info(
+                    "Dedup: skipping %s item — content match with %s",
+                    transition,
+                    existing_id,
+                )
+                return existing_id
+
+        return None
+
     # ---- Memory Writing ----
 
-    def _write_memories(self, transition: str, parsed: list, sources: list) -> List[Dict[str, str]]:
-        """Write parsed memories through the stack with provenance."""
+    def _write_memories(
+        self,
+        transition: str,
+        parsed: list,
+        sources: list,
+        dedup_index: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, str]]:
+        """Write parsed memories through the stack with provenance.
+
+        Args:
+            transition: The layer transition being processed.
+            parsed: List of parsed items from inference.
+            sources: Source memories that were processed.
+            dedup_index: Optional dedup index from _build_existing_index.
+                If provided, items are checked for duplicates before writing.
+
+        Returns:
+            List of {"type": ..., "id": ...} dicts for created memories.
+        """
         from kernle.types import Belief, Drive, Episode, Goal, Note, Relationship, Value
 
         created = []
+        self._last_deduplicated = 0
         now = datetime.now(timezone.utc)
 
         for item in parsed:
             try:
+                # Check for duplicates if dedup index is available
+                if dedup_index is not None:
+                    existing_id = self._check_duplicate(transition, item, dedup_index)
+                    if existing_id is not None:
+                        self._last_deduplicated += 1
+                        continue
+
                 if transition == "raw_to_episode":
                     raw_ids = item.get("source_raw_ids", [])
                     derived_from = [f"raw:{rid}" for rid in raw_ids]

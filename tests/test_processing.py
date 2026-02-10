@@ -1728,6 +1728,7 @@ class TestProcessLayer:
                 "created_count": 1,
                 "suggestion_count": 0,
                 "auto_promote": True,
+                "deduplicated": 0,
                 "errors": [],
             },
         )
