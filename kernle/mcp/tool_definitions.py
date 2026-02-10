@@ -694,120 +694,6 @@ TOOLS = [
     ),
     # Suggestion tools
     Tool(
-        name="memory_suggestions_list",
-        description="List memory suggestions extracted from raw entries. Suggestions are auto-extracted patterns that may be promoted to structured memories after review.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "status": {
-                    "type": "string",
-                    "enum": [
-                        "pending",
-                        "promoted",
-                        "modified",
-                        "rejected",
-                        "dismissed",
-                        "expired",
-                        "all",
-                    ],
-                    "description": "Filter by status (default: pending)",
-                    "default": "pending",
-                },
-                "memory_type": {
-                    "type": "string",
-                    "enum": ["episode", "belief", "note"],
-                    "description": "Filter by suggested memory type",
-                },
-                "min_confidence": {
-                    "type": "number",
-                    "description": "Minimum confidence threshold (0.0-1.0)",
-                },
-                "max_age_hours": {
-                    "type": "number",
-                    "description": "Only return suggestions created within this many hours",
-                },
-                "source_raw_id": {
-                    "type": "string",
-                    "description": "Filter to suggestions derived from this raw entry ID",
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum suggestions to return (default: 20)",
-                    "default": 20,
-                },
-                "format": {
-                    "type": "string",
-                    "enum": ["text", "json"],
-                    "description": "Output format (default: text)",
-                    "default": "text",
-                },
-            },
-        },
-    ),
-    Tool(
-        name="memory_suggestions_promote",
-        description="Approve and promote a suggestion to a structured memory. Optionally modify the content before promotion.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "suggestion_id": {
-                    "type": "string",
-                    "description": "ID of the suggestion to promote",
-                },
-                "objective": {
-                    "type": "string",
-                    "description": "Override objective (for episode suggestions)",
-                },
-                "outcome": {
-                    "type": "string",
-                    "description": "Override outcome (for episode suggestions)",
-                },
-                "statement": {
-                    "type": "string",
-                    "description": "Override statement (for belief suggestions)",
-                },
-                "content": {
-                    "type": "string",
-                    "description": "Override content (for note suggestions)",
-                },
-            },
-            "required": ["suggestion_id"],
-        },
-    ),
-    Tool(
-        name="memory_suggestions_reject",
-        description="Reject a suggestion (it will not be promoted to a memory).",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "suggestion_id": {
-                    "type": "string",
-                    "description": "ID of the suggestion to reject",
-                },
-                "reason": {
-                    "type": "string",
-                    "description": "Optional reason for rejection",
-                },
-            },
-            "required": ["suggestion_id"],
-        },
-    ),
-    Tool(
-        name="memory_suggestions_extract",
-        description="Extract suggestions from unprocessed raw entries. Analyzes raw captures and creates pending suggestions for review.",
-        inputSchema={
-            "type": "object",
-            "properties": {
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum raw entries to process (default: 50)",
-                    "default": 50,
-                },
-            },
-        },
-    ),
-    # New suggestion resolution tools
-    Tool(
         name="suggestion_list",
         description="List and filter memory suggestions. Supports filtering by status, type, confidence, age, and source raw entry.",
         inputSchema={
@@ -898,6 +784,20 @@ TOOLS = [
                 },
             },
             "required": ["suggestion_id"],
+        },
+    ),
+    Tool(
+        name="suggestion_extract",
+        description="Extract suggestions from unprocessed raw entries. Analyzes raw captures and creates pending suggestions for review.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum raw entries to process (default: 50)",
+                    "default": 50,
+                },
+            },
         },
     ),
     Tool(
