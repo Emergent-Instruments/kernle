@@ -824,6 +824,13 @@ class MemorySuggestion:
     deleted: bool = False
 
 
+# Canonical set of valid suggestion status values.
+# Use this for validation instead of maintaining separate lists.
+VALID_SUGGESTION_STATUSES = frozenset(
+    ["pending", "promoted", "modified", "rejected", "dismissed", "expired"]
+)
+
+
 @dataclass
 class SearchResult:
     """A search result with relevance score."""
