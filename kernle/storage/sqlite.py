@@ -937,6 +937,7 @@ class SQLiteStorage:
         since: Optional[datetime] = None,
         tags: Optional[List[str]] = None,
         requesting_entity: Optional[str] = None,
+        processed: Optional[bool] = None,
     ) -> List[Episode]:
         """Get episodes."""
         query = "SELECT * FROM episodes WHERE stack_id = ? AND deleted = 0"
@@ -950,6 +951,10 @@ class SQLiteStorage:
         if since:
             query += " AND created_at >= ?"
             params.append(since.isoformat())
+
+        if processed is not None:
+            query += " AND processed = ?"
+            params.append(1 if processed else 0)
 
         query += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit)
@@ -1406,6 +1411,7 @@ class SQLiteStorage:
         limit: int = 100,
         include_inactive: bool = False,
         requesting_entity: Optional[str] = None,
+        processed: Optional[bool] = None,
     ) -> List[Belief]:
         """Get beliefs.
 
@@ -1413,18 +1419,24 @@ class SQLiteStorage:
             limit: Maximum number of beliefs to return
             include_inactive: If True, include superseded/archived beliefs
             requesting_entity: If provided, filter by access_grants. None = self-access (see all).
+            processed: If True, only processed; if False, only unprocessed; None = all
         """
         access_filter, access_params = self._build_access_filter(requesting_entity)
+        processed_filter = ""
+        processed_params: List[Any] = []
+        if processed is not None:
+            processed_filter = " AND processed = ?"
+            processed_params = [1 if processed else 0]
         with self._connect() as conn:
             if include_inactive:
                 rows = conn.execute(
-                    f"SELECT * FROM beliefs WHERE stack_id = ? AND deleted = 0{access_filter} ORDER BY created_at DESC LIMIT ?",
-                    [self.stack_id] + access_params + [limit],
+                    f"SELECT * FROM beliefs WHERE stack_id = ? AND deleted = 0{access_filter}{processed_filter} ORDER BY created_at DESC LIMIT ?",
+                    [self.stack_id] + access_params + processed_params + [limit],
                 ).fetchall()
             else:
                 rows = conn.execute(
-                    f"SELECT * FROM beliefs WHERE stack_id = ? AND deleted = 0 AND (is_active = 1 OR is_active IS NULL){access_filter} ORDER BY created_at DESC LIMIT ?",
-                    [self.stack_id] + access_params + [limit],
+                    f"SELECT * FROM beliefs WHERE stack_id = ? AND deleted = 0 AND (is_active = 1 OR is_active IS NULL){access_filter}{processed_filter} ORDER BY created_at DESC LIMIT ?",
+                    [self.stack_id] + access_params + processed_params + [limit],
                 ).fetchall()
 
         return [self._row_to_belief(row) for row in rows]

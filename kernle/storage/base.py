@@ -71,9 +71,20 @@ class Storage(Protocol):
 
     @abstractmethod
     def get_episodes(
-        self, limit: int = 100, since: Optional[datetime] = None, tags: Optional[List[str]] = None
+        self,
+        limit: int = 100,
+        since: Optional[datetime] = None,
+        tags: Optional[List[str]] = None,
+        processed: Optional[bool] = None,
     ) -> List[Episode]:
-        """Get episodes, optionally filtered."""
+        """Get episodes, optionally filtered.
+
+        Args:
+            limit: Maximum number of episodes to return
+            since: Only return episodes created after this time
+            tags: Filter by tags
+            processed: If True, only processed; if False, only unprocessed; None = all
+        """
         ...
 
     @abstractmethod
@@ -142,12 +153,18 @@ class Storage(Protocol):
         ...
 
     @abstractmethod
-    def get_beliefs(self, limit: int = 100, include_inactive: bool = False) -> List[Belief]:
+    def get_beliefs(
+        self,
+        limit: int = 100,
+        include_inactive: bool = False,
+        processed: Optional[bool] = None,
+    ) -> List[Belief]:
         """Get beliefs.
 
         Args:
             limit: Maximum number of beliefs to return
             include_inactive: If True, include superseded/archived beliefs
+            processed: If True, only processed; if False, only unprocessed; None = all
         """
         ...
 

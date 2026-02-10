@@ -274,7 +274,7 @@ class TestCheckTriggersTimeBased:
         ep.processed = False
         ep.created_at = now - timedelta(hours=72)
         ep.emotional_arousal = 0.1
-        mock_stack.get_episodes.return_value = [ep]
+        mock_stack._backend.get_episodes.return_value = [ep]
 
         processor = _make_processor(mock_stack, configs={"episode_to_belief": config})
         assert processor.check_triggers("episode_to_belief")
@@ -292,7 +292,7 @@ class TestCheckTriggersTimeBased:
         ep.processed = False
         ep.created_at = now - timedelta(hours=30)
         ep.emotional_arousal = 0.0
-        mock_stack.get_episodes.return_value = [ep]
+        mock_stack._backend.get_episodes.return_value = [ep]
 
         processor = _make_processor(mock_stack, configs={"episode_to_goal": config})
         assert processor.check_triggers("episode_to_goal")
@@ -310,7 +310,7 @@ class TestCheckTriggersTimeBased:
         ep.processed = False
         ep.created_at = now - timedelta(hours=36)
         ep.emotional_arousal = 0.0
-        mock_stack.get_episodes.return_value = [ep]
+        mock_stack._backend.get_episodes.return_value = [ep]
 
         processor = _make_processor(mock_stack, configs={"episode_to_relationship": config})
         assert processor.check_triggers("episode_to_relationship")
@@ -328,7 +328,7 @@ class TestCheckTriggersTimeBased:
         ep.processed = False
         ep.created_at = now - timedelta(hours=25)
         ep.emotional_arousal = 0.0
-        mock_stack.get_episodes.return_value = [ep]
+        mock_stack._backend.get_episodes.return_value = [ep]
 
         processor = _make_processor(mock_stack, configs={"episode_to_drive": config})
         assert processor.check_triggers("episode_to_drive")
@@ -345,7 +345,7 @@ class TestCheckTriggersTimeBased:
         belief = MagicMock()
         belief.processed = False
         belief.created_at = now - timedelta(hours=72)
-        mock_stack.get_beliefs.return_value = [belief]
+        mock_stack._backend.get_beliefs.return_value = [belief]
 
         processor = _make_processor(mock_stack, configs={"belief_to_value": config})
         assert processor.check_triggers("belief_to_value")
@@ -373,7 +373,7 @@ class TestCheckTriggersValenceBased:
         ep.processed = False
         ep.created_at = now
         ep.emotional_arousal = 0.9  # High arousal
-        mock_stack.get_episodes.return_value = [ep]
+        mock_stack._backend.get_episodes.return_value = [ep]
 
         processor = _make_processor(mock_stack, configs={"episode_to_belief": config})
         assert processor.check_triggers("episode_to_belief")
@@ -395,7 +395,7 @@ class TestCheckTriggersValenceBased:
             ep.created_at = now
             ep.emotional_arousal = arousal
             episodes.append(ep)
-        mock_stack.get_episodes.return_value = episodes
+        mock_stack._backend.get_episodes.return_value = episodes
 
         processor = _make_processor(mock_stack, configs={"episode_to_goal": config})
         assert processor.check_triggers("episode_to_goal")  # 0.4+0.5+0.3+0.5 = 1.7 >= 1.5
@@ -414,7 +414,7 @@ class TestCheckTriggersValenceBased:
         ep.processed = False
         ep.created_at = now
         ep.emotional_arousal = 0.2
-        mock_stack.get_episodes.return_value = [ep]
+        mock_stack._backend.get_episodes.return_value = [ep]
 
         processor = _make_processor(mock_stack, configs={"episode_to_belief": config})
         assert not processor.check_triggers("episode_to_belief")
@@ -433,7 +433,7 @@ class TestCheckTriggersValenceBased:
         ep.processed = False
         ep.created_at = now
         ep.emotional_arousal = 0.95
-        mock_stack.get_episodes.return_value = [ep]
+        mock_stack._backend.get_episodes.return_value = [ep]
 
         processor = _make_processor(mock_stack, configs={"episode_to_drive": config})
         assert processor.check_triggers("episode_to_drive")
@@ -468,7 +468,7 @@ class TestCheckTriggersQuantityRegression:
             ep.created_at = now
             ep.emotional_arousal = 0.0
             episodes.append(ep)
-        mock_stack.get_episodes.return_value = episodes
+        mock_stack._backend.get_episodes.return_value = episodes
         processor = _make_processor(mock_stack)
         assert processor.check_triggers("episode_to_belief")
 
@@ -481,7 +481,7 @@ class TestCheckTriggersQuantityRegression:
             b.processed = False
             b.created_at = now
             beliefs.append(b)
-        mock_stack.get_beliefs.return_value = beliefs
+        mock_stack._backend.get_beliefs.return_value = beliefs
         processor = _make_processor(mock_stack)
         assert processor.check_triggers("belief_to_value")
 
@@ -518,7 +518,7 @@ class TestCheckTriggersCombined:
         ep.processed = False
         ep.created_at = now - timedelta(hours=30)  # Will trigger on time
         ep.emotional_arousal = 0.1  # Low arousal
-        mock_stack.get_episodes.return_value = [ep]
+        mock_stack._backend.get_episodes.return_value = [ep]
 
         processor = _make_processor(mock_stack, configs={"episode_to_belief": config})
         assert processor.check_triggers("episode_to_belief")
@@ -537,13 +537,17 @@ class TestCheckTriggersCombined:
         ep.processed = False
         ep.created_at = now - timedelta(hours=10)  # Not old enough
         ep.emotional_arousal = 0.1  # Not aroused enough
-        mock_stack.get_episodes.return_value = [ep]
+        mock_stack._backend.get_episodes.return_value = [ep]
 
         processor = _make_processor(mock_stack, configs={"episode_to_belief": config})
         assert not processor.check_triggers("episode_to_belief")
 
     def test_processed_episodes_excluded(self):
-        """Only unprocessed episodes contribute to trigger signals."""
+        """Only unprocessed episodes contribute to trigger signals.
+
+        After the starvation fix, the backend query filters processed=False
+        directly in SQL, so only unprocessed episodes are returned.
+        """
         mock_stack = _make_mock_stack()
         config = LayerConfig(
             layer_transition="episode_to_belief",
@@ -552,17 +556,14 @@ class TestCheckTriggersCombined:
             time_threshold_hours=0,
         )
         now = datetime.now(timezone.utc)
-        processed_ep = MagicMock()
-        processed_ep.processed = True
-        processed_ep.created_at = now - timedelta(hours=100)
-        processed_ep.emotional_arousal = 1.0
 
+        # Backend returns only the unprocessed episode (processed=False filter)
         unprocessed_ep = MagicMock()
         unprocessed_ep.processed = False
         unprocessed_ep.created_at = now
         unprocessed_ep.emotional_arousal = 0.1
 
-        mock_stack.get_episodes.return_value = [processed_ep, unprocessed_ep]
+        mock_stack._backend.get_episodes.return_value = [unprocessed_ep]
 
         processor = _make_processor(mock_stack, configs={"episode_to_belief": config})
         # Only the unprocessed ep's arousal (0.1) counts, below 0.5
