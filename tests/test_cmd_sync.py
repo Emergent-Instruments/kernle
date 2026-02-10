@@ -82,11 +82,14 @@ def _extract_json(output: str) -> dict:
 class TestFormatDatetime:
     """Test the format_datetime helper inside cmd_sync."""
 
-    def test_format_datetime_none(self):
-        """None input returns None."""
-        # format_datetime is a closure, test via status output
-        # We test it indirectly via the status JSON output
-        pass
+    def test_format_datetime_none(self, k, capsys):
+        """None input returns None — verified via status JSON where last_sync_time is null."""
+        # format_datetime is a closure inside cmd_sync, so test indirectly.
+        # A fresh storage has no last_sync_time → format_datetime(None) → null in JSON.
+        cmd_sync(_args(sync_action="status", json=True), k)
+        captured = capsys.readouterr().out
+        data = _extract_json(captured)
+        assert data["last_sync_time"] is None
 
     def test_format_datetime_string_passthrough(self, k, capsys, tmp_path):
         """String datetimes pass through unchanged in JSON output."""
@@ -898,3 +901,59 @@ class TestSyncFull:
         assert "Full sync complete" in captured
         assert "Pulled" in captured
         assert "No pending changes to push" in captured
+
+    def test_full_sync_pushes_non_delete_operations(self, k, capsys, tmp_path):
+        """Regression: sync full must include non-delete ops in push payload.
+
+        Previously, a misplaced `continue` (line 740) caused all non-delete
+        operations to be skipped — only deletes were actually pushed.
+        """
+        from kernle.storage import Episode
+
+        # Create a real episode so it's in the sync queue
+        ep = Episode(
+            id="ep-full-push",
+            stack_id="test-sync",
+            objective="test full push",
+            outcome_type="success",
+            outcome="verified",
+        )
+        k._storage.save_episode(ep)
+
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok", "user_id": "u1"}
+        creds_path = tmp_path / "full_push"
+        creds_path.mkdir()
+        (creds_path / "credentials.json").write_text(json.dumps(creds))
+
+        # Pull returns empty, push should succeed with 1 operation
+        pull_resp = _make_response(200, json_data={"operations": [], "has_more": False})
+        push_resp = _make_response(200, json_data={"synced": 1, "conflicts": []})
+
+        call_count = {"n": 0}
+
+        def route_post(*args, **kwargs):
+            """First POST = pull, second POST = push."""
+            call_count["n"] += 1
+            if call_count["n"] == 1:
+                return pull_resp
+            return push_resp
+
+        mock_httpx = _mock_httpx_module()
+        mock_httpx.post.side_effect = route_post
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="full"), k)
+
+        # Verify push was called (2 POSTs: pull + push)
+        assert mock_httpx.post.call_count == 2
+
+        # Second call is the push — verify operations were included
+        push_call = mock_httpx.post.call_args_list[1]
+        sent_json = push_call[1].get("json") or push_call[0][1]
+        ops = sent_json.get("operations", [])
+        assert len(ops) == 1, f"Expected 1 push operation, got {len(ops)}"
+        assert ops[0]["operation"] == "update"
+        assert ops[0]["record_id"] == "ep-full-push"
+        assert "data" in ops[0], "Non-delete operation must include record data"

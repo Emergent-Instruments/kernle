@@ -737,7 +737,7 @@ def cmd_sync(args, k: "Kernle"):
                                 "UPDATE sync_queue SET synced = 1 WHERE id = ?",
                                 (change.id,),
                             )
-                    continue
+                        continue
 
                 operations.append(op_data)
 
