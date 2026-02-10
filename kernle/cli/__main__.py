@@ -1080,6 +1080,11 @@ def main():
         action="store_true",
         help="Allow identity-layer writes without inference (except values). Requires --force.",
     )
+    process_run.add_argument(
+        "--auto-promote",
+        action="store_true",
+        help="Directly promote memories instead of creating suggestions for review",
+    )
     process_run.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 
     process_status = process_sub.add_parser(

@@ -44,7 +44,7 @@ class TestKernleProcess:
 
         result = k.process(transition="raw_to_episode", force=True)
         mock_entity.process.assert_called_once_with(
-            transition="raw_to_episode", force=True, allow_no_inference_override=False
+            transition="raw_to_episode", force=True, allow_no_inference_override=False, auto_promote=False
         )
         assert result == []
 
@@ -58,7 +58,7 @@ class TestKernleProcess:
 
         k.process()
         mock_entity.process.assert_called_once_with(
-            transition=None, force=False, allow_no_inference_override=False
+            transition=None, force=False, allow_no_inference_override=False, auto_promote=False
         )
 
     def test_process_propagates_runtime_error(self, kernle_instance):
@@ -224,10 +224,11 @@ class TestMCPProcessHandler:
                 {"type": "episode", "id": "ep-12345678-abcd"},
                 {"type": "episode", "id": "ep-87654321-dcba"},
             ],
+            auto_promote=True,
         )
         patched_kernle_process.process.return_value = [mock_result]
 
-        result = await call_tool("memory_process", {"force": True})
+        result = await call_tool("memory_process", {"force": True, "auto_promote": True})
 
         assert len(result) == 1
         text = result[0].text
@@ -353,7 +354,7 @@ class TestCLIProcessCommand:
         assert "requires a bound model" in captured.out
 
     def test_process_run_success(self, kernle_instance, capsys):
-        """kernle process run with successful processing."""
+        """kernle process run with successful processing (auto-promote mode)."""
         from kernle.cli.commands.process import cmd_process
         from kernle.processing import ProcessingResult
 
@@ -363,6 +364,7 @@ class TestCLIProcessCommand:
             layer_transition="raw_to_episode",
             source_count=3,
             created=[{"type": "episode", "id": "ep-12345678"}],
+            auto_promote=True,
         )
         mock_entity = Mock()
         mock_entity.process.return_value = [mock_result]
@@ -372,6 +374,7 @@ class TestCLIProcessCommand:
         args.process_action = "run"
         args.transition = "raw_to_episode"
         args.force = True
+        args.auto_promote = True
         args.json = False
 
         cmd_process(args, k)

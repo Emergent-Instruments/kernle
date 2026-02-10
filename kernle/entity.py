@@ -1011,12 +1011,13 @@ class Entity:
         *,
         force: bool = False,
         allow_no_inference_override: bool = False,
+        auto_promote: bool = False,
     ) -> list:
         """Run memory processing sessions.
 
-        Promotes memories up the hierarchy using the bound model:
-        raw → episode/note, episode → belief/goal/relationship/drive,
-        belief → value.
+        By default, creates suggestions for review rather than directly
+        promoting memories. Set auto_promote=True to directly write memories
+        (opt-in only).
 
         When no model is bound (inference unavailable), identity-layer
         transitions are blocked by the no-inference safety policy.
@@ -1029,6 +1030,8 @@ class Entity:
             force: Process even if triggers aren't met
             allow_no_inference_override: Allow identity-layer writes without
                 inference (except values). Only effective with force=True.
+            auto_promote: If True, directly write memories. If False (default),
+                create suggestions for review.
 
         Returns:
             List of ProcessingResult for each transition that ran
@@ -1047,6 +1050,7 @@ class Entity:
             inference=inference,
             core_id=self._core_id,
             inference_available=inference_available,
+            auto_promote=auto_promote,
         )
 
         # Load any saved config from the stack
@@ -1073,6 +1077,7 @@ class Entity:
             transition,
             force=force,
             allow_no_inference_override=allow_no_inference_override,
+            auto_promote=auto_promote,
         )
 
     # ---- Routed Sync ----

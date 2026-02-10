@@ -405,7 +405,9 @@ class TestMemoryProcessor:
             ]
         )
         inference = MockInference(response)
-        processor = MemoryProcessor(stack=stack, inference=inference, core_id="test")
+        processor = MemoryProcessor(
+            stack=stack, inference=inference, core_id="test", auto_promote=True
+        )
 
         results = processor.process("raw_to_episode", force=True)
         assert len(results) == 1
@@ -440,7 +442,9 @@ class TestMemoryProcessor:
             ]
         )
         inference = MockInference(response)
-        processor = MemoryProcessor(stack=stack, inference=inference, core_id="test")
+        processor = MemoryProcessor(
+            stack=stack, inference=inference, core_id="test", auto_promote=True
+        )
 
         results = processor.process("raw_to_note", force=True)
         assert len(results) == 1
@@ -472,7 +476,9 @@ class TestMemoryProcessor:
             ]
         )
         inference = MockInference(response)
-        processor = MemoryProcessor(stack=stack, inference=inference, core_id="test")
+        processor = MemoryProcessor(
+            stack=stack, inference=inference, core_id="test", auto_promote=True
+        )
 
         results = processor.process("episode_to_belief", force=True)
         assert len(results) == 1
@@ -1643,7 +1649,7 @@ class TestProcessLayer:
         )
         processor, inference = _make_processor(mock_stack, response)
         config = DEFAULT_LAYER_CONFIGS["raw_to_episode"]
-        result = processor._process_layer("raw_to_episode", config)
+        result = processor._process_layer("raw_to_episode", config, auto_promote=True)
 
         assert not result.skipped
         assert result.source_count == 1
@@ -1710,7 +1716,7 @@ class TestProcessLayer:
         )
         processor, _ = _make_processor(mock_stack, response)
         config = DEFAULT_LAYER_CONFIGS["raw_to_episode"]
-        processor._process_layer("raw_to_episode", config)
+        processor._process_layer("raw_to_episode", config, auto_promote=True)
 
         mock_stack.log_audit.assert_called_once_with(
             "processing",
@@ -1720,6 +1726,8 @@ class TestProcessLayer:
             details={
                 "source_count": 1,
                 "created_count": 1,
+                "suggestion_count": 0,
+                "auto_promote": True,
                 "errors": [],
             },
         )

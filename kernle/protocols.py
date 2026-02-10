@@ -1756,10 +1756,12 @@ class CoreProtocol(Protocol):
         transition: Optional[str] = None,
         *,
         force: bool = False,
+        auto_promote: bool = False,
     ) -> list:
         """Run memory processing sessions.
 
-        Promotes memories up the hierarchy using the bound model.
+        By default, creates suggestions for review rather than directly
+        promoting memories. Set auto_promote=True to directly write memories.
         Returns list of ProcessingResult for each transition that ran.
         """
         ...

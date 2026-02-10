@@ -836,7 +836,7 @@ TOOLS = [
     ),
     Tool(
         name="memory_process",
-        description="Run memory processing to promote memories up the hierarchy using the bound model. Transitions: raw->episode, raw->note, episode->belief, episode->goal, episode->relationship, belief->value, episode->drive. When no model is bound, identity-layer transitions (belief, value, goal, relationship, drive) are blocked by the no-inference safety policy.",
+        description="Run memory processing using the bound model. By default creates suggestions for review (not direct promotions). Use auto_promote=true to directly write memories. Transitions: raw->episode, raw->note, episode->belief, episode->goal, episode->relationship, belief->value, episode->drive. When no model is bound, identity-layer transitions (belief, value, goal, relationship, drive) are blocked by the no-inference safety policy.",
         inputSchema={
             "type": "object",
             "properties": {
@@ -861,6 +861,11 @@ TOOLS = [
                 "allow_no_inference_override": {
                     "type": "boolean",
                     "description": "Allow identity-layer writes without inference (except values, which are always blocked). Requires force=true. Use with caution.",
+                    "default": False,
+                },
+                "auto_promote": {
+                    "type": "boolean",
+                    "description": "Directly promote memories instead of creating suggestions for review (default: false). Use with caution -- auto-promotion bypasses human review.",
                     "default": False,
                 },
             },
