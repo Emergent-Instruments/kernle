@@ -11,11 +11,14 @@ Tests cover:
 - Full pipeline: re-running same cycle produces 0 new items
 - New sources still create new items after dedup
 - Edge cases: empty provenance, large provenance sets, partial overlaps
+- Random ingestion order: dedup is order-independent
+- Updated content with same provenance: skip (keep original)
 """
 
 from __future__ import annotations
 
 import json
+import random
 import uuid
 from unittest.mock import MagicMock
 
@@ -666,7 +669,7 @@ class TestIdempotentProcessing:
         )
         inference = MockInference(response)
         processor = MemoryProcessor(stack=stack, inference=inference, core_id="test")
-        results1 = processor.process("raw_to_episode", force=True)
+        results1 = processor.process("raw_to_episode", force=True, auto_promote=True)
         assert len(results1) == 1
         assert len(results1[0].created) == 1
         assert results1[0].deduplicated == 0
@@ -683,7 +686,7 @@ class TestIdempotentProcessing:
             )
 
         # 4. Second processing pass — same episode should be deduplicated
-        results2 = processor.process("raw_to_episode", force=True)
+        results2 = processor.process("raw_to_episode", force=True, auto_promote=True)
         assert len(results2) == 1
         # The episode from pass 1 now exists in context, so it should be deduped
         assert results2[0].deduplicated == 1
@@ -717,7 +720,7 @@ class TestIdempotentProcessing:
         )
         inference1 = MockInference(response1)
         processor1 = MemoryProcessor(stack=stack, inference=inference1, core_id="test")
-        results1 = processor1.process("raw_to_episode", force=True)
+        results1 = processor1.process("raw_to_episode", force=True, auto_promote=True)
         assert len(results1[0].created) == 1
 
         # 3. Save new raw entries
@@ -743,7 +746,7 @@ class TestIdempotentProcessing:
         )
         inference2 = MockInference(response2)
         processor2 = MemoryProcessor(stack=stack, inference=inference2, core_id="test")
-        results2 = processor2.process("raw_to_episode", force=True)
+        results2 = processor2.process("raw_to_episode", force=True, auto_promote=True)
         assert len(results2[0].created) == 1
         assert results2[0].deduplicated == 0
 
@@ -775,7 +778,7 @@ class TestIdempotentProcessing:
         )
         inference = MockInference(response)
         processor = MemoryProcessor(stack=stack, inference=inference, core_id="test")
-        results1 = processor.process("raw_to_note", force=True)
+        results1 = processor.process("raw_to_note", force=True, auto_promote=True)
         assert len(results1[0].created) == 1
 
         # 3. Save more raws to trigger second pass
@@ -800,7 +803,7 @@ class TestIdempotentProcessing:
         )
         inference2 = MockInference(response2)
         processor2 = MemoryProcessor(stack=stack, inference=inference2, core_id="test")
-        results2 = processor2.process("raw_to_note", force=True)
+        results2 = processor2.process("raw_to_note", force=True, auto_promote=True)
         assert results2[0].deduplicated == 1
         assert len(results2[0].created) == 0
 
@@ -845,7 +848,7 @@ class TestProcessLayerDedup:
         from kernle.processing import DEFAULT_LAYER_CONFIGS
 
         config = DEFAULT_LAYER_CONFIGS["raw_to_episode"]
-        result = processor._process_layer("raw_to_episode", config)
+        result = processor._process_layer("raw_to_episode", config, auto_promote=True)
 
         assert result.deduplicated == 1
         assert len(result.created) == 0
@@ -1117,3 +1120,277 @@ class TestDedupAllTransitions:
         assert created[0]["type"] == memory_type
         assert processor._last_deduplicated == 0
         getattr(mock_stack, save_method).assert_called_once()
+
+
+# =============================================================================
+# Random ingestion order tests (property-based without hypothesis)
+# =============================================================================
+
+
+class TestRandomIngestionOrder:
+    """Verify dedup is order-independent by shuffling source refs and items."""
+
+    @pytest.mark.parametrize("seed", [42, 123, 456, 789, 1024])
+    def test_provenance_hash_order_independent_random(self, seed):
+        """Provenance hash is the same regardless of ref list ordering."""
+        rng = random.Random(seed)
+        refs = [f"raw:{uuid.uuid4()}" for _ in range(rng.randint(2, 20))]
+        h_original = compute_provenance_hash(refs)
+
+        for _ in range(10):
+            shuffled = list(refs)
+            rng.shuffle(shuffled)
+            assert compute_provenance_hash(shuffled) == h_original
+
+    @pytest.mark.parametrize("seed", [42, 123, 456, 789, 1024])
+    def test_dedup_order_independent_for_items(self, seed):
+        """Processing items in any order produces same dedup result."""
+        rng = random.Random(seed)
+        mock_stack = _make_mock_stack()
+        mock_stack.save_episode.return_value = "ep-new"
+        processor, _ = _make_processor(mock_stack)
+
+        # Create N items, some of which are duplicates
+        ref_pool = [f"raw:r{i}" for i in range(5)]
+        unique_items = [
+            {"objective": f"obj-{i}", "outcome": f"out-{i}", "source_raw_ids": [ref_pool[i]]}
+            for i in range(5)
+        ]
+
+        # Build dedup index from first 3 items (simulating existing memories)
+        existing_records = []
+        for i in range(3):
+            rec = MagicMock()
+            rec.id = f"existing-{i}"
+            rec.objective = f"obj-{i}"
+            rec.outcome = f"out-{i}"
+            rec.derived_from = [ref_pool[i]]
+            existing_records.append(rec)
+        dedup_index = processor._build_existing_index("raw_to_episode", existing_records)
+
+        # Shuffle the items and verify same dedup outcome
+        for _ in range(5):
+            shuffled = list(unique_items)
+            rng.shuffle(shuffled)
+            mock_stack.save_episode.reset_mock()
+            mock_stack.save_episode.return_value = "ep-new"
+            created = processor._write_memories("raw_to_episode", shuffled, [], dedup_index)
+            # Items 0-2 are duplicates, items 3-4 are new
+            assert (
+                processor._last_deduplicated == 3
+            ), f"Expected 3 deduped, got {processor._last_deduplicated}"
+            assert len(created) == 2, f"Expected 2 created, got {len(created)}"
+
+    @pytest.mark.parametrize("seed", [42, 123, 456])
+    def test_content_hash_dedup_order_independent(self, seed):
+        """Content dedup finds duplicates regardless of item ordering."""
+        rng = random.Random(seed)
+        mock_stack = _make_mock_stack()
+        mock_stack.save_belief.return_value = "b-new"
+        processor, _ = _make_processor(mock_stack)
+
+        items = [{"statement": f"belief {i}", "source_episode_ids": []} for i in range(6)]
+
+        # Index first 4 beliefs by content
+        existing = []
+        for i in range(4):
+            rec = MagicMock(spec=["id", "statement", "belief_type", "derived_from"])
+            rec.id = f"existing-{i}"
+            rec.statement = f"belief {i}"
+            rec.belief_type = "factual"
+            rec.derived_from = None
+            del rec.objective
+            existing.append(rec)
+        dedup_index = processor._build_existing_index("episode_to_belief", existing)
+
+        for _ in range(5):
+            shuffled = list(items)
+            rng.shuffle(shuffled)
+            mock_stack.save_belief.reset_mock()
+            mock_stack.save_belief.return_value = "b-new"
+            created = processor._write_memories("episode_to_belief", shuffled, [], dedup_index)
+            assert processor._last_deduplicated == 4
+            assert len(created) == 2
+
+    def test_full_pipeline_order_independent(self, stack):
+        """Full integration: save raws in random order, process, re-process."""
+        rng = random.Random(42)
+        raw_ids = []
+        blobs = [f"Raw content item {i}" for i in range(5)]
+        rng.shuffle(blobs)
+
+        for blob in blobs:
+            rid = stack.save_raw(
+                RawEntry(
+                    id=str(uuid.uuid4()),
+                    stack_id=STACK_ID,
+                    blob=blob,
+                    source="test",
+                )
+            )
+            raw_ids.append(rid)
+
+        # First processing pass
+        response = json.dumps(
+            [
+                {
+                    "objective": "Synthesized episode",
+                    "outcome": "From random-order raws",
+                    "source_raw_ids": raw_ids[:3],
+                }
+            ]
+        )
+        inference = MockInference(response)
+        processor = MemoryProcessor(stack=stack, inference=inference, core_id="test")
+        results1 = processor.process("raw_to_episode", force=True, auto_promote=True)
+        assert len(results1[0].created) == 1
+
+        # Save more raws (to have unprocessed sources for second pass)
+        for i in range(3):
+            stack.save_raw(
+                RawEntry(
+                    id=str(uuid.uuid4()),
+                    stack_id=STACK_ID,
+                    blob=f"Extra raw {i}",
+                    source="test",
+                )
+            )
+
+        # Second pass with same response (should be deduped)
+        results2 = processor.process("raw_to_episode", force=True, auto_promote=True)
+        assert results2[0].deduplicated == 1
+        assert len(results2[0].created) == 0
+
+        # Only 1 episode total
+        episodes = stack.get_episodes()
+        assert len(episodes) == 1
+
+
+# =============================================================================
+# Updated content with same provenance (skip policy)
+# =============================================================================
+
+
+class TestUpdatedContentPolicy:
+    def test_provenance_match_different_content_skips(self):
+        """When provenance matches but content differs, skip (keep original)."""
+        mock_stack = _make_mock_stack()
+        mock_stack.save_episode.return_value = "ep-new"
+        processor, _ = _make_processor(mock_stack)
+
+        # Existing episode with specific content
+        existing = MagicMock()
+        existing.id = "existing-ep"
+        existing.objective = "Original interpretation"
+        existing.outcome = "First version"
+        existing.derived_from = ["raw:r1", "raw:r2"]
+        phash = compute_provenance_hash(["raw:r1", "raw:r2"])
+        dedup_index = {"provenance": {phash: existing}, "content": {}}
+
+        # New item from same provenance but different content
+        parsed = [
+            {
+                "objective": "Different interpretation",
+                "outcome": "Second version",
+                "source_raw_ids": ["r1", "r2"],
+            }
+        ]
+        created = processor._write_memories("raw_to_episode", parsed, [], dedup_index)
+        assert len(created) == 0
+        assert processor._last_deduplicated == 1
+        mock_stack.save_episode.assert_not_called()
+
+    def test_provenance_match_same_content_skips(self):
+        """When provenance and content both match, skip (obvious duplicate)."""
+        mock_stack = _make_mock_stack()
+        mock_stack.save_episode.return_value = "ep-new"
+        processor, _ = _make_processor(mock_stack)
+
+        existing = MagicMock()
+        existing.id = "existing-ep"
+        existing.objective = "Same interpretation"
+        existing.outcome = "Same version"
+        existing.derived_from = ["raw:r1"]
+        phash = compute_provenance_hash(["raw:r1"])
+        dedup_index = {"provenance": {phash: existing}, "content": {}}
+
+        parsed = [
+            {
+                "objective": "Same interpretation",
+                "outcome": "Same version",
+                "source_raw_ids": ["r1"],
+            }
+        ]
+        created = processor._write_memories("raw_to_episode", parsed, [], dedup_index)
+        assert len(created) == 0
+        assert processor._last_deduplicated == 1
+
+    def test_provenance_match_different_content_logs_distinctly(self):
+        """When provenance matches but content differs, the log message is distinct."""
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+
+        existing = MagicMock()
+        existing.id = "existing-belief"
+        existing.statement = "Original belief statement"
+        existing.belief_type = "factual"
+        existing.derived_from = ["episode:ep1"]
+        phash = compute_provenance_hash(["episode:ep1"])
+        dedup_index = {"provenance": {phash: existing}, "content": {}}
+
+        # Different statement, same provenance
+        item = {"statement": "Different belief statement", "source_episode_ids": ["ep1"]}
+        result = processor._check_duplicate("episode_to_belief", item, dedup_index)
+        assert result == "existing-belief"
+
+    def test_content_only_match_no_provenance_overlap(self):
+        """Content match with different provenance still deduplicates."""
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+
+        existing = MagicMock()
+        existing.id = "existing-belief"
+        chash = compute_content_hash("important insight")
+        dedup_index = {"provenance": {}, "content": {chash: existing}}
+
+        # Same content, different provenance
+        item = {"statement": "Important insight", "source_episode_ids": ["ep999"]}
+        result = processor._check_duplicate("episode_to_belief", item, dedup_index)
+        assert result == "existing-belief"
+
+    @pytest.mark.parametrize("seed", [42, 123, 456])
+    def test_mixed_new_and_updated_content(self, seed):
+        """Mix of new items, exact duplicates, and same-provenance-different-content."""
+        rng = random.Random(seed)
+        mock_stack = _make_mock_stack()
+        mock_stack.save_episode.return_value = "ep-new"
+        processor, _ = _make_processor(mock_stack)
+
+        # Existing memories
+        existing1 = MagicMock()
+        existing1.id = "ex-1"
+        existing1.objective = "original obj 1"
+        existing1.outcome = "original out 1"
+        existing1.derived_from = ["raw:r1"]
+
+        existing2 = MagicMock()
+        existing2.id = "ex-2"
+        existing2.objective = "original obj 2"
+        existing2.outcome = "original out 2"
+        existing2.derived_from = ["raw:r2"]
+
+        dedup_index = processor._build_existing_index("raw_to_episode", [existing1, existing2])
+
+        items = [
+            # Exact duplicate of existing1
+            {"objective": "original obj 1", "outcome": "original out 1", "source_raw_ids": ["r1"]},
+            # Same provenance as existing2, different content
+            {"objective": "UPDATED obj 2", "outcome": "CHANGED out 2", "source_raw_ids": ["r2"]},
+            # Genuinely new
+            {"objective": "brand new", "outcome": "novel", "source_raw_ids": ["r99"]},
+        ]
+
+        rng.shuffle(items)
+        created = processor._write_memories("raw_to_episode", items, [], dedup_index)
+        assert len(created) == 1  # Only the genuinely new one
+        assert processor._last_deduplicated == 2  # Both duplicates caught

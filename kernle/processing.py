@@ -866,6 +866,12 @@ class MemoryProcessor:
     ) -> Optional[str]:
         """Check if a parsed item is a duplicate of an existing memory.
 
+        Policy: skip creation when provenance OR content matches. When
+        provenance matches but content differs (model produced a different
+        interpretation of the same sources), we still skip — the first
+        interpretation is authoritative. This is logged distinctly so
+        operators can audit if needed.
+
         Returns:
             None if not a duplicate.
             The existing memory ID if it's a duplicate (skip creation).
@@ -879,6 +885,22 @@ class MemoryProcessor:
             if phash and phash in dedup_index["provenance"]:
                 existing = dedup_index["provenance"][phash]
                 existing_id = getattr(existing, "id", None)
+
+                # Check if content differs (provenance same, content changed)
+                if content_text:
+                    existing_content = self._extract_existing_content(existing)
+                    if existing_content:
+                        existing_chash = compute_content_hash(existing_content)
+                        new_chash = compute_content_hash(content_text)
+                        if existing_chash != new_chash:
+                            logger.info(
+                                "Dedup: skipping %s item — provenance match with %s "
+                                "(content differs, keeping original)",
+                                transition,
+                                existing_id,
+                            )
+                            return existing_id
+
                 logger.info(
                     "Dedup: skipping %s item — provenance match with %s",
                     transition,
@@ -900,6 +922,25 @@ class MemoryProcessor:
                 return existing_id
 
         return None
+
+    @staticmethod
+    def _extract_existing_content(record: Any) -> str:
+        """Extract content text from an existing memory record for comparison."""
+        if hasattr(record, "objective"):
+            return f"{record.objective} {record.outcome}"
+        elif hasattr(record, "statement") and hasattr(record, "belief_type"):
+            return record.statement
+        elif hasattr(record, "content") and hasattr(record, "note_type"):
+            return record.content
+        elif hasattr(record, "title"):
+            return f"{record.title} {getattr(record, 'description', '') or ''}"
+        elif hasattr(record, "drive_type"):
+            return record.drive_type
+        elif hasattr(record, "entity_name"):
+            return record.entity_name
+        elif hasattr(record, "name") and hasattr(record, "statement"):
+            return f"{record.name} {record.statement}"
+        return ""
 
     # ---- Memory Writing ----
 
