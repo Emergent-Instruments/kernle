@@ -188,7 +188,7 @@ class TestSourceTypeValidation:
         belief = Belief(
             id=_uid(),
             stack_id="test-strict",
-            statement="Test",
+            statement="This is a sufficiently long test belief statement for lint",
             source_type="inference",
             derived_from=[f"episode:{eid}"],
             created_at=_now(),
@@ -198,8 +198,8 @@ class TestSourceTypeValidation:
         value = Value(
             id=_uid(),
             stack_id="test-strict",
-            name="Test",
-            statement="Test value",
+            name="Test Value Name",
+            statement="This is a sufficiently long test value statement for lint",
             source_type="wrong",
             derived_from=[f"belief:{bid}"],
             created_at=_now(),
