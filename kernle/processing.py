@@ -101,10 +101,14 @@ class ProcessingResult:
     created: List[Dict[str, str]] = field(
         default_factory=list
     )  # [{"type": "episode", "id": "..."}]
+    suggestions: List[Dict[str, str]] = field(
+        default_factory=list
+    )  # [{"type": "episode", "id": "suggestion-id"}]
     errors: List[str] = field(default_factory=list)
     skipped: bool = False
     skip_reason: Optional[str] = None
     inference_blocked: bool = False  # True if blocked by no-inference safety
+    auto_promote: bool = False  # Whether direct promotion was used
 
 
 # =============================================================================
@@ -351,12 +355,14 @@ class MemoryProcessor:
         core_id: str,
         configs: Optional[Dict[str, LayerConfig]] = None,
         inference_available: bool = True,
+        auto_promote: bool = False,
     ) -> None:
         self._stack = stack
         self._inference = inference
         self._core_id = core_id
         self._configs = configs or dict(DEFAULT_LAYER_CONFIGS)
         self._inference_available = inference_available
+        self._auto_promote = auto_promote
 
     def update_config(self, transition: str, config: LayerConfig) -> None:
         """Update configuration for a layer transition."""
@@ -413,6 +419,7 @@ class MemoryProcessor:
         *,
         force: bool = False,
         allow_no_inference_override: bool = False,
+        auto_promote: Optional[bool] = None,
     ) -> List[ProcessingResult]:
         """Run processing for one or all layer transitions.
 
@@ -422,11 +429,14 @@ class MemoryProcessor:
             allow_no_inference_override: Allow identity-layer writes without
                 inference (except values). Requires force=True and only works
                 for transitions in OVERRIDE_TRANSITIONS.
+            auto_promote: If True, directly write memories. If False (default),
+                create suggestions for review. None uses instance default.
 
         Returns:
             List of ProcessingResult for each transition that ran
         """
         results = []
+        promote = auto_promote if auto_promote is not None else self._auto_promote
 
         transitions = [transition] if transition else list(VALID_TRANSITIONS)
 
@@ -444,7 +454,7 @@ class MemoryProcessor:
             if not force and not self.check_triggers(t):
                 continue
 
-            result = self._process_layer(t, config)
+            result = self._process_layer(t, config, auto_promote=promote)
             results.append(result)
 
         return results
@@ -503,7 +513,9 @@ class MemoryProcessor:
 
         return None
 
-    def _process_layer(self, transition: str, config: LayerConfig) -> ProcessingResult:
+    def _process_layer(
+        self, transition: str, config: LayerConfig, *, auto_promote: bool = False
+    ) -> ProcessingResult:
         """Run one processing pass for a specific layer transition."""
         prompts = LAYER_PROMPTS.get(transition)
         if prompts is None:
@@ -544,10 +556,11 @@ class MemoryProcessor:
                 errors=[f"Inference failed: {e}"],
             )
 
-        # 5. Parse response and write memories
+        # 5. Parse response
         result = ProcessingResult(
             layer_transition=transition,
             source_count=len(sources),
+            auto_promote=auto_promote,
         )
 
         try:
@@ -557,12 +570,19 @@ class MemoryProcessor:
             result.errors.append(f"Parse failed: {e}")
             return result
 
-        # 6. Write through stack with provenance
-        created = self._write_memories(transition, parsed, sources)
-        result.created = created
+        # 6. Write memories or create suggestions
+        if auto_promote:
+            # Direct promotion (opt-in): write memories immediately
+            created = self._write_memories(transition, parsed, sources)
+            result.created = created
+        else:
+            # Default: create suggestions for review
+            suggestions = self._write_suggestions(transition, parsed, sources)
+            result.suggestions = suggestions
 
         # 7. Mark sources as processed
-        self._mark_processed(transition, sources, created)
+        created_or_suggested = result.created or result.suggestions
+        self._mark_processed(transition, sources, created_or_suggested)
 
         # 8. Log audit
         self._stack.log_audit(
@@ -572,7 +592,9 @@ class MemoryProcessor:
             actor=f"core:{self._core_id}",
             details={
                 "source_count": len(sources),
-                "created_count": len(created),
+                "created_count": len(result.created),
+                "suggestion_count": len(result.suggestions),
+                "auto_promote": auto_promote,
                 "errors": result.errors,
             },
         )
@@ -818,6 +840,71 @@ class MemoryProcessor:
                 logger.error("Failed to write %s memory: %s", transition, e)
 
         return created
+
+    def _write_suggestions(
+        self, transition: str, parsed: list, sources: list
+    ) -> List[Dict[str, str]]:
+        """Create MemorySuggestions instead of directly writing memories.
+
+        Returns list of dicts like [{"type": "episode", "id": "suggestion-id"}]
+        where id is the suggestion ID (not a memory ID).
+        """
+        from kernle.types import MemorySuggestion
+
+        suggestions_created: List[Dict[str, str]] = []
+        now = datetime.now(timezone.utc)
+
+        # Map transitions to their target memory type
+        transition_to_type = {
+            "raw_to_episode": "episode",
+            "raw_to_note": "note",
+            "episode_to_belief": "belief",
+            "episode_to_goal": "goal",
+            "episode_to_relationship": "relationship",
+            "belief_to_value": "value",
+            "episode_to_drive": "drive",
+        }
+        memory_type = transition_to_type.get(transition)
+        if memory_type is None:
+            return suggestions_created
+
+        for item in parsed:
+            try:
+                # Extract source IDs for provenance
+                source_ids = self._extract_source_ids(transition, item)
+
+                suggestion = MemorySuggestion(
+                    id=str(uuid.uuid4()),
+                    stack_id=self._stack.stack_id,
+                    memory_type=memory_type,
+                    content=item,
+                    confidence=item.get("confidence", 0.7),
+                    source_raw_ids=source_ids,
+                    status="pending",
+                    created_at=now,
+                )
+                sid = self._stack.save_suggestion(suggestion)
+                suggestions_created.append({"type": memory_type, "id": sid})
+
+            except Exception as e:
+                logger.error("Failed to create %s suggestion: %s", transition, e)
+
+        return suggestions_created
+
+    def _extract_source_ids(self, transition: str, item: dict) -> List[str]:
+        """Extract source memory IDs from a parsed item based on transition type."""
+        if transition in ("raw_to_episode", "raw_to_note"):
+            return item.get("source_raw_ids", [])
+        if transition in (
+            "episode_to_belief",
+            "episode_to_goal",
+            "episode_to_relationship",
+            "episode_to_drive",
+        ):
+            return item.get("source_episode_ids", [])
+        if transition == "belief_to_value":
+            return item.get("source_belief_ids", [])
+        return []
 
     # ---- Mark Processed ----
 

@@ -384,12 +384,11 @@ class WritersMixin:
             for e in entries
         ]
 
-    def process(self, transition=None, force=False, allow_no_inference_override=False):
+    def process(self, transition=None, force=False, allow_no_inference_override=False, auto_promote=False):
         """Run memory processing.
 
-        Promotes memories up the hierarchy using the bound model:
-        raw -> episode/note, episode -> belief/goal/relationship/drive,
-        belief -> value.
+        By default, creates suggestions for review rather than directly
+        promoting memories. Set auto_promote=True to directly write memories.
 
         When no model is bound, identity-layer transitions are blocked
         by the no-inference safety policy. Values can never be created
@@ -400,6 +399,8 @@ class WritersMixin:
             force: Process even if triggers aren't met
             allow_no_inference_override: Allow identity-layer writes without
                 inference (except values). Only effective with force=True.
+            auto_promote: If True, directly write memories. If False (default),
+                create suggestions for review.
 
         Returns:
             List of ProcessingResult for each transition that ran
@@ -411,6 +412,7 @@ class WritersMixin:
             transition=transition,
             force=force,
             allow_no_inference_override=allow_no_inference_override,
+            auto_promote=auto_promote,
         )
 
     def process_raw(

@@ -15,6 +15,7 @@ def cmd_process(args, k: "Kernle"):
         transition = getattr(args, "transition", None)
         force = getattr(args, "force", False)
         allow_no_inference_override = getattr(args, "allow_no_inference_override", False)
+        auto_promote = getattr(args, "auto_promote", False)
 
         if transition and transition not in VALID_TRANSITIONS:
             print(f"Invalid transition: {transition}")
@@ -26,6 +27,7 @@ def cmd_process(args, k: "Kernle"):
                 transition=transition,
                 force=force,
                 allow_no_inference_override=allow_no_inference_override,
+                auto_promote=auto_promote,
             )
         except RuntimeError as e:
             print(f"Error: {e}")
@@ -48,6 +50,8 @@ def cmd_process(args, k: "Kernle"):
                         "transition": r.layer_transition,
                         "source_count": r.source_count,
                         "created": r.created,
+                        "suggestions": r.suggestions,
+                        "auto_promote": r.auto_promote,
                         "errors": r.errors,
                         "skipped": r.skipped,
                         "skip_reason": r.skip_reason,
@@ -56,19 +60,29 @@ def cmd_process(args, k: "Kernle"):
                 )
             print(json.dumps(output, indent=2, default=str))
         else:
-            print(f"Processing complete ({len(results)} transition(s)):\n")
+            mode = "auto-promote" if auto_promote else "suggestions"
+            print(f"Processing complete ({len(results)} transition(s), mode={mode}):\n")
             for r in results:
                 if r.inference_blocked:
                     print(f"  {r.layer_transition}: BLOCKED (no inference) -- {r.skip_reason}")
                 elif r.skipped:
                     print(f"  {r.layer_transition}: skipped ({r.skip_reason})")
-                else:
+                elif r.auto_promote:
                     print(
                         f"  {r.layer_transition}: "
                         f"{r.source_count} sources -> {len(r.created)} created"
                     )
                     for c in r.created:
                         print(f"    + {c['type']}:{c['id'][:8]}...")
+                    for err in r.errors:
+                        print(f"    ! {err}")
+                else:
+                    print(
+                        f"  {r.layer_transition}: "
+                        f"{r.source_count} sources -> {len(r.suggestions)} suggestions"
+                    )
+                    for s in r.suggestions:
+                        print(f"    ? {s['type']}:{s['id'][:8]}... (pending review)")
                     for err in r.errors:
                         print(f"    ! {err}")
 

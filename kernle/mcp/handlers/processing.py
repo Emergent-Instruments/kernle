@@ -31,6 +31,9 @@ def validate_memory_process(arguments: Dict[str, Any]) -> Dict[str, Any]:
     sanitized["allow_no_inference_override"] = arguments.get("allow_no_inference_override", False)
     if not isinstance(sanitized["allow_no_inference_override"], bool):
         sanitized["allow_no_inference_override"] = False
+    sanitized["auto_promote"] = arguments.get("auto_promote", False)
+    if not isinstance(sanitized["auto_promote"], bool):
+        sanitized["auto_promote"] = False
     return sanitized
 
 
@@ -47,11 +50,13 @@ def handle_memory_process(args: Dict[str, Any], k: Kernle) -> str:
     transition = args.get("transition")
     force = args.get("force", False)
     allow_no_inference_override = args.get("allow_no_inference_override", False)
+    auto_promote = args.get("auto_promote", False)
     try:
         results = k.process(
             transition=transition,
             force=force,
             allow_no_inference_override=allow_no_inference_override,
+            auto_promote=auto_promote,
         )
     except RuntimeError:
         return "Memory processing requires a bound model. Use entity.set_model() first."
@@ -64,19 +69,32 @@ def handle_memory_process(args: Dict[str, Any], k: Kernle) -> str:
             result += "No unprocessed memories found."
         return result
 
-    lines = [f"Processing complete ({len(results)} transition(s)):\n"]
+    mode = "auto-promote" if auto_promote else "suggestions"
+    lines = [f"Processing complete ({len(results)} transition(s), mode={mode}):\n"]
     for r in results:
         if r.inference_blocked:
             lines.append(f"  {r.layer_transition}: BLOCKED (no inference) -- {r.skip_reason}")
         elif r.skipped:
             lines.append(f"  {r.layer_transition}: skipped ({r.skip_reason})")
-        else:
+        elif r.auto_promote:
             created_summary = ", ".join(f"{c['type']}:{c['id'][:8]}" for c in r.created)
             lines.append(
                 f"  {r.layer_transition}: " f"{r.source_count} sources -> {len(r.created)} created"
             )
             if created_summary:
                 lines.append(f"    Created: {created_summary}")
+            if r.errors:
+                for err in r.errors:
+                    lines.append(f"    Error: {err}")
+        else:
+            suggestion_summary = ", ".join(f"{s['type']}:{s['id'][:8]}" for s in r.suggestions)
+            lines.append(
+                f"  {r.layer_transition}: "
+                f"{r.source_count} sources -> {len(r.suggestions)} suggestions"
+            )
+            if suggestion_summary:
+                lines.append(f"    Suggestions: {suggestion_summary}")
+            lines.append("    Use memory_suggestions to review and accept/reject.")
             if r.errors:
                 for err in r.errors:
                     lines.append(f"    Error: {err}")
