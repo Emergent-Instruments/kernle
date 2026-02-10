@@ -30,7 +30,6 @@ from .base import (
     MemorySuggestion,
     Note,
     Playbook,
-    RawEntry,
     Relationship,
     RelationshipHistoryEntry,
     SearchResult,
@@ -58,7 +57,112 @@ from .flat_files import (
 from .health import get_health_check_stats as _get_health_check_stats
 from .health import log_health_check as _log_health_check
 from .lineage import check_derived_from_cycle
+from .memory_crud import (
+    _row_to_belief as _mc_row_to_belief,
+)
+from .memory_crud import (
+    _row_to_diagnostic_report as _mc_row_to_diagnostic_report,
+)
+from .memory_crud import (
+    _row_to_diagnostic_session as _mc_row_to_diagnostic_session,
+)
+from .memory_crud import (
+    _row_to_drive as _mc_row_to_drive,
+)
+from .memory_crud import (
+    _row_to_entity_model as _mc_row_to_entity_model,
+)
+from .memory_crud import (
+    _row_to_episode as _mc_row_to_episode,
+)
+from .memory_crud import (
+    _row_to_epoch as _mc_row_to_epoch,
+)
+from .memory_crud import (
+    _row_to_goal as _mc_row_to_goal,
+)
+from .memory_crud import (
+    _row_to_note as _mc_row_to_note,
+)
+from .memory_crud import (
+    _row_to_playbook as _mc_row_to_playbook,
+)
+from .memory_crud import (
+    _row_to_relationship as _mc_row_to_relationship,
+)
+from .memory_crud import (
+    _row_to_relationship_history as _mc_row_to_relationship_history,
+)
+from .memory_crud import (
+    _row_to_self_narrative as _mc_row_to_self_narrative,
+)
+from .memory_crud import (
+    _row_to_suggestion as _mc_row_to_suggestion,
+)
+from .memory_crud import (
+    _row_to_summary as _mc_row_to_summary,
+)
+from .memory_crud import (
+    _row_to_value as _mc_row_to_value,
+)
 from .memory_ops import MemoryOps
+from .raw_entries import (
+    append_raw_to_file,
+    escape_like_pattern,
+    row_to_raw_entry,
+    should_sync_raw,
+    update_raw_fts,
+)
+from .raw_entries import (
+    delete_raw as _delete_raw,
+)
+from .raw_entries import (
+    get_all_stack_settings as _get_all_stack_settings,
+)
+from .raw_entries import (
+    get_processing_config as _get_processing_config,
+)
+from .raw_entries import (
+    get_raw as _get_raw,
+)
+from .raw_entries import (
+    get_raw_files as _get_raw_files,
+)
+from .raw_entries import (
+    get_stack_setting as _get_stack_setting,
+)
+from .raw_entries import (
+    list_raw as _list_raw,
+)
+from .raw_entries import (
+    mark_processed as _mark_processed,
+)
+from .raw_entries import (
+    mark_raw_processed as _mark_raw_processed,
+)
+from .raw_entries import (
+    save_raw as _save_raw,
+)
+from .raw_entries import (
+    search_raw_fts as _search_raw_fts,
+)
+from .raw_entries import (
+    set_processing_config as _set_processing_config,
+)
+from .raw_entries import (
+    set_stack_setting as _set_stack_setting,
+)
+from .raw_entries import (
+    sync_raw_from_files as _sync_raw_from_files,
+)
+from .schema import ALLOWED_TABLES as ALLOWED_TABLES  # noqa: F401 — re-export
+from .schema import SCHEMA_VERSION as SCHEMA_VERSION  # noqa: F401 — re-export
+from .schema import (
+    ensure_raw_fts5,
+    init_db,
+    migrate_schema,
+    validate_table_name,
+)
 from .sync_engine import SyncEngine
 
 if TYPE_CHECKING:
@@ -66,806 +170,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Schema version for migrations
-SCHEMA_VERSION = (
-    24  # Memory integrity: strength field replaces is_forgotten, add audit/processing tables
-)
 
-# Allowed table names for SQL queries (security: prevents SQL injection via table names)
-ALLOWED_TABLES = frozenset(
-    {
-        "episodes",
-        "beliefs",
-        "agent_values",
-        "goals",
-        "notes",
-        "drives",
-        "relationships",
-        "playbooks",
-        "raw_entries",
-        "checkpoints",
-        "memory_suggestions",
-        "schema_version",
-        "sync_queue",
-        "sync_conflicts",
-        "embeddings",
-        "health_check_events",
-        "boot_config",
-        "trust_assessments",  # KEP v3 trust layer
-        "epochs",  # KEP v3 temporal epochs
-        "diagnostic_sessions",  # KEP v3 diagnostic sessions
-        "diagnostic_reports",  # KEP v3 diagnostic reports
-        "summaries",  # KEP v3 fractal summarization
-        "self_narratives",  # KEP v3 self-narrative layer
-        "memory_audit",  # v0.9.0 memory audit trail
-        "processing_config",  # v0.9.0 processing configuration
-        "stack_settings",  # per-stack feature flags
-    }
-)
-
-
-def validate_table_name(table: str) -> str:
-    """Validate table name against allowlist to prevent SQL injection.
-
-    Args:
-        table: Table name to validate
-
-    Returns:
-        The validated table name
-
-    Raises:
-        ValueError: If table name is not in allowlist
-    """
-    if table not in ALLOWED_TABLES:
-        raise ValueError(f"Invalid table name: {table}")
-    return table
-
-
-SCHEMA = """
--- Schema version tracking
-CREATE TABLE IF NOT EXISTS schema_version (
-    version INTEGER PRIMARY KEY
-);
-
--- Episodes (experiences/work logs)
-CREATE TABLE IF NOT EXISTS episodes (
-    id TEXT PRIMARY KEY,
-    stack_id TEXT NOT NULL,
-    objective TEXT NOT NULL,
-    outcome TEXT NOT NULL,
-    outcome_type TEXT,
-    lessons TEXT,  -- JSON array
-    tags TEXT,     -- JSON array
-    created_at TEXT NOT NULL,
-    -- Emotional memory fields
-    emotional_valence REAL DEFAULT 0.0,  -- -1.0 (negative) to 1.0 (positive)
-    emotional_arousal REAL DEFAULT 0.0,  -- 0.0 (calm) to 1.0 (intense)
-    emotional_tags TEXT,  -- JSON array ["joy", "frustration", "curiosity"]
-    -- Meta-memory fields
-    confidence REAL DEFAULT 0.8,
-    source_type TEXT DEFAULT 'direct_experience',
-    source_episodes TEXT,  -- JSON array of episode IDs
-    derived_from TEXT,     -- JSON array of memory IDs (format: type:id)
-    last_verified TEXT,    -- ISO timestamp
-    verification_count INTEGER DEFAULT 0,
-    confidence_history TEXT,  -- JSON array of confidence changes
-    -- Forgetting fields
-    times_accessed INTEGER DEFAULT 0,
-    last_accessed TEXT,
-    is_protected INTEGER DEFAULT 0,
-    strength REAL DEFAULT 1.0,
-    processed INTEGER DEFAULT 0,   -- Whether episode has been processed for promotion
-    -- Context/scope fields
-    context TEXT,
-    context_tags TEXT,
-    source_entity TEXT,
-    -- Privacy fields (Phase 8a)
-    subject_ids TEXT,       -- JSON array of entity IDs this memory is about
-    access_grants TEXT,     -- JSON array of entity IDs who can see this (empty = private)
-    consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
-    -- Epoch tracking
-    epoch_id TEXT,
-    -- Repeat/avoid patterns
-    repeat TEXT,   -- JSON array of patterns to replicate
-    avoid TEXT,    -- JSON array of patterns to avoid
-    -- Sync metadata
-    local_updated_at TEXT NOT NULL,
-    cloud_synced_at TEXT,
-    version INTEGER DEFAULT 1,
-    deleted INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_episodes_agent ON episodes(stack_id);
-CREATE INDEX IF NOT EXISTS idx_episodes_created ON episodes(created_at);
-CREATE INDEX IF NOT EXISTS idx_episodes_sync ON episodes(cloud_synced_at);
-CREATE INDEX IF NOT EXISTS idx_episodes_valence ON episodes(emotional_valence);
-CREATE INDEX IF NOT EXISTS idx_episodes_arousal ON episodes(emotional_arousal);
-CREATE INDEX IF NOT EXISTS idx_episodes_confidence ON episodes(confidence);
-CREATE INDEX IF NOT EXISTS idx_episodes_source_type ON episodes(source_type);
-CREATE INDEX IF NOT EXISTS idx_episodes_strength ON episodes(strength);
-CREATE INDEX IF NOT EXISTS idx_episodes_is_protected ON episodes(is_protected);
-CREATE INDEX IF NOT EXISTS idx_episodes_epoch ON episodes(epoch_id);
-
--- Beliefs
-CREATE TABLE IF NOT EXISTS beliefs (
-    id TEXT PRIMARY KEY,
-    stack_id TEXT NOT NULL,
-    statement TEXT NOT NULL,
-    belief_type TEXT DEFAULT 'fact',
-    confidence REAL DEFAULT 0.8,
-    created_at TEXT NOT NULL,
-    -- Meta-memory fields
-    source_type TEXT DEFAULT 'direct_experience',
-    source_episodes TEXT,  -- JSON array of episode IDs
-    derived_from TEXT,     -- JSON array of memory IDs
-    last_verified TEXT,
-    verification_count INTEGER DEFAULT 0,
-    confidence_history TEXT,
-    -- Belief revision fields
-    supersedes TEXT,           -- ID of belief this replaced
-    superseded_by TEXT,        -- ID of belief that replaced this
-    times_reinforced INTEGER DEFAULT 0,  -- How many times confirmed
-    is_active INTEGER DEFAULT 1,  -- 0 if superseded/archived
-    -- Forgetting fields
-    times_accessed INTEGER DEFAULT 0,
-    last_accessed TEXT,
-    is_protected INTEGER DEFAULT 0,
-    strength REAL DEFAULT 1.0,
-    -- Context/scope fields
-    context TEXT,
-    context_tags TEXT,
-    source_entity TEXT,
-    -- Privacy fields (Phase 8a)
-    subject_ids TEXT,       -- JSON array of entity IDs this memory is about
-    access_grants TEXT,     -- JSON array of entity IDs who can see this (empty = private)
-    consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
-    -- Epoch tracking
-    epoch_id TEXT,
-    -- Processing state
-    processed INTEGER DEFAULT 0,
-    -- Belief scope and domain metadata (KEP v3)
-    belief_scope TEXT DEFAULT 'world',
-    source_domain TEXT,
-    cross_domain_applications TEXT,
-    abstraction_level TEXT DEFAULT 'specific',
-    -- Sync metadata
-    local_updated_at TEXT NOT NULL,
-    cloud_synced_at TEXT,
-    version INTEGER DEFAULT 1,
-    deleted INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_beliefs_agent ON beliefs(stack_id);
-CREATE INDEX IF NOT EXISTS idx_beliefs_confidence ON beliefs(confidence);
-CREATE INDEX IF NOT EXISTS idx_beliefs_source_type ON beliefs(source_type);
-CREATE INDEX IF NOT EXISTS idx_beliefs_is_active ON beliefs(is_active);
-CREATE INDEX IF NOT EXISTS idx_beliefs_supersedes ON beliefs(supersedes);
-CREATE INDEX IF NOT EXISTS idx_beliefs_superseded_by ON beliefs(superseded_by);
-CREATE INDEX IF NOT EXISTS idx_beliefs_strength ON beliefs(strength);
-CREATE INDEX IF NOT EXISTS idx_beliefs_is_protected ON beliefs(is_protected);
-CREATE INDEX IF NOT EXISTS idx_beliefs_belief_scope ON beliefs(belief_scope);
-CREATE INDEX IF NOT EXISTS idx_beliefs_source_domain ON beliefs(source_domain);
-CREATE INDEX IF NOT EXISTS idx_beliefs_abstraction_level ON beliefs(abstraction_level);
-CREATE INDEX IF NOT EXISTS idx_beliefs_epoch ON beliefs(epoch_id);
-
--- Values
-CREATE TABLE IF NOT EXISTS agent_values (
-    id TEXT PRIMARY KEY,
-    stack_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    statement TEXT NOT NULL,
-    priority INTEGER DEFAULT 50,
-    created_at TEXT NOT NULL,
-    -- Meta-memory fields
-    confidence REAL DEFAULT 0.9,
-    source_type TEXT DEFAULT 'direct_experience',
-    source_episodes TEXT,
-    derived_from TEXT,
-    last_verified TEXT,
-    verification_count INTEGER DEFAULT 0,
-    confidence_history TEXT,
-    -- Forgetting fields
-    times_accessed INTEGER DEFAULT 0,
-    last_accessed TEXT,
-    is_protected INTEGER DEFAULT 1,  -- Values protected by default
-    strength REAL DEFAULT 1.0,
-    -- Context/scope fields
-    context TEXT,
-    context_tags TEXT,
-    source_entity TEXT,
-    -- Privacy fields (Phase 8a)
-    subject_ids TEXT,       -- JSON array of entity IDs this memory is about
-    access_grants TEXT,     -- JSON array of entity IDs who can see this (empty = private)
-    consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
-    -- Epoch tracking
-    epoch_id TEXT,
-    -- Sync metadata
-    local_updated_at TEXT NOT NULL,
-    cloud_synced_at TEXT,
-    version INTEGER DEFAULT 1,
-    deleted INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_values_stack ON agent_values(stack_id);
-CREATE INDEX IF NOT EXISTS idx_values_confidence ON agent_values(confidence);
-CREATE INDEX IF NOT EXISTS idx_values_strength ON agent_values(strength);
-CREATE INDEX IF NOT EXISTS idx_values_is_protected ON agent_values(is_protected);
-CREATE INDEX IF NOT EXISTS idx_values_epoch ON agent_values(epoch_id);
-
--- Goals
-CREATE TABLE IF NOT EXISTS goals (
-    id TEXT PRIMARY KEY,
-    stack_id TEXT NOT NULL,
-    title TEXT NOT NULL,
-    description TEXT,
-    goal_type TEXT DEFAULT 'task',
-    priority TEXT DEFAULT 'medium',
-    status TEXT DEFAULT 'active',
-    created_at TEXT NOT NULL,
-    -- Meta-memory fields
-    confidence REAL DEFAULT 0.8,
-    source_type TEXT DEFAULT 'direct_experience',
-    source_episodes TEXT,
-    derived_from TEXT,
-    last_verified TEXT,
-    verification_count INTEGER DEFAULT 0,
-    confidence_history TEXT,
-    -- Forgetting fields
-    times_accessed INTEGER DEFAULT 0,
-    last_accessed TEXT,
-    is_protected INTEGER DEFAULT 0,
-    strength REAL DEFAULT 1.0,
-    -- Context/scope fields
-    context TEXT,
-    context_tags TEXT,
-    source_entity TEXT,
-    -- Privacy fields (Phase 8a)
-    subject_ids TEXT,       -- JSON array of entity IDs this memory is about
-    access_grants TEXT,     -- JSON array of entity IDs who can see this (empty = private)
-    consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
-    -- Epoch tracking
-    epoch_id TEXT,
-    -- Sync metadata
-    local_updated_at TEXT NOT NULL,
-    cloud_synced_at TEXT,
-    version INTEGER DEFAULT 1,
-    deleted INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_goals_agent ON goals(stack_id);
-CREATE INDEX IF NOT EXISTS idx_goals_status ON goals(status);
-CREATE INDEX IF NOT EXISTS idx_goals_confidence ON goals(confidence);
-CREATE INDEX IF NOT EXISTS idx_goals_strength ON goals(strength);
-CREATE INDEX IF NOT EXISTS idx_goals_is_protected ON goals(is_protected);
-CREATE INDEX IF NOT EXISTS idx_goals_epoch ON goals(epoch_id);
-
--- Notes (memories)
-CREATE TABLE IF NOT EXISTS notes (
-    id TEXT PRIMARY KEY,
-    stack_id TEXT NOT NULL,
-    content TEXT NOT NULL,
-    note_type TEXT DEFAULT 'note',
-    speaker TEXT,
-    reason TEXT,
-    tags TEXT,  -- JSON array
-    created_at TEXT NOT NULL,
-    -- Meta-memory fields
-    confidence REAL DEFAULT 0.8,
-    source_type TEXT DEFAULT 'direct_experience',
-    source_episodes TEXT,
-    derived_from TEXT,
-    last_verified TEXT,
-    verification_count INTEGER DEFAULT 0,
-    confidence_history TEXT,
-    -- Forgetting fields
-    times_accessed INTEGER DEFAULT 0,
-    last_accessed TEXT,
-    is_protected INTEGER DEFAULT 0,
-    strength REAL DEFAULT 1.0,
-    processed INTEGER DEFAULT 0,   -- Whether note has been processed for promotion
-    -- Context/scope fields
-    context TEXT,
-    context_tags TEXT,
-    source_entity TEXT,
-    -- Privacy fields (Phase 8a)
-    subject_ids TEXT,       -- JSON array of entity IDs this memory is about
-    access_grants TEXT,     -- JSON array of entity IDs who can see this (empty = private)
-    consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
-    -- Epoch tracking
-    epoch_id TEXT,
-    -- Sync metadata
-    local_updated_at TEXT NOT NULL,
-    cloud_synced_at TEXT,
-    version INTEGER DEFAULT 1,
-    deleted INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_notes_agent ON notes(stack_id);
-CREATE INDEX IF NOT EXISTS idx_notes_created ON notes(created_at);
-CREATE INDEX IF NOT EXISTS idx_notes_confidence ON notes(confidence);
-CREATE INDEX IF NOT EXISTS idx_notes_strength ON notes(strength);
-CREATE INDEX IF NOT EXISTS idx_notes_is_protected ON notes(is_protected);
-CREATE INDEX IF NOT EXISTS idx_notes_epoch ON notes(epoch_id);
-
--- Drives
-CREATE TABLE IF NOT EXISTS drives (
-    id TEXT PRIMARY KEY,
-    stack_id TEXT NOT NULL,
-    drive_type TEXT NOT NULL,
-    intensity REAL DEFAULT 0.5,
-    focus_areas TEXT,  -- JSON array
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    -- Meta-memory fields
-    confidence REAL DEFAULT 0.8,
-    source_type TEXT DEFAULT 'direct_experience',
-    source_episodes TEXT,
-    derived_from TEXT,
-    last_verified TEXT,
-    verification_count INTEGER DEFAULT 0,
-    confidence_history TEXT,
-    -- Forgetting fields
-    times_accessed INTEGER DEFAULT 0,
-    last_accessed TEXT,
-    is_protected INTEGER DEFAULT 1,  -- Drives protected by default
-    strength REAL DEFAULT 1.0,
-    -- Context/scope fields
-    context TEXT,
-    context_tags TEXT,
-    source_entity TEXT,
-    -- Privacy fields (Phase 8a)
-    subject_ids TEXT,       -- JSON array of entity IDs this memory is about
-    access_grants TEXT,     -- JSON array of entity IDs who can see this (empty = private)
-    consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
-    -- Epoch tracking
-    epoch_id TEXT,
-    -- Sync metadata
-    local_updated_at TEXT NOT NULL,
-    cloud_synced_at TEXT,
-    version INTEGER DEFAULT 1,
-    deleted INTEGER DEFAULT 0,
-    UNIQUE(stack_id, drive_type)
-);
-CREATE INDEX IF NOT EXISTS idx_drives_agent ON drives(stack_id);
-CREATE INDEX IF NOT EXISTS idx_drives_confidence ON drives(confidence);
-CREATE INDEX IF NOT EXISTS idx_drives_strength ON drives(strength);
-CREATE INDEX IF NOT EXISTS idx_drives_is_protected ON drives(is_protected);
-CREATE INDEX IF NOT EXISTS idx_drives_epoch ON drives(epoch_id);
-
--- Relationships
-CREATE TABLE IF NOT EXISTS relationships (
-    id TEXT PRIMARY KEY,
-    stack_id TEXT NOT NULL,
-    entity_name TEXT NOT NULL,
-    entity_type TEXT NOT NULL,
-    relationship_type TEXT NOT NULL,
-    notes TEXT,
-    sentiment REAL DEFAULT 0.0,
-    interaction_count INTEGER DEFAULT 0,
-    last_interaction TEXT,
-    created_at TEXT NOT NULL,
-    -- Meta-memory fields
-    confidence REAL DEFAULT 0.8,
-    source_type TEXT DEFAULT 'direct_experience',
-    source_episodes TEXT,
-    derived_from TEXT,
-    last_verified TEXT,
-    verification_count INTEGER DEFAULT 0,
-    confidence_history TEXT,
-    -- Forgetting fields
-    times_accessed INTEGER DEFAULT 0,
-    last_accessed TEXT,
-    is_protected INTEGER DEFAULT 0,
-    strength REAL DEFAULT 1.0,
-    -- Context/scope fields
-    context TEXT,
-    context_tags TEXT,
-    source_entity TEXT,
-    -- Privacy fields (Phase 8a)
-    subject_ids TEXT,       -- JSON array of entity IDs this memory is about
-    access_grants TEXT,     -- JSON array of entity IDs who can see this (empty = private)
-    consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
-    -- Epoch tracking
-    epoch_id TEXT,
-    -- Sync metadata
-    local_updated_at TEXT NOT NULL,
-    cloud_synced_at TEXT,
-    version INTEGER DEFAULT 1,
-    deleted INTEGER DEFAULT 0,
-    UNIQUE(stack_id, entity_name)
-);
-CREATE INDEX IF NOT EXISTS idx_relationships_agent ON relationships(stack_id);
-CREATE INDEX IF NOT EXISTS idx_relationships_confidence ON relationships(confidence);
-CREATE INDEX IF NOT EXISTS idx_relationships_strength ON relationships(strength);
-CREATE INDEX IF NOT EXISTS idx_relationships_is_protected ON relationships(is_protected);
-CREATE INDEX IF NOT EXISTS idx_relationships_epoch ON relationships(epoch_id);
-
--- Trust assessments (KEP v3 section 8)
-CREATE TABLE IF NOT EXISTS trust_assessments (
-    id TEXT PRIMARY KEY,
-    stack_id TEXT NOT NULL,
-    entity TEXT NOT NULL,
-    dimensions TEXT NOT NULL,       -- JSON: {"general": {"score": 0.95}, ...}
-    authority TEXT DEFAULT '[]',    -- JSON: [{"scope": "all"}, ...]
-    evidence_episode_ids TEXT,      -- JSON array of episode IDs
-    last_updated TEXT,
-    created_at TEXT NOT NULL,
-    local_updated_at TEXT NOT NULL,
-    cloud_synced_at TEXT,
-    version INTEGER DEFAULT 1,
-    deleted INTEGER DEFAULT 0,
-    UNIQUE(stack_id, entity)
-);
-CREATE INDEX IF NOT EXISTS idx_trust_agent ON trust_assessments(stack_id);
-CREATE INDEX IF NOT EXISTS idx_trust_entity ON trust_assessments(stack_id, entity);
-
--- Relationship history (tracking changes over time)
-CREATE TABLE IF NOT EXISTS relationship_history (
-    id TEXT PRIMARY KEY,
-    stack_id TEXT NOT NULL,
-    relationship_id TEXT NOT NULL,
-    entity_name TEXT NOT NULL,
-    event_type TEXT NOT NULL,  -- interaction, trust_change, type_change, note
-    old_value TEXT,            -- JSON: previous state
-    new_value TEXT,            -- JSON: new state
-    episode_id TEXT,           -- Related episode if applicable
-    notes TEXT,
-    created_at TEXT NOT NULL,
-    -- Sync metadata
-    local_updated_at TEXT NOT NULL,
-    cloud_synced_at TEXT,
-    version INTEGER DEFAULT 1,
-    deleted INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_rel_history_agent ON relationship_history(stack_id);
-CREATE INDEX IF NOT EXISTS idx_rel_history_relationship ON relationship_history(relationship_id);
-CREATE INDEX IF NOT EXISTS idx_rel_history_entity ON relationship_history(entity_name);
-CREATE INDEX IF NOT EXISTS idx_rel_history_event_type ON relationship_history(event_type);
-
--- Entity models (mental models of other entities)
-CREATE TABLE IF NOT EXISTS entity_models (
-    id TEXT PRIMARY KEY,
-    stack_id TEXT NOT NULL,
-    entity_name TEXT NOT NULL,
-    model_type TEXT NOT NULL,  -- behavioral, preference, capability
-    observation TEXT NOT NULL,
-    confidence REAL DEFAULT 0.7,
-    source_episodes TEXT,      -- JSON array of episode IDs
-    created_at TEXT NOT NULL,
-    updated_at TEXT,
-    -- Privacy fields
-    subject_ids TEXT,          -- JSON array, auto-populated from entity_name
-    access_grants TEXT,
-    consent_grants TEXT,
-    -- Sync metadata
-    local_updated_at TEXT NOT NULL,
-    cloud_synced_at TEXT,
-    version INTEGER DEFAULT 1,
-    deleted INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_entity_models_agent ON entity_models(stack_id);
-CREATE INDEX IF NOT EXISTS idx_entity_models_entity ON entity_models(entity_name);
-CREATE INDEX IF NOT EXISTS idx_entity_models_type ON entity_models(model_type);
-
-
--- Epochs (temporal era tracking)
-CREATE TABLE IF NOT EXISTS epochs (
-    id TEXT PRIMARY KEY,
-    stack_id TEXT NOT NULL,
-    epoch_number INTEGER NOT NULL,
-    name TEXT NOT NULL,
-    started_at TEXT NOT NULL,
-    ended_at TEXT,              -- NULL = still active
-    trigger_type TEXT DEFAULT 'declared',  -- declared, detected, system
-    trigger_description TEXT,
-    summary TEXT,
-    key_belief_ids TEXT,        -- JSON array
-    key_relationship_ids TEXT,  -- JSON array
-    key_goal_ids TEXT,          -- JSON array
-    dominant_drive_ids TEXT,    -- JSON array
-    -- Sync metadata
-    local_updated_at TEXT NOT NULL,
-    cloud_synced_at TEXT,
-    version INTEGER DEFAULT 1,
-    deleted INTEGER DEFAULT 0,
-    UNIQUE(stack_id, epoch_number)
-);
-CREATE INDEX IF NOT EXISTS idx_epochs_agent ON epochs(stack_id);
-CREATE INDEX IF NOT EXISTS idx_epochs_number ON epochs(stack_id, epoch_number);
-CREATE INDEX IF NOT EXISTS idx_epochs_active ON epochs(ended_at);
-
--- Playbooks (procedural memory - "how I do things")
-CREATE TABLE IF NOT EXISTS playbooks (
-    id TEXT PRIMARY KEY,
-    stack_id TEXT NOT NULL,
-    name TEXT NOT NULL,
-    description TEXT NOT NULL,
-    trigger_conditions TEXT NOT NULL,  -- JSON array
-    steps TEXT NOT NULL,               -- JSON array of {action, details, adaptations}
-    failure_modes TEXT NOT NULL,       -- JSON array
-    recovery_steps TEXT,               -- JSON array (optional)
-    mastery_level TEXT DEFAULT 'novice',  -- novice/competent/proficient/expert
-    times_used INTEGER DEFAULT 0,
-    success_rate REAL DEFAULT 0.0,
-    source_episodes TEXT,              -- JSON array of episode IDs
-    tags TEXT,                         -- JSON array
-    -- Meta-memory fields
-    confidence REAL DEFAULT 0.8,
-    last_used TEXT,
-    created_at TEXT NOT NULL,
-    -- Privacy fields (Phase 8a)
-    subject_ids TEXT,       -- JSON array of entity IDs this memory is about
-    access_grants TEXT,     -- JSON array of entity IDs who can see this (empty = private)
-    consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
-    -- Sync metadata
-    local_updated_at TEXT NOT NULL,
-    cloud_synced_at TEXT,
-    version INTEGER DEFAULT 1,
-    deleted INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_playbooks_agent ON playbooks(stack_id);
-CREATE INDEX IF NOT EXISTS idx_playbooks_mastery ON playbooks(mastery_level);
-CREATE INDEX IF NOT EXISTS idx_playbooks_times_used ON playbooks(times_used);
-CREATE INDEX IF NOT EXISTS idx_playbooks_confidence ON playbooks(confidence);
-
--- Raw entries (unstructured blob capture for later processing)
--- The blob field is the primary storage - unvalidated, high limit brain dumps
-CREATE TABLE IF NOT EXISTS raw_entries (
-    id TEXT PRIMARY KEY,
-    stack_id TEXT NOT NULL,
-    blob TEXT NOT NULL,  -- Unstructured brain dump (primary field)
-    captured_at TEXT NOT NULL,  -- When captured (was: timestamp)
-    source TEXT DEFAULT 'unknown',  -- Auto-populated: cli|mcp|sdk|import|unknown
-    processed INTEGER DEFAULT 0,
-    processed_into TEXT,  -- JSON array of memory refs (type:id)
-    -- DEPRECATED columns (kept for migration, will be removed)
-    content TEXT,  -- Use blob instead
-    timestamp TEXT,  -- Use captured_at instead
-    tags TEXT,  -- Include in blob text instead
-    confidence REAL DEFAULT 1.0,  -- Not meaningful for raw
-    source_type TEXT DEFAULT 'direct_experience',  -- Meta-memory, not for raw
-    -- Privacy fields (Phase 8a)
-    subject_ids TEXT,       -- JSON array of entity IDs this memory is about
-    access_grants TEXT,     -- JSON array of entity IDs who can see this (empty = private)
-    consent_grants TEXT,    -- JSON array of entity IDs who authorized sharing
-    -- Sync metadata
-    local_updated_at TEXT NOT NULL,
-    cloud_synced_at TEXT,
-    version INTEGER DEFAULT 1,
-    deleted INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_raw_agent ON raw_entries(stack_id);
-CREATE INDEX IF NOT EXISTS idx_raw_processed ON raw_entries(stack_id, processed);
-CREATE INDEX IF NOT EXISTS idx_raw_captured_at ON raw_entries(stack_id, captured_at);
--- Partial index for anxiety system queries (unprocessed entries)
-CREATE INDEX IF NOT EXISTS idx_raw_unprocessed ON raw_entries(captured_at)
-    WHERE processed = 0 AND deleted = 0;
-
--- FTS5 virtual table for raw blob keyword search (safety net for backlogs)
--- Note: FTS5 table is created separately in _ensure_fts5_tables() due to SQLite version differences
-
--- Memory suggestions (auto-extracted suggestions awaiting review)
-CREATE TABLE IF NOT EXISTS memory_suggestions (
-    id TEXT PRIMARY KEY,
-    stack_id TEXT NOT NULL,
-    memory_type TEXT NOT NULL,  -- episode, belief, note
-    content TEXT NOT NULL,  -- JSON object with structured data
-    confidence REAL DEFAULT 0.5,
-    source_raw_ids TEXT NOT NULL,  -- JSON array of raw entry IDs
-    status TEXT DEFAULT 'pending',  -- pending, promoted, modified, rejected
-    created_at TEXT NOT NULL,
-    resolved_at TEXT,
-    resolution_reason TEXT,
-    promoted_to TEXT,  -- Format: type:id (e.g., episode:abc123)
-    -- Sync metadata
-    local_updated_at TEXT NOT NULL,
-    cloud_synced_at TEXT,
-    version INTEGER DEFAULT 1,
-    deleted INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_suggestions_agent ON memory_suggestions(stack_id);
-CREATE INDEX IF NOT EXISTS idx_suggestions_status ON memory_suggestions(stack_id, status);
-CREATE INDEX IF NOT EXISTS idx_suggestions_type ON memory_suggestions(stack_id, memory_type);
-CREATE INDEX IF NOT EXISTS idx_suggestions_created ON memory_suggestions(created_at);
-
--- Health check events (compliance tracking)
-CREATE TABLE IF NOT EXISTS health_check_events (
-    id TEXT PRIMARY KEY,
-    stack_id TEXT NOT NULL,
-    checked_at TEXT NOT NULL,
-    anxiety_score INTEGER,
-    source TEXT DEFAULT 'cli',  -- cli, mcp
-    triggered_by TEXT DEFAULT 'manual'  -- boot, heartbeat, manual
-);
-CREATE INDEX IF NOT EXISTS idx_health_check_agent ON health_check_events(stack_id);
-CREATE INDEX IF NOT EXISTS idx_health_check_checked_at ON health_check_events(checked_at);
-
--- Sync queue for offline changes (enhanced v2)
-CREATE TABLE IF NOT EXISTS sync_queue (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    table_name TEXT NOT NULL,
-    record_id TEXT NOT NULL,
-    operation TEXT NOT NULL,  -- insert, update, delete
-    data TEXT,  -- JSON payload of the record data
-    local_updated_at TEXT NOT NULL,
-    synced INTEGER DEFAULT 0,  -- 0 = pending, 1 = synced
-    payload TEXT,  -- Legacy: JSON payload (kept for backward compatibility)
-    queued_at TEXT,  -- Legacy: kept for backward compatibility
-    -- Retry tracking for resilient sync (v0.2.5)
-    retry_count INTEGER DEFAULT 0,
-    last_error TEXT,
-    last_attempt_at TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_sync_queue_table ON sync_queue(table_name);
-CREATE INDEX IF NOT EXISTS idx_sync_queue_record ON sync_queue(record_id);
-CREATE INDEX IF NOT EXISTS idx_sync_queue_synced ON sync_queue(synced);
--- Unique partial index for atomic UPSERT on unsynced entries
-CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_queue_unsynced_unique
-    ON sync_queue(table_name, record_id) WHERE synced = 0;
-
--- Sync metadata (tracks last sync time and state)
-CREATE TABLE IF NOT EXISTS sync_meta (
-    key TEXT PRIMARY KEY,
-    value TEXT NOT NULL,
-    updated_at TEXT NOT NULL
-);
-
--- Sync conflict history (tracks resolved conflicts for user visibility)
-CREATE TABLE IF NOT EXISTS sync_conflicts (
-    id TEXT PRIMARY KEY,
-    table_name TEXT NOT NULL,
-    record_id TEXT NOT NULL,
-    local_version TEXT NOT NULL,   -- JSON snapshot of local version
-    cloud_version TEXT NOT NULL,   -- JSON snapshot of cloud version
-    resolution TEXT NOT NULL,      -- "local_wins" or "cloud_wins"
-    resolved_at TEXT NOT NULL,
-    local_summary TEXT,            -- Human-readable summary
-    cloud_summary TEXT
-);
-CREATE INDEX IF NOT EXISTS idx_sync_conflicts_resolved ON sync_conflicts(resolved_at);
-CREATE INDEX IF NOT EXISTS idx_sync_conflicts_record ON sync_conflicts(table_name, record_id);
-
--- Boot config (always-available key/value config for agents)
-CREATE TABLE IF NOT EXISTS boot_config (
-    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4)))),
-    stack_id TEXT NOT NULL,
-    key TEXT NOT NULL,
-    value TEXT NOT NULL,
-    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(stack_id, key)
-);
-CREATE INDEX IF NOT EXISTS idx_boot_agent ON boot_config(stack_id);
-
--- Diagnostic sessions (formal health check sessions)
-CREATE TABLE IF NOT EXISTS diagnostic_sessions (
-    id TEXT PRIMARY KEY,
-    stack_id TEXT NOT NULL,
-    session_type TEXT DEFAULT 'self_requested',  -- self_requested, routine, anomaly_triggered, operator_initiated
-    access_level TEXT DEFAULT 'structural',       -- structural, content, full
-    status TEXT DEFAULT 'active',                 -- active, completed, cancelled
-    consent_given INTEGER DEFAULT 0,
-    started_at TEXT NOT NULL,
-    completed_at TEXT,
-    -- Sync metadata
-    local_updated_at TEXT NOT NULL,
-    cloud_synced_at TEXT,
-    version INTEGER DEFAULT 1,
-    deleted INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_diag_sessions_agent ON diagnostic_sessions(stack_id);
-CREATE INDEX IF NOT EXISTS idx_diag_sessions_status ON diagnostic_sessions(stack_id, status);
-
--- Diagnostic reports (findings from diagnostic sessions)
-CREATE TABLE IF NOT EXISTS diagnostic_reports (
-    id TEXT PRIMARY KEY,
-    stack_id TEXT NOT NULL,
-    session_id TEXT NOT NULL,  -- References diagnostic_sessions.id
-    findings TEXT,              -- JSON array of findings
-    summary TEXT,
-    created_at TEXT NOT NULL,
-    -- Sync metadata
-    local_updated_at TEXT NOT NULL,
-    cloud_synced_at TEXT,
-    version INTEGER DEFAULT 1,
-    deleted INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_diag_reports_agent ON diagnostic_reports(stack_id);
-CREATE INDEX IF NOT EXISTS idx_diag_reports_session ON diagnostic_reports(session_id);
-
--- Agent summaries (fractal summarization)
-CREATE TABLE IF NOT EXISTS summaries (
-    id TEXT PRIMARY KEY,
-    stack_id TEXT NOT NULL,
-    scope TEXT NOT NULL,                         -- 'month' | 'quarter' | 'year' | 'decade' | 'epoch'
-    period_start TEXT NOT NULL,
-    period_end TEXT NOT NULL,
-    epoch_id TEXT,
-    content TEXT NOT NULL,                        -- Agent-written narrative compression
-    key_themes TEXT,                              -- JSON array
-    supersedes TEXT,                              -- JSON array of lower-scope summary IDs this covers
-    is_protected INTEGER DEFAULT 1,              -- Never forgotten
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    cloud_synced_at TEXT,
-    version INTEGER DEFAULT 1,
-    deleted INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_summaries_stack ON summaries(stack_id);
-CREATE INDEX IF NOT EXISTS idx_summaries_scope ON summaries(stack_id, scope);
-CREATE INDEX IF NOT EXISTS idx_summaries_period ON summaries(stack_id, period_start, period_end);
-
--- Self-narrative (autobiographical identity model, KEP v3)
-CREATE TABLE IF NOT EXISTS self_narratives (
-    id TEXT PRIMARY KEY,
-    stack_id TEXT NOT NULL,
-    epoch_id TEXT,
-    narrative_type TEXT DEFAULT 'identity',   -- 'identity' | 'developmental' | 'aspirational'
-    content TEXT NOT NULL,
-    key_themes TEXT,                          -- JSON array
-    unresolved_tensions TEXT,                 -- JSON array
-    is_active INTEGER DEFAULT 1,
-    supersedes TEXT,
-    created_at TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    cloud_synced_at TEXT,
-    version INTEGER DEFAULT 1,
-    deleted INTEGER DEFAULT 0
-);
-CREATE INDEX IF NOT EXISTS idx_narrative_stack ON self_narratives(stack_id);
-CREATE INDEX IF NOT EXISTS idx_narrative_active ON self_narratives(stack_id, narrative_type, is_active);
-
--- Embedding metadata (tracks what's been embedded)
-CREATE TABLE IF NOT EXISTS embedding_meta (
-    id TEXT PRIMARY KEY,
-    table_name TEXT NOT NULL,
-    record_id TEXT NOT NULL,
-    content_hash TEXT NOT NULL,  -- To detect when re-embedding needed
-    created_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_embedding_meta_record ON embedding_meta(table_name, record_id);
-
--- Memory audit trail (v0.9.0)
-CREATE TABLE IF NOT EXISTS memory_audit (
-    id TEXT PRIMARY KEY,
-    memory_type TEXT NOT NULL,
-    memory_id TEXT NOT NULL,
-    operation TEXT NOT NULL,
-    details TEXT,
-    actor TEXT NOT NULL,
-    created_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_audit_memory ON memory_audit(memory_type, memory_id);
-CREATE INDEX IF NOT EXISTS idx_audit_operation ON memory_audit(operation);
-CREATE INDEX IF NOT EXISTS idx_audit_created ON memory_audit(created_at);
-
--- Processing configuration (v0.9.0)
-CREATE TABLE IF NOT EXISTS processing_config (
-    layer_transition TEXT PRIMARY KEY,
-    enabled INTEGER DEFAULT 1,
-    model_id TEXT,
-    quantity_threshold INTEGER,
-    valence_threshold REAL,
-    time_threshold_hours INTEGER,
-    batch_size INTEGER DEFAULT 10,
-    max_sessions_per_day INTEGER,
-    updated_at TEXT
-);
-
--- Stack settings (per-stack feature flags)
-CREATE TABLE IF NOT EXISTS stack_settings (
-    stack_id TEXT NOT NULL,
-    key TEXT NOT NULL,
-    value TEXT NOT NULL,
-    updated_at TEXT NOT NULL,
-    PRIMARY KEY (stack_id, key)
-);
-"""
-
-# Virtual table for vector search (created when sqlite-vec is available)
-VECTOR_SCHEMA = """
--- Vector table using sqlite-vec
--- dimension should match embedding provider
-CREATE VIRTUAL TABLE IF NOT EXISTS vec_embeddings USING vec0(
-    id TEXT PRIMARY KEY,
-    embedding FLOAT[{dim}]
-);
-"""
+# NOTE: SCHEMA_VERSION, ALLOWED_TABLES, validate_table_name, SCHEMA, and VECTOR_SCHEMA
+# have been moved to storage/schema.py and are imported at the top of this file.
 
 
 class SQLiteStorage:
@@ -1100,1014 +407,25 @@ class SQLiteStorage:
         return self._cloud._cloud_search(query, limit, record_types, timeout)
 
     def _init_db(self):
-        """Initialize the database schema."""
+        """Initialize the database schema. Delegates to schema.init_db()."""
         with self._connect() as conn:
-            # First, run migrations if needed (before executing full schema)
-            self._migrate_schema(conn)
-
-            # Now execute full schema (CREATE TABLE IF NOT EXISTS is safe)
-            conn.executescript(SCHEMA)
-
-            # Check/set schema version
-            cur = conn.execute("SELECT version FROM schema_version LIMIT 1")
-            row = cur.fetchone()
-            if row is None:
-                conn.execute("INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
-            else:
-                # Update schema version
-                conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
-
-            # Create vector table if sqlite-vec is available
-            if self._has_vec:
-                self._load_vec(conn)
-                vec_schema = VECTOR_SCHEMA.format(dim=self._embedder.dimension)
-                try:
-                    conn.executescript(vec_schema)
-                except sqlite3.OperationalError as e:
-                    if "already exists" not in str(e):
-                        logger.warning(f"Could not create vector table: {e}")
-
-            # Create FTS5 table for raw blob keyword search
-            self._ensure_raw_fts5(conn)
-
-            conn.commit()
-
-        # Set secure file permissions (owner read/write only)
-        import os
-
-        try:
-            os.chmod(self.db_path, 0o600)
-            os.chmod(self.db_path.parent, 0o700)
-            if self._agent_dir.exists():
-                os.chmod(self._agent_dir, 0o700)
-        except OSError as e:
-            logger.warning(f"Could not set secure permissions: {e}")
+            init_db(
+                conn=conn,
+                stack_id=self.stack_id,
+                has_vec=self._has_vec,
+                embedder_dimension=self._embedder.dimension,
+                load_vec_fn=self._load_vec,
+                db_path=self.db_path,
+                agent_dir=self._agent_dir,
+            )
 
     def _ensure_raw_fts5(self, conn: sqlite3.Connection):
-        """Create FTS5 virtual table for raw blob keyword search.
-
-        FTS5 provides fast keyword search on raw blobs as a safety net
-        when backlogs accumulate. This is separate from semantic search.
-        """
-        try:
-            # Check if FTS5 table already exists
-            result = conn.execute("""
-                SELECT name FROM sqlite_master
-                WHERE type='table' AND name='raw_fts'
-            """).fetchone()
-
-            if result is None:
-                # Create FTS5 content table (external content mode)
-                # This links to raw_entries.blob without duplicating data
-                conn.execute("""
-                    CREATE VIRTUAL TABLE raw_fts USING fts5(
-                        blob,
-                        content=raw_entries,
-                        content_rowid=rowid
-                    )
-                """)
-                logger.info("Created raw_fts FTS5 table for keyword search")
-
-                # Populate FTS index from existing data
-                conn.execute("INSERT INTO raw_fts(raw_fts) VALUES('rebuild')")
-                logger.info("Rebuilt raw_fts index")
-
-        except sqlite3.OperationalError as e:
-            # FTS5 might not be available in all SQLite builds
-            if "no such module: fts5" in str(e).lower():
-                logger.warning("FTS5 not available in this SQLite build - keyword search disabled")
-            elif "already exists" in str(e).lower():
-                pass  # Table already exists, that's fine
-            else:
-                logger.warning(f"Could not create FTS5 table: {e}")
-        except Exception as e:
-            logger.warning(f"FTS5 setup failed: {e}")
+        """Create FTS5 virtual table. Delegates to schema.ensure_raw_fts5()."""
+        ensure_raw_fts5(conn)
 
     def _migrate_schema(self, conn: sqlite3.Connection):
-        """Run schema migrations for existing databases.
-
-        Handles adding new columns to existing tables.
-        """
-        # Check if tables exist first
-        tables = conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
-        table_names = {t[0] for t in tables}
-
-        if "episodes" not in table_names:
-            # Fresh database, no migration needed
-            return
-
-        # Get current columns for each table
-        def get_columns(table: str) -> set:
-            try:
-                validate_table_name(table)  # Security: defense-in-depth
-                cols = conn.execute(f"PRAGMA table_info({table})").fetchall()
-                return {c[1] for c in cols}
-            except (TypeError, ValueError):
-                return set()
-
-        # Migrations for episodes table
-        episode_cols = get_columns("episodes")
-        migrations = []
-
-        if "emotional_valence" not in episode_cols:
-            migrations.append("ALTER TABLE episodes ADD COLUMN emotional_valence REAL DEFAULT 0.0")
-        if "emotional_arousal" not in episode_cols:
-            migrations.append("ALTER TABLE episodes ADD COLUMN emotional_arousal REAL DEFAULT 0.0")
-        if "emotional_tags" not in episode_cols:
-            migrations.append("ALTER TABLE episodes ADD COLUMN emotional_tags TEXT")
-        if "confidence" not in episode_cols:
-            migrations.append("ALTER TABLE episodes ADD COLUMN confidence REAL DEFAULT 0.8")
-        if "source_type" not in episode_cols:
-            migrations.append(
-                "ALTER TABLE episodes ADD COLUMN source_type TEXT DEFAULT 'direct_experience'"
-            )
-        if "source_episodes" not in episode_cols:
-            migrations.append("ALTER TABLE episodes ADD COLUMN source_episodes TEXT")
-        if "derived_from" not in episode_cols:
-            migrations.append("ALTER TABLE episodes ADD COLUMN derived_from TEXT")
-        if "last_verified" not in episode_cols:
-            migrations.append("ALTER TABLE episodes ADD COLUMN last_verified TEXT")
-        if "verification_count" not in episode_cols:
-            migrations.append(
-                "ALTER TABLE episodes ADD COLUMN verification_count INTEGER DEFAULT 0"
-            )
-        if "confidence_history" not in episode_cols:
-            migrations.append("ALTER TABLE episodes ADD COLUMN confidence_history TEXT")
-        if "repeat" not in episode_cols:
-            migrations.append("ALTER TABLE episodes ADD COLUMN repeat TEXT")
-        if "avoid" not in episode_cols:
-            migrations.append("ALTER TABLE episodes ADD COLUMN avoid TEXT")
-
-        # Migrations for beliefs table
-        belief_cols = get_columns("beliefs")
-        if "beliefs" in table_names:
-            if "source_type" not in belief_cols:
-                migrations.append(
-                    "ALTER TABLE beliefs ADD COLUMN source_type TEXT DEFAULT 'direct_experience'"
-                )
-            if "source_episodes" not in belief_cols:
-                migrations.append("ALTER TABLE beliefs ADD COLUMN source_episodes TEXT")
-            if "derived_from" not in belief_cols:
-                migrations.append("ALTER TABLE beliefs ADD COLUMN derived_from TEXT")
-            if "last_verified" not in belief_cols:
-                migrations.append("ALTER TABLE beliefs ADD COLUMN last_verified TEXT")
-            if "verification_count" not in belief_cols:
-                migrations.append(
-                    "ALTER TABLE beliefs ADD COLUMN verification_count INTEGER DEFAULT 0"
-                )
-            if "confidence_history" not in belief_cols:
-                migrations.append("ALTER TABLE beliefs ADD COLUMN confidence_history TEXT")
-            # Belief revision fields
-            if "supersedes" not in belief_cols:
-                migrations.append("ALTER TABLE beliefs ADD COLUMN supersedes TEXT")
-            if "superseded_by" not in belief_cols:
-                migrations.append("ALTER TABLE beliefs ADD COLUMN superseded_by TEXT")
-            if "times_reinforced" not in belief_cols:
-                migrations.append(
-                    "ALTER TABLE beliefs ADD COLUMN times_reinforced INTEGER DEFAULT 0"
-                )
-            if "is_active" not in belief_cols:
-                migrations.append("ALTER TABLE beliefs ADD COLUMN is_active INTEGER DEFAULT 1")
-
-        # Migrations for values table
-        value_cols = get_columns("agent_values")
-        if "agent_values" in table_names:
-            if "confidence" not in value_cols:
-                migrations.append("ALTER TABLE agent_values ADD COLUMN confidence REAL DEFAULT 0.9")
-            if "source_type" not in value_cols:
-                migrations.append(
-                    "ALTER TABLE agent_values ADD COLUMN source_type TEXT DEFAULT 'direct_experience'"
-                )
-            if "source_episodes" not in value_cols:
-                migrations.append("ALTER TABLE agent_values ADD COLUMN source_episodes TEXT")
-            if "derived_from" not in value_cols:
-                migrations.append("ALTER TABLE agent_values ADD COLUMN derived_from TEXT")
-            if "last_verified" not in value_cols:
-                migrations.append("ALTER TABLE agent_values ADD COLUMN last_verified TEXT")
-            if "verification_count" not in value_cols:
-                migrations.append(
-                    "ALTER TABLE agent_values ADD COLUMN verification_count INTEGER DEFAULT 0"
-                )
-            if "confidence_history" not in value_cols:
-                migrations.append("ALTER TABLE agent_values ADD COLUMN confidence_history TEXT")
-
-        # Migrations for goals table
-        goal_cols = get_columns("goals")
-        if "goals" in table_names:
-            if "confidence" not in goal_cols:
-                migrations.append("ALTER TABLE goals ADD COLUMN confidence REAL DEFAULT 0.8")
-            if "source_type" not in goal_cols:
-                migrations.append(
-                    "ALTER TABLE goals ADD COLUMN source_type TEXT DEFAULT 'direct_experience'"
-                )
-            if "source_episodes" not in goal_cols:
-                migrations.append("ALTER TABLE goals ADD COLUMN source_episodes TEXT")
-            if "derived_from" not in goal_cols:
-                migrations.append("ALTER TABLE goals ADD COLUMN derived_from TEXT")
-            if "last_verified" not in goal_cols:
-                migrations.append("ALTER TABLE goals ADD COLUMN last_verified TEXT")
-            if "verification_count" not in goal_cols:
-                migrations.append(
-                    "ALTER TABLE goals ADD COLUMN verification_count INTEGER DEFAULT 0"
-                )
-            if "confidence_history" not in goal_cols:
-                migrations.append("ALTER TABLE goals ADD COLUMN confidence_history TEXT")
-            if "goal_type" not in goal_cols:
-                migrations.append("ALTER TABLE goals ADD COLUMN goal_type TEXT DEFAULT 'task'")
-
-        # Migrations for notes table
-        note_cols = get_columns("notes")
-        if "notes" in table_names:
-            if "confidence" not in note_cols:
-                migrations.append("ALTER TABLE notes ADD COLUMN confidence REAL DEFAULT 0.8")
-            if "source_type" not in note_cols:
-                migrations.append(
-                    "ALTER TABLE notes ADD COLUMN source_type TEXT DEFAULT 'direct_experience'"
-                )
-            if "source_episodes" not in note_cols:
-                migrations.append("ALTER TABLE notes ADD COLUMN source_episodes TEXT")
-            if "derived_from" not in note_cols:
-                migrations.append("ALTER TABLE notes ADD COLUMN derived_from TEXT")
-            if "last_verified" not in note_cols:
-                migrations.append("ALTER TABLE notes ADD COLUMN last_verified TEXT")
-            if "verification_count" not in note_cols:
-                migrations.append(
-                    "ALTER TABLE notes ADD COLUMN verification_count INTEGER DEFAULT 0"
-                )
-            if "confidence_history" not in note_cols:
-                migrations.append("ALTER TABLE notes ADD COLUMN confidence_history TEXT")
-
-        # Migrations for drives table
-        drive_cols = get_columns("drives")
-        if "drives" in table_names:
-            if "confidence" not in drive_cols:
-                migrations.append("ALTER TABLE drives ADD COLUMN confidence REAL DEFAULT 0.8")
-            if "source_type" not in drive_cols:
-                migrations.append(
-                    "ALTER TABLE drives ADD COLUMN source_type TEXT DEFAULT 'direct_experience'"
-                )
-            if "source_episodes" not in drive_cols:
-                migrations.append("ALTER TABLE drives ADD COLUMN source_episodes TEXT")
-            if "derived_from" not in drive_cols:
-                migrations.append("ALTER TABLE drives ADD COLUMN derived_from TEXT")
-            if "last_verified" not in drive_cols:
-                migrations.append("ALTER TABLE drives ADD COLUMN last_verified TEXT")
-            if "verification_count" not in drive_cols:
-                migrations.append(
-                    "ALTER TABLE drives ADD COLUMN verification_count INTEGER DEFAULT 0"
-                )
-            if "confidence_history" not in drive_cols:
-                migrations.append("ALTER TABLE drives ADD COLUMN confidence_history TEXT")
-
-        # Migrations for relationships table
-        rel_cols = get_columns("relationships")
-        if "relationships" in table_names:
-            if "confidence" not in rel_cols:
-                migrations.append(
-                    "ALTER TABLE relationships ADD COLUMN confidence REAL DEFAULT 0.8"
-                )
-            if "source_type" not in rel_cols:
-                migrations.append(
-                    "ALTER TABLE relationships ADD COLUMN source_type TEXT DEFAULT 'direct_experience'"
-                )
-            if "source_episodes" not in rel_cols:
-                migrations.append("ALTER TABLE relationships ADD COLUMN source_episodes TEXT")
-            if "derived_from" not in rel_cols:
-                migrations.append("ALTER TABLE relationships ADD COLUMN derived_from TEXT")
-            if "last_verified" not in rel_cols:
-                migrations.append("ALTER TABLE relationships ADD COLUMN last_verified TEXT")
-            if "verification_count" not in rel_cols:
-                migrations.append(
-                    "ALTER TABLE relationships ADD COLUMN verification_count INTEGER DEFAULT 0"
-                )
-            if "confidence_history" not in rel_cols:
-                migrations.append("ALTER TABLE relationships ADD COLUMN confidence_history TEXT")
-
-        # Migrations for sync_queue table (enhanced v2)
-        sync_cols = get_columns("sync_queue")
-        if "sync_queue" in table_names:
-            if "payload" not in sync_cols:
-                migrations.append("ALTER TABLE sync_queue ADD COLUMN payload TEXT")
-            if "data" not in sync_cols:
-                migrations.append("ALTER TABLE sync_queue ADD COLUMN data TEXT")
-            if "local_updated_at" not in sync_cols:
-                migrations.append("ALTER TABLE sync_queue ADD COLUMN local_updated_at TEXT")
-            if "synced" not in sync_cols:
-                migrations.append("ALTER TABLE sync_queue ADD COLUMN synced INTEGER DEFAULT 0")
-            # Retry tracking for resilient sync (v0.2.5)
-            if "retry_count" not in sync_cols:
-                migrations.append("ALTER TABLE sync_queue ADD COLUMN retry_count INTEGER DEFAULT 0")
-            if "last_error" not in sync_cols:
-                migrations.append("ALTER TABLE sync_queue ADD COLUMN last_error TEXT")
-            if "last_attempt_at" not in sync_cols:
-                migrations.append("ALTER TABLE sync_queue ADD COLUMN last_attempt_at TEXT")
-
-        # === Forgetting field migrations ===
-        # Add forgetting fields to all memory tables
-        forgetting_tables = [
-            ("episodes", False),  # (table_name, protected_by_default)
-            ("beliefs", False),
-            ("agent_values", True),  # Values protected by default
-            ("goals", False),
-            ("notes", False),
-            ("drives", True),  # Drives protected by default
-            ("relationships", False),
-        ]
-
-        for table, protected_default in forgetting_tables:
-            if table not in table_names:
-                continue
-            cols = get_columns(table)
-            protected_val = 1 if protected_default else 0
-
-            if "times_accessed" not in cols:
-                migrations.append(
-                    f"ALTER TABLE {table} ADD COLUMN times_accessed INTEGER DEFAULT 0"
-                )
-            if "last_accessed" not in cols:
-                migrations.append(f"ALTER TABLE {table} ADD COLUMN last_accessed TEXT")
-            if "is_protected" not in cols:
-                migrations.append(
-                    f"ALTER TABLE {table} ADD COLUMN is_protected INTEGER DEFAULT {protected_val}"
-                )
-            if "is_forgotten" not in cols:
-                migrations.append(f"ALTER TABLE {table} ADD COLUMN is_forgotten INTEGER DEFAULT 0")
-            if "forgotten_at" not in cols:
-                migrations.append(f"ALTER TABLE {table} ADD COLUMN forgotten_at TEXT")
-            if "forgotten_reason" not in cols:
-                migrations.append(f"ALTER TABLE {table} ADD COLUMN forgotten_reason TEXT")
-
-        # === Context/scope field migrations ===
-        # Add context fields to all memory tables
-        context_tables = [
-            "episodes",
-            "beliefs",
-            "agent_values",
-            "goals",
-            "notes",
-            "drives",
-            "relationships",
-        ]
-
-        for table in context_tables:
-            if table not in table_names:
-                continue
-            cols = get_columns(table)
-
-            if "context" not in cols:
-                migrations.append(f"ALTER TABLE {table} ADD COLUMN context TEXT")
-            if "context_tags" not in cols:
-                migrations.append(f"ALTER TABLE {table} ADD COLUMN context_tags TEXT")
-
-        # === Privacy field migrations (Phase 8a) ===
-        # Add privacy fields to all memory tables
-        privacy_tables = [
-            "episodes",
-            "beliefs",
-            "agent_values",
-            "goals",
-            "notes",
-            "drives",
-            "relationships",
-            "playbooks",
-            "raw_entries",
-        ]
-
-        for table in privacy_tables:
-            if table not in table_names:
-                continue
-            cols = get_columns(table)
-
-            if "subject_ids" not in cols:
-                migrations.append(f"ALTER TABLE {table} ADD COLUMN subject_ids TEXT")
-            if "access_grants" not in cols:
-                migrations.append(f"ALTER TABLE {table} ADD COLUMN access_grants TEXT")
-            if "consent_grants" not in cols:
-                migrations.append(f"ALTER TABLE {table} ADD COLUMN consent_grants TEXT")
-
-        # === Raw entries blob migration ===
-        # Migrate from structured content/tags to blob-based storage
-        raw_cols = get_columns("raw_entries")
-        if "raw_entries" in table_names:
-            # Add blob column if it doesn't exist
-            if "blob" not in raw_cols:
-                migrations.append("ALTER TABLE raw_entries ADD COLUMN blob TEXT")
-            # Add captured_at column if it doesn't exist
-            if "captured_at" not in raw_cols:
-                migrations.append("ALTER TABLE raw_entries ADD COLUMN captured_at TEXT")
-
-            # Execute pending schema migrations first so blob column exists
-            for migration in migrations:
-                try:
-                    conn.execute(migration)
-                except Exception as e:
-                    if "duplicate column" not in str(e).lower():
-                        logger.warning(f"Migration failed: {migration}: {e}")
-            migrations.clear()
-
-            # Migrate data from content/tags to blob with natural language format
-            # Now safe to run since blob column is guaranteed to exist
-            try:
-                # Check if migration is needed (blob is NULL but content exists)
-                needs_migration = conn.execute("""
-                    SELECT COUNT(*) FROM raw_entries
-                    WHERE (blob IS NULL OR blob = '') AND content IS NOT NULL AND content != ''
-                """).fetchone()[0]
-
-                if needs_migration > 0:
-                    # Migrate content + tags to blob in natural language format
-                    conn.execute("""
-                        UPDATE raw_entries SET blob =
-                            content ||
-                            CASE WHEN source IS NOT NULL AND source != 'manual' AND source != '' AND source != 'unknown'
-                                 THEN ' (from ' || source || ')' ELSE '' END ||
-                            CASE WHEN tags IS NOT NULL AND tags != '[]' AND tags != 'null' AND tags != ''
-                                 THEN ' [tags: ' ||
-                                      REPLACE(REPLACE(REPLACE(tags, '["', ''), '"]', ''), '","', ', ') ||
-                                      ']'
-                                 ELSE '' END
-                        WHERE (blob IS NULL OR blob = '') AND content IS NOT NULL
-                    """)
-                    # Copy timestamp to captured_at
-                    conn.execute("""
-                        UPDATE raw_entries SET captured_at = timestamp
-                        WHERE captured_at IS NULL AND timestamp IS NOT NULL
-                    """)
-                    # Normalize source to enum values
-                    conn.execute("""
-                        UPDATE raw_entries SET source =
-                            CASE
-                                WHEN source IN ('cli', 'mcp', 'sdk', 'import') THEN source
-                                WHEN source = 'manual' THEN 'cli'
-                                WHEN source LIKE '%auto%' THEN 'sdk'
-                                ELSE 'unknown'
-                            END
-                    """)
-                    logger.info(f"Migrated {needs_migration} raw entries to blob format")
-            except Exception as e:
-                logger.warning(f"Raw blob data migration failed: {e}")
-
-        # Create health_check_events table if it doesn't exist
-        if "health_check_events" not in table_names:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS health_check_events (
-                    id TEXT PRIMARY KEY,
-                    stack_id TEXT NOT NULL,
-                    checked_at TEXT NOT NULL,
-                    anxiety_score INTEGER,
-                    source TEXT DEFAULT 'cli',
-                    triggered_by TEXT DEFAULT 'manual'
-                )
-            """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_health_check_agent ON health_check_events(stack_id)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_health_check_checked_at ON health_check_events(checked_at)"
-            )
-            logger.info("Created health_check_events table")
-
-        # Execute migrations
-        for migration in migrations:
-            try:
-                conn.execute(migration)
-                logger.debug(f"Migration applied: {migration}")
-            except Exception as e:
-                logger.warning(f"Migration failed (may already exist): {migration} - {e}")
-
-        if migrations:
-            conn.commit()
-            logger.info(f"Applied {len(migrations)} schema migrations")
-
-        # v13: Add source_entity column for entity-neutral provenance (Phase 5)
-        source_entity_tables = [
-            "episodes",
-            "beliefs",
-            "agent_values",
-            "goals",
-            "notes",
-            "drives",
-            "relationships",
-        ]
-        for table in source_entity_tables:
-            if table in table_names:
-                cols = get_columns(table)
-                if "source_entity" not in cols:
-                    try:
-                        conn.execute(f"ALTER TABLE {table} ADD COLUMN source_entity TEXT")
-                        logger.info(f"Added source_entity column to {table}")
-                    except Exception as e:
-                        if "duplicate column" not in str(e).lower():
-                            logger.warning(f"Failed to add source_entity to {table}: {e}")
-        conn.commit()
-
-        # v14: Add privacy fields (Phase 8a) - subject_ids, access_grants, consent_grants
-        privacy_tables = [
-            "episodes",
-            "beliefs",
-            "agent_values",
-            "goals",
-            "notes",
-            "drives",
-            "relationships",
-            "playbooks",
-            "raw_entries",
-        ]
-        privacy_fields = ["subject_ids", "access_grants", "consent_grants"]
-        for table in privacy_tables:
-            if table in table_names:
-                cols = get_columns(table)
-                for field in privacy_fields:
-                    if field not in cols:
-                        try:
-                            conn.execute(f"ALTER TABLE {table} ADD COLUMN {field} TEXT")
-                            logger.info(f"Added {field} column to {table}")
-                        except Exception as e:
-                            if "duplicate column" not in str(e).lower():
-                                logger.warning(f"Failed to add {field} to {table}: {e}")
-        conn.commit()
-
-        # v15: Sync queue payload/data consistency fix
-        # Migrate data → payload where payload is NULL (fixes orphaned entry bug #70)
-        if "sync_queue" in table_names:
-            try:
-                fixed = conn.execute(
-                    "UPDATE sync_queue SET payload = data WHERE payload IS NULL AND data IS NOT NULL"
-                ).rowcount
-                if fixed > 0:
-                    logger.info(f"Fixed {fixed} sync queue entries (data → payload)")
-                conn.commit()
-            except Exception as e:
-                logger.warning(f"Sync queue payload migration failed: {e}")
-
-        # v15: Boot config table (Phase 9) - always-available key/value config
-        if "boot_config" not in table_names:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS boot_config (
-                    id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4)))),
-                    stack_id TEXT NOT NULL,
-                    key TEXT NOT NULL,
-                    value TEXT NOT NULL,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-                    UNIQUE(stack_id, key)
-                )
-            """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_boot_agent ON boot_config(stack_id)")
-            logger.info("Created boot_config table")
-            conn.commit()
-
-        # Create trust_assessments table if it doesn't exist
-        if "trust_assessments" not in table_names and "agent_trust_assessments" not in table_names:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS trust_assessments (
-                    id TEXT PRIMARY KEY,
-                    stack_id TEXT NOT NULL,
-                    entity TEXT NOT NULL,
-                    dimensions TEXT NOT NULL,
-                    authority TEXT DEFAULT '[]',
-                    evidence_episode_ids TEXT,
-                    last_updated TEXT,
-                    created_at TEXT NOT NULL,
-                    local_updated_at TEXT NOT NULL,
-                    cloud_synced_at TEXT,
-                    version INTEGER DEFAULT 1,
-                    deleted INTEGER DEFAULT 0,
-                    UNIQUE(stack_id, entity)
-                )
-            """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_trust_agent " "ON trust_assessments(stack_id)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_trust_entity "
-                "ON trust_assessments(stack_id, entity)"
-            )
-            logger.info("Created trust_assessments table")
-            conn.commit()
-
-        # v20: Add diagnostic sessions and reports tables
-        if (
-            "diagnostic_sessions" not in table_names
-            and "agent_diagnostic_sessions" not in table_names
-        ):
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS diagnostic_sessions (
-                    id TEXT PRIMARY KEY,
-                    stack_id TEXT NOT NULL,
-                    session_type TEXT DEFAULT 'self_requested',
-                    access_level TEXT DEFAULT 'structural',
-                    status TEXT DEFAULT 'active',
-                    consent_given INTEGER DEFAULT 0,
-                    started_at TEXT NOT NULL,
-                    completed_at TEXT,
-                    local_updated_at TEXT NOT NULL,
-                    cloud_synced_at TEXT,
-                    version INTEGER DEFAULT 1,
-                    deleted INTEGER DEFAULT 0
-                )
-            """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_diag_sessions_agent "
-                "ON diagnostic_sessions(stack_id)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_diag_sessions_status "
-                "ON diagnostic_sessions(stack_id, status)"
-            )
-            logger.info("Created diagnostic_sessions table")
-            conn.commit()
-
-        if (
-            "diagnostic_reports" not in table_names
-            and "agent_diagnostic_reports" not in table_names
-        ):
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS diagnostic_reports (
-                    id TEXT PRIMARY KEY,
-                    stack_id TEXT NOT NULL,
-                    session_id TEXT NOT NULL,
-                    findings TEXT,
-                    summary TEXT,
-                    created_at TEXT NOT NULL,
-                    local_updated_at TEXT NOT NULL,
-                    cloud_synced_at TEXT,
-                    version INTEGER DEFAULT 1,
-                    deleted INTEGER DEFAULT 0
-                )
-            """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_diag_reports_agent "
-                "ON diagnostic_reports(stack_id)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_diag_reports_session "
-                "ON diagnostic_reports(session_id)"
-            )
-            logger.info("Created diagnostic_reports table")
-            conn.commit()
-
-        # v18: Add belief_scope and domain metadata (KEP v3)
-        if "beliefs" in table_names:
-            belief_cols = get_columns("beliefs")
-            belief_scope_fields = {
-                "belief_scope": "TEXT DEFAULT 'world'",
-                "source_domain": "TEXT",
-                "cross_domain_applications": "TEXT",
-                "abstraction_level": "TEXT DEFAULT 'specific'",
-            }
-            for field_name, field_type in belief_scope_fields.items():
-                if field_name not in belief_cols:
-                    try:
-                        conn.execute(f"ALTER TABLE beliefs ADD COLUMN {field_name} {field_type}")
-                        logger.info(f"Added {field_name} column to beliefs")
-                    except Exception as e:
-                        if "duplicate column" not in str(e).lower():
-                            logger.warning(f"Failed to add {field_name} to beliefs: {e}")
-            conn.commit()
-
-        # v19: Add epoch_id columns and epochs table (KEP v3)
-        epoch_tables = [
-            "episodes",
-            "beliefs",
-            "agent_values",
-            "goals",
-            "notes",
-            "drives",
-            "relationships",
-        ]
-        for tbl in epoch_tables:
-            if tbl in table_names:
-                cols = get_columns(tbl)
-                if "epoch_id" not in cols:
-                    try:
-                        conn.execute(f"ALTER TABLE {tbl} ADD COLUMN epoch_id TEXT")
-                        conn.execute(
-                            f"CREATE INDEX IF NOT EXISTS idx_{tbl}_epoch ON {tbl}(epoch_id)"
-                        )
-                        logger.info(f"Added epoch_id column to {tbl}")
-                    except Exception as e:
-                        if "duplicate column" not in str(e).lower():
-                            logger.warning(f"Failed to add epoch_id to {tbl}: {e}")
-
-        # v21: Add summaries table (fractal summarization)
-        if "summaries" not in table_names and "agent_summaries" not in table_names:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS summaries (
-                    id TEXT PRIMARY KEY,
-                    stack_id TEXT NOT NULL,
-                    scope TEXT NOT NULL,
-                    period_start TEXT NOT NULL,
-                    period_end TEXT NOT NULL,
-                    epoch_id TEXT,
-                    content TEXT NOT NULL,
-                    key_themes TEXT,
-                    supersedes TEXT,
-                    is_protected INTEGER DEFAULT 1,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    cloud_synced_at TEXT,
-                    version INTEGER DEFAULT 1,
-                    deleted INTEGER DEFAULT 0
-                )
-            """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_summaries_stack " "ON summaries(stack_id)")
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_summaries_scope " "ON summaries(stack_id, scope)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_summaries_period "
-                "ON summaries(stack_id, period_start, period_end)"
-            )
-            logger.info("Created summaries table")
-            conn.commit()
-
-        if "epochs" not in table_names and "agent_epochs" not in table_names:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS epochs (
-                    id TEXT PRIMARY KEY,
-                    stack_id TEXT NOT NULL,
-                    epoch_number INTEGER NOT NULL,
-                    name TEXT NOT NULL,
-                    started_at TEXT NOT NULL,
-                    ended_at TEXT,
-                    trigger_type TEXT DEFAULT 'declared',
-                    trigger_description TEXT,
-                    summary TEXT,
-                    key_belief_ids TEXT,
-                    key_relationship_ids TEXT,
-                    key_goal_ids TEXT,
-                    dominant_drive_ids TEXT,
-                    local_updated_at TEXT NOT NULL,
-                    cloud_synced_at TEXT,
-                    version INTEGER DEFAULT 1,
-                    deleted INTEGER DEFAULT 0,
-                    UNIQUE(stack_id, epoch_number)
-                )
-            """)
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_epochs_agent ON epochs(stack_id)")
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_epochs_number " "ON epochs(stack_id, epoch_number)"
-            )
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_epochs_active ON epochs(ended_at)")
-            logger.info("Created epochs table")
-        else:
-            # Migrate existing epochs table
-            epoch_cols = get_columns("epochs")
-            if "trigger_description" not in epoch_cols:
-                try:
-                    conn.execute("ALTER TABLE epochs ADD COLUMN trigger_description TEXT")
-                    logger.info("Added trigger_description column to epochs")
-                except Exception as e:
-                    if "duplicate column" not in str(e).lower():
-                        logger.warning(f"Failed to add trigger_description: {e}")
-        conn.commit()
-
-        # v22: Add self_narratives table (self-narrative layer)
-        if "self_narratives" not in table_names and "agent_self_narrative" not in table_names:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS self_narratives (
-                    id TEXT PRIMARY KEY,
-                    stack_id TEXT NOT NULL,
-                    epoch_id TEXT,
-                    narrative_type TEXT DEFAULT 'identity',
-                    content TEXT NOT NULL,
-                    key_themes TEXT,
-                    unresolved_tensions TEXT,
-                    is_active INTEGER DEFAULT 1,
-                    supersedes TEXT,
-                    created_at TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    cloud_synced_at TEXT,
-                    version INTEGER DEFAULT 1,
-                    deleted INTEGER DEFAULT 0
-                )
-            """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_narrative_stack " "ON self_narratives(stack_id)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_narrative_active "
-                "ON self_narratives(stack_id, narrative_type, is_active)"
-            )
-            logger.info("Created self_narratives table")
-            conn.commit()
-
-        # v23: Rename agent_id → stack_id columns and drop agent_ table prefixes
-        # Check if migration is needed by looking for agent_id column in episodes
-        episode_cols = get_columns("episodes")
-        if "agent_id" in episode_cols and "stack_id" not in episode_cols:
-            logger.info("Migrating schema v22 → v23: agent_id → stack_id")
-
-            # 1. Rename agent_id column to stack_id in all tables
-            # Include both old and new table names to handle partial migrations
-            col_rename_tables = [
-                "episodes",
-                "beliefs",
-                "notes",
-                "goals",
-                "drives",
-                "relationships",
-                "playbooks",
-                "raw_entries",
-                "sync_queue",
-                "health_check_events",
-                "boot_config",
-                "checkpoints",
-                "memory_suggestions",
-                "agent_values",
-                "relationship_history",
-                "entity_models",
-                # Old names (pre-rename) and new names (post-rename)
-                "trust_assessments",
-                "agent_trust_assessments",
-                "epochs",
-                "agent_epochs",
-                "diagnostic_sessions",
-                "agent_diagnostic_sessions",
-                "diagnostic_reports",
-                "agent_diagnostic_reports",
-                "summaries",
-                "agent_summaries",
-                "self_narratives",
-                "agent_self_narrative",
-            ]
-
-            for tbl in col_rename_tables:
-                if tbl in table_names:
-                    cols = get_columns(tbl)
-                    if "agent_id" in cols:
-                        try:
-                            conn.execute(f"ALTER TABLE {tbl} RENAME COLUMN agent_id TO stack_id")
-                            logger.info(f"Renamed agent_id → stack_id in {tbl}")
-                        except Exception as e:
-                            logger.warning(f"Column rename failed for {tbl}: {e}")
-
-            # 2. Rename tables that had agent_ prefix
-            # Note: agent_values is NOT renamed (values is a SQL reserved word)
-            table_renames = {
-                "agent_trust_assessments": "trust_assessments",
-                "agent_epochs": "epochs",
-                "agent_diagnostic_sessions": "diagnostic_sessions",
-                "agent_diagnostic_reports": "diagnostic_reports",
-                "agent_summaries": "summaries",
-                "agent_self_narrative": "self_narratives",
-            }
-            for old_name, new_name in table_renames.items():
-                if old_name in table_names:
-                    try:
-                        conn.execute(f"ALTER TABLE {old_name} RENAME TO {new_name}")
-                        logger.info(f"Renamed table {old_name} → {new_name}")
-                    except Exception as e:
-                        logger.warning(f"Table rename failed {old_name} → {new_name}: {e}")
-
-            conn.commit()
-            logger.info("Schema migration v23 complete (agent → stack)")
-
-        # v23 catch-up: fix any tables missed by a partial migration
-        # Scans ALL tables for any remaining agent_id columns
-        catchup_tables = [
-            t[0]
-            for t in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
-        ]
-        for tbl in catchup_tables:
-            if tbl in table_names:
-                cols = get_columns(tbl)
-                if "agent_id" in cols and "stack_id" not in cols:
-                    try:
-                        conn.execute(f"ALTER TABLE {tbl} RENAME COLUMN agent_id TO stack_id")
-                        logger.info(f"v23 catch-up: renamed agent_id → stack_id in {tbl}")
-                    except Exception as e:
-                        logger.warning(f"v23 catch-up failed for {tbl}: {e}")
-        conn.commit()
-
-        # v24: Memory integrity — replace is_forgotten/forgotten_at/forgotten_reason with strength
-        # Add strength column and processed column, migrate existing data
-        strength_tables = [
-            "episodes",
-            "beliefs",
-            "agent_values",
-            "goals",
-            "notes",
-            "drives",
-            "relationships",
-        ]
-        for tbl in strength_tables:
-            if tbl not in table_names:
-                continue
-            cols = get_columns(tbl)
-
-            # Add strength column if not present
-            if "strength" not in cols:
-                try:
-                    conn.execute(f"ALTER TABLE {tbl} ADD COLUMN strength REAL DEFAULT 1.0")
-                    logger.info(f"Added strength column to {tbl}")
-                except Exception as e:
-                    if "duplicate column" not in str(e).lower():
-                        logger.warning(f"Failed to add strength to {tbl}: {e}")
-
-            # Migrate existing data: forgotten memories get strength = 0.0
-            if "is_forgotten" in cols:
-                try:
-                    migrated = conn.execute(
-                        f"UPDATE {tbl} SET strength = 0.0 WHERE is_forgotten = 1 AND (strength IS NULL OR strength = 1.0)"
-                    ).rowcount
-                    if migrated > 0:
-                        logger.info(
-                            f"Migrated {migrated} forgotten records in {tbl} to strength=0.0"
-                        )
-                except Exception as e:
-                    logger.warning(f"Failed to migrate is_forgotten data in {tbl}: {e}")
-
-        # Add processed column to episodes, notes, and beliefs
-        for tbl in ["episodes", "notes", "beliefs"]:
-            if tbl not in table_names:
-                continue
-            cols = get_columns(tbl)
-            if "processed" not in cols:
-                try:
-                    conn.execute(f"ALTER TABLE {tbl} ADD COLUMN processed INTEGER DEFAULT 0")
-                    logger.info(f"Added processed column to {tbl}")
-                except Exception as e:
-                    if "duplicate column" not in str(e).lower():
-                        logger.warning(f"Failed to add processed to {tbl}: {e}")
-
-        # Create memory_audit table if it doesn't exist
-        if "memory_audit" not in table_names:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS memory_audit (
-                    id TEXT PRIMARY KEY,
-                    memory_type TEXT NOT NULL,
-                    memory_id TEXT NOT NULL,
-                    operation TEXT NOT NULL,
-                    details TEXT,
-                    actor TEXT NOT NULL,
-                    created_at TEXT NOT NULL
-                )
-            """)
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_audit_memory ON memory_audit(memory_type, memory_id)"
-            )
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_audit_operation ON memory_audit(operation)"
-            )
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_created ON memory_audit(created_at)")
-            logger.info("Created memory_audit table")
-
-        # Create processing_config table if it doesn't exist
-        if "processing_config" not in table_names:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS processing_config (
-                    layer_transition TEXT PRIMARY KEY,
-                    enabled INTEGER DEFAULT 1,
-                    model_id TEXT,
-                    quantity_threshold INTEGER,
-                    valence_threshold REAL,
-                    time_threshold_hours INTEGER,
-                    batch_size INTEGER DEFAULT 10,
-                    max_sessions_per_day INTEGER,
-                    updated_at TEXT
-                )
-            """)
-            logger.info("Created processing_config table")
-
-        # Create stack_settings table if it doesn't exist
-        if "stack_settings" not in table_names:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS stack_settings (
-                    stack_id TEXT NOT NULL,
-                    key TEXT NOT NULL,
-                    value TEXT NOT NULL,
-                    updated_at TEXT NOT NULL,
-                    PRIMARY KEY (stack_id, key)
-                )
-            """)
-            logger.info("Created stack_settings table")
-        else:
-            # Migrate existing table: add stack_id if missing
-            cols = {row[1] for row in conn.execute("PRAGMA table_info(stack_settings)").fetchall()}
-            if "stack_id" not in cols:
-                conn.execute("ALTER TABLE stack_settings RENAME TO stack_settings_old")
-                conn.execute("""
-                    CREATE TABLE stack_settings (
-                        stack_id TEXT NOT NULL,
-                        key TEXT NOT NULL,
-                        value TEXT NOT NULL,
-                        updated_at TEXT NOT NULL,
-                        PRIMARY KEY (stack_id, key)
-                    )
-                """)
-                conn.execute(
-                    """
-                    INSERT INTO stack_settings (stack_id, key, value, updated_at)
-                    SELECT ?, key, value, updated_at FROM stack_settings_old
-                """,
-                    (self.stack_id,),
-                )
-                conn.execute("DROP TABLE stack_settings_old")
-                logger.info("Migrated stack_settings table to include stack_id")
-
-        conn.commit()
+        """Run schema migrations. Delegates to schema.migrate_schema()."""
+        migrate_schema(conn, self.stack_id)
 
     def _check_sqlite_vec(self) -> bool:
         """Check if sqlite-vec extension is available."""
@@ -2696,56 +1014,8 @@ class SQLiteStorage:
         return self._row_to_episode(row) if row else None
 
     def _row_to_episode(self, row: sqlite3.Row) -> Episode:
-        """Convert a row to an Episode."""
-        return Episode(
-            id=row["id"],
-            stack_id=row["stack_id"],
-            objective=row["objective"],
-            outcome=row["outcome"],
-            outcome_type=row["outcome_type"],
-            lessons=self._from_json(row["lessons"]),
-            tags=self._from_json(row["tags"]),
-            created_at=self._parse_datetime(row["created_at"]),
-            emotional_valence=(
-                row["emotional_valence"] if row["emotional_valence"] is not None else 0.0
-            ),
-            emotional_arousal=(
-                row["emotional_arousal"] if row["emotional_arousal"] is not None else 0.0
-            ),
-            emotional_tags=self._from_json(row["emotional_tags"]),
-            local_updated_at=self._parse_datetime(row["local_updated_at"]),
-            cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
-            version=row["version"],
-            deleted=bool(row["deleted"]),
-            # Meta-memory fields
-            confidence=self._safe_get(row, "confidence", 0.8),
-            source_type=self._safe_get(row, "source_type", "direct_experience"),
-            source_episodes=self._from_json(self._safe_get(row, "source_episodes", None)),
-            derived_from=self._from_json(self._safe_get(row, "derived_from", None)),
-            last_verified=self._parse_datetime(self._safe_get(row, "last_verified", None)),
-            verification_count=self._safe_get(row, "verification_count", 0),
-            confidence_history=self._from_json(self._safe_get(row, "confidence_history", None)),
-            # Forgetting fields
-            times_accessed=self._safe_get(row, "times_accessed", 0),
-            last_accessed=self._parse_datetime(self._safe_get(row, "last_accessed", None)),
-            is_protected=bool(self._safe_get(row, "is_protected", 0)),
-            strength=float(self._safe_get(row, "strength", 1.0)),
-            processed=bool(self._safe_get(row, "processed", 0)),
-            # Context/scope fields
-            context=self._safe_get(row, "context", None),
-            context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
-            # Entity-neutral sourcing
-            source_entity=self._safe_get(row, "source_entity", None),
-            # Privacy fields (Phase 8a)
-            subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
-            access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
-            consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
-            # Epoch tracking
-            epoch_id=self._safe_get(row, "epoch_id", None),
-            # Repeat/avoid patterns
-            repeat=self._from_json(self._safe_get(row, "repeat", None)),
-            avoid=self._from_json(self._safe_get(row, "avoid", None)),
-        )
+        """Convert row to Episode. Delegates to memory_crud._row_to_episode()."""
+        return _mc_row_to_episode(row)
 
     def get_episodes_by_source_entity(self, source_entity: str, limit: int = 500) -> List[Episode]:
         """Get episodes associated with a source entity for trust computation."""
@@ -3187,57 +1457,8 @@ class SQLiteStorage:
         return self._row_to_belief(row) if row else None
 
     def _row_to_belief(self, row: sqlite3.Row) -> Belief:
-        """Convert a row to a Belief."""
-        is_active_val = self._safe_get(row, "is_active", 1)
-        return Belief(
-            id=row["id"],
-            stack_id=row["stack_id"],
-            statement=row["statement"],
-            belief_type=row["belief_type"],
-            confidence=row["confidence"],
-            created_at=self._parse_datetime(row["created_at"]),
-            local_updated_at=self._parse_datetime(row["local_updated_at"]),
-            cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
-            version=row["version"],
-            deleted=bool(row["deleted"]),
-            # Meta-memory fields
-            source_type=self._safe_get(row, "source_type", "direct_experience"),
-            source_episodes=self._from_json(self._safe_get(row, "source_episodes", None)),
-            derived_from=self._from_json(self._safe_get(row, "derived_from", None)),
-            last_verified=self._parse_datetime(self._safe_get(row, "last_verified", None)),
-            verification_count=self._safe_get(row, "verification_count", 0),
-            confidence_history=self._from_json(self._safe_get(row, "confidence_history", None)),
-            # Belief revision fields
-            supersedes=self._safe_get(row, "supersedes", None),
-            superseded_by=self._safe_get(row, "superseded_by", None),
-            times_reinforced=self._safe_get(row, "times_reinforced", 0),
-            is_active=bool(is_active_val) if is_active_val is not None else True,
-            # Forgetting fields
-            times_accessed=self._safe_get(row, "times_accessed", 0),
-            last_accessed=self._parse_datetime(self._safe_get(row, "last_accessed", None)),
-            is_protected=bool(self._safe_get(row, "is_protected", 0)),
-            strength=float(self._safe_get(row, "strength", 1.0)),
-            # Context/scope fields
-            context=self._safe_get(row, "context", None),
-            context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
-            # Entity-neutral sourcing
-            source_entity=self._safe_get(row, "source_entity", None),
-            # Privacy fields (Phase 8a)
-            subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
-            access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
-            consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
-            # Processing state
-            processed=bool(self._safe_get(row, "processed", 0)),
-            # Belief scope and domain metadata (KEP v3)
-            belief_scope=self._safe_get(row, "belief_scope", "world"),
-            source_domain=self._safe_get(row, "source_domain", None),
-            cross_domain_applications=self._from_json(
-                self._safe_get(row, "cross_domain_applications", None)
-            ),
-            abstraction_level=self._safe_get(row, "abstraction_level", "specific"),
-            # Epoch tracking
-            epoch_id=self._safe_get(row, "epoch_id", None),
-        )
+        """Convert row to Belief. Delegates to memory_crud._row_to_belief()."""
+        return _mc_row_to_belief(row)
 
     # === Values ===
 
@@ -3323,40 +1544,8 @@ class SQLiteStorage:
         return [self._row_to_value(row) for row in rows]
 
     def _row_to_value(self, row: sqlite3.Row) -> Value:
-        """Convert a row to a Value."""
-        return Value(
-            id=row["id"],
-            stack_id=row["stack_id"],
-            name=row["name"],
-            statement=row["statement"],
-            priority=row["priority"],
-            created_at=self._parse_datetime(row["created_at"]),
-            local_updated_at=self._parse_datetime(row["local_updated_at"]),
-            cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
-            version=row["version"],
-            deleted=bool(row["deleted"]),
-            # Meta-memory fields
-            confidence=self._safe_get(row, "confidence", 0.9),
-            source_type=self._safe_get(row, "source_type", "direct_experience"),
-            source_episodes=self._from_json(self._safe_get(row, "source_episodes", None)),
-            derived_from=self._from_json(self._safe_get(row, "derived_from", None)),
-            last_verified=self._parse_datetime(self._safe_get(row, "last_verified", None)),
-            verification_count=self._safe_get(row, "verification_count", 0),
-            confidence_history=self._from_json(self._safe_get(row, "confidence_history", None)),
-            # Forgetting fields (values protected by default)
-            times_accessed=self._safe_get(row, "times_accessed", 0),
-            last_accessed=self._parse_datetime(self._safe_get(row, "last_accessed", None)),
-            is_protected=bool(self._safe_get(row, "is_protected", 1)),  # Default protected
-            strength=float(self._safe_get(row, "strength", 1.0)),
-            # Context/scope fields
-            context=self._safe_get(row, "context", None),
-            context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
-            consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
-            access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
-            subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
-            # Epoch tracking
-            epoch_id=self._safe_get(row, "epoch_id", None),
-        )
+        """Convert row to Value. Delegates to memory_crud._row_to_value()."""
+        return _mc_row_to_value(row)
 
     # === Goals ===
 
@@ -3459,42 +1648,8 @@ class SQLiteStorage:
         return [self._row_to_goal(row) for row in rows]
 
     def _row_to_goal(self, row: sqlite3.Row) -> Goal:
-        """Convert a row to a Goal."""
-        return Goal(
-            id=row["id"],
-            stack_id=row["stack_id"],
-            title=row["title"],
-            description=row["description"],
-            goal_type=self._safe_get(row, "goal_type", "task"),
-            priority=row["priority"],
-            status=row["status"],
-            created_at=self._parse_datetime(row["created_at"]),
-            local_updated_at=self._parse_datetime(row["local_updated_at"]),
-            cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
-            version=row["version"],
-            deleted=bool(row["deleted"]),
-            # Meta-memory fields
-            confidence=self._safe_get(row, "confidence", 0.8),
-            source_type=self._safe_get(row, "source_type", "direct_experience"),
-            source_episodes=self._from_json(self._safe_get(row, "source_episodes", None)),
-            derived_from=self._from_json(self._safe_get(row, "derived_from", None)),
-            last_verified=self._parse_datetime(self._safe_get(row, "last_verified", None)),
-            verification_count=self._safe_get(row, "verification_count", 0),
-            confidence_history=self._from_json(self._safe_get(row, "confidence_history", None)),
-            # Forgetting fields
-            times_accessed=self._safe_get(row, "times_accessed", 0),
-            last_accessed=self._parse_datetime(self._safe_get(row, "last_accessed", None)),
-            is_protected=bool(self._safe_get(row, "is_protected", 0)),
-            strength=float(self._safe_get(row, "strength", 1.0)),
-            # Context/scope fields
-            context=self._safe_get(row, "context", None),
-            context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
-            consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
-            access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
-            subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
-            # Epoch tracking
-            epoch_id=self._safe_get(row, "epoch_id", None),
-        )
+        """Convert row to Goal. Delegates to memory_crud._row_to_goal()."""
+        return _mc_row_to_goal(row)
 
     # === Notes ===
 
@@ -3654,45 +1809,8 @@ class SQLiteStorage:
         return [self._row_to_note(row) for row in rows]
 
     def _row_to_note(self, row: sqlite3.Row) -> Note:
-        """Convert a row to a Note."""
-        return Note(
-            id=row["id"],
-            stack_id=row["stack_id"],
-            content=row["content"],
-            note_type=row["note_type"],
-            speaker=row["speaker"],
-            reason=row["reason"],
-            tags=self._from_json(row["tags"]),
-            created_at=self._parse_datetime(row["created_at"]),
-            local_updated_at=self._parse_datetime(row["local_updated_at"]),
-            cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
-            version=row["version"],
-            deleted=bool(row["deleted"]),
-            # Meta-memory fields
-            confidence=self._safe_get(row, "confidence", 0.8),
-            source_type=self._safe_get(row, "source_type", "direct_experience"),
-            source_episodes=self._from_json(self._safe_get(row, "source_episodes", None)),
-            derived_from=self._from_json(self._safe_get(row, "derived_from", None)),
-            last_verified=self._parse_datetime(self._safe_get(row, "last_verified", None)),
-            verification_count=self._safe_get(row, "verification_count", 0),
-            confidence_history=self._from_json(self._safe_get(row, "confidence_history", None)),
-            # Forgetting fields
-            times_accessed=self._safe_get(row, "times_accessed", 0),
-            last_accessed=self._parse_datetime(self._safe_get(row, "last_accessed", None)),
-            is_protected=bool(self._safe_get(row, "is_protected", 0)),
-            strength=float(self._safe_get(row, "strength", 1.0)),
-            processed=bool(self._safe_get(row, "processed", 0)),
-            # Context/scope fields
-            context=self._safe_get(row, "context", None),
-            context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
-            # Entity-neutral sourcing
-            source_entity=self._safe_get(row, "source_entity", None),
-            consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
-            access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
-            subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
-            # Epoch tracking
-            epoch_id=self._safe_get(row, "epoch_id", None),
-        )
+        """Convert row to Note. Delegates to memory_crud._row_to_note()."""
+        return _mc_row_to_note(row)
 
     # === Drives ===
 
@@ -3818,41 +1936,8 @@ class SQLiteStorage:
         return self._row_to_drive(row) if row else None
 
     def _row_to_drive(self, row: sqlite3.Row) -> Drive:
-        """Convert a row to a Drive."""
-        return Drive(
-            id=row["id"],
-            stack_id=row["stack_id"],
-            drive_type=row["drive_type"],
-            intensity=row["intensity"],
-            focus_areas=self._from_json(row["focus_areas"]),
-            created_at=self._parse_datetime(row["created_at"]),
-            updated_at=self._parse_datetime(row["updated_at"]),
-            local_updated_at=self._parse_datetime(row["local_updated_at"]),
-            cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
-            version=row["version"],
-            deleted=bool(row["deleted"]),
-            # Meta-memory fields
-            confidence=self._safe_get(row, "confidence", 0.8),
-            source_type=self._safe_get(row, "source_type", "direct_experience"),
-            source_episodes=self._from_json(self._safe_get(row, "source_episodes", None)),
-            derived_from=self._from_json(self._safe_get(row, "derived_from", None)),
-            last_verified=self._parse_datetime(self._safe_get(row, "last_verified", None)),
-            verification_count=self._safe_get(row, "verification_count", 0),
-            confidence_history=self._from_json(self._safe_get(row, "confidence_history", None)),
-            # Forgetting fields (drives protected by default)
-            times_accessed=self._safe_get(row, "times_accessed", 0),
-            last_accessed=self._parse_datetime(self._safe_get(row, "last_accessed", None)),
-            is_protected=bool(self._safe_get(row, "is_protected", 1)),  # Default protected
-            strength=float(self._safe_get(row, "strength", 1.0)),
-            # Context/scope fields
-            context=self._safe_get(row, "context", None),
-            context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
-            consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
-            access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
-            subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
-            # Epoch tracking
-            epoch_id=self._safe_get(row, "epoch_id", None),
-        )
+        """Convert row to Drive. Delegates to memory_crud._row_to_drive()."""
+        return _mc_row_to_drive(row)
 
     # === Relationships ===
 
@@ -4026,44 +2111,8 @@ class SQLiteStorage:
         return self._row_to_relationship(row) if row else None
 
     def _row_to_relationship(self, row: sqlite3.Row) -> Relationship:
-        """Convert a row to a Relationship."""
-        return Relationship(
-            id=row["id"],
-            stack_id=row["stack_id"],
-            entity_name=row["entity_name"],
-            entity_type=row["entity_type"],
-            relationship_type=row["relationship_type"],
-            notes=row["notes"],
-            sentiment=row["sentiment"],
-            interaction_count=row["interaction_count"],
-            last_interaction=self._parse_datetime(row["last_interaction"]),
-            created_at=self._parse_datetime(row["created_at"]),
-            local_updated_at=self._parse_datetime(row["local_updated_at"]),
-            cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
-            version=row["version"],
-            deleted=bool(row["deleted"]),
-            # Meta-memory fields
-            confidence=self._safe_get(row, "confidence", 0.8),
-            source_type=self._safe_get(row, "source_type", "direct_experience"),
-            source_episodes=self._from_json(self._safe_get(row, "source_episodes", None)),
-            derived_from=self._from_json(self._safe_get(row, "derived_from", None)),
-            last_verified=self._parse_datetime(self._safe_get(row, "last_verified", None)),
-            verification_count=self._safe_get(row, "verification_count", 0),
-            confidence_history=self._from_json(self._safe_get(row, "confidence_history", None)),
-            # Forgetting fields
-            times_accessed=self._safe_get(row, "times_accessed", 0),
-            last_accessed=self._parse_datetime(self._safe_get(row, "last_accessed", None)),
-            is_protected=bool(self._safe_get(row, "is_protected", 0)),
-            strength=float(self._safe_get(row, "strength", 1.0)),
-            # Context/scope fields
-            context=self._safe_get(row, "context", None),
-            context_tags=self._from_json(self._safe_get(row, "context_tags", None)),
-            consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
-            access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
-            subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
-            # Epoch tracking
-            epoch_id=self._safe_get(row, "epoch_id", None),
-        )
+        """Convert row to Relationship. Delegates to memory_crud._row_to_relationship()."""
+        return _mc_row_to_relationship(row)
 
     # === Epochs (KEP v3 temporal eras) ===
 
@@ -4156,26 +2205,8 @@ class SQLiteStorage:
         return cursor.rowcount > 0
 
     def _row_to_epoch(self, row: sqlite3.Row) -> Epoch:
-        """Convert a row to an Epoch."""
-        return Epoch(
-            id=row["id"],
-            stack_id=row["stack_id"],
-            epoch_number=row["epoch_number"],
-            name=row["name"],
-            started_at=self._parse_datetime(row["started_at"]),
-            ended_at=self._parse_datetime(row["ended_at"]),
-            trigger_type=self._safe_get(row, "trigger_type", "declared"),
-            trigger_description=self._safe_get(row, "trigger_description", None),
-            summary=self._safe_get(row, "summary", None),
-            key_belief_ids=self._from_json(self._safe_get(row, "key_belief_ids", None)),
-            key_relationship_ids=self._from_json(self._safe_get(row, "key_relationship_ids", None)),
-            key_goal_ids=self._from_json(self._safe_get(row, "key_goal_ids", None)),
-            dominant_drive_ids=self._from_json(self._safe_get(row, "dominant_drive_ids", None)),
-            local_updated_at=self._parse_datetime(row["local_updated_at"]),
-            cloud_synced_at=self._parse_datetime(self._safe_get(row, "cloud_synced_at", None)),
-            version=row["version"],
-            deleted=bool(row["deleted"]),
-        )
+        """Convert row to Epoch. Delegates to memory_crud._row_to_epoch()."""
+        return _mc_row_to_epoch(row)
 
     # === Summaries (Fractal Summarization) ===
 
@@ -4246,24 +2277,8 @@ class SQLiteStorage:
         return [self._row_to_summary(row) for row in rows]
 
     def _row_to_summary(self, row: sqlite3.Row) -> Summary:
-        """Convert a row to a Summary."""
-        return Summary(
-            id=row["id"],
-            stack_id=row["stack_id"],
-            scope=row["scope"],
-            period_start=row["period_start"],
-            period_end=row["period_end"],
-            epoch_id=self._safe_get(row, "epoch_id", None),
-            content=row["content"],
-            key_themes=self._from_json(self._safe_get(row, "key_themes", None)),
-            supersedes=self._from_json(self._safe_get(row, "supersedes", None)),
-            is_protected=bool(self._safe_get(row, "is_protected", 1)),
-            created_at=self._parse_datetime(row["created_at"]),
-            updated_at=self._parse_datetime(row["updated_at"]),
-            cloud_synced_at=self._parse_datetime(self._safe_get(row, "cloud_synced_at", None)),
-            version=row["version"],
-            deleted=bool(row["deleted"]),
-        )
+        """Convert row to Summary. Delegates to memory_crud._row_to_summary()."""
+        return _mc_row_to_summary(row)
 
     # === Self-Narratives (KEP v3) ===
 
@@ -4353,23 +2368,8 @@ class SQLiteStorage:
             return cursor.rowcount
 
     def _row_to_self_narrative(self, row: sqlite3.Row) -> SelfNarrative:
-        """Convert a row to a SelfNarrative."""
-        return SelfNarrative(
-            id=row["id"],
-            stack_id=row["stack_id"],
-            content=row["content"],
-            narrative_type=self._safe_get(row, "narrative_type", "identity"),
-            epoch_id=self._safe_get(row, "epoch_id", None),
-            key_themes=self._from_json(self._safe_get(row, "key_themes", None)),
-            unresolved_tensions=self._from_json(self._safe_get(row, "unresolved_tensions", None)),
-            is_active=bool(self._safe_get(row, "is_active", 1)),
-            supersedes=self._safe_get(row, "supersedes", None),
-            created_at=self._parse_datetime(row["created_at"]),
-            updated_at=self._parse_datetime(row["updated_at"]),
-            cloud_synced_at=self._parse_datetime(self._safe_get(row, "cloud_synced_at", None)),
-            version=row["version"],
-            deleted=bool(row["deleted"]),
-        )
+        """Convert row to SelfNarrative. Delegates to memory_crud._row_to_self_narrative()."""
+        return _mc_row_to_self_narrative(row)
 
     # === Trust Assessments (KEP v3) ===
 
@@ -4631,44 +2631,12 @@ class SQLiteStorage:
             return [self._row_to_diagnostic_report(r) for r in rows]
 
     def _row_to_diagnostic_session(self, row: sqlite3.Row) -> DiagnosticSession:
-        """Convert a database row to a DiagnosticSession."""
-        return DiagnosticSession(
-            id=row["id"],
-            stack_id=row["stack_id"],
-            session_type=row["session_type"],
-            access_level=row["access_level"],
-            status=row["status"],
-            consent_given=bool(row["consent_given"]),
-            started_at=parse_datetime(row["started_at"]),
-            completed_at=parse_datetime(row["completed_at"]) if row["completed_at"] else None,
-            local_updated_at=(
-                parse_datetime(row["local_updated_at"]) if row["local_updated_at"] else None
-            ),
-            cloud_synced_at=(
-                parse_datetime(row["cloud_synced_at"]) if row["cloud_synced_at"] else None
-            ),
-            version=row["version"],
-            deleted=bool(row["deleted"]),
-        )
+        """Convert row to DiagnosticSession. Delegates to memory_crud._row_to_diagnostic_session()."""
+        return _mc_row_to_diagnostic_session(row)
 
     def _row_to_diagnostic_report(self, row: sqlite3.Row) -> DiagnosticReport:
-        """Convert a database row to a DiagnosticReport."""
-        return DiagnosticReport(
-            id=row["id"],
-            stack_id=row["stack_id"],
-            session_id=row["session_id"],
-            findings=json.loads(row["findings"]) if row["findings"] else None,
-            summary=row["summary"],
-            created_at=parse_datetime(row["created_at"]) if row["created_at"] else None,
-            local_updated_at=(
-                parse_datetime(row["local_updated_at"]) if row["local_updated_at"] else None
-            ),
-            cloud_synced_at=(
-                parse_datetime(row["cloud_synced_at"]) if row["cloud_synced_at"] else None
-            ),
-            version=row["version"],
-            deleted=bool(row["deleted"]),
-        )
+        """Convert row to DiagnosticReport. Delegates to memory_crud._row_to_diagnostic_report()."""
+        return _mc_row_to_diagnostic_report(row)
 
     # === Relationship History & Entity Models ===
 
@@ -4862,23 +2830,8 @@ class SQLiteStorage:
         return [self._row_to_relationship_history(row) for row in rows]
 
     def _row_to_relationship_history(self, row: sqlite3.Row) -> RelationshipHistoryEntry:
-        """Convert a row to a RelationshipHistoryEntry."""
-        return RelationshipHistoryEntry(
-            id=row["id"],
-            stack_id=row["stack_id"],
-            relationship_id=row["relationship_id"],
-            entity_name=row["entity_name"],
-            event_type=row["event_type"],
-            old_value=row["old_value"],
-            new_value=row["new_value"],
-            episode_id=self._safe_get(row, "episode_id", None),
-            notes=self._safe_get(row, "notes", None),
-            created_at=self._parse_datetime(row["created_at"]),
-            local_updated_at=self._parse_datetime(row["local_updated_at"]),
-            cloud_synced_at=self._parse_datetime(self._safe_get(row, "cloud_synced_at", None)),
-            version=self._safe_get(row, "version", 1),
-            deleted=bool(self._safe_get(row, "deleted", 0)),
-        )
+        """Convert row to RelationshipHistoryEntry. Delegates to memory_crud._row_to_relationship_history()."""
+        return _mc_row_to_relationship_history(row)
 
     # === Entity Models ===
 
@@ -4962,25 +2915,8 @@ class SQLiteStorage:
         return self._row_to_entity_model(row) if row else None
 
     def _row_to_entity_model(self, row: sqlite3.Row) -> EntityModel:
-        """Convert a row to an EntityModel."""
-        return EntityModel(
-            id=row["id"],
-            stack_id=row["stack_id"],
-            entity_name=row["entity_name"],
-            model_type=row["model_type"],
-            observation=row["observation"],
-            confidence=self._safe_get(row, "confidence", 0.7),
-            source_episodes=self._from_json(self._safe_get(row, "source_episodes", None)),
-            created_at=self._parse_datetime(row["created_at"]),
-            updated_at=self._parse_datetime(self._safe_get(row, "updated_at", None)),
-            subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
-            access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
-            consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
-            local_updated_at=self._parse_datetime(row["local_updated_at"]),
-            cloud_synced_at=self._parse_datetime(self._safe_get(row, "cloud_synced_at", None)),
-            version=self._safe_get(row, "version", 1),
-            deleted=bool(self._safe_get(row, "deleted", 0)),
-        )
+        """Convert row to EntityModel. Delegates to memory_crud._row_to_entity_model()."""
+        return _mc_row_to_entity_model(row)
 
     # === Playbooks (Procedural Memory) ===
 
@@ -5212,33 +3148,8 @@ class SQLiteStorage:
         return True
 
     def _row_to_playbook(self, row: sqlite3.Row) -> Playbook:
-        """Convert a row to a Playbook."""
-        return Playbook(
-            id=row["id"],
-            stack_id=row["stack_id"],
-            name=row["name"],
-            description=row["description"],
-            trigger_conditions=self._from_json(row["trigger_conditions"]) or [],
-            steps=self._from_json(row["steps"]) or [],
-            failure_modes=self._from_json(row["failure_modes"]) or [],
-            recovery_steps=self._from_json(row["recovery_steps"]),
-            mastery_level=row["mastery_level"],
-            times_used=row["times_used"],
-            success_rate=row["success_rate"],
-            source_episodes=self._from_json(row["source_episodes"]),
-            tags=self._from_json(row["tags"]),
-            confidence=self._safe_get(row, "confidence", 0.8),
-            last_used=self._parse_datetime(self._safe_get(row, "last_used", None)),
-            created_at=self._parse_datetime(row["created_at"]),
-            local_updated_at=self._parse_datetime(row["local_updated_at"]),
-            cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
-            version=row["version"],
-            deleted=bool(row["deleted"]),
-            consent_grants=self._from_json(self._safe_get(row, "consent_grants", None)),
-            access_grants=self._from_json(self._safe_get(row, "access_grants", None)),
-            subject_ids=self._from_json(self._safe_get(row, "subject_ids", None)),
-            # Privacy fields (Phase 8a)
-        )
+        """Convert row to Playbook. Delegates to memory_crud._row_to_playbook()."""
+        return _mc_row_to_playbook(row)
 
     # === Boot Config ===
 
@@ -5303,696 +3214,161 @@ class SQLiteStorage:
         return cursor.rowcount
 
     # === Raw Entries ===
+    # Delegated to storage/raw_entries.py
 
-    def save_raw(
-        self,
-        blob: str,
-        source: str = "unknown",
-    ) -> str:
-        """Save a raw entry for later processing.
-
-        The raw layer is designed for zero-friction brain dumps. The agent dumps
-        whatever they want into the blob field; the system only tracks housekeeping
-        metadata.
-
-        Args:
-            blob: The raw brain dump content (required).
-            source: Auto-populated source identifier (cli|mcp|sdk|import|unknown).
-
-        Returns:
-            The raw entry ID.
-        """
-
-        # Normalize source to valid enum values
-        valid_sources = {"cli", "mcp", "sdk", "import", "unknown"}
-        if source == "manual":
-            source = "cli"
-        elif source not in valid_sources:
-            if "auto" in source.lower():
-                source = "sdk"
-            else:
-                source = "unknown"
-
-        # Size warnings (don't reject, let anxiety system handle)
-        blob_size = len(blob.encode("utf-8"))
-        if blob_size > 50 * 1024 * 1024:  # 50MB - reject
-            raise ValueError(
-                f"Raw entry too large ({blob_size / 1024 / 1024:.1f}MB). "
-                "Consider breaking into smaller chunks or processing immediately."
-            )
-        elif blob_size > 10 * 1024 * 1024:  # 10MB
-            logger.warning(f"Extremely large raw entry ({blob_size / 1024 / 1024:.1f}MB)")
-        elif blob_size > 1 * 1024 * 1024:  # 1MB
-            logger.warning(f"Very large raw entry ({blob_size / 1024:.0f}KB) - consider processing")
-        elif blob_size > 100 * 1024:  # 100KB
-            logger.info(f"Large raw entry ({blob_size / 1024:.0f}KB)")
-
-        raw_id = str(uuid.uuid4())
-        now = self._now()
-
-        # 1. Write to flat file (blob acts as flat file content)
-        self._append_raw_to_file(raw_id, blob, now, source, None)
-
-        # 2. Index in SQLite with both blob and legacy columns for compatibility
+    def save_raw(self, blob: str, source: str = "unknown") -> str:
+        """Save a raw entry. Delegates to raw_entries.save_raw()."""
         with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO raw_entries
-                (id, stack_id, blob, captured_at, source, processed, processed_into,
-                 content, timestamp, tags, confidence, source_type,
-                 local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    raw_id,
-                    self.stack_id,
-                    blob,  # Primary blob field
-                    now,  # captured_at
-                    source,
-                    0,  # processed = False
-                    None,  # processed_into
-                    blob,  # Legacy content field (same as blob for new entries)
-                    now,  # Legacy timestamp field (same as captured_at)
-                    None,  # Legacy tags field (removed)
-                    1.0,  # confidence (deprecated)
-                    "direct_experience",  # source_type (deprecated)
-                    now,
-                    None,
-                    1,
-                    0,
-                ),
+            return _save_raw(
+                conn=conn,
+                stack_id=self.stack_id,
+                blob=blob,
+                source=source,
+                raw_dir=self._raw_dir,
+                queue_sync_fn=self._queue_sync,
+                save_embedding_fn=self._save_embedding,
+                should_sync_raw_fn=self._should_sync_raw,
             )
-
-            # Update FTS index for keyword search
-            self._update_raw_fts(conn, raw_id, blob)
-
-            # Queue for sync (if raw sync is enabled - off by default)
-            if self._should_sync_raw():
-                raw_data = self._to_json(
-                    {
-                        "id": raw_id,
-                        "stack_id": self.stack_id,
-                        "blob": blob,
-                        "captured_at": now,
-                        "source": source,
-                        "processed": False,
-                    }
-                )
-                self._queue_sync(conn, "raw_entries", raw_id, "upsert", data=raw_data)
-
-            # Save embedding for search (on blob content)
-            self._save_embedding(conn, "raw_entries", raw_id, blob)
-
-            conn.commit()
-
-        return raw_id
 
     def _should_sync_raw(self) -> bool:
-        """Check if raw entries should be synced to cloud.
+        """Check if raw sync is enabled. Delegates to raw_entries.should_sync_raw()."""
+        return should_sync_raw()
 
-        Raw sync is OFF by default for security (raw blobs often contain
-        accidental secrets). Users must explicitly enable it.
-        """
-        import os
+    def _update_raw_fts(self, conn, raw_id, blob):
+        """Update FTS5 index. Delegates to raw_entries.update_raw_fts()."""
+        update_raw_fts(conn, raw_id, blob)
 
-        # Check environment variable
-        raw_sync_env = os.environ.get("KERNLE_RAW_SYNC", "").lower()
-        if raw_sync_env in ("true", "1", "yes", "on"):
-            return True
-        if raw_sync_env in ("false", "0", "no", "off"):
-            return False
+    def _append_raw_to_file(self, raw_id, content, timestamp, source, tags=None):
+        """Append to flat file. Delegates to raw_entries.append_raw_to_file()."""
+        append_raw_to_file(self._raw_dir, raw_id, content, timestamp, source, tags)
 
-        # Check config file
-        config_path = get_kernle_home() / "config.json"
-        if config_path.exists():
-            try:
-                with open(config_path) as f:
-                    config = json.load(f)
-                    return config.get("sync", {}).get("raw", False)
-            except (json.JSONDecodeError, OSError):
-                pass
-
-        # Default: OFF for security
-        return False
-
-    def _update_raw_fts(self, conn: sqlite3.Connection, raw_id: str, blob: str):
-        """Update FTS5 index for a raw entry."""
-        try:
-            # Get rowid for the entry
-            result = conn.execute(
-                "SELECT rowid FROM raw_entries WHERE id = ?", (raw_id,)
-            ).fetchone()
-            if result:
-                rowid = result[0]
-                # Insert into FTS index
-                conn.execute("INSERT INTO raw_fts(rowid, blob) VALUES (?, ?)", (rowid, blob))
-        except sqlite3.OperationalError as e:
-            # FTS5 might not be available
-            if "no such table" not in str(e).lower():
-                logger.debug(f"FTS update failed: {e}")
-
-    def _append_raw_to_file(
-        self,
-        raw_id: str,
-        content: str,
-        timestamp: str,
-        source: str,
-        tags: Optional[List[str]] = None,
-    ) -> None:
-        """Append a raw entry to the daily flat file.
-
-        File format (greppable, human-readable):
-        ```
-        ## HH:MM:SS [id_prefix] source
-        Content goes here
-        Tags: tag1, tag2
-
-        ```
-        """
-        try:
-            # Parse date from timestamp for filename
-            dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-            date_str = dt.strftime("%Y-%m-%d")
-            time_str = dt.strftime("%H:%M:%S")
-
-            daily_file = self._raw_dir / f"{date_str}.md"
-
-            # Build entry
-            lines = []
-            lines.append(f"## {time_str} [{raw_id[:8]}] {source}")
-            lines.append(content)
-            if tags:
-                lines.append(f"Tags: {', '.join(tags)}")
-            lines.append("")  # Blank line separator
-
-            # Append to file
-            with open(daily_file, "a", encoding="utf-8") as f:
-                # Add header if new file
-                if daily_file.stat().st_size == 0 if daily_file.exists() else True:
-                    f.write(f"# Raw Captures - {date_str}\n\n")
-                f.write("\n".join(lines) + "\n")
-
-        except Exception as e:
-            logger.warning(f"Failed to write raw entry to flat file: {e}")
-            # Don't fail - SQLite is the backup
-
-    def get_raw_dir(self) -> Path:
-        """Get the path to the raw flat files directory."""
+    def get_raw_dir(self):
+        """Get raw flat files directory path."""
         return self._raw_dir
 
-    def get_raw_files(self) -> List[Path]:
-        """Get list of raw flat files, sorted by date descending."""
-        if not self._raw_dir.exists():
-            return []
-        files = sorted(self._raw_dir.glob("*.md"), reverse=True)
-        return files
+    def get_raw_files(self):
+        """Get list of raw flat files. Delegates to raw_entries.get_raw_files()."""
+        return _get_raw_files(self._raw_dir)
 
-    def sync_raw_from_files(self) -> Dict[str, Any]:
-        """Sync raw entries from flat files into SQLite.
-
-        Parses flat files and imports any entries not already in SQLite.
-        This enables bidirectional editing - add entries via vim, then sync.
-
-        Returns:
-            Dict with imported_count, skipped_count, errors
-        """
-        import re
-
-        result = {
-            "imported": 0,
-            "skipped": 0,
-            "errors": [],
-            "files_processed": 0,
-        }
-
-        files = self.get_raw_files()
-
-        # Get existing IDs for quick lookup
+    def sync_raw_from_files(self):
+        """Sync raw entries from flat files. Delegates to raw_entries.sync_raw_from_files()."""
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT id FROM raw_entries WHERE stack_id = ?", (self.stack_id,)
-            ).fetchall()
-        existing_ids = {row["id"] for row in rows}
-
-        # Pattern to match entry headers: ## HH:MM:SS [id_prefix] source
-        # ID can be alphanumeric (for manually created entries)
-        header_pattern = re.compile(r"^## (\d{2}:\d{2}:\d{2}) \[([a-zA-Z0-9]+)\] ([\w-]+)$")
-
-        for file_path in files:
-            result["files_processed"] += 1
-            try:
-                # Extract date from filename (2026-01-28.md)
-                date_str = file_path.stem  # "2026-01-28"
-
-                with open(file_path, "r", encoding="utf-8") as f:
-                    content = f.read()
-
-                # Split into entries
-                lines = content.split("\n")
-                current_entry = None
-
-                for line in lines:
-                    header_match = header_pattern.match(line)
-
-                    if header_match:
-                        # Save previous entry if exists
-                        if current_entry and current_entry.get("content_lines"):
-                            current_entry["content"] = "\n".join(current_entry["content_lines"])
-                            self._import_raw_entry(current_entry, existing_ids, result)
-
-                        # Start new entry
-                        time_str, id_prefix, source = header_match.groups()
-                        current_entry = {
-                            "id_prefix": id_prefix,
-                            "timestamp": f"{date_str}T{time_str}",
-                            "source": source,
-                            "content_lines": [],
-                            "tags": None,
-                        }
-                    elif current_entry is not None:
-                        # Check for tags line
-                        if line.startswith("Tags: "):
-                            current_entry["tags"] = [t.strip() for t in line[6:].split(",")]
-                        elif line.startswith("# Raw Captures"):
-                            pass  # Skip header
-                        elif line.strip():  # Non-empty content
-                            current_entry["content_lines"].append(line)
-
-                # Don't forget last entry
-                if current_entry and current_entry.get("content_lines"):
-                    current_entry["content"] = "\n".join(current_entry["content_lines"])
-                    self._import_raw_entry(current_entry, existing_ids, result)
-
-            except Exception as e:
-                result["errors"].append(f"{file_path.name}: {str(e)}")
-
-        return result
-
-    def _import_raw_entry(
-        self,
-        entry: Dict[str, Any],
-        existing_ids: set,
-        result: Dict[str, Any],
-    ) -> None:
-        """Import a single raw entry if not already in SQLite."""
-        # Check if any existing ID starts with this prefix
-        id_prefix = entry.get("id_prefix", "")
-        matching_ids = [eid for eid in existing_ids if eid.startswith(id_prefix)]
-
-        if matching_ids:
-            result["skipped"] += 1
-            return
-
-        # Generate new ID (use prefix + random suffix to maintain traceability)
-        new_id = id_prefix + str(uuid.uuid4())[8:]  # Keep prefix, new suffix
-        content = "\n".join(entry.get("content_lines", []))
-
-        if not content.strip():
-            result["skipped"] += 1
-            return
-
-        try:
-            now = self._now()
-            timestamp = entry.get("timestamp", now)
-
-            with self._connect() as conn:
-                conn.execute(
-                    """
-                    INSERT INTO raw_entries
-                    (id, stack_id, content, timestamp, source, processed, processed_into, tags,
-                     confidence, source_type, local_updated_at, cloud_synced_at, version, deleted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        new_id,
-                        self.stack_id,
-                        content,
-                        timestamp,
-                        entry.get("source", "file-sync"),
-                        0,
-                        None,
-                        self._to_json(entry.get("tags")),
-                        1.0,
-                        "file_import",
-                        now,
-                        None,
-                        1,
-                        0,
-                    ),
-                )
-                self._save_embedding(conn, "raw_entries", new_id, content)
-                conn.commit()
-
-            existing_ids.add(new_id)
-            result["imported"] += 1
-
-        except Exception as e:
-            result["errors"].append(f"Entry {id_prefix}: {str(e)}")
-
-    def get_raw(self, raw_id: str) -> Optional[RawEntry]:
-        """Get a specific raw entry by ID."""
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM raw_entries WHERE id = ? AND stack_id = ? AND deleted = 0",
-                (raw_id, self.stack_id),
-            ).fetchone()
-
-        return self._row_to_raw_entry(row) if row else None
-
-    def list_raw(self, processed: Optional[bool] = None, limit: int = 100) -> List[RawEntry]:
-        """Get raw entries, optionally filtered by processed state."""
-        query = "SELECT * FROM raw_entries WHERE stack_id = ? AND deleted = 0"
-        params: List[Any] = [self.stack_id]
-
-        if processed is not None:
-            query += " AND processed = ?"
-            params.append(1 if processed else 0)
-
-        # Use COALESCE to handle both new (captured_at) and legacy (timestamp) schemas
-        query += " ORDER BY COALESCE(captured_at, timestamp) DESC LIMIT ?"
-        params.append(limit)
-
-        with self._connect() as conn:
-            rows = conn.execute(query, params).fetchall()
-
-        return [self._row_to_raw_entry(row) for row in rows]
-
-    def search_raw_fts(self, query: str, limit: int = 50) -> List[RawEntry]:
-        """Search raw entries using FTS5 keyword search.
-
-        This is a safety net for when backlogs accumulate. For semantic search,
-        use the regular search() method instead.
-
-        Args:
-            query: FTS5 search query (supports AND, OR, NOT, phrases in quotes)
-            limit: Maximum number of results
-
-        Returns:
-            List of matching RawEntry objects, ordered by relevance.
-        """
-        with self._connect() as conn:
-            try:
-                # FTS5 MATCH query with relevance ranking
-                rows = conn.execute(
-                    """
-                    SELECT r.* FROM raw_entries r
-                    JOIN raw_fts f ON r.rowid = f.rowid
-                    WHERE r.stack_id = ? AND r.deleted = 0
-                    AND raw_fts MATCH ?
-                    ORDER BY rank
-                    LIMIT ?
-                    """,
-                    (self.stack_id, query, limit),
-                ).fetchall()
-                return [self._row_to_raw_entry(row) for row in rows]
-            except sqlite3.OperationalError as e:
-                # FTS5 not available, fall back to LIKE search
-                if "no such table" in str(e).lower() or "fts5" in str(e).lower():
-                    logger.debug("FTS5 not available, using LIKE fallback")
-                    # Escape LIKE pattern special characters to prevent pattern injection
-                    escaped_query = self._escape_like_pattern(query)
-                    # Use COALESCE to search both blob and content fields
-                    rows = conn.execute(
-                        """
-                        SELECT * FROM raw_entries
-                        WHERE stack_id = ? AND deleted = 0
-                        AND (COALESCE(blob, content, '') LIKE ? ESCAPE '\\')
-                        ORDER BY COALESCE(captured_at, timestamp) DESC
-                        LIMIT ?
-                        """,
-                        (self.stack_id, f"%{escaped_query}%", limit),
-                    ).fetchall()
-                    return [self._row_to_raw_entry(row) for row in rows]
-                raise
-
-    def _escape_like_pattern(self, pattern: str) -> str:
-        """Escape LIKE pattern special characters to prevent pattern injection.
-
-        LIKE pattern metacharacters (%, _, [) can be exploited to alter search
-        behavior unexpectedly or cause performance issues.
-        """
-        return pattern.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-
-    def mark_raw_processed(self, raw_id: str, processed_into: List[str]) -> bool:
-        """Mark a raw entry as processed into other memories."""
-        now = self._now()
-
-        with self._connect() as conn:
-            cursor = conn.execute(
-                """
-                UPDATE raw_entries SET
-                    processed = 1,
-                    processed_into = ?,
-                    local_updated_at = ?,
-                    version = version + 1
-                WHERE id = ? AND stack_id = ? AND deleted = 0
-            """,
-                (self._to_json(processed_into), now, raw_id, self.stack_id),
+            return _sync_raw_from_files(
+                conn=conn,
+                stack_id=self.stack_id,
+                raw_dir=self._raw_dir,
+                save_embedding_fn=self._save_embedding,
             )
-            if cursor.rowcount > 0:
-                self._queue_sync(conn, "raw_entries", raw_id, "upsert")
-                conn.commit()
-                return True
-        return False
 
-    def mark_episode_processed(self, episode_id: str) -> bool:
-        """Mark an episode as processed for promotion."""
-        now = self._now()
-        with self._connect() as conn:
-            cursor = conn.execute(
-                """
-                UPDATE episodes SET
-                    processed = 1,
-                    local_updated_at = ?,
-                    version = version + 1
-                WHERE id = ? AND stack_id = ? AND deleted = 0
-            """,
-                (now, episode_id, self.stack_id),
-            )
-            if cursor.rowcount > 0:
-                self._queue_sync(conn, "episodes", episode_id, "upsert")
-                conn.commit()
-                return True
-        return False
+    def _import_raw_entry(self, entry, existing_ids, result):
+        """Import a raw entry. Delegates to raw_entries.import_raw_entry()."""
+        from .raw_entries import import_raw_entry
 
-    def mark_note_processed(self, note_id: str) -> bool:
-        """Mark a note as processed for promotion."""
-        now = self._now()
         with self._connect() as conn:
-            cursor = conn.execute(
-                """
-                UPDATE notes SET
-                    processed = 1,
-                    local_updated_at = ?,
-                    version = version + 1
-                WHERE id = ? AND stack_id = ? AND deleted = 0
-            """,
-                (now, note_id, self.stack_id),
+            import_raw_entry(
+                conn=conn,
+                stack_id=self.stack_id,
+                entry=entry,
+                existing_ids=existing_ids,
+                result=result,
+                save_embedding_fn=self._save_embedding,
             )
-            if cursor.rowcount > 0:
-                self._queue_sync(conn, "notes", note_id, "upsert")
-                conn.commit()
-                return True
-        return False
 
-    def mark_belief_processed(self, belief_id: str) -> bool:
-        """Mark a belief as processed for promotion."""
-        now = self._now()
+    def get_raw(self, raw_id):
+        """Get a raw entry by ID. Delegates to raw_entries.get_raw()."""
         with self._connect() as conn:
-            cursor = conn.execute(
-                """
-                UPDATE beliefs SET
-                    processed = 1,
-                    local_updated_at = ?,
-                    version = version + 1
-                WHERE id = ? AND stack_id = ? AND deleted = 0
-            """,
-                (now, belief_id, self.stack_id),
-            )
-            if cursor.rowcount > 0:
-                self._queue_sync(conn, "beliefs", belief_id, "upsert")
-                conn.commit()
-                return True
-        return False
+            return _get_raw(conn, self.stack_id, raw_id)
 
-    def get_processing_config(self) -> List[Dict[str, Any]]:
-        """Get all processing configuration entries."""
+    def list_raw(self, processed=None, limit=100):
+        """List raw entries. Delegates to raw_entries.list_raw()."""
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM processing_config ORDER BY layer_transition"
-            ).fetchall()
-        result = []
-        for row in rows:
-            result.append(
-                {
-                    "layer_transition": row["layer_transition"],
-                    "enabled": bool(row["enabled"]),
-                    "model_id": row["model_id"],
-                    "quantity_threshold": row["quantity_threshold"],
-                    "valence_threshold": row["valence_threshold"],
-                    "time_threshold_hours": row["time_threshold_hours"],
-                    "batch_size": row["batch_size"],
-                    "max_sessions_per_day": row["max_sessions_per_day"],
-                    "updated_at": row["updated_at"],
-                }
+            return _list_raw(conn, self.stack_id, processed, limit)
+
+    def search_raw_fts(self, query, limit=50):
+        """Search raw entries via FTS5. Delegates to raw_entries.search_raw_fts()."""
+        with self._connect() as conn:
+            return _search_raw_fts(conn, self.stack_id, query, limit)
+
+    def _escape_like_pattern(self, pattern):
+        """Escape LIKE pattern. Delegates to raw_entries.escape_like_pattern()."""
+        return escape_like_pattern(pattern)
+
+    def mark_raw_processed(self, raw_id, processed_into):
+        """Mark raw entry as processed. Delegates to raw_entries.mark_raw_processed()."""
+        with self._connect() as conn:
+            return _mark_raw_processed(
+                conn, self.stack_id, raw_id, processed_into, self._queue_sync
             )
-        return result
+
+    def mark_episode_processed(self, episode_id):
+        """Mark episode as processed. Delegates to raw_entries.mark_processed()."""
+        with self._connect() as conn:
+            return _mark_processed(conn, self.stack_id, "episodes", episode_id, self._queue_sync)
+
+    def mark_note_processed(self, note_id):
+        """Mark note as processed. Delegates to raw_entries.mark_processed()."""
+        with self._connect() as conn:
+            return _mark_processed(conn, self.stack_id, "notes", note_id, self._queue_sync)
+
+    def mark_belief_processed(self, belief_id):
+        """Mark belief as processed. Delegates to raw_entries.mark_processed()."""
+        with self._connect() as conn:
+            return _mark_processed(conn, self.stack_id, "beliefs", belief_id, self._queue_sync)
+
+    def get_processing_config(self):
+        """Get processing config. Delegates to raw_entries.get_processing_config()."""
+        with self._connect() as conn:
+            return _get_processing_config(conn)
 
     def set_processing_config(
         self,
-        layer_transition: str,
+        layer_transition,
         *,
-        enabled: Optional[bool] = None,
-        model_id: Optional[str] = None,
-        quantity_threshold: Optional[int] = None,
-        valence_threshold: Optional[float] = None,
-        time_threshold_hours: Optional[int] = None,
-        batch_size: Optional[int] = None,
-        max_sessions_per_day: Optional[int] = None,
-    ) -> bool:
-        """Upsert a processing configuration entry."""
-        now = self._now()
+        enabled=None,
+        model_id=None,
+        quantity_threshold=None,
+        valence_threshold=None,
+        time_threshold_hours=None,
+        batch_size=None,
+        max_sessions_per_day=None,
+    ):
+        """Set processing config. Delegates to raw_entries.set_processing_config()."""
         with self._connect() as conn:
-            # Check if exists
-            existing = conn.execute(
-                "SELECT * FROM processing_config WHERE layer_transition = ?",
-                (layer_transition,),
-            ).fetchone()
-
-            if existing:
-                # Build SET clause from non-None values
-                updates = {"updated_at": now}
-                if enabled is not None:
-                    updates["enabled"] = 1 if enabled else 0
-                if model_id is not None:
-                    updates["model_id"] = model_id
-                if quantity_threshold is not None:
-                    updates["quantity_threshold"] = quantity_threshold
-                if valence_threshold is not None:
-                    updates["valence_threshold"] = valence_threshold
-                if time_threshold_hours is not None:
-                    updates["time_threshold_hours"] = time_threshold_hours
-                if batch_size is not None:
-                    updates["batch_size"] = batch_size
-                if max_sessions_per_day is not None:
-                    updates["max_sessions_per_day"] = max_sessions_per_day
-
-                set_clause = ", ".join(f"{k} = ?" for k in updates)
-                values = list(updates.values()) + [layer_transition]
-                conn.execute(
-                    f"UPDATE processing_config SET {set_clause} WHERE layer_transition = ?",
-                    values,
-                )
-            else:
-                conn.execute(
-                    """
-                    INSERT INTO processing_config
-                        (layer_transition, enabled, model_id, quantity_threshold,
-                         valence_threshold, time_threshold_hours, batch_size,
-                         max_sessions_per_day, updated_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        layer_transition,
-                        1 if (enabled is None or enabled) else 0,
-                        model_id,
-                        quantity_threshold,
-                        valence_threshold,
-                        time_threshold_hours,
-                        batch_size or 10,
-                        max_sessions_per_day,
-                        now,
-                    ),
-                )
-            conn.commit()
-        return True
-
-    def get_stack_setting(self, key: str) -> Optional[str]:
-        """Get a stack setting value by key (scoped to this stack)."""
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT value FROM stack_settings WHERE stack_id = ? AND key = ?",
-                (self.stack_id, key),
-            ).fetchone()
-        return row["value"] if row else None
-
-    def set_stack_setting(self, key: str, value: str) -> None:
-        """Set a stack setting (upsert, scoped to this stack)."""
-        now = self._now()
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO stack_settings (stack_id, key, value, updated_at)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(stack_id, key) DO UPDATE SET value = ?, updated_at = ?
-                """,
-                (self.stack_id, key, value, now, value, now),
+            return _set_processing_config(
+                conn,
+                layer_transition,
+                enabled=enabled,
+                model_id=model_id,
+                quantity_threshold=quantity_threshold,
+                valence_threshold=valence_threshold,
+                time_threshold_hours=time_threshold_hours,
+                batch_size=batch_size,
+                max_sessions_per_day=max_sessions_per_day,
             )
-            conn.commit()
 
-    def get_all_stack_settings(self) -> Dict[str, str]:
-        """Get all stack settings as a dict (scoped to this stack)."""
+    def get_stack_setting(self, key):
+        """Get a stack setting. Delegates to raw_entries.get_stack_setting()."""
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT key, value FROM stack_settings WHERE stack_id = ? ORDER BY key",
-                (self.stack_id,),
-            ).fetchall()
-        return {row["key"]: row["value"] for row in rows}
+            return _get_stack_setting(conn, self.stack_id, key)
 
-    def delete_raw(self, raw_id: str) -> bool:
-        """Delete a raw entry (soft delete by marking deleted=1)."""
-        now = self._now()
-
+    def set_stack_setting(self, key, value):
+        """Set a stack setting. Delegates to raw_entries.set_stack_setting()."""
         with self._connect() as conn:
-            cursor = conn.execute(
-                """
-                UPDATE raw_entries SET
-                    deleted = 1,
-                    local_updated_at = ?,
-                    version = version + 1
-                WHERE id = ? AND stack_id = ? AND deleted = 0
-            """,
-                (now, raw_id, self.stack_id),
-            )
-            if cursor.rowcount > 0:
-                self._queue_sync(conn, "raw_entries", raw_id, "delete")
-                conn.commit()
-                return True
-        return False
+            _set_stack_setting(conn, self.stack_id, key, value)
 
-    def _row_to_raw_entry(self, row: sqlite3.Row) -> RawEntry:
-        """Convert a row to a RawEntry.
+    def get_all_stack_settings(self):
+        """Get all stack settings. Delegates to raw_entries.get_all_stack_settings()."""
+        with self._connect() as conn:
+            return _get_all_stack_settings(conn, self.stack_id)
 
-        Handles both new (blob/captured_at) and legacy (content/timestamp) schemas.
-        """
-        # Get blob - prefer blob field, fall back to content for legacy data
-        blob = self._safe_get(row, "blob", None) or self._safe_get(row, "content", "")
+    def delete_raw(self, raw_id):
+        """Delete a raw entry. Delegates to raw_entries.delete_raw()."""
+        with self._connect() as conn:
+            return _delete_raw(conn, self.stack_id, raw_id, self._queue_sync)
 
-        # Get captured_at - prefer captured_at, fall back to timestamp for legacy data
-        captured_at_str = self._safe_get(row, "captured_at", None) or self._safe_get(
-            row, "timestamp", None
-        )
-        captured_at = self._parse_datetime(captured_at_str)
-
-        return RawEntry(
-            id=row["id"],
-            stack_id=row["stack_id"],
-            blob=blob,
-            captured_at=captured_at,
-            source=row["source"],
-            processed=bool(row["processed"]),
-            processed_into=self._from_json(row["processed_into"]),
-            local_updated_at=self._parse_datetime(row["local_updated_at"]),
-            cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
-            version=row["version"],
-            deleted=bool(row["deleted"]),
-            # Legacy fields (deprecated)
-            content=self._safe_get(row, "content", None),
-            timestamp=self._parse_datetime(self._safe_get(row, "timestamp", None)),
-            tags=self._from_json(self._safe_get(row, "tags", None)),
-            confidence=self._safe_get(row, "confidence", 1.0),
-            source_type=self._safe_get(row, "source_type", "direct_experience"),
-        )
+    def _row_to_raw_entry(self, row):
+        """Convert row to RawEntry. Delegates to raw_entries.row_to_raw_entry()."""
+        return row_to_raw_entry(row)
 
     # === Memory Suggestions ===
 
@@ -6121,24 +3497,8 @@ class SQLiteStorage:
         return False
 
     def _row_to_suggestion(self, row: sqlite3.Row) -> MemorySuggestion:
-        """Convert a row to a MemorySuggestion."""
-        return MemorySuggestion(
-            id=row["id"],
-            stack_id=row["stack_id"],
-            memory_type=row["memory_type"],
-            content=self._from_json(row["content"]) or {},
-            confidence=row["confidence"],
-            source_raw_ids=self._from_json(row["source_raw_ids"]) or [],
-            status=row["status"],
-            created_at=self._parse_datetime(row["created_at"]),
-            resolved_at=self._parse_datetime(row["resolved_at"]),
-            resolution_reason=row["resolution_reason"],
-            promoted_to=row["promoted_to"],
-            local_updated_at=self._parse_datetime(row["local_updated_at"]),
-            cloud_synced_at=self._parse_datetime(row["cloud_synced_at"]),
-            version=row["version"],
-            deleted=bool(row["deleted"]),
-        )
+        """Convert row to MemorySuggestion. Delegates to memory_crud._row_to_suggestion()."""
+        return _mc_row_to_suggestion(row)
 
     # === Search ===
 
