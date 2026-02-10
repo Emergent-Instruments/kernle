@@ -99,7 +99,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 return self._send_html(DASHBOARD_HTML)
 
             elif path == "/api/stats":
-                stats = k._storage.get_stats()
+                stats = k.stack.get_stats()
                 return self._send_json(serialize(stats))
 
             elif path == "/api/anxiety":
@@ -109,12 +109,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             elif path == "/api/raw":
                 limit = self._get_int_param(params, "limit", 200)
                 processed = self._get_bool_param(params, "processed")
-                entries = k._storage.list_raw(processed=processed, limit=limit)
+                entries = k.stack.list_raw(processed=processed, limit=limit)
                 return self._send_json(serialize(entries))
 
             elif m := re.match(r"^/api/raw/([^/]+)$", path):
                 raw_id = m.group(1)
-                entry = k._storage.get_raw(raw_id)
+                entry = k.stack.get_raw(raw_id)
                 if entry is None:
                     return self._send_error(404, "Not found")
                 return self._send_json(serialize(entry))
