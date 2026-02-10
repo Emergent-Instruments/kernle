@@ -9,6 +9,7 @@ from kernle.mcp.sanitize import (
     validate_enum,
     validate_number,
 )
+from kernle.types import VALID_SUGGESTION_STATUSES
 
 # ---------------------------------------------------------------------------
 # Validators
@@ -29,7 +30,7 @@ def _validate_suggestion_list_args(
         sanitized["status"] = None
     else:
         sanitized["status"] = validate_enum(
-            status, "status", ["pending", "promoted", "rejected", "dismissed", "expired"], "pending"
+            status, "status", sorted(VALID_SUGGESTION_STATUSES), "pending"
         )
     memory_type = arguments.get("memory_type")
     if memory_type:
@@ -162,6 +163,8 @@ def handle_memory_suggestions_list(args: Dict[str, Any], k: Kernle) -> str:
             "promoted": "+",
             "modified": "*",
             "rejected": "x",
+            "dismissed": "-",
+            "expired": "~",
         }
         icon = status_icons.get(s["status"], "?")
         type_label = s["memory_type"][:3].upper()

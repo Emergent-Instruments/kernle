@@ -2218,10 +2218,10 @@ class TestSyncValidators:
         assert result["status"] is None
 
     def test_validate_suggestions_list_valid_status(self):
-        """validate_memory_suggestions_list accepts valid status values."""
+        """validate_memory_suggestions_list accepts all valid status values."""
         from kernle.mcp.handlers.sync import validate_memory_suggestions_list
 
-        for status in ["pending", "promoted", "rejected"]:
+        for status in ["pending", "promoted", "modified", "rejected", "dismissed", "expired"]:
             result = validate_memory_suggestions_list({"status": status})
             assert result["status"] == status
 
@@ -2361,3 +2361,42 @@ class TestSyncValidators:
 
         with pytest.raises(ValueError, match="limit"):
             validate_memory_suggestions_extract({"limit": 300})
+
+
+class TestMCPSuggestionStatusConsistency:
+    """Verify MCP tool schemas include all valid suggestion statuses from types.py."""
+
+    def test_tool_schema_enums_include_all_valid_statuses(self):
+        """MCP suggestion tool status enums must include every status from VALID_SUGGESTION_STATUSES."""
+        from kernle.mcp.server import TOOLS
+        from kernle.types import VALID_SUGGESTION_STATUSES
+
+        suggestion_tools = {
+            t.name: t for t in TOOLS if t.name in ("memory_suggestions_list", "suggestion_list")
+        }
+        assert len(suggestion_tools) == 2, "Expected both suggestion list tools"
+
+        for tool_name, tool in suggestion_tools.items():
+            schema_enum = set(tool.inputSchema["properties"]["status"]["enum"])
+            # "all" is a meta-filter, not a real status — exclude it
+            schema_statuses = schema_enum - {"all"}
+            assert schema_statuses == set(VALID_SUGGESTION_STATUSES), (
+                f"{tool_name} status enum {sorted(schema_statuses)} != "
+                f"VALID_SUGGESTION_STATUSES {sorted(VALID_SUGGESTION_STATUSES)}"
+            )
+
+    def test_validator_accepts_all_valid_statuses(self):
+        """Shared validator must accept every status in VALID_SUGGESTION_STATUSES."""
+        from kernle.mcp.handlers.sync import validate_memory_suggestions_list
+        from kernle.types import VALID_SUGGESTION_STATUSES
+
+        for status in sorted(VALID_SUGGESTION_STATUSES):
+            result = validate_memory_suggestions_list({"status": status})
+            assert result["status"] == status, f"Validator rejected '{status}'"
+
+    def test_validator_rejects_unknown_status(self):
+        """Validator must reject statuses not in VALID_SUGGESTION_STATUSES."""
+        from kernle.mcp.handlers.sync import validate_memory_suggestions_list
+
+        with pytest.raises(ValueError, match="status"):
+            validate_memory_suggestions_list({"status": "unknown_status"})

@@ -701,7 +701,15 @@ TOOLS = [
             "properties": {
                 "status": {
                     "type": "string",
-                    "enum": ["pending", "promoted", "rejected", "dismissed", "expired", "all"],
+                    "enum": [
+                        "pending",
+                        "promoted",
+                        "modified",
+                        "rejected",
+                        "dismissed",
+                        "expired",
+                        "all",
+                    ],
                     "description": "Filter by status (default: pending)",
                     "default": "pending",
                 },
@@ -807,7 +815,15 @@ TOOLS = [
             "properties": {
                 "status": {
                     "type": "string",
-                    "enum": ["pending", "promoted", "rejected", "dismissed", "expired", "all"],
+                    "enum": [
+                        "pending",
+                        "promoted",
+                        "modified",
+                        "rejected",
+                        "dismissed",
+                        "expired",
+                        "all",
+                    ],
                     "description": "Filter by status (default: pending)",
                     "default": "pending",
                 },
