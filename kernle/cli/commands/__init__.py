@@ -4,6 +4,7 @@ Each module contains related command handlers extracted from __main__.py.
 """
 
 from kernle.cli.commands.anxiety import cmd_anxiety
+from kernle.cli.commands.audit import cmd_audit
 from kernle.cli.commands.auth import cmd_auth, cmd_auth_keys
 from kernle.cli.commands.belief import cmd_belief
 from kernle.cli.commands.credentials import (
@@ -53,6 +54,7 @@ from kernle.cli.commands.playbook import cmd_playbook
 from kernle.cli.commands.process import cmd_process
 from kernle.cli.commands.raw import cmd_raw, resolve_raw_id
 from kernle.cli.commands.relations import cmd_entity_model, cmd_relation
+from kernle.cli.commands.seed import cmd_seed
 from kernle.cli.commands.stats import cmd_stats
 from kernle.cli.commands.suggestions import cmd_suggestions, resolve_suggestion_id
 from kernle.cli.commands.summary import cmd_summary
@@ -60,6 +62,7 @@ from kernle.cli.commands.sync import cmd_sync
 
 __all__ = [
     "cmd_anxiety",
+    "cmd_audit",
     "cmd_auth",
     "cmd_auth_keys",
     "cmd_belief",
@@ -93,6 +96,7 @@ __all__ = [
     "cmd_playbook",
     "cmd_process",
     "cmd_raw",
+    "cmd_seed",
     "cmd_relation",
     "cmd_resume",
     "cmd_search",

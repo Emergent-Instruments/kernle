@@ -41,6 +41,22 @@ def validate_memory_process_status(arguments: Dict[str, Any]) -> Dict[str, Any]:
     return {}
 
 
+def validate_memory_process_exhaust(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    sanitized: Dict[str, Any] = {}
+    max_cycles = arguments.get("max_cycles", 20)
+    if isinstance(max_cycles, int) and 1 <= max_cycles <= 100:
+        sanitized["max_cycles"] = max_cycles
+    else:
+        sanitized["max_cycles"] = 20
+    sanitized["auto_promote"] = arguments.get("auto_promote", True)
+    if not isinstance(sanitized["auto_promote"], bool):
+        sanitized["auto_promote"] = True
+    sanitized["dry_run"] = arguments.get("dry_run", False)
+    if not isinstance(sanitized["dry_run"], bool):
+        sanitized["dry_run"] = False
+    return sanitized
+
+
 # ---------------------------------------------------------------------------
 # Handlers
 # ---------------------------------------------------------------------------
@@ -150,6 +166,30 @@ def handle_memory_process_status(args: Dict[str, Any], k: Kernle) -> str:
     return "\n".join(lines)
 
 
+def handle_memory_process_exhaust(args: Dict[str, Any], k: Kernle) -> str:
+    from kernle.exhaust import ExhaustionRunner
+
+    runner = ExhaustionRunner(
+        k,
+        max_cycles=args.get("max_cycles", 20),
+        auto_promote=args.get("auto_promote", True),
+    )
+    result = runner.run(dry_run=args.get("dry_run", False))
+
+    lines = ["Exhaustion run complete:"]
+    lines.append(f"  Cycles: {result.cycles_completed}")
+    lines.append(f"  Total promotions: {result.total_promotions}")
+    lines.append(f"  Converged: {result.converged} ({result.convergence_reason})")
+    if result.snapshot:
+        lines.append("  Snapshot: saved")
+    for cr in result.cycle_results:
+        status = f"{cr.promotions} promotions"
+        if cr.errors:
+            status += f", {len(cr.errors)} errors"
+        lines.append(f"  Cycle {cr.cycle_number} ({cr.intensity}): {status}")
+    return "\n".join(lines)
+
+
 # ---------------------------------------------------------------------------
 # Registry dicts
 # ---------------------------------------------------------------------------
@@ -157,9 +197,11 @@ def handle_memory_process_status(args: Dict[str, Any], k: Kernle) -> str:
 HANDLERS = {
     "memory_process": handle_memory_process,
     "memory_process_status": handle_memory_process_status,
+    "memory_process_exhaust": handle_memory_process_exhaust,
 }
 
 VALIDATORS = {
     "memory_process": validate_memory_process,
     "memory_process_status": validate_memory_process_status,
+    "memory_process_exhaust": validate_memory_process_exhaust,
 }

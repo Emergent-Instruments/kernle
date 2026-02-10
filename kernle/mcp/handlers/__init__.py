@@ -11,6 +11,8 @@ from kernle.mcp.handlers.memory import HANDLERS as _MEMORY_H
 from kernle.mcp.handlers.memory import VALIDATORS as _MEMORY_V
 from kernle.mcp.handlers.processing import HANDLERS as _PROCESSING_H
 from kernle.mcp.handlers.processing import VALIDATORS as _PROCESSING_V
+from kernle.mcp.handlers.seed import HANDLERS as _SEED_H
+from kernle.mcp.handlers.seed import VALIDATORS as _SEED_V
 from kernle.mcp.handlers.sync import HANDLERS as _SYNC_H
 from kernle.mcp.handlers.sync import VALIDATORS as _SYNC_V
 from kernle.mcp.handlers.temporal import HANDLERS as _TEMPORAL_H
@@ -22,6 +24,7 @@ HANDLERS: Dict[str, Callable] = {
     **_TEMPORAL_H,
     **_SYNC_H,
     **_PROCESSING_H,
+    **_SEED_H,
 }
 
 VALIDATORS: Dict[str, Callable] = {
@@ -30,4 +33,5 @@ VALIDATORS: Dict[str, Callable] = {
     **_TEMPORAL_V,
     **_SYNC_V,
     **_PROCESSING_V,
+    **_SEED_V,
 }

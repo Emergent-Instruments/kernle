@@ -945,4 +945,99 @@ TOOLS = [
             "properties": {},
         },
     ),
+    Tool(
+        name="memory_process_exhaust",
+        description="Run memory processing until convergence. Cycles through transitions with escalating intensity: light (raw->episode/note), medium (+ beliefs/goals/relationships/drives), heavy (+ values). Stops after 2 consecutive cycles with 0 promotions or max_cycles reached.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "max_cycles": {
+                    "type": "integer",
+                    "description": "Maximum processing cycles (default: 20)",
+                    "default": 20,
+                },
+                "auto_promote": {
+                    "type": "boolean",
+                    "description": "Directly promote memories instead of creating suggestions (default: true)",
+                    "default": True,
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "Preview without making changes (default: false)",
+                    "default": False,
+                },
+            },
+        },
+    ),
+    Tool(
+        name="memory_seed_repo",
+        description="Seed agent memory by ingesting source code from a repository. Chunks files intelligently (Python: AST-based, Markdown: heading-based, generic: paragraph-based) and creates raw entries for processing.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path to the repository root directory",
+                },
+                "extensions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "File extensions to include (e.g., ['py', 'js']). Default: common code extensions",
+                },
+                "exclude": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Glob patterns to exclude (e.g., ['*.test.*', 'vendor/*'])",
+                },
+                "max_chunk_size": {
+                    "type": "integer",
+                    "description": "Maximum chunk size in characters (default: 2000)",
+                    "default": 2000,
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "Preview without creating entries (default: false)",
+                    "default": False,
+                },
+            },
+            "required": ["path"],
+        },
+    ),
+    Tool(
+        name="memory_seed_docs",
+        description="Seed agent memory by ingesting documentation files. Chunks Markdown by headings, other formats by paragraphs. Creates raw entries for processing.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path to the documentation directory",
+                },
+                "extensions": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "File extensions to include (e.g., ['md', 'rst']). Default: md, txt, rst",
+                },
+                "max_chunk_size": {
+                    "type": "integer",
+                    "description": "Maximum chunk size in characters (default: 2000)",
+                    "default": 2000,
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "Preview without creating entries (default: false)",
+                    "default": False,
+                },
+            },
+            "required": ["path"],
+        },
+    ),
+    Tool(
+        name="memory_seed_status",
+        description="Show corpus ingestion status — counts of repo and docs entries that have been seeded.",
+        inputSchema={
+            "type": "object",
+            "properties": {},
+        },
+    ),
 ]

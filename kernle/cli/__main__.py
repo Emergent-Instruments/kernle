@@ -23,6 +23,7 @@ from kernle import Kernle
 # Import extracted command modules
 from kernle.cli.commands import (
     cmd_anxiety,
+    cmd_audit,
     cmd_auth,
     cmd_belief,
     cmd_boot,
@@ -57,6 +58,7 @@ from kernle.cli.commands import (
     cmd_relation,
     cmd_resume,
     cmd_search,
+    cmd_seed,
     cmd_stats,
     cmd_status,
     cmd_suggestions,
@@ -1092,6 +1094,68 @@ def main():
     )
     process_status.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 
+    process_exhaust = process_sub.add_parser("exhaust", help="Run processing until convergence")
+    process_exhaust.add_argument(
+        "--max-cycles",
+        type=int,
+        default=20,
+        help="Maximum processing cycles (default: 20)",
+    )
+    process_exhaust.add_argument(
+        "--no-auto-promote",
+        action="store_true",
+        help="Create suggestions instead of directly promoting",
+    )
+    process_exhaust.add_argument(
+        "--dry-run",
+        "-n",
+        action="store_true",
+        help="Preview what would run without making changes",
+    )
+    process_exhaust.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # seed (corpus ingestion)
+    p_seed = subparsers.add_parser("seed", help="Seed memory from corpus (repo/docs)")
+    seed_sub = p_seed.add_subparsers(dest="seed_action", required=True)
+
+    seed_repo = seed_sub.add_parser("repo", help="Ingest source code from a repository")
+    seed_repo.add_argument("path", help="Path to repository root")
+    seed_repo.add_argument(
+        "--extensions", "-e", help="Comma-separated file extensions (e.g., py,js,ts)"
+    )
+    seed_repo.add_argument(
+        "--exclude", "-x", help="Comma-separated exclude patterns (e.g., '*.test.*,vendor/*')"
+    )
+    seed_repo.add_argument(
+        "--max-chunk-size",
+        type=int,
+        default=2000,
+        help="Maximum chunk size in chars (default: 2000)",
+    )
+    seed_repo.add_argument(
+        "--dry-run", "-n", action="store_true", help="Preview without creating entries"
+    )
+    seed_repo.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    seed_docs = seed_sub.add_parser("docs", help="Ingest documentation files")
+    seed_docs.add_argument("path", help="Path to docs directory")
+    seed_docs.add_argument(
+        "--extensions", "-e", help="Comma-separated file extensions (default: md,txt,rst)"
+    )
+    seed_docs.add_argument(
+        "--max-chunk-size",
+        type=int,
+        default=2000,
+        help="Maximum chunk size in chars (default: 2000)",
+    )
+    seed_docs.add_argument(
+        "--dry-run", "-n", action="store_true", help="Preview without creating entries"
+    )
+    seed_docs.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    seed_status = seed_sub.add_parser("status", help="Show corpus ingestion status")
+    seed_status.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
     # raw (raw memory entries)
     p_raw = subparsers.add_parser("raw", help="Raw memory capture and management")
     # Arguments for default action (kernle raw "content" without subcommand)
@@ -1522,6 +1586,19 @@ Typical usage:
         default="manual",
         help="What triggered this check (default: manual)",
     )
+
+    # audit (cognitive quality testing)
+    p_audit = subparsers.add_parser("audit", help="Audit memory quality")
+    audit_sub = p_audit.add_subparsers(dest="audit_action", required=True)
+
+    audit_cognitive = audit_sub.add_parser("cognitive", help="Run cognitive quality assertions")
+    audit_cognitive.add_argument(
+        "--category",
+        "-c",
+        choices=["structural", "coherence", "quality", "pipeline"],
+        help="Run only assertions in this category (default: all)",
+    )
+    audit_cognitive.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 
     # stats (compliance and analytics)
     p_stats = subparsers.add_parser("stats", help="Compliance and analytics stats")
@@ -2133,6 +2210,8 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_meta(args, k)
         elif args.command == "anxiety":
             cmd_anxiety(args, k)
+        elif args.command == "audit":
+            cmd_audit(args, k)
         elif args.command == "stats":
             cmd_stats(args, k)
         elif args.command == "forget":
@@ -2147,6 +2226,8 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_playbook(args, k)
         elif args.command == "process":
             cmd_process(args, k)
+        elif args.command == "seed":
+            cmd_seed(args, k)
         elif args.command == "raw":
             cmd_raw(args, k)
         elif args.command == "suggestions":
