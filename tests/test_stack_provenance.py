@@ -152,7 +152,7 @@ class TestProvenanceOff:
             id=_uid(),
             stack_id="test-stack",
             statement="Test belief",
-            source_type="inferred",
+            source_type="inference",
             created_at=_now(),
         )
         belief_id = stack.save_belief(belief)
@@ -202,7 +202,7 @@ class TestProvenanceEnforced:
             id=_uid(),
             stack_id="test-stack",
             statement="Test belief",
-            source_type="inferred",
+            source_type="inference",
             created_at=_now(),
             derived_from=[f"episode:{episode_id}"],
         )
@@ -302,7 +302,7 @@ class TestProvenanceEnforced:
             id=_uid(),
             stack_id="test-stack",
             statement="From note",
-            source_type="inferred",
+            source_type="inference",
             created_at=_now(),
             derived_from=[f"note:{note_id}"],
         )
@@ -317,7 +317,7 @@ class TestProvenanceEnforced:
             id=_uid(),
             stack_id="test-stack",
             statement="Skip a layer",
-            source_type="inferred",
+            source_type="inference",
             created_at=_now(),
             derived_from=[f"raw:{raw_id}"],
         )
@@ -330,7 +330,7 @@ class TestProvenanceEnforced:
             id=_uid(),
             stack_id="test-stack",
             statement="No provenance",
-            source_type="inferred",
+            source_type="inference",
             created_at=_now(),
         )
         with pytest.raises(ProvenanceError, match="derived_from must cite"):
@@ -349,7 +349,7 @@ class TestProvenanceEnforced:
             stack_id="test-stack",
             name="honesty",
             statement="Value honesty",
-            source_type="inferred",
+            source_type="inference",
             created_at=_now(),
             derived_from=[f"belief:{belief_id}"],
         )
@@ -366,7 +366,7 @@ class TestProvenanceEnforced:
             stack_id="test-stack",
             name="honesty",
             statement="Value honesty",
-            source_type="inferred",
+            source_type="inference",
             created_at=_now(),
             derived_from=[f"episode:{ep_id}"],
         )
@@ -384,7 +384,7 @@ class TestProvenanceEnforced:
             id=_uid(),
             stack_id="test-stack",
             title="Test goal",
-            source_type="stated",
+            source_type="direct_experience",
             created_at=_now(),
             derived_from=[f"episode:{ep_id}"],
         )
@@ -401,7 +401,7 @@ class TestProvenanceEnforced:
             id=_uid(),
             stack_id="test-stack",
             title="Test goal",
-            source_type="stated",
+            source_type="direct_experience",
             created_at=_now(),
             derived_from=[f"belief:{belief_id}"],
         )
@@ -421,7 +421,7 @@ class TestProvenanceEnforced:
             entity_name="Alice",
             entity_type="human",
             relationship_type="colleague",
-            source_type="observed",
+            source_type="observation",
             created_at=_now(),
             derived_from=[f"episode:{ep_id}"],
         )
@@ -441,7 +441,7 @@ class TestProvenanceEnforced:
             entity_name="Bob",
             entity_type="human",
             relationship_type="colleague",
-            source_type="observed",
+            source_type="observation",
             created_at=_now(),
             derived_from=[f"belief:{belief_id}"],
         )
@@ -459,7 +459,7 @@ class TestProvenanceEnforced:
             id=_uid(),
             stack_id="test-stack",
             drive_type="curiosity",
-            source_type="inferred",
+            source_type="inference",
             created_at=_now(),
             derived_from=[f"episode:{ep_id}"],
         )
@@ -476,7 +476,7 @@ class TestProvenanceEnforced:
             id=_uid(),
             stack_id="test-stack",
             drive_type="curiosity",
-            source_type="inferred",
+            source_type="inference",
             created_at=_now(),
             derived_from=[f"belief:{belief_id}"],
         )
@@ -526,7 +526,7 @@ class TestProvenanceEnforced:
             id=_uid(),
             stack_id="test-stack",
             statement="From two episodes",
-            source_type="inferred",
+            source_type="inference",
             created_at=_now(),
             derived_from=[f"episode:{ep_id1}", f"episode:{ep_id2}"],
         )
@@ -544,7 +544,7 @@ class TestProvenanceEnforced:
             id=_uid(),
             stack_id="test-stack",
             statement="From episode and note",
-            source_type="inferred",
+            source_type="inference",
             created_at=_now(),
             derived_from=[f"episode:{ep_id}", f"note:{note_id}"],
         )
@@ -561,7 +561,7 @@ class TestProvenanceEnforced:
             id=_uid(),
             stack_id="test-stack",
             statement="One bad ref",
-            source_type="inferred",
+            source_type="inference",
             created_at=_now(),
             derived_from=[f"episode:{ep_id}", "raw:some-raw"],
         )
@@ -607,7 +607,7 @@ class TestMemoryExists:
             id=_uid(),
             stack_id="test-stack",
             statement="Test",
-            source_type="inferred",
+            source_type="inference",
             created_at=_now(),
         )
         belief_id = stack.save_belief(belief)
@@ -654,7 +654,7 @@ class TestSeedWrites:
             id=_uid(),
             stack_id="test-stack",
             statement="Post-seed belief",
-            source_type="inferred",
+            source_type="inference",
             created_at=_now(),
         )
         with pytest.raises(ProvenanceError):
@@ -704,7 +704,7 @@ class TestAnnotationRefs:
             id=_uid(),
             stack_id="test-stack",
             statement="Belief with context annotation",
-            source_type="inferred",
+            source_type="inference",
             derived_from=[
                 f"episode:{active_stack._test_ep_id}",
                 "context:cli",
@@ -720,7 +720,7 @@ class TestAnnotationRefs:
             id=_uid(),
             stack_id="test-stack",
             statement="Belief with kernle annotation",
-            source_type="inferred",
+            source_type="inference",
             derived_from=[
                 f"episode:{active_stack._test_ep_id}",
                 "kernle:system",
@@ -736,7 +736,7 @@ class TestAnnotationRefs:
             id=_uid(),
             stack_id="test-stack",
             statement="Only annotations",
-            source_type="inferred",
+            source_type="inference",
             derived_from=["context:cli", "kernle:system"],
             created_at=_now(),
         )
@@ -749,7 +749,7 @@ class TestAnnotationRefs:
             id=_uid(),
             stack_id="test-stack",
             statement="Context ref with colons",
-            source_type="inferred",
+            source_type="inference",
             derived_from=[
                 f"episode:{active_stack._test_ep_id}",
                 "context:kernle_seed_v2:batch_1",
@@ -766,7 +766,7 @@ class TestAnnotationRefs:
             stack_id="test-stack",
             objective="Episode with annotation",
             outcome="Done",
-            source_type="processed",
+            source_type="processing",
             derived_from=[
                 f"raw:{active_stack._test_raw_id}",
                 "context:consolidation",
@@ -918,7 +918,7 @@ class TestPluginProvenanceBypass:
             id=_uid(),
             stack_id="test",
             statement="Plugin belief",
-            source_type="inferred",
+            source_type="inference",
             derived_from=None,
             created_at=_now(),
         )
@@ -932,7 +932,7 @@ class TestPluginProvenanceBypass:
             id=_uid(),
             stack_id="test",
             statement="Spoofed plugin belief",
-            source_type="inferred",
+            source_type="inference",
             derived_from=None,
             created_at=_now(),
         )
@@ -946,7 +946,7 @@ class TestPluginProvenanceBypass:
             id=_uid(),
             stack_id="test",
             statement="Core belief",
-            source_type="inferred",
+            source_type="inference",
             derived_from=None,
             created_at=_now(),
         )
@@ -962,7 +962,7 @@ class TestPluginProvenanceBypass:
             title="Plugin goal",
             goal_type="task",
             priority="medium",
-            source_type="inferred",
+            source_type="inference",
             derived_from=None,
             created_at=_now(),
         )
@@ -977,7 +977,7 @@ class TestPluginProvenanceBypass:
             id=_uid(),
             stack_id="test",
             statement="Revoked plugin",
-            source_type="inferred",
+            source_type="inference",
             derived_from=None,
             created_at=_now(),
         )
@@ -992,7 +992,7 @@ class TestPluginProvenanceBypass:
             id=_uid(),
             stack_id="test",
             statement="Plugin belief in maintenance",
-            source_type="inferred",
+            source_type="inference",
             derived_from=None,
             created_at=_now(),
         )
@@ -1023,7 +1023,7 @@ class TestMaintenanceModeIndependence:
             id=_uid(),
             stack_id="test",
             statement="Should be blocked",
-            source_type="inferred",
+            source_type="inference",
             created_at=_now(),
         )
         with pytest.raises(MaintenanceModeError):
@@ -1098,7 +1098,7 @@ class TestBatchWriteProvenance:
                 id=_uid(),
                 stack_id="test",
                 statement="No provenance",
-                source_type="inferred",
+                source_type="inference",
                 derived_from=None,
                 created_at=_now(),
             )
@@ -1113,7 +1113,7 @@ class TestBatchWriteProvenance:
                 id=_uid(),
                 stack_id="test",
                 statement="Valid provenance",
-                source_type="inferred",
+                source_type="inference",
                 derived_from=[f"episode:{active_enforced_stack._test_ep_id}"],
                 created_at=_now(),
             )
@@ -1128,7 +1128,7 @@ class TestBatchWriteProvenance:
                 stack_id="test",
                 objective="No provenance",
                 outcome="Done",
-                source_type="processed",
+                source_type="processing",
                 derived_from=None,
                 created_at=_now(),
             )
@@ -1143,7 +1143,7 @@ class TestBatchWriteProvenance:
                 stack_id="test",
                 content="No provenance",
                 note_type="note",
-                source_type="processed",
+                source_type="processing",
                 derived_from=None,
                 created_at=_now(),
             )
@@ -1159,7 +1159,7 @@ class TestBatchWriteProvenance:
                 id=_uid(),
                 stack_id="test",
                 statement="Maintenance",
-                source_type="inferred",
+                source_type="inference",
                 derived_from=[f"episode:{active_enforced_stack._test_ep_id}"],
                 created_at=_now(),
             )
@@ -1221,7 +1221,7 @@ class TestStackScopedSettings:
             id=_uid(),
             stack_id="test",
             statement="No provenance",
-            source_type="inferred",
+            source_type="inference",
             created_at=_now(),
         )
         assert stack.save_belief(b1)
@@ -1234,7 +1234,7 @@ class TestStackScopedSettings:
             id=_uid(),
             stack_id="test",
             statement="No provenance after enable",
-            source_type="inferred",
+            source_type="inference",
             created_at=_now(),
         )
         with pytest.raises(ProvenanceError):
@@ -1247,7 +1247,7 @@ class TestStackScopedSettings:
             id=_uid(),
             stack_id="test",
             statement="Allowed again",
-            source_type="inferred",
+            source_type="inference",
             created_at=_now(),
         )
         assert stack.save_belief(b3)

@@ -1312,7 +1312,7 @@ class TestWriteMemories:
         saved_ep = mock_stack.save_episode.call_args[0][0]
         assert saved_ep.objective == "learned things"
         assert saved_ep.derived_from == ["raw:r1", "raw:r2"]
-        assert saved_ep.source_type == "processed"
+        assert saved_ep.source_type == "processing"
 
     def test_write_raw_to_note(self):
         mock_stack = _make_mock_stack()

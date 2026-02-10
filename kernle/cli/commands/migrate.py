@@ -388,6 +388,10 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
                     f"context:kernle_seed_v{SEED_BELIEFS_VERSION}"
                 ]
                 needs_update = True
+        elif source_type == "processed":
+            # Legacy "processed" value — migrate to canonical "processing"
+            new_source_type = "processing"
+            needs_update = True
         elif not source_type or source_type in ("unknown", ""):
             # Non-seed belief with no source — mark as direct_experience
             new_source_type = "direct_experience"
@@ -416,7 +420,10 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
         new_source_type = source_type
         new_derived_from = derived_from or []
 
-        if not source_type or source_type in ("unknown", ""):
+        if source_type == "processed":
+            new_source_type = "processing"
+            needs_update = True
+        elif not source_type or source_type in ("unknown", ""):
             new_source_type = "direct_experience"
             needs_update = True
 
@@ -449,7 +456,10 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
         new_source_type = source_type
         new_derived_from = derived_from or []
 
-        if not source_type or source_type in ("unknown", ""):
+        if source_type == "processed":
+            new_source_type = "processing"
+            needs_update = True
+        elif not source_type or source_type in ("unknown", ""):
             new_source_type = "direct_experience"
             needs_update = True
 

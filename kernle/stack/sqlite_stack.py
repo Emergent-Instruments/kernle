@@ -42,6 +42,7 @@ from kernle.protocols import (
 )
 from kernle.storage.sqlite import SQLiteStorage
 from kernle.types import (
+    VALID_SOURCE_TYPE_VALUES,
     Belief,
     Drive,
     Episode,
@@ -600,12 +601,29 @@ class SQLiteStack(
                 f"derived_from must cite at least one: {', '.join(allowed_types)}"
             )
 
+    def _validate_source_type(self, memory_type: str, source_type: str) -> None:
+        """Reject unknown source_type values when provenance is enforced.
+
+        Only validated during ACTIVE state with enforce_provenance=True.
+        INITIALIZING allows any value (for seed/migration data).
+        """
+        if self._state != StackState.ACTIVE:
+            return
+        if not self._enforce_provenance:
+            return
+        if source_type and source_type not in VALID_SOURCE_TYPE_VALUES:
+            raise ProvenanceError(
+                f"Unknown source_type '{source_type}' on {memory_type}. "
+                f"Valid values: {', '.join(sorted(VALID_SOURCE_TYPE_VALUES))}"
+            )
+
     # ---- Write Operations ----
 
     def save_episode(self, episode: Episode) -> str:
         self._validate_provenance(
             "episode", episode.derived_from, getattr(episode, "source_entity", None)
         )
+        self._validate_source_type("episode", episode.source_type)
         result_id = self._backend.save_episode(episode)
         self._dispatch_on_save("episode", result_id, episode)
         return result_id
@@ -614,6 +632,7 @@ class SQLiteStack(
         self._validate_provenance(
             "belief", belief.derived_from, getattr(belief, "source_entity", None)
         )
+        self._validate_source_type("belief", belief.source_type)
         result_id = self._backend.save_belief(belief)
         self._dispatch_on_save("belief", result_id, belief)
         return result_id
@@ -622,18 +641,21 @@ class SQLiteStack(
         self._validate_provenance(
             "value", value.derived_from, getattr(value, "source_entity", None)
         )
+        self._validate_source_type("value", value.source_type)
         result_id = self._backend.save_value(value)
         self._dispatch_on_save("value", result_id, value)
         return result_id
 
     def save_goal(self, goal: Goal) -> str:
         self._validate_provenance("goal", goal.derived_from, getattr(goal, "source_entity", None))
+        self._validate_source_type("goal", goal.source_type)
         result_id = self._backend.save_goal(goal)
         self._dispatch_on_save("goal", result_id, goal)
         return result_id
 
     def save_note(self, note: Note) -> str:
         self._validate_provenance("note", note.derived_from, getattr(note, "source_entity", None))
+        self._validate_source_type("note", note.source_type)
         result_id = self._backend.save_note(note)
         self._dispatch_on_save("note", result_id, note)
         return result_id
@@ -642,6 +664,7 @@ class SQLiteStack(
         self._validate_provenance(
             "drive", drive.derived_from, getattr(drive, "source_entity", None)
         )
+        self._validate_source_type("drive", drive.source_type)
         result_id = self._backend.save_drive(drive)
         self._dispatch_on_save("drive", result_id, drive)
         return result_id
@@ -650,6 +673,7 @@ class SQLiteStack(
         self._validate_provenance(
             "relationship", relationship.derived_from, getattr(relationship, "source_entity", None)
         )
+        self._validate_source_type("relationship", relationship.source_type)
         result_id = self._backend.save_relationship(relationship)
         self._dispatch_on_save("relationship", result_id, relationship)
         return result_id
@@ -695,6 +719,7 @@ class SQLiteStack(
             self._validate_provenance(
                 "episode", ep.derived_from, getattr(ep, "source_entity", None)
             )
+            self._validate_source_type("episode", ep.source_type)
         ids = self._backend.save_episodes_batch(episodes)
         for ep, eid in zip(episodes, ids):
             self._dispatch_on_save("episode", eid, ep)
@@ -705,6 +730,7 @@ class SQLiteStack(
             self._validate_provenance(
                 "belief", belief.derived_from, getattr(belief, "source_entity", None)
             )
+            self._validate_source_type("belief", belief.source_type)
         ids = self._backend.save_beliefs_batch(beliefs)
         for belief, bid in zip(beliefs, ids):
             self._dispatch_on_save("belief", bid, belief)
@@ -715,6 +741,7 @@ class SQLiteStack(
             self._validate_provenance(
                 "note", note.derived_from, getattr(note, "source_entity", None)
             )
+            self._validate_source_type("note", note.source_type)
         ids = self._backend.save_notes_batch(notes)
         for note, nid in zip(notes, ids):
             self._dispatch_on_save("note", nid, note)
