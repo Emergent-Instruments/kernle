@@ -163,7 +163,16 @@ With the safety invariants in place, this milestone makes the pipeline smarter a
 - **Suggestion resolution workflow** — full lifecycle: list, accept, dismiss, expire; CLI commands, MCP tools, and audit events ([#406](https://github.com/emergent-instruments/kernle/issues/406))
 - **Golden snapshot test** — end-to-end pipeline regression test with fixed inputs; covers inference-on/off variants ([#407](https://github.com/emergent-instruments/kernle/issues/407))
 
-### v0.12.02 — Governance & Observability
+### v0.12.02 — Corpus Seeding & Cognitive Testing
+
+Seed an agent from a corpus (repo, docs), process the full pipeline until exhaustion, and validate cognitive quality. Serves as both a product feature (instant topic expertise) and the definitive integration test for the memory pipeline.
+
+- **Corpus ingestion pipeline** — chunk repos/docs into semantically meaningful raw entries; respect function/class/section boundaries; tag with source metadata ([#485](https://github.com/emergent-instruments/kernle/issues/485))
+- **Process-until-exhaustion runner** — iterative pipeline with intensity scaling (light→medium→heavy across cycles) and convergence detection; stops when no new promotions emerge ([#486](https://github.com/emergent-instruments/kernle/issues/486))
+- **Cognitive quality assertions** — test framework for provenance integrity, contradiction detection, duplicate detection, content quality, and pipeline health metrics ([#487](https://github.com/emergent-instruments/kernle/issues/487))
+- **Golden corpus integration test** — end-to-end test: seed from known corpus → process to exhaustion → assert on cognitive quality; extends golden snapshot test #407 with holistic validation ([#488](https://github.com/emergent-instruments/kernle/issues/488))
+
+### v0.12.03 — Governance & Observability
 
 Auditability and belief management tooling for long-running SIs.
 
