@@ -155,6 +155,8 @@ from .raw_entries import (
 from .raw_entries import (
     sync_raw_from_files as _sync_raw_from_files,
 )
+from .schema import ALLOWED_TABLES as ALLOWED_TABLES  # noqa: F401 — re-export
+from .schema import SCHEMA_VERSION as SCHEMA_VERSION  # noqa: F401 — re-export
 from .schema import (
     ensure_raw_fts5,
     init_db,
