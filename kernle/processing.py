@@ -585,8 +585,7 @@ class MemoryProcessor:
             "episode_to_relationship",
             "episode_to_drive",
         ):
-            episodes = self._stack.get_episodes(limit=config.quantity_threshold + 1)
-            unprocessed = [e for e in episodes if not e.processed]
+            unprocessed = backend.get_episodes(limit=config.quantity_threshold + 1, processed=False)
             cumulative_valence = _cumulative_arousal(unprocessed)
             hours_since_last = _hours_since_oldest_episode(unprocessed, now)
             return evaluate_triggers(
@@ -598,8 +597,7 @@ class MemoryProcessor:
             )
 
         if transition == "belief_to_value":
-            beliefs = self._stack.get_beliefs(limit=config.quantity_threshold + 1)
-            unprocessed = [b for b in beliefs if not getattr(b, "processed", False)]
+            unprocessed = backend.get_beliefs(limit=config.quantity_threshold + 1, processed=False)
             hours_since_last = _hours_since_oldest_belief(unprocessed, now)
             return evaluate_triggers(
                 transition,
@@ -885,12 +883,10 @@ class MemoryProcessor:
             "episode_to_relationship",
             "episode_to_drive",
         ):
-            episodes = self._stack.get_episodes(limit=batch_size * 2)
-            return [e for e in episodes if not e.processed][:batch_size]
+            return backend.get_episodes(limit=batch_size, processed=False)
 
         if transition == "belief_to_value":
-            beliefs = self._stack.get_beliefs(limit=batch_size * 2)
-            return [b for b in beliefs if not getattr(b, "processed", False)][:batch_size]
+            return backend.get_beliefs(limit=batch_size, processed=False)
 
         return []
 

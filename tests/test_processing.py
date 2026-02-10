@@ -882,21 +882,21 @@ class TestCheckTriggersAllTransitions:
     def test_episode_to_belief_triggers(self):
         mock_stack = _make_mock_stack()
         episodes = [MagicMock(processed=False) for _ in range(6)]
-        mock_stack.get_episodes.return_value = episodes
+        mock_stack._backend.get_episodes.return_value = episodes
         processor, _ = _make_processor(mock_stack)
         assert processor.check_triggers("episode_to_belief")
+        mock_stack._backend.get_episodes.assert_called_once_with(limit=6, processed=False)
 
     def test_episode_to_belief_no_unprocessed(self):
         mock_stack = _make_mock_stack()
-        episodes = [MagicMock(processed=True) for _ in range(6)]
-        mock_stack.get_episodes.return_value = episodes
+        mock_stack._backend.get_episodes.return_value = []
         processor, _ = _make_processor(mock_stack)
         assert not processor.check_triggers("episode_to_belief")
 
     def test_episode_to_goal_triggers(self):
         mock_stack = _make_mock_stack()
         episodes = [MagicMock(processed=False) for _ in range(6)]
-        mock_stack.get_episodes.return_value = episodes
+        mock_stack._backend.get_episodes.return_value = episodes
         processor, _ = _make_processor(mock_stack)
         assert processor.check_triggers("episode_to_goal")
 
@@ -904,32 +904,22 @@ class TestCheckTriggersAllTransitions:
         mock_stack = _make_mock_stack()
         # episode_to_relationship has quantity_threshold=3 by default
         episodes = [MagicMock(processed=False) for _ in range(4)]
-        mock_stack.get_episodes.return_value = episodes
+        mock_stack._backend.get_episodes.return_value = episodes
         processor, _ = _make_processor(mock_stack)
         assert processor.check_triggers("episode_to_relationship")
 
     def test_belief_to_value_triggers(self):
         mock_stack = _make_mock_stack()
         beliefs = [MagicMock(processed=False) for _ in range(6)]
-        mock_stack.get_beliefs.return_value = beliefs
+        mock_stack._backend.get_beliefs.return_value = beliefs
         processor, _ = _make_processor(mock_stack)
         assert processor.check_triggers("belief_to_value")
-
-    def test_belief_to_value_uses_getattr_for_processed(self):
-        """belief_to_value uses getattr(b, 'processed', False)."""
-        mock_stack = _make_mock_stack()
-        # Create objects without 'processed' attribute
-        belief = MagicMock(spec=["id", "statement"])
-        del belief.processed  # Make getattr fall back to False
-        beliefs = [belief for _ in range(6)]
-        mock_stack.get_beliefs.return_value = beliefs
-        processor, _ = _make_processor(mock_stack)
-        assert processor.check_triggers("belief_to_value")
+        mock_stack._backend.get_beliefs.assert_called_once_with(limit=6, processed=False)
 
     def test_episode_to_drive_triggers(self):
         mock_stack = _make_mock_stack()
         episodes = [MagicMock(processed=False) for _ in range(6)]
-        mock_stack.get_episodes.return_value = episodes
+        mock_stack._backend.get_episodes.return_value = episodes
         processor, _ = _make_processor(mock_stack)
         assert processor.check_triggers("episode_to_drive")
 
@@ -976,17 +966,16 @@ class TestGatherSources:
     def test_episode_to_belief(self):
         mock_stack = _make_mock_stack()
         unprocessed = [MagicMock(processed=False) for _ in range(3)]
-        processed_ep = [MagicMock(processed=True) for _ in range(2)]
-        mock_stack.get_episodes.return_value = unprocessed + processed_ep
+        mock_stack._backend.get_episodes.return_value = unprocessed
         processor, _ = _make_processor(mock_stack)
         result = processor._gather_sources("episode_to_belief", 10)
         assert len(result) == 3
-        assert all(not e.processed for e in result)
+        mock_stack._backend.get_episodes.assert_called_once_with(limit=10, processed=False)
 
     def test_episode_to_goal(self):
         mock_stack = _make_mock_stack()
         eps = [MagicMock(processed=False) for _ in range(4)]
-        mock_stack.get_episodes.return_value = eps
+        mock_stack._backend.get_episodes.return_value = eps
         processor, _ = _make_processor(mock_stack)
         result = processor._gather_sources("episode_to_goal", 10)
         assert len(result) == 4
@@ -994,7 +983,7 @@ class TestGatherSources:
     def test_episode_to_relationship(self):
         mock_stack = _make_mock_stack()
         eps = [MagicMock(processed=False) for _ in range(2)]
-        mock_stack.get_episodes.return_value = eps
+        mock_stack._backend.get_episodes.return_value = eps
         processor, _ = _make_processor(mock_stack)
         result = processor._gather_sources("episode_to_relationship", 5)
         assert len(result) == 2
@@ -1002,7 +991,7 @@ class TestGatherSources:
     def test_episode_to_drive(self):
         mock_stack = _make_mock_stack()
         eps = [MagicMock(processed=False) for _ in range(3)]
-        mock_stack.get_episodes.return_value = eps
+        mock_stack._backend.get_episodes.return_value = eps
         processor, _ = _make_processor(mock_stack)
         result = processor._gather_sources("episode_to_drive", 10)
         assert len(result) == 3
@@ -1010,18 +999,21 @@ class TestGatherSources:
     def test_belief_to_value(self):
         mock_stack = _make_mock_stack()
         beliefs = [MagicMock(processed=False) for _ in range(4)]
-        mock_stack.get_beliefs.return_value = beliefs
+        mock_stack._backend.get_beliefs.return_value = beliefs
         processor, _ = _make_processor(mock_stack)
         result = processor._gather_sources("belief_to_value", 10)
         assert len(result) == 4
+        mock_stack._backend.get_beliefs.assert_called_once_with(limit=10, processed=False)
 
     def test_batch_size_limits_episodes(self):
         mock_stack = _make_mock_stack()
-        eps = [MagicMock(processed=False) for _ in range(20)]
-        mock_stack.get_episodes.return_value = eps
+        eps = [MagicMock(processed=False) for _ in range(5)]
+        mock_stack._backend.get_episodes.return_value = eps
         processor, _ = _make_processor(mock_stack)
         result = processor._gather_sources("episode_to_belief", 5)
         assert len(result) == 5
+        # Backend is called with limit=batch_size directly
+        mock_stack._backend.get_episodes.assert_called_once_with(limit=5, processed=False)
 
     def test_unknown_transition_returns_empty(self):
         mock_stack = _make_mock_stack()
@@ -1803,8 +1795,8 @@ class TestProcessFullFlow:
     def test_process_none_transition_iterates_all(self):
         mock_stack = _make_mock_stack()
         mock_stack._backend.list_raw.return_value = []
-        mock_stack.get_episodes.return_value = []
-        mock_stack.get_beliefs.return_value = []
+        mock_stack._backend.get_episodes.return_value = []
+        mock_stack._backend.get_beliefs.return_value = []
         processor, _ = _make_processor(mock_stack)
         results = processor.process(force=True)
         # All 7 transitions should produce skipped results
@@ -2002,8 +1994,8 @@ class TestNoInferenceProcessMethod:
         """force=True + allow_no_inference_override=True unblocks beliefs."""
         mock_stack = _make_mock_stack()
         mock_stack._backend.list_raw.return_value = []
-        mock_stack.get_episodes.return_value = []
-        mock_stack.get_beliefs.return_value = []
+        mock_stack._backend.get_episodes.return_value = []
+        mock_stack._backend.get_beliefs.return_value = []
         processor, _ = _make_no_inference_processor(mock_stack)
         results = processor.process(
             "episode_to_belief", force=True, allow_no_inference_override=True
@@ -2396,3 +2388,272 @@ class TestGateBlockedSourcesNotConsumed:
 
         # mark_episode_processed should NOT have been called
         mock_stack._backend.mark_episode_processed.assert_not_called()
+
+
+# =============================================================================
+# Ordering starvation fix — P1 regression tests
+# =============================================================================
+
+
+class TestOrderingStarvation:
+    """Verify that unprocessed items are found even when many recent items are processed.
+
+    Before the fix, check_triggers() and _gather_sources() fetched recent
+    items with a limit, then filtered for processed=False in Python. If the
+    most recent items were already processed, older unprocessed records were
+    invisible (ordering starvation).
+
+    The fix queries the backend directly with processed=False, so the SQL
+    LIMIT applies only to unprocessed rows.
+    """
+
+    def test_check_triggers_episodes_finds_old_unprocessed(self, stack):
+        """Old unprocessed episodes are counted even when recent ones are processed."""
+
+        backend = stack._backend
+
+        # Save 20 processed episodes (recent)
+        for i in range(20):
+            ep = Episode(
+                id=f"processed-{i}",
+                stack_id=STACK_ID,
+                objective=f"Processed event {i}",
+                outcome=f"Done {i}",
+                source_type="observation",
+                source_entity="test",
+                processed=False,
+            )
+            backend.save_episode(ep)
+            backend.mark_episode_processed(f"processed-{i}")
+
+        # Save 6 old unprocessed episodes (these should trigger)
+        for i in range(6):
+            ep = Episode(
+                id=f"unprocessed-{i}",
+                stack_id=STACK_ID,
+                objective=f"Old event {i}",
+                outcome=f"Pending {i}",
+                source_type="observation",
+                source_entity="test",
+                processed=False,
+            )
+            backend.save_episode(ep)
+
+        config = LayerConfig(
+            layer_transition="episode_to_belief",
+            quantity_threshold=5,
+        )
+        processor = MemoryProcessor(
+            stack=stack,
+            inference=MockInference(),
+            core_id="test",
+            configs={"episode_to_belief": config},
+        )
+        # Should trigger because 6 unprocessed >= threshold 5
+        assert processor.check_triggers("episode_to_belief")
+
+    def test_check_triggers_beliefs_finds_old_unprocessed(self, stack):
+        """Old unprocessed beliefs are counted even when recent ones are processed."""
+        from kernle.types import Belief
+
+        backend = stack._backend
+
+        # Save 20 processed beliefs
+        for i in range(20):
+            b = Belief(
+                id=f"proc-belief-{i}",
+                stack_id=STACK_ID,
+                statement=f"Processed belief {i}",
+                belief_type="factual",
+                confidence=0.8,
+                source_type="observation",
+                source_entity="test",
+                processed=False,
+            )
+            backend.save_belief(b)
+            backend.mark_belief_processed(f"proc-belief-{i}")
+
+        # Save 6 old unprocessed beliefs
+        for i in range(6):
+            b = Belief(
+                id=f"unproc-belief-{i}",
+                stack_id=STACK_ID,
+                statement=f"Unprocessed belief {i}",
+                belief_type="factual",
+                confidence=0.8,
+                source_type="observation",
+                source_entity="test",
+                processed=False,
+            )
+            backend.save_belief(b)
+
+        config = LayerConfig(
+            layer_transition="belief_to_value",
+            quantity_threshold=5,
+        )
+        processor = MemoryProcessor(
+            stack=stack,
+            inference=MockInference(),
+            core_id="test",
+            configs={"belief_to_value": config},
+        )
+        assert processor.check_triggers("belief_to_value")
+
+    def test_gather_sources_episodes_finds_old_unprocessed(self, stack):
+        """_gather_sources returns old unprocessed episodes, not just recent ones."""
+        backend = stack._backend
+
+        # Save 20 processed episodes
+        for i in range(20):
+            ep = Episode(
+                id=f"done-{i}",
+                stack_id=STACK_ID,
+                objective=f"Done {i}",
+                outcome=f"Done {i}",
+                source_type="observation",
+                source_entity="test",
+                processed=False,
+            )
+            backend.save_episode(ep)
+            backend.mark_episode_processed(f"done-{i}")
+
+        # Save 3 old unprocessed episodes
+        unprocessed_ids = set()
+        for i in range(3):
+            eid = f"pending-{i}"
+            ep = Episode(
+                id=eid,
+                stack_id=STACK_ID,
+                objective=f"Pending {i}",
+                outcome=f"Pending {i}",
+                source_type="observation",
+                source_entity="test",
+                processed=False,
+            )
+            backend.save_episode(ep)
+            unprocessed_ids.add(eid)
+
+        processor = MemoryProcessor(
+            stack=stack,
+            inference=MockInference(),
+            core_id="test",
+            promotion_gates=_NO_GATES,
+        )
+        sources = processor._gather_sources("episode_to_belief", 10)
+        assert len(sources) == 3
+        assert {s.id for s in sources} == unprocessed_ids
+
+    def test_gather_sources_beliefs_finds_old_unprocessed(self, stack):
+        """_gather_sources returns old unprocessed beliefs, not just recent ones."""
+        from kernle.types import Belief
+
+        backend = stack._backend
+
+        # Save 20 processed beliefs
+        for i in range(20):
+            b = Belief(
+                id=f"done-b-{i}",
+                stack_id=STACK_ID,
+                statement=f"Done {i}",
+                belief_type="factual",
+                confidence=0.8,
+                source_type="observation",
+                source_entity="test",
+                processed=False,
+            )
+            backend.save_belief(b)
+            backend.mark_belief_processed(f"done-b-{i}")
+
+        # Save 3 old unprocessed beliefs
+        unprocessed_ids = set()
+        for i in range(3):
+            bid = f"pending-b-{i}"
+            b = Belief(
+                id=bid,
+                stack_id=STACK_ID,
+                statement=f"Pending {i}",
+                belief_type="factual",
+                confidence=0.8,
+                source_type="observation",
+                source_entity="test",
+                processed=False,
+            )
+            backend.save_belief(b)
+            unprocessed_ids.add(bid)
+
+        processor = MemoryProcessor(
+            stack=stack,
+            inference=MockInference(),
+            core_id="test",
+            promotion_gates=_NO_GATES,
+        )
+        sources = processor._gather_sources("belief_to_value", 10)
+        assert len(sources) == 3
+        assert {s.id for s in sources} == unprocessed_ids
+
+    def test_storage_get_episodes_processed_filter(self, stack):
+        """SQLiteStorage.get_episodes(processed=False) returns only unprocessed."""
+        backend = stack._backend
+
+        # Save 5 episodes, mark 3 as processed
+        for i in range(5):
+            ep = Episode(
+                id=f"ep-{i}",
+                stack_id=STACK_ID,
+                objective=f"Event {i}",
+                outcome=f"Outcome {i}",
+                source_type="observation",
+                source_entity="test",
+                processed=False,
+            )
+            backend.save_episode(ep)
+
+        for i in range(3):
+            backend.mark_episode_processed(f"ep-{i}")
+
+        # processed=False returns only 2
+        unprocessed = backend.get_episodes(limit=100, processed=False)
+        assert len(unprocessed) == 2
+        assert all(not e.processed for e in unprocessed)
+
+        # processed=True returns only 3
+        processed = backend.get_episodes(limit=100, processed=True)
+        assert len(processed) == 3
+        assert all(e.processed for e in processed)
+
+        # processed=None returns all 5
+        all_eps = backend.get_episodes(limit=100)
+        assert len(all_eps) == 5
+
+    def test_storage_get_beliefs_processed_filter(self, stack):
+        """SQLiteStorage.get_beliefs(processed=False) returns only unprocessed."""
+        from kernle.types import Belief
+
+        backend = stack._backend
+
+        for i in range(5):
+            b = Belief(
+                id=f"b-{i}",
+                stack_id=STACK_ID,
+                statement=f"Belief {i}",
+                belief_type="factual",
+                confidence=0.8,
+                source_type="observation",
+                source_entity="test",
+                processed=False,
+            )
+            backend.save_belief(b)
+
+        for i in range(3):
+            backend.mark_belief_processed(f"b-{i}")
+
+        unprocessed = backend.get_beliefs(limit=100, processed=False)
+        assert len(unprocessed) == 2
+        assert all(not b.processed for b in unprocessed)
+
+        processed = backend.get_beliefs(limit=100, processed=True)
+        assert len(processed) == 3
+        assert all(b.processed for b in processed)
+
+        all_beliefs = backend.get_beliefs(limit=100)
+        assert len(all_beliefs) == 5
