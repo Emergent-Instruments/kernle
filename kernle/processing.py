@@ -843,9 +843,10 @@ class MemoryProcessor:
         result.gate_blocked = getattr(self, "_last_gate_blocked", 0)
         result.gate_details = getattr(self, "_last_gate_details", [])
 
-        # 8. Mark sources as processed
+        # 8. Mark sources as processed (only if something was actually created)
         created_or_suggested = result.created or result.suggestions
-        self._mark_processed(transition, sources, created_or_suggested)
+        if created_or_suggested:
+            self._mark_processed(transition, sources, created_or_suggested)
 
         # 9. Log audit
         self._stack.log_audit(

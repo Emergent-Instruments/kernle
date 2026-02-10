@@ -64,9 +64,9 @@ EXPECTED_COUNTS_INFERENCE_ON = {
     "notes": 2,  # mock model produces 2 notes from raw_to_note
     "beliefs": 0,  # blocked by promotion gate (evidence < belief_min_evidence=3)
     "values": 0,  # blocked: no beliefs exist to promote to values
-    "goals": 0,  # episodes already processed by episode_to_belief (none left for goals)
-    "relationships": 0,  # episodes already processed (none left for relationships)
-    "drives": 0,  # episodes already processed (none left for drives)
+    "goals": 1,  # gate-blocked episodes stay unprocessed, available for goal promotion
+    "relationships": 0,  # episodes consumed by episode_to_goal (none left)
+    "drives": 0,  # episodes consumed by episode_to_goal (none left)
 }
 
 # Expected memory counts when inference is off (no model bound).
