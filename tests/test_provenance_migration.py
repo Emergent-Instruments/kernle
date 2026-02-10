@@ -18,7 +18,7 @@ import pytest
 
 from kernle.stack.sqlite_stack import SQLiteStack
 from kernle.storage.sqlite import SQLiteStorage
-from kernle.types import Episode, Note
+from kernle.types import Drive, Episode, Goal, Note, Relationship, Value
 
 STACK_ID = "test-migration"
 
@@ -662,3 +662,221 @@ class TestPreV09ProvenanceBypass:
         )
         with pytest.raises(ProvenanceError):
             stack.save_episode(ep)
+
+
+# ==============================================================================
+# Helpers for additional memory types
+# ==============================================================================
+
+
+def _value(name="Test value", statement="Test statement"):
+    return Value(
+        id=str(uuid.uuid4()),
+        stack_id=STACK_ID,
+        name=name,
+        statement=statement,
+        created_at=datetime.now(timezone.utc),
+    )
+
+
+def _goal(title="Test goal", description="Test description"):
+    return Goal(
+        id=str(uuid.uuid4()),
+        stack_id=STACK_ID,
+        title=title,
+        description=description,
+        created_at=datetime.now(timezone.utc),
+    )
+
+
+def _drive(drive_type="curiosity"):
+    return Drive(
+        id=str(uuid.uuid4()),
+        stack_id=STACK_ID,
+        drive_type=drive_type,
+        created_at=datetime.now(timezone.utc),
+    )
+
+
+def _relationship(entity_name="Alice", entity_type="human", relationship_type="collaborator"):
+    return Relationship(
+        id=str(uuid.uuid4()),
+        stack_id=STACK_ID,
+        entity_name=entity_name,
+        entity_type=entity_type,
+        relationship_type=relationship_type,
+        created_at=datetime.now(timezone.utc),
+    )
+
+
+# ==============================================================================
+# backfill-provenance: values, goals, drives, relationships
+# ==============================================================================
+
+
+class TestBackfillProvenanceAllTypes:
+    """Tests for _migrate_backfill_provenance covering values, goals, drives, relationships."""
+
+    def _run_backfill(self, stack, dry_run=False):
+        from kernle.cli.commands.migrate import _migrate_backfill_provenance
+
+        mock_k = MagicMock()
+        mock_k._storage = stack._backend
+        mock_k.stack_id = STACK_ID
+        mock_k.set_memory_source = MagicMock(return_value=True)
+
+        args = MagicMock()
+        args.dry_run = dry_run
+        args.json = True
+
+        _migrate_backfill_provenance(args, mock_k)
+        return mock_k
+
+    def test_values_get_annotation(self, stack):
+        val = _value()
+        stack.save_value(val)
+
+        mock_k = self._run_backfill(stack)
+
+        calls = mock_k.set_memory_source.call_args_list
+        val_calls = [c for c in calls if c[0][1] == val.id]
+        assert len(val_calls) == 1
+        derived_from = val_calls[0].kwargs.get("derived_from")
+        assert derived_from is not None
+        assert "kernle:pre-v0.9-migration" in derived_from
+
+    def test_goals_get_annotation(self, stack):
+        goal = _goal()
+        stack.save_goal(goal)
+
+        mock_k = self._run_backfill(stack)
+
+        calls = mock_k.set_memory_source.call_args_list
+        goal_calls = [c for c in calls if c[0][1] == goal.id]
+        assert len(goal_calls) == 1
+        derived_from = goal_calls[0].kwargs.get("derived_from")
+        assert derived_from is not None
+        assert "kernle:pre-v0.9-migration" in derived_from
+
+    def test_drives_get_annotation(self, stack):
+        drive = _drive()
+        stack.save_drive(drive)
+
+        mock_k = self._run_backfill(stack)
+
+        calls = mock_k.set_memory_source.call_args_list
+        drive_calls = [c for c in calls if c[0][1] == drive.id]
+        assert len(drive_calls) == 1
+        derived_from = drive_calls[0].kwargs.get("derived_from")
+        assert derived_from is not None
+        assert "kernle:pre-v0.9-migration" in derived_from
+
+    def test_relationships_get_annotation(self, stack):
+        rel = _relationship()
+        stack.save_relationship(rel)
+
+        mock_k = self._run_backfill(stack)
+
+        calls = mock_k.set_memory_source.call_args_list
+        rel_calls = [c for c in calls if c[0][1] == rel.id]
+        assert len(rel_calls) == 1
+        derived_from = rel_calls[0].kwargs.get("derived_from")
+        assert derived_from is not None
+        assert "kernle:pre-v0.9-migration" in derived_from
+
+    def test_value_processed_migrated_to_processing(self, stack):
+        val = _value()
+        stack.save_value(val)
+        # Manually set source_type to legacy "processed"
+        with stack._backend._connect() as conn:
+            conn.execute(
+                "UPDATE agent_values SET source_type = ? WHERE id = ?",
+                ("processed", val.id),
+            )
+            conn.commit()
+
+        mock_k = self._run_backfill(stack)
+
+        calls = mock_k.set_memory_source.call_args_list
+        val_calls = [c for c in calls if c[0][1] == val.id]
+        assert len(val_calls) == 1
+        # source_type should be "processing" (the canonical value)
+        assert val_calls[0][0][2] == "processing"
+
+    def test_goal_processed_migrated_to_processing(self, stack):
+        goal = _goal()
+        stack.save_goal(goal)
+        with stack._backend._connect() as conn:
+            conn.execute(
+                "UPDATE goals SET source_type = ? WHERE id = ?",
+                ("processed", goal.id),
+            )
+            conn.commit()
+
+        mock_k = self._run_backfill(stack)
+
+        calls = mock_k.set_memory_source.call_args_list
+        goal_calls = [c for c in calls if c[0][1] == goal.id]
+        assert len(goal_calls) == 1
+        assert goal_calls[0][0][2] == "processing"
+
+    def test_drive_processed_migrated_to_processing(self, stack):
+        drive = _drive()
+        stack.save_drive(drive)
+        with stack._backend._connect() as conn:
+            conn.execute(
+                "UPDATE drives SET source_type = ? WHERE id = ?",
+                ("processed", drive.id),
+            )
+            conn.commit()
+
+        mock_k = self._run_backfill(stack)
+
+        calls = mock_k.set_memory_source.call_args_list
+        drive_calls = [c for c in calls if c[0][1] == drive.id]
+        assert len(drive_calls) == 1
+        assert drive_calls[0][0][2] == "processing"
+
+    def test_relationship_processed_migrated_to_processing(self, stack):
+        rel = _relationship()
+        stack.save_relationship(rel)
+        with stack._backend._connect() as conn:
+            conn.execute(
+                "UPDATE relationships SET source_type = ? WHERE id = ?",
+                ("processed", rel.id),
+            )
+            conn.commit()
+
+        mock_k = self._run_backfill(stack)
+
+        calls = mock_k.set_memory_source.call_args_list
+        rel_calls = [c for c in calls if c[0][1] == rel.id]
+        assert len(rel_calls) == 1
+        assert rel_calls[0][0][2] == "processing"
+
+    def test_value_with_provenance_untouched(self, stack):
+        raw_id = _save_raw(stack._backend)
+        val = _value()
+        val.derived_from = [f"raw:{raw_id}"]
+        val.source_type = "direct_experience"
+        stack.save_value(val)
+
+        mock_k = self._run_backfill(stack)
+
+        calls = mock_k.set_memory_source.call_args_list
+        val_calls = [c for c in calls if c[0][1] == val.id]
+        assert len(val_calls) == 0
+
+    def test_dry_run_no_changes_for_new_types(self, stack):
+        val = _value()
+        goal = _goal()
+        drive = _drive()
+        rel = _relationship()
+        stack.save_value(val)
+        stack.save_goal(goal)
+        stack.save_drive(drive)
+        stack.save_relationship(rel)
+
+        mock_k = self._run_backfill(stack, dry_run=True)
+
+        mock_k.set_memory_source.assert_not_called()
