@@ -255,8 +255,8 @@ class TestStackAcceptSuggestion:
         beliefs = stack._backend.get_beliefs(limit=10)
         assert len(beliefs) == 1
         assert beliefs[0].statement == "Testing is important"
-        assert beliefs[0].source_type == "suggestion"
-        assert beliefs[0].derived_from == [raw_id]
+        assert beliefs[0].source_type == "processing"
+        assert beliefs[0].derived_from == [f"raw:{raw_id}"]
 
         # Verify audit log
         audit = stack.get_audit_log(memory_type="suggestion", memory_id=sid, operation="accepted")
@@ -363,6 +363,226 @@ class TestStackAcceptSuggestion:
         sid = _make_suggestion(stack._backend, status="promoted")
         result = stack.accept_suggestion(sid)
         assert result is None
+
+
+class TestStackAcceptSuggestionWithProvenance:
+    """Test accept_suggestion with enforce_provenance=True (P0 fix)."""
+
+    def test_accept_belief_with_provenance_enforced(self, tmp_path):
+        """Accepting a belief suggestion must not raise ProvenanceError."""
+        from kernle.stack.sqlite_stack import SQLiteStack
+
+        stack = SQLiteStack(
+            stack_id="test-stack",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=True,
+        )
+
+        raw_id = _make_raw(stack._backend)
+        sid = _make_suggestion(
+            stack._backend,
+            memory_type="belief",
+            content={
+                "statement": "Code reviews improve quality",
+                "belief_type": "learned",
+                "confidence": 0.85,
+            },
+            source_raw_ids=[raw_id],
+        )
+
+        # This used to raise ProvenanceError
+        memory_id = stack.accept_suggestion(sid)
+        assert memory_id is not None
+
+        # Verify provenance fields
+        beliefs = stack._backend.get_beliefs(limit=10)
+        assert len(beliefs) == 1
+        assert beliefs[0].source_type == "processing"
+        assert beliefs[0].derived_from == [f"raw:{raw_id}"]
+        assert beliefs[0].source_entity == "kernle:suggestion-promotion"
+
+    def test_accept_episode_with_provenance_enforced(self, tmp_path):
+        """Accepting an episode suggestion must not raise ProvenanceError."""
+        from kernle.stack.sqlite_stack import SQLiteStack
+
+        stack = SQLiteStack(
+            stack_id="test-stack",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=True,
+        )
+
+        raw_id = _make_raw(stack._backend)
+        sid = _make_suggestion(
+            stack._backend,
+            memory_type="episode",
+            content={
+                "objective": "Deploy v2",
+                "outcome": "Shipped successfully",
+                "outcome_type": "success",
+            },
+            source_raw_ids=[raw_id],
+        )
+
+        memory_id = stack.accept_suggestion(sid)
+        assert memory_id is not None
+
+        episodes = stack._backend.get_episodes(limit=10)
+        assert len(episodes) == 1
+        assert episodes[0].source_type == "processing"
+        assert episodes[0].derived_from == [f"raw:{raw_id}"]
+        assert episodes[0].source_entity == "kernle:suggestion-promotion"
+
+    def test_accept_note_with_provenance_enforced(self, tmp_path):
+        """Accepting a note suggestion must not raise ProvenanceError."""
+        from kernle.stack.sqlite_stack import SQLiteStack
+
+        stack = SQLiteStack(
+            stack_id="test-stack",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=True,
+        )
+
+        raw_id = _make_raw(stack._backend)
+        sid = _make_suggestion(
+            stack._backend,
+            memory_type="note",
+            content={"content": "Important observation", "note_type": "insight"},
+            source_raw_ids=[raw_id],
+        )
+
+        memory_id = stack.accept_suggestion(sid)
+        assert memory_id is not None
+
+        notes = stack._backend.get_notes(limit=10)
+        assert len(notes) == 1
+        assert notes[0].source_type == "processing"
+        assert notes[0].derived_from == [f"raw:{raw_id}"]
+        assert notes[0].source_entity == "kernle:suggestion-promotion"
+
+    def test_accept_with_modifications_provenance_enforced(self, tmp_path):
+        """Accepting with modifications must not raise ProvenanceError."""
+        from kernle.stack.sqlite_stack import SQLiteStack
+
+        stack = SQLiteStack(
+            stack_id="test-stack",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=True,
+        )
+
+        raw_id = _make_raw(stack._backend)
+        sid = _make_suggestion(
+            stack._backend,
+            memory_type="belief",
+            content={"statement": "Original", "belief_type": "fact", "confidence": 0.7},
+            source_raw_ids=[raw_id],
+        )
+
+        memory_id = stack.accept_suggestion(sid, modifications={"statement": "Refined statement"})
+        assert memory_id is not None
+
+        suggestion = stack.get_suggestion(sid)
+        assert suggestion.status == "modified"
+
+        beliefs = stack._backend.get_beliefs(limit=10)
+        assert beliefs[0].statement == "Refined statement"
+        assert beliefs[0].source_type == "processing"
+
+    def test_accept_multiple_source_raws_provenance_enforced(self, tmp_path):
+        """Suggestion with multiple source_raw_ids should all get raw: prefix."""
+        from kernle.stack.sqlite_stack import SQLiteStack
+
+        stack = SQLiteStack(
+            stack_id="test-stack",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=True,
+        )
+
+        raw_id1 = _make_raw(stack._backend, content="First observation")
+        raw_id2 = _make_raw(stack._backend, content="Second observation")
+        sid = _make_suggestion(
+            stack._backend,
+            memory_type="episode",
+            content={
+                "objective": "Multi-source task",
+                "outcome": "Combined insights",
+                "outcome_type": "success",
+            },
+            source_raw_ids=[raw_id1, raw_id2],
+        )
+
+        memory_id = stack.accept_suggestion(sid)
+        assert memory_id is not None
+
+        episodes = stack._backend.get_episodes(limit=10)
+        assert episodes[0].derived_from == [f"raw:{raw_id1}", f"raw:{raw_id2}"]
+
+
+class TestKernleAcceptWithStrictMode:
+    """Test accept_suggestion on Kernle compat layer with strict=True (P0 fix)."""
+
+    def test_accept_belief_strict_mode(self, tmp_path):
+        """Kernle(strict=True).accept_suggestion() must not raise ProvenanceError."""
+        db_path = tmp_path / "test.db"
+        s = SQLiteStorage(stack_id="test-stack", db_path=db_path)
+        k = Kernle("test-stack", storage=s, strict=True)
+
+        raw_id = _make_raw(s)
+        sid = _make_suggestion(
+            s,
+            memory_type="belief",
+            content={
+                "statement": "Strict mode works",
+                "belief_type": "fact",
+                "confidence": 0.9,
+            },
+            source_raw_ids=[raw_id],
+        )
+
+        memory_id = k.accept_suggestion(sid)
+        assert memory_id is not None
+
+    def test_accept_episode_strict_mode(self, tmp_path):
+        """Kernle(strict=True).accept_suggestion() for episodes."""
+        db_path = tmp_path / "test.db"
+        s = SQLiteStorage(stack_id="test-stack", db_path=db_path)
+        k = Kernle("test-stack", storage=s, strict=True)
+
+        raw_id = _make_raw(s)
+        sid = _make_suggestion(
+            s,
+            memory_type="episode",
+            content={
+                "objective": "Test strict episode",
+                "outcome": "Success in strict mode",
+                "outcome_type": "success",
+            },
+            source_raw_ids=[raw_id],
+        )
+
+        memory_id = k.accept_suggestion(sid)
+        assert memory_id is not None
+
+    def test_accept_note_strict_mode(self, tmp_path):
+        """Kernle(strict=True).accept_suggestion() for notes."""
+        db_path = tmp_path / "test.db"
+        s = SQLiteStorage(stack_id="test-stack", db_path=db_path)
+        k = Kernle("test-stack", storage=s, strict=True)
+
+        raw_id = _make_raw(s)
+        sid = _make_suggestion(
+            s,
+            memory_type="note",
+            content={"content": "Strict note test", "note_type": "insight"},
+            source_raw_ids=[raw_id],
+        )
+
+        memory_id = k.accept_suggestion(sid)
+        assert memory_id is not None
 
 
 class TestStackDismissSuggestion:

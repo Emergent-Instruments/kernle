@@ -768,8 +768,8 @@ class SQLiteStack(
         memory_id = None
         memory_type = suggestion.memory_type
 
-        # Build provenance: derived_from the source raw entries
-        derived_from = suggestion.source_raw_ids or []
+        # Build provenance: derived_from the source raw entries with raw: prefix
+        derived_from = [f"raw:{rid}" for rid in (suggestion.source_raw_ids or [])]
 
         if memory_type == "episode":
             ep = Episode(
@@ -781,7 +781,8 @@ class SQLiteStack(
                 lessons=content.get("lessons", []),
                 tags=["auto-suggested"],
                 derived_from=derived_from,
-                source_type="suggestion",
+                source_type="processing",
+                source_entity="kernle:suggestion-promotion",
                 created_at=datetime.now(timezone.utc),
             )
             memory_id = self.save_episode(ep)
@@ -793,7 +794,8 @@ class SQLiteStack(
                 belief_type=content.get("belief_type", "fact"),
                 confidence=content.get("confidence", 0.7),
                 derived_from=derived_from,
-                source_type="suggestion",
+                source_type="processing",
+                source_entity="kernle:suggestion-promotion",
                 created_at=datetime.now(timezone.utc),
             )
             memory_id = self.save_belief(belief)
@@ -807,7 +809,8 @@ class SQLiteStack(
                 reason=content.get("reason"),
                 tags=["auto-suggested"],
                 derived_from=derived_from,
-                source_type="suggestion",
+                source_type="processing",
+                source_entity="kernle:suggestion-promotion",
                 created_at=datetime.now(timezone.utc),
             )
             memory_id = self.save_note(note)
