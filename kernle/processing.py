@@ -382,7 +382,10 @@ def evaluate_triggers(
 ) -> bool:
     """Check if processing should be triggered for a layer transition.
 
-    Returns True if any trigger condition is met.
+    Returns True if any trigger condition is met:
+    - Quantity: unprocessed count >= quantity_threshold
+    - Valence: cumulative emotional arousal >= valence_threshold
+    - Time: hours since oldest unprocessed entry >= time_threshold_hours
     """
     if not config.enabled:
         return False
@@ -391,10 +394,9 @@ def evaluate_triggers(
     if unprocessed_count >= config.quantity_threshold:
         return True
 
-    # Emotional valence threshold (only for episode-producing transitions)
-    if transition in ("raw_to_episode", "raw_to_note"):
-        if cumulative_valence >= config.valence_threshold:
-            return True
+    # Emotional valence/arousal threshold
+    if cumulative_valence >= config.valence_threshold:
+        return True
 
     # Time threshold
     if hours_since_last is not None and config.time_threshold_hours > 0:
@@ -402,6 +404,70 @@ def evaluate_triggers(
             return True
 
     return False
+
+
+# =============================================================================
+# Trigger Signal Helpers
+# =============================================================================
+
+
+def _extract_timestamp(obj: Any, attr: str) -> Optional[datetime]:
+    """Safely extract a datetime attribute, returning None if not a real datetime."""
+    ts = getattr(obj, attr, None)
+    if isinstance(ts, datetime):
+        return ts
+    return None
+
+
+def _oldest_timestamp(items: list, attr: str) -> Optional[datetime]:
+    """Find the oldest datetime value for a given attribute across items."""
+    oldest = None
+    for item in items:
+        ts = _extract_timestamp(item, attr)
+        if ts is None:
+            continue
+        if oldest is None or ts < oldest:
+            oldest = ts
+    return oldest
+
+
+def _hours_since(ts: Optional[datetime], now: datetime) -> Optional[float]:
+    """Compute hours between a timestamp and now, handling naive datetimes."""
+    if ts is None:
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    delta = now - ts
+    return delta.total_seconds() / 3600.0
+
+
+def _hours_since_oldest_raw(entries: list, now: datetime) -> Optional[float]:
+    """Compute hours since the oldest unprocessed raw entry was captured."""
+    return _hours_since(_oldest_timestamp(entries, "captured_at"), now)
+
+
+def _hours_since_oldest_episode(episodes: list, now: datetime) -> Optional[float]:
+    """Compute hours since the oldest unprocessed episode was created."""
+    return _hours_since(_oldest_timestamp(episodes, "created_at"), now)
+
+
+def _hours_since_oldest_belief(beliefs: list, now: datetime) -> Optional[float]:
+    """Compute hours since the oldest unprocessed belief was created."""
+    return _hours_since(_oldest_timestamp(beliefs, "created_at"), now)
+
+
+def _cumulative_arousal(episodes: list) -> float:
+    """Sum emotional_arousal across unprocessed episodes.
+
+    Episodes with high emotional arousal (e.g. a single intense event)
+    can trigger consolidation even when the count is below threshold.
+    """
+    total = 0.0
+    for ep in episodes:
+        val = getattr(ep, "emotional_arousal", 0.0)
+        if isinstance(val, (int, float)):
+            total += val
+    return total
 
 
 # =============================================================================
@@ -445,7 +511,13 @@ class MemoryProcessor:
         return self._configs.get(transition)
 
     def check_triggers(self, transition: str) -> bool:
-        """Check if processing should be triggered for a transition."""
+        """Check if processing should be triggered for a transition.
+
+        Computes all three trigger signals from actual memory data:
+        - Quantity: count of unprocessed source memories
+        - Time: hours since the oldest unprocessed entry was captured/created
+        - Valence: cumulative emotional arousal across unprocessed entries
+        """
         config = self._configs.get(transition)
         if config is None or not config.enabled:
             return False
@@ -454,34 +526,46 @@ class MemoryProcessor:
         if backend is None:
             return False
 
+        now = datetime.now(timezone.utc)
+
         if transition in ("raw_to_episode", "raw_to_note"):
             unprocessed = backend.list_raw(processed=False, limit=config.quantity_threshold + 1)
-            return evaluate_triggers(transition, config, len(unprocessed))
+            hours_since_last = _hours_since_oldest_raw(unprocessed, now)
+            return evaluate_triggers(
+                transition,
+                config,
+                len(unprocessed),
+                hours_since_last=hours_since_last,
+            )
 
-        if transition == "episode_to_belief":
+        if transition in (
+            "episode_to_belief",
+            "episode_to_goal",
+            "episode_to_relationship",
+            "episode_to_drive",
+        ):
             episodes = self._stack.get_episodes(limit=config.quantity_threshold + 1)
             unprocessed = [e for e in episodes if not e.processed]
-            return evaluate_triggers(transition, config, len(unprocessed))
-
-        if transition == "episode_to_goal":
-            episodes = self._stack.get_episodes(limit=config.quantity_threshold + 1)
-            unprocessed = [e for e in episodes if not e.processed]
-            return evaluate_triggers(transition, config, len(unprocessed))
-
-        if transition == "episode_to_relationship":
-            episodes = self._stack.get_episodes(limit=config.quantity_threshold + 1)
-            unprocessed = [e for e in episodes if not e.processed]
-            return evaluate_triggers(transition, config, len(unprocessed))
+            cumulative_valence = _cumulative_arousal(unprocessed)
+            hours_since_last = _hours_since_oldest_episode(unprocessed, now)
+            return evaluate_triggers(
+                transition,
+                config,
+                len(unprocessed),
+                cumulative_valence=cumulative_valence,
+                hours_since_last=hours_since_last,
+            )
 
         if transition == "belief_to_value":
             beliefs = self._stack.get_beliefs(limit=config.quantity_threshold + 1)
             unprocessed = [b for b in beliefs if not getattr(b, "processed", False)]
-            return evaluate_triggers(transition, config, len(unprocessed))
-
-        if transition == "episode_to_drive":
-            episodes = self._stack.get_episodes(limit=config.quantity_threshold + 1)
-            unprocessed = [e for e in episodes if not e.processed]
-            return evaluate_triggers(transition, config, len(unprocessed))
+            hours_since_last = _hours_since_oldest_belief(unprocessed, now)
+            return evaluate_triggers(
+                transition,
+                config,
+                len(unprocessed),
+                hours_since_last=hours_since_last,
+            )
 
         return False
 
