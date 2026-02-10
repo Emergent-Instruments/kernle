@@ -945,4 +945,28 @@ TOOLS = [
             "properties": {},
         },
     ),
+    Tool(
+        name="memory_process_exhaust",
+        description="Run memory processing until convergence. Cycles through transitions with escalating intensity: light (raw->episode/note), medium (+ beliefs/goals/relationships/drives), heavy (+ values). Stops after 2 consecutive cycles with 0 promotions or max_cycles reached.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "max_cycles": {
+                    "type": "integer",
+                    "description": "Maximum processing cycles (default: 20)",
+                    "default": 20,
+                },
+                "auto_promote": {
+                    "type": "boolean",
+                    "description": "Directly promote memories instead of creating suggestions (default: true)",
+                    "default": True,
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "Preview without making changes (default: false)",
+                    "default": False,
+                },
+            },
+        },
+    ),
 ]

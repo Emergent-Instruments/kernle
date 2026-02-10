@@ -165,5 +165,49 @@ def cmd_process(args, k: "Kernle"):
         except Exception as e:
             print(f"Error gathering status: {e}")
 
+    elif args.process_action == "exhaust":
+        from kernle.exhaust import ExhaustionRunner
+
+        max_cycles = getattr(args, "max_cycles", 20)
+        auto_promote = not getattr(args, "no_auto_promote", False)
+        dry_run = getattr(args, "dry_run", False)
+
+        runner = ExhaustionRunner(k, max_cycles=max_cycles, auto_promote=auto_promote)
+        result = runner.run(dry_run=dry_run)
+
+        if getattr(args, "json", False):
+            output = {
+                "cycles_completed": result.cycles_completed,
+                "total_promotions": result.total_promotions,
+                "converged": result.converged,
+                "convergence_reason": result.convergence_reason,
+                "snapshot": result.snapshot,
+                "cycles": [
+                    {
+                        "cycle": cr.cycle_number,
+                        "intensity": cr.intensity,
+                        "transitions": cr.transitions_run,
+                        "promotions": cr.promotions,
+                        "errors": cr.errors,
+                    }
+                    for cr in result.cycle_results
+                ],
+            }
+            print(json.dumps(output, indent=2, default=str))
+        else:
+            mode = "dry-run" if dry_run else ("auto-promote" if auto_promote else "suggestions")
+            print(f"Exhaustion run complete ({mode}):")
+            print(f"  Cycles: {result.cycles_completed}")
+            print(f"  Total promotions: {result.total_promotions}")
+            print(f"  Converged: {result.converged} ({result.convergence_reason})")
+            if result.snapshot:
+                print("  Snapshot: saved")
+            print()
+            for cr in result.cycle_results:
+                status = f"{cr.promotions} promotions"
+                if cr.errors:
+                    status += f", {len(cr.errors)} errors"
+                print(f"  Cycle {cr.cycle_number} ({cr.intensity}): {status}")
+
     else:
-        print("Usage: kernle process {run|status}")
+        print("Usage: kernle process {run|status|exhaust}")

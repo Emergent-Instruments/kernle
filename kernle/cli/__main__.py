@@ -1092,6 +1092,26 @@ def main():
     )
     process_status.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 
+    process_exhaust = process_sub.add_parser("exhaust", help="Run processing until convergence")
+    process_exhaust.add_argument(
+        "--max-cycles",
+        type=int,
+        default=20,
+        help="Maximum processing cycles (default: 20)",
+    )
+    process_exhaust.add_argument(
+        "--no-auto-promote",
+        action="store_true",
+        help="Create suggestions instead of directly promoting",
+    )
+    process_exhaust.add_argument(
+        "--dry-run",
+        "-n",
+        action="store_true",
+        help="Preview what would run without making changes",
+    )
+    process_exhaust.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
     # raw (raw memory entries)
     p_raw = subparsers.add_parser("raw", help="Raw memory capture and management")
     # Arguments for default action (kernle raw "content" without subcommand)
