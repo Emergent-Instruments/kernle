@@ -1756,12 +1756,22 @@ class CoreProtocol(Protocol):
         transition: Optional[str] = None,
         *,
         force: bool = False,
+        allow_no_inference_override: bool = False,
         auto_promote: bool = False,
     ) -> list:
         """Run memory processing sessions.
 
         By default, creates suggestions for review rather than directly
         promoting memories. Set auto_promote=True to directly write memories.
+
+        Args:
+            transition: Specific layer transition to process (None = check all).
+            force: Process even if triggers aren't met.
+            allow_no_inference_override: Allow identity-layer writes without
+                inference (except values). Only effective with force=True.
+            auto_promote: If True, directly write memories. If False (default),
+                create suggestions for review.
+
         Returns list of ProcessingResult for each transition that ran.
         """
         ...

@@ -482,6 +482,146 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
                 }
             )
 
+    # Scan values
+    values = k._storage.get_values(limit=1000)
+    for val in values:
+        source_type = getattr(val, "source_type", None)
+        derived_from = getattr(val, "derived_from", None)
+
+        needs_update = False
+        new_source_type = source_type
+        new_derived_from = derived_from or []
+
+        if source_type == "processed":
+            new_source_type = "processing"
+            needs_update = True
+        elif not source_type or source_type in ("unknown", ""):
+            new_source_type = "direct_experience"
+            needs_update = True
+
+        if not derived_from or derived_from == []:
+            if not any(d.startswith("kernle:pre-v0.9") for d in (new_derived_from or [])):
+                new_derived_from = list(new_derived_from or []) + ["kernle:pre-v0.9-migration"]
+                needs_update = True
+
+        if needs_update:
+            updates.append(
+                {
+                    "type": "value",
+                    "id": val.id,
+                    "summary": (getattr(val, "name", "") or "")[:60],
+                    "old_source_type": source_type,
+                    "new_source_type": new_source_type,
+                    "old_derived_from": derived_from,
+                    "new_derived_from": new_derived_from if new_derived_from else None,
+                }
+            )
+
+    # Scan goals
+    goals = k._storage.get_goals(limit=1000)
+    for goal in goals:
+        source_type = getattr(goal, "source_type", None)
+        derived_from = getattr(goal, "derived_from", None)
+
+        needs_update = False
+        new_source_type = source_type
+        new_derived_from = derived_from or []
+
+        if source_type == "processed":
+            new_source_type = "processing"
+            needs_update = True
+        elif not source_type or source_type in ("unknown", ""):
+            new_source_type = "direct_experience"
+            needs_update = True
+
+        if not derived_from or derived_from == []:
+            if not any(d.startswith("kernle:pre-v0.9") for d in (new_derived_from or [])):
+                new_derived_from = list(new_derived_from or []) + ["kernle:pre-v0.9-migration"]
+                needs_update = True
+
+        if needs_update:
+            updates.append(
+                {
+                    "type": "goal",
+                    "id": goal.id,
+                    "summary": (getattr(goal, "title", "") or "")[:60],
+                    "old_source_type": source_type,
+                    "new_source_type": new_source_type,
+                    "old_derived_from": derived_from,
+                    "new_derived_from": new_derived_from if new_derived_from else None,
+                }
+            )
+
+    # Scan drives (no limit parameter)
+    drives = k._storage.get_drives()
+    for drive in drives:
+        source_type = getattr(drive, "source_type", None)
+        derived_from = getattr(drive, "derived_from", None)
+
+        needs_update = False
+        new_source_type = source_type
+        new_derived_from = derived_from or []
+
+        if source_type == "processed":
+            new_source_type = "processing"
+            needs_update = True
+        elif not source_type or source_type in ("unknown", ""):
+            new_source_type = "direct_experience"
+            needs_update = True
+
+        if not derived_from or derived_from == []:
+            if not any(d.startswith("kernle:pre-v0.9") for d in (new_derived_from or [])):
+                new_derived_from = list(new_derived_from or []) + ["kernle:pre-v0.9-migration"]
+                needs_update = True
+
+        if needs_update:
+            updates.append(
+                {
+                    "type": "drive",
+                    "id": drive.id,
+                    "summary": (getattr(drive, "drive_type", "") or "")[:60],
+                    "old_source_type": source_type,
+                    "new_source_type": new_source_type,
+                    "old_derived_from": derived_from,
+                    "new_derived_from": new_derived_from if new_derived_from else None,
+                }
+            )
+
+    # Scan relationships (no limit parameter)
+    relationships = k._storage.get_relationships()
+    for rel in relationships:
+        source_type = getattr(rel, "source_type", None)
+        derived_from = getattr(rel, "derived_from", None)
+
+        needs_update = False
+        new_source_type = source_type
+        new_derived_from = derived_from or []
+
+        if source_type == "processed":
+            new_source_type = "processing"
+            needs_update = True
+        elif not source_type or source_type in ("unknown", ""):
+            new_source_type = "direct_experience"
+            needs_update = True
+
+        if not derived_from or derived_from == []:
+            if not any(d.startswith("kernle:pre-v0.9") for d in (new_derived_from or [])):
+                new_derived_from = list(new_derived_from or []) + ["kernle:pre-v0.9-migration"]
+                needs_update = True
+
+        if needs_update:
+            updates.append(
+                {
+                    "type": "relationship",
+                    "id": rel.id,
+                    "summary": (getattr(rel, "entity_name", "") or "")[:60],
+                    "old_source_type": source_type,
+                    "new_source_type": new_source_type,
+                    "old_derived_from": derived_from,
+                    "new_derived_from": new_derived_from if new_derived_from else None,
+                }
+            )
+
     # Output results
     if json_output:
         print(

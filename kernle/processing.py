@@ -969,6 +969,11 @@ class MemoryProcessor:
         self._last_deduplicated = 0
         now = datetime.now(timezone.utc)
 
+        # Track hashes of items created in this batch to prevent
+        # same-batch duplicates (dedup_index only covers pre-existing memories).
+        batch_provenance: Dict[str, str] = {}
+        batch_content: Dict[str, str] = {}
+
         for item in parsed:
             try:
                 # Check for duplicates if dedup index is available
@@ -977,6 +982,36 @@ class MemoryProcessor:
                     if existing_id is not None:
                         self._last_deduplicated += 1
                         continue
+
+                # Check against items already created in THIS batch
+                derived_from_refs = _extract_derived_from(transition, item)
+                content_text = _extract_content_text(transition, item)
+                skip_batch_dup = False
+
+                if derived_from_refs:
+                    phash = compute_provenance_hash(derived_from_refs)
+                    if phash and phash in batch_provenance:
+                        logger.info(
+                            "Dedup: skipping %s item — batch provenance match with %s",
+                            transition,
+                            batch_provenance[phash],
+                        )
+                        self._last_deduplicated += 1
+                        skip_batch_dup = True
+
+                if not skip_batch_dup and content_text:
+                    chash = compute_content_hash(content_text)
+                    if chash and chash in batch_content:
+                        logger.info(
+                            "Dedup: skipping %s item — batch content match with %s",
+                            transition,
+                            batch_content[chash],
+                        )
+                        self._last_deduplicated += 1
+                        skip_batch_dup = True
+
+                if skip_batch_dup:
+                    continue
 
                 if transition == "raw_to_episode":
                     raw_ids = item.get("source_raw_ids", [])
@@ -1094,6 +1129,18 @@ class MemoryProcessor:
                     )
                     did = self._stack.save_drive(drive)
                     created.append({"type": "drive", "id": did})
+
+                # Update batch index with the item we just wrote
+                if created:
+                    new_id = created[-1]["id"]
+                    if derived_from_refs:
+                        phash = compute_provenance_hash(derived_from_refs)
+                        if phash:
+                            batch_provenance[phash] = new_id
+                    if content_text:
+                        chash = compute_content_hash(content_text)
+                        if chash:
+                            batch_content[chash] = new_id
 
             except Exception as e:
                 logger.error("Failed to write %s memory: %s", transition, e)

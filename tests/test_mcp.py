@@ -1643,6 +1643,7 @@ class TestMCPProvenanceParams:
             "direct_experience",
             "inference",
             "consolidation",
+            "processing",
             "external",
             "seed",
             "observation",

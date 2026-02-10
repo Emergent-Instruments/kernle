@@ -1394,3 +1394,154 @@ class TestUpdatedContentPolicy:
         created = processor._write_memories("raw_to_episode", items, [], dedup_index)
         assert len(created) == 1  # Only the genuinely new one
         assert processor._last_deduplicated == 2  # Both duplicates caught
+
+
+# =============================================================================
+# Same-batch dedup (P1 fix: duplicates within a single processing batch)
+# =============================================================================
+
+
+class TestSameBatchDedup:
+    """Verify that identical items within the same batch are deduplicated."""
+
+    def test_identical_provenance_within_batch(self):
+        """Two items with identical provenance in the same batch — only first is written."""
+        mock_stack = _make_mock_stack()
+        mock_stack.save_episode.return_value = "ep-new"
+        processor, _ = _make_processor(mock_stack)
+
+        dedup_index = {"provenance": {}, "content": {}}
+        parsed = [
+            {"objective": "Sky is blue", "outcome": "confirmed", "source_raw_ids": ["r1", "r2"]},
+            {"objective": "Sky is blue", "outcome": "confirmed", "source_raw_ids": ["r1", "r2"]},
+        ]
+        created = processor._write_memories("raw_to_episode", parsed, [], dedup_index)
+        assert len(created) == 1
+        assert processor._last_deduplicated == 1
+        mock_stack.save_episode.assert_called_once()
+
+    def test_identical_content_within_batch(self):
+        """Two items with identical content but no provenance — only first is written."""
+        mock_stack = _make_mock_stack()
+        mock_stack.save_belief.return_value = "b-new"
+        processor, _ = _make_processor(mock_stack)
+
+        dedup_index = {"provenance": {}, "content": {}}
+        parsed = [
+            {"statement": "Testing is vital", "source_episode_ids": []},
+            {"statement": "testing is vital", "source_episode_ids": []},
+        ]
+        created = processor._write_memories("episode_to_belief", parsed, [], dedup_index)
+        assert len(created) == 1
+        assert processor._last_deduplicated == 1
+        mock_stack.save_belief.assert_called_once()
+
+    def test_three_identical_items_within_batch(self):
+        """Three identical items — only the first survives."""
+        mock_stack = _make_mock_stack()
+        mock_stack.save_note.return_value = "n-new"
+        processor, _ = _make_processor(mock_stack)
+
+        dedup_index = {"provenance": {}, "content": {}}
+        parsed = [
+            {"content": "same note", "source_raw_ids": ["r1"]},
+            {"content": "same note", "source_raw_ids": ["r1"]},
+            {"content": "Same Note", "source_raw_ids": ["r1"]},
+        ]
+        created = processor._write_memories("raw_to_note", parsed, [], dedup_index)
+        assert len(created) == 1
+        assert processor._last_deduplicated == 2
+
+    def test_batch_dedup_with_different_items(self):
+        """Different items in the same batch should all be written."""
+        mock_stack = _make_mock_stack()
+        mock_stack.save_episode.side_effect = ["ep-1", "ep-2", "ep-3"]
+        processor, _ = _make_processor(mock_stack)
+
+        dedup_index = {"provenance": {}, "content": {}}
+        parsed = [
+            {"objective": "first", "outcome": "a", "source_raw_ids": ["r1"]},
+            {"objective": "second", "outcome": "b", "source_raw_ids": ["r2"]},
+            {"objective": "third", "outcome": "c", "source_raw_ids": ["r3"]},
+        ]
+        created = processor._write_memories("raw_to_episode", parsed, [], dedup_index)
+        assert len(created) == 3
+        assert processor._last_deduplicated == 0
+
+    def test_batch_dedup_combined_with_existing_index(self):
+        """Batch dedup works alongside existing-memory dedup."""
+        mock_stack = _make_mock_stack()
+        mock_stack.save_episode.return_value = "ep-new"
+        processor, _ = _make_processor(mock_stack)
+
+        # Existing memory catches one item
+        existing = MagicMock()
+        existing.id = "existing-ep"
+        phash = compute_provenance_hash(["raw:r1"])
+        dedup_index = {"provenance": {phash: existing}, "content": {}}
+
+        parsed = [
+            # Caught by existing index
+            {"objective": "exists", "outcome": "skip", "source_raw_ids": ["r1"]},
+            # New item
+            {"objective": "new", "outcome": "keep", "source_raw_ids": ["r2"]},
+            # Caught by batch dedup (same as previous new item)
+            {"objective": "new", "outcome": "keep", "source_raw_ids": ["r2"]},
+        ]
+        created = processor._write_memories("raw_to_episode", parsed, [], dedup_index)
+        assert len(created) == 1
+        assert processor._last_deduplicated == 2  # 1 existing + 1 batch
+
+    def test_batch_dedup_all_transitions(self):
+        """Same-batch dedup works for all transition types."""
+        for transition, item, save_method, save_return, memory_type in ALL_TRANSITIONS_DATA:
+            mock_stack = _make_mock_stack()
+            getattr(mock_stack, save_method).return_value = save_return
+            processor, _ = _make_processor(mock_stack)
+
+            dedup_index = {"provenance": {}, "content": {}}
+            created = processor._write_memories(transition, [item, item], [], dedup_index)
+            assert len(created) == 1, f"Failed for {transition}: expected 1, got {len(created)}"
+            assert processor._last_deduplicated == 1, f"Failed for {transition}"
+
+    def test_batch_dedup_full_integration(self, stack):
+        """Full pipeline: inference returns duplicates in same batch."""
+        # Save raw entries
+        raw_ids = []
+        for i in range(3):
+            rid = stack.save_raw(
+                RawEntry(
+                    id=str(uuid.uuid4()),
+                    stack_id=STACK_ID,
+                    blob=f"Raw content {i}",
+                    source="test",
+                )
+            )
+            raw_ids.append(rid)
+
+        # Inference returns duplicate episodes in the same response
+        response = json.dumps(
+            [
+                {
+                    "objective": "Learned something",
+                    "outcome": "Good result",
+                    "source_raw_ids": raw_ids,
+                },
+                {
+                    "objective": "Learned something",
+                    "outcome": "Good result",
+                    "source_raw_ids": raw_ids,
+                },
+            ]
+        )
+        inference = MockInference(response)
+        processor = MemoryProcessor(stack=stack, inference=inference, core_id="test")
+        results = processor.process("raw_to_episode", force=True, auto_promote=True)
+
+        assert len(results) == 1
+        assert len(results[0].created) == 1
+        assert results[0].deduplicated == 1
+
+        # Only 1 episode total
+        episodes = stack.get_episodes()
+        assert len(episodes) == 1
