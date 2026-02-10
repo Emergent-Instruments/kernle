@@ -882,7 +882,7 @@ class TestBackwardCompatibility:
         episodes = stack.get_episodes()
         assert len(episodes) == 1
         assert episodes[0].objective == "Learned something"
-        assert episodes[0].source_type == "processed"
+        assert episodes[0].source_type == "processing"
 
     def test_auto_promote_marks_sources_processed(self, stack):
         """auto_promote=True still marks sources as processed."""
