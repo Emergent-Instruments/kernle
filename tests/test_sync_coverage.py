@@ -418,7 +418,7 @@ class TestPushOrphanHandling:
                     cmd_sync(_args(sync_action="push"), k)
 
         output = capsys.readouterr().out
-        assert "orphaned" in output.lower() or "skipped" in output.lower()
+        assert "Skipped 1 orphaned entries" in output
 
     def test_push_bad_payload_no_source_record(self, k, capsys, tmp_path):
         """Push handles bad payload where source record is also missing (orphan path)."""
@@ -445,7 +445,7 @@ class TestPushOrphanHandling:
 
         output = capsys.readouterr().out
         # Bad payload + no source record = orphaned, should be skipped
-        assert "orphaned" in output.lower() or "skipped" in output.lower()
+        assert "Skipped 1 orphaned entries" in output
 
     def test_push_with_stored_payload(self, k, capsys, tmp_path):
         """Push uses stored payload when available, even if source is deleted."""
@@ -478,6 +478,60 @@ class TestPushOrphanHandling:
         ops = sent_json["operations"]
         assert len(ops) == 1
         assert ops[0]["data"]["content"] == "from payload"
+
+
+# ============================================================================
+# Mixed operation types in a single push
+# ============================================================================
+
+
+class TestPushMixedOperationTypes:
+    """Test push with multiple record types in one batch."""
+
+    def test_push_mixed_record_types(self, k, capsys, tmp_path):
+        """Push sends episodes, notes, and beliefs together in one payload."""
+        from kernle.storage import Belief, Note
+
+        # Create records of different types so they land in the sync queue
+        k.episode(objective="Test mixed push", outcome="success", lessons=["learned"])
+        k._storage.save_note(Note(id="n-mixed", stack_id="test-sync-cov", content="Mixed note"))
+        k._storage.save_belief(
+            Belief(
+                id="b-mixed",
+                stack_id="test-sync-cov",
+                statement="Mixed belief",
+                confidence=0.8,
+            )
+        )
+
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok"}
+        creds_path = _setup_creds(tmp_path, creds=creds, dirname="push_mixed")
+
+        push_resp = _make_response(200, json_data={"synced": 3, "conflicts": []})
+        mock_httpx = MagicMock()
+        mock_httpx.post.return_value = push_resp
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="push"), k)
+
+        output = capsys.readouterr().out
+        assert "Pushed 3 changes" in output
+
+        # Verify the payload contains all 3 record types
+        call_args = mock_httpx.post.call_args
+        sent_json = call_args[1]["json"]
+        ops = sent_json["operations"]
+        tables_pushed = {op["table"] for op in ops}
+        assert "episodes" in tables_pushed
+        assert "notes" in tables_pushed
+        assert "beliefs" in tables_pushed
+
+        # Verify each operation has data
+        for op in ops:
+            assert "data" in op, f"Operation for {op['table']} missing data"
+            assert op["operation"] == "update"
 
 
 # ============================================================================
@@ -735,7 +789,7 @@ class TestFullSyncPushPaths:
                     cmd_sync(_args(sync_action="full"), k)
 
         output = capsys.readouterr().out
-        assert "still pending" in output
+        assert "2 operations still pending" in output
 
     def test_full_sync_orphaned_entries(self, k, capsys, tmp_path):
         """Full sync skips orphaned entries in push phase."""
@@ -757,7 +811,7 @@ class TestFullSyncPushPaths:
                     cmd_sync(_args(sync_action="full"), k)
 
         output = capsys.readouterr().out
-        assert "orphaned" in output.lower() or "skipped" in output.lower()
+        assert "Skipped 1 orphaned entries" in output
 
     def test_full_sync_push_with_payload(self, k, capsys, tmp_path):
         """Full sync push uses stored payload when available."""
