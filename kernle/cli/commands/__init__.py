@@ -54,6 +54,7 @@ from kernle.cli.commands.playbook import cmd_playbook
 from kernle.cli.commands.process import cmd_process
 from kernle.cli.commands.raw import cmd_raw, resolve_raw_id
 from kernle.cli.commands.relations import cmd_entity_model, cmd_relation
+from kernle.cli.commands.seed import cmd_seed
 from kernle.cli.commands.stats import cmd_stats
 from kernle.cli.commands.suggestions import cmd_suggestions, resolve_suggestion_id
 from kernle.cli.commands.summary import cmd_summary
@@ -95,6 +96,7 @@ __all__ = [
     "cmd_playbook",
     "cmd_process",
     "cmd_raw",
+    "cmd_seed",
     "cmd_relation",
     "cmd_resume",
     "cmd_search",

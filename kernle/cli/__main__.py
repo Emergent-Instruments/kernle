@@ -58,6 +58,7 @@ from kernle.cli.commands import (
     cmd_relation,
     cmd_resume,
     cmd_search,
+    cmd_seed,
     cmd_stats,
     cmd_status,
     cmd_suggestions,
@@ -1112,6 +1113,48 @@ def main():
         help="Preview what would run without making changes",
     )
     process_exhaust.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    # seed (corpus ingestion)
+    p_seed = subparsers.add_parser("seed", help="Seed memory from corpus (repo/docs)")
+    seed_sub = p_seed.add_subparsers(dest="seed_action", required=True)
+
+    seed_repo = seed_sub.add_parser("repo", help="Ingest source code from a repository")
+    seed_repo.add_argument("path", help="Path to repository root")
+    seed_repo.add_argument(
+        "--extensions", "-e", help="Comma-separated file extensions (e.g., py,js,ts)"
+    )
+    seed_repo.add_argument(
+        "--exclude", "-x", help="Comma-separated exclude patterns (e.g., '*.test.*,vendor/*')"
+    )
+    seed_repo.add_argument(
+        "--max-chunk-size",
+        type=int,
+        default=2000,
+        help="Maximum chunk size in chars (default: 2000)",
+    )
+    seed_repo.add_argument(
+        "--dry-run", "-n", action="store_true", help="Preview without creating entries"
+    )
+    seed_repo.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    seed_docs = seed_sub.add_parser("docs", help="Ingest documentation files")
+    seed_docs.add_argument("path", help="Path to docs directory")
+    seed_docs.add_argument(
+        "--extensions", "-e", help="Comma-separated file extensions (default: md,txt,rst)"
+    )
+    seed_docs.add_argument(
+        "--max-chunk-size",
+        type=int,
+        default=2000,
+        help="Maximum chunk size in chars (default: 2000)",
+    )
+    seed_docs.add_argument(
+        "--dry-run", "-n", action="store_true", help="Preview without creating entries"
+    )
+    seed_docs.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    seed_status = seed_sub.add_parser("status", help="Show corpus ingestion status")
+    seed_status.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 
     # raw (raw memory entries)
     p_raw = subparsers.add_parser("raw", help="Raw memory capture and management")
@@ -2183,6 +2226,8 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_playbook(args, k)
         elif args.command == "process":
             cmd_process(args, k)
+        elif args.command == "seed":
+            cmd_seed(args, k)
         elif args.command == "raw":
             cmd_raw(args, k)
         elif args.command == "suggestions":
