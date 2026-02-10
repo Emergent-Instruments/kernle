@@ -23,6 +23,7 @@ from kernle import Kernle
 # Import extracted command modules
 from kernle.cli.commands import (
     cmd_anxiety,
+    cmd_audit,
     cmd_auth,
     cmd_belief,
     cmd_boot,
@@ -1523,6 +1524,19 @@ Typical usage:
         help="What triggered this check (default: manual)",
     )
 
+    # audit (cognitive quality testing)
+    p_audit = subparsers.add_parser("audit", help="Audit memory quality")
+    audit_sub = p_audit.add_subparsers(dest="audit_action", required=True)
+
+    audit_cognitive = audit_sub.add_parser("cognitive", help="Run cognitive quality assertions")
+    audit_cognitive.add_argument(
+        "--category",
+        "-c",
+        choices=["structural", "coherence", "quality", "pipeline"],
+        help="Run only assertions in this category (default: all)",
+    )
+    audit_cognitive.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
     # stats (compliance and analytics)
     p_stats = subparsers.add_parser("stats", help="Compliance and analytics stats")
     stats_sub = p_stats.add_subparsers(dest="stats_action", required=True)
@@ -2133,6 +2147,8 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_meta(args, k)
         elif args.command == "anxiety":
             cmd_anxiety(args, k)
+        elif args.command == "audit":
+            cmd_audit(args, k)
         elif args.command == "stats":
             cmd_stats(args, k)
         elif args.command == "forget":
