@@ -12,7 +12,7 @@ import json
 import logging
 import sqlite3
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -3424,8 +3424,20 @@ class SQLiteStorage:
         status: Optional[str] = None,
         memory_type: Optional[str] = None,
         limit: int = 100,
+        min_confidence: Optional[float] = None,
+        max_age_hours: Optional[float] = None,
+        source_raw_id: Optional[str] = None,
     ) -> List[MemorySuggestion]:
-        """Get suggestions, optionally filtered."""
+        """Get suggestions, optionally filtered.
+
+        Args:
+            status: Filter by status (pending, promoted, modified, rejected, dismissed, expired)
+            memory_type: Filter by type (episode, belief, note)
+            limit: Maximum suggestions to return
+            min_confidence: Minimum confidence threshold
+            max_age_hours: Only return suggestions created within this many hours
+            source_raw_id: Filter to suggestions derived from this raw entry ID
+        """
         query = "SELECT * FROM memory_suggestions WHERE stack_id = ? AND deleted = 0"
         params: List[Any] = [self.stack_id]
 
@@ -3437,6 +3449,20 @@ class SQLiteStorage:
             query += " AND memory_type = ?"
             params.append(memory_type)
 
+        if min_confidence is not None:
+            query += " AND confidence >= ?"
+            params.append(min_confidence)
+
+        if max_age_hours is not None:
+            cutoff = (datetime.now(timezone.utc) - timedelta(hours=max_age_hours)).isoformat()
+            query += " AND created_at >= ?"
+            params.append(cutoff)
+
+        if source_raw_id is not None:
+            # source_raw_ids is stored as JSON array; use LIKE for containment
+            query += " AND source_raw_ids LIKE ?"
+            params.append(f'%"{source_raw_id}"%')
+
         query += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit)
 
@@ -3444,6 +3470,50 @@ class SQLiteStorage:
             rows = conn.execute(query, params).fetchall()
 
         return [self._row_to_suggestion(row) for row in rows]
+
+    def expire_suggestions(
+        self,
+        max_age_hours: float = 168.0,
+    ) -> List[str]:
+        """Auto-dismiss pending suggestions older than max_age_hours.
+
+        Args:
+            max_age_hours: Age threshold in hours (default: 168 = 7 days)
+
+        Returns:
+            List of expired suggestion IDs
+        """
+        now = self._now()
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=max_age_hours)).isoformat()
+
+        with self._connect() as conn:
+            # Find pending suggestions older than cutoff
+            rows = conn.execute(
+                """SELECT id FROM memory_suggestions
+                   WHERE stack_id = ? AND deleted = 0
+                   AND status = 'pending' AND created_at < ?""",
+                (self.stack_id, cutoff),
+            ).fetchall()
+
+            expired_ids = [row["id"] for row in rows]
+
+            if expired_ids:
+                placeholders = ",".join("?" for _ in expired_ids)
+                conn.execute(
+                    f"""UPDATE memory_suggestions SET
+                        status = 'expired',
+                        resolved_at = ?,
+                        resolution_reason = 'auto-expired after {max_age_hours:.0f}h',
+                        local_updated_at = ?,
+                        version = version + 1
+                    WHERE id IN ({placeholders}) AND stack_id = ? AND deleted = 0""",
+                    (now, now, *expired_ids, self.stack_id),
+                )
+                for sid in expired_ids:
+                    self._queue_sync(conn, "memory_suggestions", sid, "upsert")
+                conn.commit()
+
+        return expired_ids
 
     def update_suggestion_status(
         self,

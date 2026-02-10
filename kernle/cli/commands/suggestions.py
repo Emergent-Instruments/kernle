@@ -45,14 +45,24 @@ def cmd_suggestions(args, k: "Kernle"):
             status = "promoted"
         elif hasattr(args, "rejected") and args.rejected:
             status = "rejected"
+        elif hasattr(args, "dismissed") and args.dismissed:
+            status = "dismissed"
+        elif hasattr(args, "expired") and args.expired:
+            status = "expired"
 
         # Filter by type
         memory_type = getattr(args, "type", None)
+        min_confidence = getattr(args, "min_confidence", None)
+        max_age_hours = getattr(args, "max_age_hours", None)
+        source_raw_id = getattr(args, "source", None)
 
         suggestions = k.get_suggestions(
             status=status,
             memory_type=memory_type,
             limit=getattr(args, "limit", 50),
+            min_confidence=min_confidence,
+            max_age_hours=max_age_hours,
+            source_raw_id=source_raw_id,
         )
 
         if not suggestions:
@@ -69,15 +79,22 @@ def cmd_suggestions(args, k: "Kernle"):
             pending = [s for s in suggestions if s["status"] == "pending"]
             promoted = [s for s in suggestions if s["status"] in ("promoted", "modified")]
             rejected = [s for s in suggestions if s["status"] == "rejected"]
+            dismissed = [s for s in suggestions if s["status"] == "dismissed"]
+            expired = [s for s in suggestions if s["status"] == "expired"]
 
             if status:
                 # Show only requested status
                 display_suggestions = suggestions
                 print(f"Suggestions ({len(display_suggestions)} {status})")
             else:
-                print(
-                    f"Suggestions ({len(suggestions)} total: {len(pending)} pending, {len(promoted)} approved, {len(rejected)} rejected)"
-                )
+                parts = [f"{len(pending)} pending", f"{len(promoted)} approved"]
+                if rejected:
+                    parts.append(f"{len(rejected)} rejected")
+                if dismissed:
+                    parts.append(f"{len(dismissed)} dismissed")
+                if expired:
+                    parts.append(f"{len(expired)} expired")
+                print(f"Suggestions ({len(suggestions)} total: {', '.join(parts)})")
                 display_suggestions = suggestions
 
             print("=" * 60)
@@ -88,6 +105,8 @@ def cmd_suggestions(args, k: "Kernle"):
                     "promoted": "+",
                     "modified": "*",
                     "rejected": "x",
+                    "dismissed": "-",
+                    "expired": "~",
                 }
                 icon = status_icons.get(s["status"], "?")
                 type_label = s["memory_type"].upper()[:3]
@@ -181,8 +200,10 @@ def cmd_suggestions(args, k: "Kernle"):
             if suggestion["status"] == "pending":
                 print()
                 print("Actions:")
-                print(f"  Approve: kernle suggestions approve {suggestion['id'][:8]}")
-                print(f"  Reject:  kernle suggestions reject {suggestion['id'][:8]} --reason '...'")
+                print(f"  Accept:  kernle suggestions accept {suggestion['id'][:8]}")
+                print(
+                    f"  Dismiss: kernle suggestions dismiss {suggestion['id'][:8]} --reason '...'"
+                )
 
             if suggestion.get("promoted_to"):
                 print(f"\nPromoted to: {suggestion['promoted_to']}")
@@ -252,6 +273,78 @@ def cmd_suggestions(args, k: "Kernle"):
                 print(f"Reason: {reason}")
         else:
             print("Failed to reject suggestion.")
+
+    elif args.suggestions_action in ("accept",):
+        try:
+            full_id = resolve_suggestion_id(k, args.id)
+        except ValueError as e:
+            print(f"Error: {e}")
+            return
+
+        suggestion = k.get_suggestion(full_id)
+        if not suggestion:
+            print(f"Suggestion {args.id} not found.")
+            return
+
+        if suggestion["status"] != "pending":
+            print(f"Suggestion is already {suggestion['status']}.")
+            return
+
+        modifications = None
+        if hasattr(args, "objective") and args.objective:
+            modifications = modifications or {}
+            modifications["objective"] = args.objective
+        if hasattr(args, "outcome") and args.outcome:
+            modifications = modifications or {}
+            modifications["outcome"] = args.outcome
+        if hasattr(args, "statement") and args.statement:
+            modifications = modifications or {}
+            modifications["statement"] = args.statement
+        if hasattr(args, "content") and args.content:
+            modifications = modifications or {}
+            modifications["content"] = args.content
+
+        memory_id = k.accept_suggestion(full_id, modifications)
+        if memory_id:
+            status = "modified" if modifications else "accepted"
+            print(f"Suggestion accepted ({status}).")
+            print(f"Created {suggestion['memory_type']}: {memory_id[:8]}...")
+        else:
+            print("Failed to accept suggestion.")
+
+    elif args.suggestions_action == "dismiss":
+        try:
+            full_id = resolve_suggestion_id(k, args.id)
+        except ValueError as e:
+            print(f"Error: {e}")
+            return
+
+        suggestion = k.get_suggestion(full_id)
+        if not suggestion:
+            print(f"Suggestion {args.id} not found.")
+            return
+
+        if suggestion["status"] != "pending":
+            print(f"Suggestion is already {suggestion['status']}.")
+            return
+
+        reason = getattr(args, "reason", None)
+        if k.dismiss_suggestion(full_id, reason):
+            print("Suggestion dismissed.")
+            if reason:
+                print(f"Reason: {reason}")
+        else:
+            print("Failed to dismiss suggestion.")
+
+    elif args.suggestions_action == "expire":
+        max_age_hours = getattr(args, "max_age_hours", 168.0)
+        expired_ids = k.expire_suggestions(max_age_hours=max_age_hours)
+        if expired_ids:
+            print(
+                f"Expired {len(expired_ids)} stale suggestion(s) (older than {max_age_hours:.0f}h)."
+            )
+        else:
+            print(f"No pending suggestions older than {max_age_hours:.0f}h found.")
 
     elif args.suggestions_action == "extract":
         # Extract suggestions from unprocessed raw entries

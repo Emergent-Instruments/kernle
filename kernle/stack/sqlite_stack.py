@@ -723,6 +723,170 @@ class SQLiteStack(
         self._dispatch_on_save("suggestion", result_id, suggestion)
         return result_id
 
+    def get_suggestion(self, suggestion_id: str) -> Optional[MemorySuggestion]:
+        return self._backend.get_suggestion(suggestion_id)
+
+    def get_suggestions(
+        self,
+        status: Optional[str] = None,
+        memory_type: Optional[str] = None,
+        limit: int = 100,
+        min_confidence: Optional[float] = None,
+        max_age_hours: Optional[float] = None,
+        source_raw_id: Optional[str] = None,
+    ) -> List[MemorySuggestion]:
+        return self._backend.get_suggestions(
+            status=status,
+            memory_type=memory_type,
+            limit=limit,
+            min_confidence=min_confidence,
+            max_age_hours=max_age_hours,
+            source_raw_id=source_raw_id,
+        )
+
+    def accept_suggestion(
+        self,
+        suggestion_id: str,
+        modifications: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """Accept a pending suggestion and promote it to a structured memory.
+
+        Creates the target memory (episode/belief/note) with full provenance,
+        sets promoted_to on the suggestion, and logs an audit event.
+
+        Returns the ID of the created memory, or None if the suggestion
+        was not found or not pending.
+        """
+        suggestion = self._backend.get_suggestion(suggestion_id)
+        if not suggestion or suggestion.status != "pending":
+            return None
+
+        content = suggestion.content.copy()
+        if modifications:
+            content.update(modifications)
+
+        memory_id = None
+        memory_type = suggestion.memory_type
+
+        # Build provenance: derived_from the source raw entries
+        derived_from = suggestion.source_raw_ids or []
+
+        if memory_type == "episode":
+            ep = Episode(
+                id=str(uuid.uuid4()),
+                stack_id=self.stack_id,
+                objective=content.get("objective", ""),
+                outcome=content.get("outcome", ""),
+                outcome_type=content.get("outcome_type", "unknown"),
+                lessons=content.get("lessons", []),
+                tags=["auto-suggested"],
+                derived_from=derived_from,
+                source_type="suggestion",
+                created_at=datetime.now(timezone.utc),
+            )
+            memory_id = self.save_episode(ep)
+        elif memory_type == "belief":
+            belief = Belief(
+                id=str(uuid.uuid4()),
+                stack_id=self.stack_id,
+                statement=content.get("statement", ""),
+                belief_type=content.get("belief_type", "fact"),
+                confidence=content.get("confidence", 0.7),
+                derived_from=derived_from,
+                source_type="suggestion",
+                created_at=datetime.now(timezone.utc),
+            )
+            memory_id = self.save_belief(belief)
+        elif memory_type == "note":
+            note = Note(
+                id=str(uuid.uuid4()),
+                stack_id=self.stack_id,
+                content=content.get("content", ""),
+                note_type=content.get("note_type", "note"),
+                speaker=content.get("speaker"),
+                reason=content.get("reason"),
+                tags=["auto-suggested"],
+                derived_from=derived_from,
+                source_type="suggestion",
+                created_at=datetime.now(timezone.utc),
+            )
+            memory_id = self.save_note(note)
+
+        if memory_id:
+            status = "modified" if modifications else "promoted"
+            self._backend.update_suggestion_status(
+                suggestion_id=suggestion_id,
+                status=status,
+                promoted_to=f"{memory_type}:{memory_id}",
+            )
+            # Mark source raw entries as processed
+            for raw_id in suggestion.source_raw_ids:
+                self._backend.mark_raw_processed(
+                    raw_id=raw_id,
+                    processed_into=[f"{memory_type}:{memory_id}"],
+                )
+            # Audit
+            self.log_audit(
+                "suggestion",
+                suggestion_id,
+                "accepted",
+                details={
+                    "promoted_to": f"{memory_type}:{memory_id}",
+                    "memory_type": memory_type,
+                    "had_modifications": bool(modifications),
+                },
+            )
+
+        return memory_id
+
+    def dismiss_suggestion(
+        self,
+        suggestion_id: str,
+        reason: Optional[str] = None,
+    ) -> bool:
+        """Dismiss a pending suggestion (will not be promoted).
+
+        Sets status to 'dismissed' with an optional reason. Logs an audit event.
+        """
+        suggestion = self._backend.get_suggestion(suggestion_id)
+        if not suggestion or suggestion.status != "pending":
+            return False
+
+        result = self._backend.update_suggestion_status(
+            suggestion_id=suggestion_id,
+            status="dismissed",
+            resolution_reason=reason,
+        )
+        if result:
+            self.log_audit(
+                "suggestion",
+                suggestion_id,
+                "dismissed",
+                details={"reason": reason},
+            )
+        return result
+
+    def expire_suggestions(self, max_age_hours: float = 168.0) -> List[str]:
+        """Auto-dismiss pending suggestions older than max_age_hours.
+
+        Logs an audit event for each expired suggestion.
+
+        Args:
+            max_age_hours: Age threshold in hours (default: 168 = 7 days)
+
+        Returns:
+            List of expired suggestion IDs
+        """
+        expired_ids = self._backend.expire_suggestions(max_age_hours=max_age_hours)
+        for sid in expired_ids:
+            self.log_audit(
+                "suggestion",
+                sid,
+                "expired",
+                details={"max_age_hours": max_age_hours},
+            )
+        return expired_ids
+
     # ---- Batch Write ----
 
     def save_episodes_batch(self, episodes: List[Episode]) -> List[str]:

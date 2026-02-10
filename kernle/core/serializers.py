@@ -481,6 +481,39 @@ class SerializersMixin:
                     lines.append(f"Tags: {', '.join(n.tags)}")
                 lines.append("")
 
+        # Suggestions (all statuses)
+        suggestions = self._storage.get_suggestions(limit=10000)
+        if suggestions:
+            lines.append("## Suggestions")
+            pending = [s for s in suggestions if s.status == "pending"]
+            resolved = [s for s in suggestions if s.status != "pending"]
+            if pending:
+                lines.append(f"### Pending ({len(pending)})")
+                for s in pending:
+                    preview = ""
+                    if s.memory_type == "episode":
+                        preview = s.content.get("objective", "")[:60]
+                    elif s.memory_type == "belief":
+                        preview = s.content.get("statement", "")[:60]
+                    else:
+                        preview = s.content.get("content", "")[:60]
+                    lines.append(f"- [{s.confidence:.0%}] {s.memory_type}: {preview}")
+                lines.append("")
+            if resolved:
+                lines.append(f"### Resolved ({len(resolved)})")
+                for s in resolved:
+                    preview = ""
+                    if s.memory_type == "episode":
+                        preview = s.content.get("objective", "")[:60]
+                    elif s.memory_type == "belief":
+                        preview = s.content.get("statement", "")[:60]
+                    else:
+                        preview = s.content.get("content", "")[:60]
+                    promoted = f" -> {s.promoted_to}" if s.promoted_to else ""
+                    reason = f" ({s.resolution_reason})" if s.resolution_reason else ""
+                    lines.append(f"- [{s.status}] {s.memory_type}: {preview}{promoted}{reason}")
+                lines.append("")
+
         # Trust assessments
         assessments = self._storage.get_trust_assessments()
         if assessments:
@@ -720,6 +753,21 @@ class SerializersMixin:
                     "is_protected": n.is_protected,
                 }
                 for n in self._storage.get_notes(limit=10000)
+            ],
+            "suggestions": [
+                {
+                    "id": s.id,
+                    "memory_type": s.memory_type,
+                    "content": s.content,
+                    "confidence": s.confidence,
+                    "source_raw_ids": s.source_raw_ids,
+                    "status": s.status,
+                    "created_at": _dt(s.created_at),
+                    "resolved_at": _dt(s.resolved_at),
+                    "resolution_reason": s.resolution_reason,
+                    "promoted_to": s.promoted_to,
+                }
+                for s in self._storage.get_suggestions(limit=10000)
             ],
             "trust_assessments": [
                 {
