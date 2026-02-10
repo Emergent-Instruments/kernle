@@ -140,7 +140,7 @@ See [Claude Code Integration](/integration/claude-code) for full details.
 
 ## Planned Milestones
 
-Development is organized into versioned milestones. Each minor version (e.g., v0.12.x) is a milestone, with patch versions (e.g., v0.12.00, v0.12.01) as parent issues within. The v0.12.x series addresses critical pipeline integrity findings from a memory pipeline audit, while v0.13.x introduces enriched cognition features and trust enforcement.
+Development is organized into versioned milestones. Each minor version (e.g., v0.12.x) is a milestone, with patch versions (e.g., v0.12.00, v0.12.01) as parent issues within. The v0.12.x series addresses critical pipeline integrity findings from a memory pipeline audit, while v0.13.x replaces the suggestions system with agent-controlled pending memory and pondering, then adds enriched cognition, trust enforcement, and scale improvements.
 
 ### v0.12.00 — Pipeline Safety
 
@@ -173,7 +173,53 @@ Auditability and belief management tooling for long-running SIs.
 - **Terminology docs** — canonical pipeline diagram, glossary (transition, promotion, suggestion, maintenance, consolidation), end-to-end reference page ([#411](https://github.com/emergent-instruments/kernle/issues/411))
 - **Component ordering DAG** — formalize component execution order with declared dependencies; validate at init ([#423](https://github.com/emergent-instruments/kernle/issues/423))
 
-### v0.13.00 — Enriched Cognition
+### v0.13.00 — Pending Memory & Pondering
+
+<Note>This milestone replaces the human-in-the-loop suggestions system with an agent-controlled pending memory pipeline. The v0.12.x "suggestions-first promotion" work (#401, #406) establishes the governance model that this milestone then re-implements on a fundamentally different architecture — pending columns on memory tables instead of a separate suggestions table.</Note>
+
+The suggestions system was designed for human curation, but kernle serves autonomous agents. Memory curation is the agent's responsibility. This milestone introduces **pending memory** and **pondering sessions** — a deliberate, agent-controlled approach to memory consolidation.
+
+#### Pending & Ask-Human Columns
+
+Two new boolean columns on all memory types **except** notes and raw entries ([#464](https://github.com/emergent-instruments/kernle/issues/464)):
+
+| Column | Default | Purpose |
+|--------|---------|---------|
+| `pending` | `True` | Memory is proposed but not yet confirmed. Excluded from `load()` by default. |
+| `ask_human` | `False` | Agent flags this memory for optional human review. Advisory, not authoritative. |
+
+Notes and raw entries are exempt — they're captures, not interpretations. Everything else (episodes, beliefs, values, goals, drives, relationships, summaries) enters pending state by default.
+
+#### Pondering Sessions
+
+Agent-triggered processing where pending memories are evaluated and either confirmed, modified, or rejected ([#465](https://github.com/emergent-instruments/kernle/issues/465)). Different memory layers require different evaluation intensity:
+
+| Layer | Intensity | What Pondering Evaluates |
+|-------|-----------|--------------------------|
+| Raw → Episode | Light | Did this happen? Is the objective/outcome accurate? |
+| Raw → Belief | Medium | Is this a valid generalization? Contradicts existing beliefs? |
+| Raw → Value/Goal | Heavy | Does this align with identity? Is this a real commitment? |
+| Belief revision | Medium | Is the revision justified? What changed? |
+| Value/Drive changes | Heavy | Deep consistency check against identity layer |
+
+Pondering assigns strength tiers and can adjust confidence, content, and other metadata. With inference available, pondering performs LLM-powered consistency checks. Without inference, it uses pattern-based heuristics and duplicate detection.
+
+#### Suggestions System Replacement
+
+The `MemorySuggestion` dataclass, `memory_suggestions` table, `SuggestionComponent`, and all suggestion CLI/MCP tools are replaced by pending-aware equivalents ([#466](https://github.com/emergent-instruments/kernle/issues/466)):
+
+| Old (Suggestions) | New (Pending) |
+|-------------------|---------------|
+| `MemorySuggestion` dataclass | `pending=True` on Episode/Belief/etc. |
+| `memory_suggestions` table | `pending` column on existing tables |
+| `kernle suggestions approve` | `kernle ponder` (batch) or `kernle pending confirm` |
+| `memory_suggestions_promote` MCP | `memory_ponder` or `memory_pending_confirm` |
+
+#### Ask-Human Interface
+
+When an agent sets `ask_human=True`, it's requesting — not requiring — human input ([#467](https://github.com/emergent-instruments/kernle/issues/467)). The agent includes context ("I'm unsure about this belief"), a human provides advisory feedback, and the agent makes the final decision in its next pondering session.
+
+### v0.13.01 — Enriched Cognition
 
 These features extend the existing protocol system with no breaking changes. New capabilities are delivered as StackComponentProtocol implementations or protocol extensions.
 
@@ -234,7 +280,7 @@ abstraction_level: "domain"  # 'specific' | 'domain' | 'universal'
 | Claude Code | `PostToolUse` | Track significant tool calls (Write, Edit, Bash) as raw captures | [#415](https://github.com/emergent-instruments/kernle/issues/415) |
 | Claude Code | `UserPromptSubmit` | Inject relevant memory context based on the user's prompt | [#416](https://github.com/emergent-instruments/kernle/issues/416) |
 
-### v0.13.01 — Trust & Access Control
+### v0.13.02 — Trust & Access Control
 
 Enforcing trust at the write path — without this, trust is theater.
 
@@ -242,7 +288,7 @@ Enforcing trust at the write path — without this, trust is theater.
 - **Access control & consent enforcement** — implement read/write scopes and export/redaction policies using existing `access_grants`/`consent_grants` fields ([#418](https://github.com/emergent-instruments/kernle/issues/418))
 - **Dynamic trust** — compute trust scores from episode history: interaction-based trust, trust decay, self-trust floor at historical accuracy rate ([#419](https://github.com/emergent-instruments/kernle/issues/419))
 
-### v0.13.02 — Scale & Depth
+### v0.13.03 — Scale & Depth
 
 Preparing the memory system for long-running SIs with large memory stores.
 
@@ -346,7 +392,7 @@ The `derived_from` provenance tracks this abstraction step.
 
 Trust propagation through relationships: "I trust Claire, Claire trusts Bob, therefore I have derived trust in Bob (at a discount)."
 
-This requires graph-based trust computation with appropriate decay at each hop. Builds on dynamic trust work in v0.13.01.
+This requires graph-based trust computation with appropriate decay at each hop. Builds on dynamic trust work in v0.13.02.
 
 ### Formal Diagnostic Sessions
 
@@ -369,7 +415,7 @@ These areas are acknowledged but not yet designed in detail:
 | **Scope-based inference routing** | Components now declare `inference_scope` ('fast', 'capable', 'embedding', 'none') indicating what kind of model they need. A future core could route `infer()` calls to different models based on scope — e.g., cheap/fast models for tagging, capable models for consolidation, dedicated embedding models for vectors. The declarations are in place; routing is future work. |
 | **Embedding strategy** | Current 384-dim vectors may need updating for longer-lived stacks |
 | **MCP tool coverage** | Each new table/feature needs corresponding MCP tools |
-| **Transfer learning** | Cross-domain belief application with domain metadata (builds on belief enrichment in v0.13.00) |
+| **Transfer learning** | Cross-domain belief application with domain metadata (builds on belief enrichment in v0.13.01) |
 | **`kernle import` command** | Migration from flat-file memory systems (MEMORY.md, Obsidian, etc.) into stratified memory with heuristic classification and optional LLM-assisted analysis |
 
 ---
