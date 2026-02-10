@@ -287,62 +287,14 @@ def cmd_sync(args, k: "Kernle"):
                         # Supabase schema after table_name_map translation.
                         import dataclasses as _dc
 
-                        if _dc.is_dataclass(record):
-                            for f in _dc.fields(record):
-                                value = getattr(record, f.name)
-                                if value is None:
-                                    continue
-                                if hasattr(value, "isoformat"):
-                                    value = value.isoformat()
-                                record_dict[f.name] = value
-                        else:
-                            # Fallback for non-dataclass records (shouldn't happen)
-                            for field in [
-                                "id",
-                                "stack_id",
-                                "content",
-                                "objective",
-                                "outcome",
-                                "outcome_type",
-                                "lessons",
-                                "tags",
-                                "statement",
-                                "confidence",
-                                "drive_type",
-                                "intensity",
-                                "name",
-                                "priority",
-                                "title",
-                                "status",
-                                "progress",
-                                "entity_name",
-                                "entity_type",
-                                "relationship_type",
-                                "notes",
-                                "sentiment",
-                                "focus_areas",
-                                "created_at",
-                                "updated_at",
-                                "local_updated_at",
-                                "source_type",
-                                "source_entity",
-                                "source_episodes",
-                                "derived_from",
-                                "context",
-                                "context_tags",
-                                "timestamp",
-                                "source",
-                                "processed",
-                                "description",
-                                "steps",
-                                "triggers",
-                                "target_date",
-                            ]:
-                                if hasattr(record, field):
-                                    value = getattr(record, field)
-                                    if hasattr(value, "isoformat"):
-                                        value = value.isoformat()
-                                    record_dict[field] = value
+                        record_dict = {}
+                        for f in _dc.fields(record):
+                            value = getattr(record, f.name)
+                            if value is None:
+                                continue
+                            if hasattr(value, "isoformat"):
+                                value = value.isoformat()
+                            record_dict[f.name] = value
 
                 if record_dict:
                     op_data["data"] = record_dict
@@ -672,61 +624,13 @@ def cmd_sync(args, k: "Kernle"):
                             # Extract all dataclass fields (see first push path)
                             import dataclasses as _dc
 
-                            if _dc.is_dataclass(record):
-                                for f in _dc.fields(record):
-                                    value = getattr(record, f.name)
-                                    if value is None:
-                                        continue
-                                    if hasattr(value, "isoformat"):
-                                        value = value.isoformat()
-                                    record_dict[f.name] = value
-                            else:
-                                for field in [
-                                    "id",
-                                    "stack_id",
-                                    "content",
-                                    "objective",
-                                    "outcome",
-                                    "outcome_type",
-                                    "lessons",
-                                    "tags",
-                                    "statement",
-                                    "confidence",
-                                    "drive_type",
-                                    "intensity",
-                                    "name",
-                                    "priority",
-                                    "title",
-                                    "status",
-                                    "progress",
-                                    "entity_name",
-                                    "entity_type",
-                                    "relationship_type",
-                                    "notes",
-                                    "sentiment",
-                                    "focus_areas",
-                                    "created_at",
-                                    "updated_at",
-                                    "local_updated_at",
-                                    "source_type",
-                                    "source_entity",
-                                    "source_episodes",
-                                    "derived_from",
-                                    "context",
-                                    "context_tags",
-                                    "timestamp",
-                                    "source",
-                                    "processed",
-                                    "description",
-                                    "steps",
-                                    "triggers",
-                                    "target_date",
-                                ]:
-                                    if hasattr(record, field):
-                                        value = getattr(record, field)
-                                        if hasattr(value, "isoformat"):
-                                            value = value.isoformat()
-                                        record_dict[field] = value
+                            for f in _dc.fields(record):
+                                value = getattr(record, f.name)
+                                if value is None:
+                                    continue
+                                if hasattr(value, "isoformat"):
+                                    value = value.isoformat()
+                                record_dict[f.name] = value
 
                     if record_dict:
                         op_data["data"] = record_dict
