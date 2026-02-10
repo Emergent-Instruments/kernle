@@ -37,7 +37,7 @@ test-all:
 	pytest tests/ -v --tb=short
 
 test-cov:
-	pytest tests/ -v --tb=short --cov=kernle --cov-report=html --ignore=tests/test_postgres_storage.py
+	pytest tests/ -v --tb=short --cov=kernle --cov-branch --cov-report=html --cov-fail-under=73 --ignore=tests/test_postgres_storage.py
 
 lint:
 	ruff check .
