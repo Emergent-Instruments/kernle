@@ -25,6 +25,9 @@ import pytest
 from kernle.entity import Entity
 from kernle.processing import (
     DEFAULT_LAYER_CONFIGS,
+    IDENTITY_LAYER_TRANSITIONS,
+    NO_OVERRIDE_TRANSITIONS,
+    OVERRIDE_TRANSITIONS,
     VALID_TRANSITIONS,
     LayerConfig,
     MemoryProcessor,
@@ -709,9 +712,11 @@ class TestEntityProcess:
         with pytest.raises(Exception):
             ent.process()
 
-    def test_requires_model(self, entity):
-        with pytest.raises(RuntimeError, match="No model bound"):
-            entity.process()
+    def test_no_model_blocks_identity_layers(self, entity):
+        """Without a model, identity-layer transitions are blocked (not raised)."""
+        results = entity.process(force=True)
+        blocked = [r for r in results if r.inference_blocked]
+        assert len(blocked) == len(IDENTITY_LAYER_TRANSITIONS)
 
     def test_process_with_mock_model(self, entity):
         """Entity.process() works with a mock model and no data."""
@@ -1788,3 +1793,300 @@ class TestProcessFullFlow:
         mock_stack = _make_mock_stack()
         processor, _ = _make_processor(mock_stack)
         assert processor.get_config("nonexistent") is None
+
+
+# =============================================================================
+# No-Inference Safety Policy
+# =============================================================================
+
+
+def _make_no_inference_processor(mock_stack, response="[]", inference_available=False):
+    """Create a MemoryProcessor with inference_available=False."""
+    inference = MockInference(response)
+    return (
+        MemoryProcessor(
+            stack=mock_stack,
+            inference=inference,
+            core_id="test",
+            inference_available=inference_available,
+        ),
+        inference,
+    )
+
+
+class TestNoInferenceSafetyConstants:
+    """Verify the safety constant definitions are correct."""
+
+    def test_identity_layer_transitions_are_subset_of_valid(self):
+        assert IDENTITY_LAYER_TRANSITIONS.issubset(VALID_TRANSITIONS)
+
+    def test_no_override_is_subset_of_identity(self):
+        assert NO_OVERRIDE_TRANSITIONS.issubset(IDENTITY_LAYER_TRANSITIONS)
+
+    def test_override_is_subset_of_identity(self):
+        assert OVERRIDE_TRANSITIONS.issubset(IDENTITY_LAYER_TRANSITIONS)
+
+    def test_no_overlap_between_override_and_no_override(self):
+        assert NO_OVERRIDE_TRANSITIONS.isdisjoint(OVERRIDE_TRANSITIONS)
+
+    def test_union_covers_all_identity_transitions(self):
+        assert NO_OVERRIDE_TRANSITIONS | OVERRIDE_TRANSITIONS == IDENTITY_LAYER_TRANSITIONS
+
+    def test_belief_to_value_is_no_override(self):
+        assert "belief_to_value" in NO_OVERRIDE_TRANSITIONS
+
+    def test_raw_transitions_not_in_identity(self):
+        assert "raw_to_episode" not in IDENTITY_LAYER_TRANSITIONS
+        assert "raw_to_note" not in IDENTITY_LAYER_TRANSITIONS
+
+
+class TestNoInferenceSafetyGating:
+    """Test the _check_inference_safety method."""
+
+    def test_inference_available_allows_all(self):
+        """When inference is available, nothing is blocked."""
+        mock_stack = _make_mock_stack()
+        processor = MemoryProcessor(
+            stack=mock_stack,
+            inference=MockInference(),
+            core_id="test",
+            inference_available=True,
+        )
+        for transition in VALID_TRANSITIONS:
+            result = processor._check_inference_safety(transition, force=True, allow_override=True)
+            assert result is None, f"{transition} should not be blocked when inference available"
+
+    def test_no_inference_blocks_belief_to_value(self):
+        """belief_to_value is always blocked without inference."""
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_no_inference_processor(mock_stack)
+        result = processor._check_inference_safety(
+            "belief_to_value", force=True, allow_override=True
+        )
+        assert result is not None
+        assert result.inference_blocked
+        assert result.skipped
+        assert "Value creation requires inference" in result.skip_reason
+
+    def test_no_inference_blocks_belief_to_value_even_with_override(self):
+        """belief_to_value cannot be overridden."""
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_no_inference_processor(mock_stack)
+        result = processor._check_inference_safety(
+            "belief_to_value", force=True, allow_override=True
+        )
+        assert result is not None
+        assert result.inference_blocked
+
+    def test_no_inference_blocks_identity_layers_without_override(self):
+        """Identity-layer transitions are blocked without force+override."""
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_no_inference_processor(mock_stack)
+        for transition in OVERRIDE_TRANSITIONS:
+            result = processor._check_inference_safety(
+                transition, force=False, allow_override=False
+            )
+            assert result is not None, f"{transition} should be blocked"
+            assert result.inference_blocked
+            assert result.skipped
+
+    def test_no_inference_blocks_identity_with_force_but_no_override(self):
+        """force=True alone is not enough — need allow_override too."""
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_no_inference_processor(mock_stack)
+        for transition in OVERRIDE_TRANSITIONS:
+            result = processor._check_inference_safety(transition, force=True, allow_override=False)
+            assert result is not None, f"{transition} should be blocked with force only"
+            assert result.inference_blocked
+
+    def test_no_inference_allows_override_with_force_and_flag(self):
+        """force=True + allow_override=True lets override transitions through."""
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_no_inference_processor(mock_stack)
+        for transition in OVERRIDE_TRANSITIONS:
+            result = processor._check_inference_safety(transition, force=True, allow_override=True)
+            assert result is None, f"{transition} should be allowed with force+override"
+
+    def test_no_inference_allows_raw_transitions(self):
+        """raw_to_episode and raw_to_note are not blocked at policy level."""
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_no_inference_processor(mock_stack)
+        for transition in ("raw_to_episode", "raw_to_note"):
+            result = processor._check_inference_safety(
+                transition, force=False, allow_override=False
+            )
+            assert result is None, f"{transition} should not be blocked at policy level"
+
+
+class TestNoInferenceProcessMethod:
+    """Test the full process() method with inference_available=False."""
+
+    def test_no_inference_blocks_value_creation_via_process(self):
+        """process('belief_to_value') is blocked when inference unavailable."""
+        mock_stack = _make_mock_stack()
+        beliefs = [MagicMock(processed=False) for _ in range(6)]
+        mock_stack.get_beliefs.return_value = beliefs
+        processor, _ = _make_no_inference_processor(mock_stack)
+        results = processor.process("belief_to_value", force=True)
+        assert len(results) == 1
+        assert results[0].inference_blocked
+        assert results[0].skipped
+
+    def test_no_inference_blocks_all_identity_layers_by_default(self):
+        """Running process() with force=True blocks all identity layers."""
+        mock_stack = _make_mock_stack()
+        mock_stack._backend.list_raw.return_value = []
+        mock_stack.get_episodes.return_value = []
+        mock_stack.get_beliefs.return_value = []
+        processor, _ = _make_no_inference_processor(mock_stack)
+        results = processor.process(force=True)
+        # Identity layers should be blocked, raw layers should skip (no sources)
+        blocked = [r for r in results if r.inference_blocked]
+        assert len(blocked) == len(IDENTITY_LAYER_TRANSITIONS)
+        for r in blocked:
+            assert r.layer_transition in IDENTITY_LAYER_TRANSITIONS
+
+    def test_no_inference_allows_raw_transitions_to_proceed(self):
+        """raw_to_episode/raw_to_note are not policy-blocked (will skip for no sources)."""
+        mock_stack = _make_mock_stack()
+        mock_stack._backend.list_raw.return_value = []
+        mock_stack.get_episodes.return_value = []
+        mock_stack.get_beliefs.return_value = []
+        processor, _ = _make_no_inference_processor(mock_stack)
+        results = processor.process(force=True)
+        raw_results = [
+            r for r in results if r.layer_transition in ("raw_to_episode", "raw_to_note")
+        ]
+        for r in raw_results:
+            assert not r.inference_blocked
+            # They will be skipped due to no sources, not inference
+            assert r.skipped
+            assert r.skip_reason == "No unprocessed sources"
+
+    def test_no_inference_with_override_allows_beliefs(self):
+        """force=True + allow_no_inference_override=True unblocks beliefs."""
+        mock_stack = _make_mock_stack()
+        mock_stack._backend.list_raw.return_value = []
+        mock_stack.get_episodes.return_value = []
+        mock_stack.get_beliefs.return_value = []
+        processor, _ = _make_no_inference_processor(mock_stack)
+        results = processor.process(
+            "episode_to_belief", force=True, allow_no_inference_override=True
+        )
+        # Not blocked by inference policy
+        assert len(results) == 1
+        assert not results[0].inference_blocked
+        # Skipped because no sources
+        assert results[0].skipped
+        assert results[0].skip_reason == "No unprocessed sources"
+
+    def test_no_inference_override_still_blocks_values(self):
+        """Even with override, belief_to_value is always blocked."""
+        mock_stack = _make_mock_stack()
+        mock_stack.get_beliefs.return_value = [MagicMock(processed=False) for _ in range(6)]
+        processor, _ = _make_no_inference_processor(mock_stack)
+        results = processor.process("belief_to_value", force=True, allow_no_inference_override=True)
+        assert len(results) == 1
+        assert results[0].inference_blocked
+        assert "Value creation requires inference" in results[0].skip_reason
+
+    def test_force_alone_does_not_bypass_inference_safety(self):
+        """force=True without override flag still blocks identity layers."""
+        mock_stack = _make_mock_stack()
+        mock_stack.get_episodes.return_value = [MagicMock(processed=False) for _ in range(6)]
+        processor, _ = _make_no_inference_processor(mock_stack)
+        results = processor.process("episode_to_belief", force=True)
+        assert len(results) == 1
+        assert results[0].inference_blocked
+
+
+class TestNoInferenceEntity:
+    """Test Entity.process() with no model bound."""
+
+    def test_entity_process_no_model_blocks_identity(self, tmp_path):
+        """Entity.process() without model blocks identity-layer writes."""
+        ent = Entity(core_id="test-core", data_dir=tmp_path / "entity")
+        st = SQLiteStack(
+            STACK_ID, db_path=tmp_path / "test.db", components=[], enforce_provenance=False
+        )
+        ent.attach_stack(st)
+        # No model set — inference_available=False
+        results = ent.process(force=True)
+        blocked = [r for r in results if r.inference_blocked]
+        assert len(blocked) == len(IDENTITY_LAYER_TRANSITIONS)
+
+    def test_entity_process_no_model_allows_raw_layers(self, tmp_path):
+        """Entity.process() without model lets raw transitions through (they skip for no sources)."""
+        ent = Entity(core_id="test-core", data_dir=tmp_path / "entity")
+        st = SQLiteStack(
+            STACK_ID, db_path=tmp_path / "test.db", components=[], enforce_provenance=False
+        )
+        ent.attach_stack(st)
+        results = ent.process("raw_to_episode", force=True)
+        assert len(results) == 1
+        assert not results[0].inference_blocked
+
+    def test_entity_process_no_model_override_flag_unblocks(self, tmp_path):
+        """Entity.process() with override flag unblocks non-value identity layers."""
+        ent = Entity(core_id="test-core", data_dir=tmp_path / "entity")
+        st = SQLiteStack(
+            STACK_ID, db_path=tmp_path / "test.db", components=[], enforce_provenance=False
+        )
+        ent.attach_stack(st)
+        results = ent.process("episode_to_belief", force=True, allow_no_inference_override=True)
+        assert len(results) == 1
+        assert not results[0].inference_blocked
+
+    def test_entity_process_no_model_value_always_blocked(self, tmp_path):
+        """Entity.process() without model always blocks belief_to_value."""
+        ent = Entity(core_id="test-core", data_dir=tmp_path / "entity")
+        st = SQLiteStack(
+            STACK_ID, db_path=tmp_path / "test.db", components=[], enforce_provenance=False
+        )
+        ent.attach_stack(st)
+        results = ent.process("belief_to_value", force=True, allow_no_inference_override=True)
+        assert len(results) == 1
+        assert results[0].inference_blocked
+
+    def test_entity_process_with_model_allows_all(self, tmp_path):
+        """Entity.process() with model bound allows all transitions."""
+
+        class MockModel:
+            model_id = "mock-model"
+
+            def generate(self, messages, system=None, **kw):
+                class R:
+                    content = "[]"
+
+                return R()
+
+        ent = Entity(core_id="test-core", data_dir=tmp_path / "entity")
+        st = SQLiteStack(
+            STACK_ID, db_path=tmp_path / "test.db", components=[], enforce_provenance=False
+        )
+        ent.attach_stack(st)
+        ent.set_model(MockModel())
+        results = ent.process(force=True)
+        blocked = [r for r in results if r.inference_blocked]
+        assert len(blocked) == 0
+
+
+class TestProcessingResultInferenceBlocked:
+    """Test the inference_blocked field on ProcessingResult."""
+
+    def test_default_is_false(self):
+        result = ProcessingResult(
+            layer_transition="raw_to_episode",
+            source_count=0,
+        )
+        assert result.inference_blocked is False
+
+    def test_set_to_true(self):
+        result = ProcessingResult(
+            layer_transition="belief_to_value",
+            source_count=0,
+            skipped=True,
+            skip_reason="blocked by policy",
+            inference_blocked=True,
+        )
+        assert result.inference_blocked is True

@@ -1010,6 +1010,7 @@ class Entity:
         transition: Optional[str] = None,
         *,
         force: bool = False,
+        allow_no_inference_override: bool = False,
     ) -> list:
         """Run memory processing sessions.
 
@@ -1017,17 +1018,27 @@ class Entity:
         raw → episode/note, episode → belief/goal/relationship/drive,
         belief → value.
 
+        When no model is bound (inference unavailable), identity-layer
+        transitions are blocked by the no-inference safety policy.
+        Values can never be created without inference. Other identity
+        layers require explicit override with force=True and
+        allow_no_inference_override=True.
+
         Args:
             transition: Specific layer transition to process (None = check all)
             force: Process even if triggers aren't met
+            allow_no_inference_override: Allow identity-layer writes without
+                inference (except values). Only effective with force=True.
 
         Returns:
             List of ProcessingResult for each transition that ran
         """
         stack = self._require_active_stack()
         inference = self._get_inference_service()
-        if inference is None:
-            raise RuntimeError("No model bound — processing requires inference")
+        inference_available = inference is not None
+
+        if not inference_available:
+            logger.warning("Processing without inference — identity-layer writes will be gated")
 
         from kernle.processing import MemoryProcessor
 
@@ -1035,6 +1046,7 @@ class Entity:
             stack=stack,
             inference=inference,
             core_id=self._core_id,
+            inference_available=inference_available,
         )
 
         # Load any saved config from the stack
@@ -1057,7 +1069,11 @@ class Entity:
         except Exception:
             pass  # Use defaults if config loading fails
 
-        return processor.process(transition, force=force)
+        return processor.process(
+            transition,
+            force=force,
+            allow_no_inference_override=allow_no_inference_override,
+        )
 
     # ---- Routed Sync ----
 

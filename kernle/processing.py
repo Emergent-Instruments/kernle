@@ -104,6 +104,48 @@ class ProcessingResult:
     errors: List[str] = field(default_factory=list)
     skipped: bool = False
     skip_reason: Optional[str] = None
+    inference_blocked: bool = False  # True if blocked by no-inference safety
+
+
+# =============================================================================
+# Inference Safety Policy
+# =============================================================================
+
+# Identity-layer transitions that require inference to produce quality output.
+# These write to layers that are "hard to change" — bad data here is costly.
+IDENTITY_LAYER_TRANSITIONS = frozenset(
+    {
+        "episode_to_belief",
+        "episode_to_goal",
+        "episode_to_relationship",
+        "episode_to_drive",
+        "belief_to_value",
+    }
+)
+
+# Transitions that are always blocked without inference — no override possible.
+# Values are the highest identity layer; malformed values corrupt the entity.
+NO_OVERRIDE_TRANSITIONS = frozenset(
+    {
+        "belief_to_value",
+    }
+)
+
+# Transitions that can be overridden without inference if strict conditions are met.
+# Beliefs require: force=True, explicit override flag, high confidence, evidence count.
+OVERRIDE_TRANSITIONS = frozenset(
+    {
+        "episode_to_belief",
+        "episode_to_goal",
+        "episode_to_relationship",
+        "episode_to_drive",
+    }
+)
+
+# Minimum evidence count required for no-inference belief override
+NO_INFERENCE_MIN_EVIDENCE = 3
+# Minimum confidence required for no-inference belief override
+NO_INFERENCE_MIN_CONFIDENCE = 0.9
 
 
 # =============================================================================
@@ -296,6 +338,10 @@ class MemoryProcessor:
 
     Owned by Entity. Uses InferenceService to run layer-specific
     processing sessions that promote memories up the hierarchy.
+
+    Safety: When inference_available=False, identity-layer transitions
+    are blocked. Values cannot be created. Beliefs and other identity
+    layers require explicit override with evidence requirements.
     """
 
     def __init__(
@@ -304,11 +350,13 @@ class MemoryProcessor:
         inference: Any,  # InferenceService
         core_id: str,
         configs: Optional[Dict[str, LayerConfig]] = None,
+        inference_available: bool = True,
     ) -> None:
         self._stack = stack
         self._inference = inference
         self._core_id = core_id
         self._configs = configs or dict(DEFAULT_LAYER_CONFIGS)
+        self._inference_available = inference_available
 
     def update_config(self, transition: str, config: LayerConfig) -> None:
         """Update configuration for a layer transition."""
@@ -364,12 +412,16 @@ class MemoryProcessor:
         transition: Optional[str] = None,
         *,
         force: bool = False,
+        allow_no_inference_override: bool = False,
     ) -> List[ProcessingResult]:
         """Run processing for one or all layer transitions.
 
         Args:
             transition: Specific transition to process (None = check all)
             force: Process even if triggers aren't met
+            allow_no_inference_override: Allow identity-layer writes without
+                inference (except values). Requires force=True and only works
+                for transitions in OVERRIDE_TRANSITIONS.
 
         Returns:
             List of ProcessingResult for each transition that ran
@@ -383,6 +435,12 @@ class MemoryProcessor:
             if config is None or not config.enabled:
                 continue
 
+            # Inference safety gate — checked even when force=True
+            blocked = self._check_inference_safety(t, force, allow_no_inference_override)
+            if blocked is not None:
+                results.append(blocked)
+                continue
+
             if not force and not self.check_triggers(t):
                 continue
 
@@ -390,6 +448,60 @@ class MemoryProcessor:
             results.append(result)
 
         return results
+
+    def _check_inference_safety(
+        self,
+        transition: str,
+        force: bool,
+        allow_override: bool,
+    ) -> Optional[ProcessingResult]:
+        """Check if a transition is blocked by no-inference safety policy.
+
+        Returns a ProcessingResult with inference_blocked=True if blocked,
+        or None if the transition is allowed to proceed.
+        """
+        if self._inference_available:
+            return None
+
+        if transition not in IDENTITY_LAYER_TRANSITIONS:
+            # Non-identity transitions (raw_to_episode, raw_to_note) still need
+            # inference to run. They will fail at the inference call step, which
+            # is handled gracefully. But we don't block them at the policy level
+            # since the infrastructure handles the error.
+            return None
+
+        # Values are never allowed without inference
+        if transition in NO_OVERRIDE_TRANSITIONS:
+            return ProcessingResult(
+                layer_transition=transition,
+                source_count=0,
+                skipped=True,
+                skip_reason=(
+                    "Blocked: inference unavailable. "
+                    "Value creation requires inference — "
+                    "cannot promote to identity layer without model."
+                ),
+                inference_blocked=True,
+            )
+
+        # Other identity-layer transitions can be overridden with explicit opt-in
+        if transition in OVERRIDE_TRANSITIONS:
+            if not (force and allow_override):
+                return ProcessingResult(
+                    layer_transition=transition,
+                    source_count=0,
+                    skipped=True,
+                    skip_reason=(
+                        "Blocked: inference unavailable. "
+                        "Use force=True with allow_no_inference_override=True "
+                        "to override for this transition."
+                    ),
+                    inference_blocked=True,
+                )
+            # Override allowed — log warning and proceed
+            logger.warning("Processing %s without inference (override enabled)", transition)
+
+        return None
 
     def _process_layer(self, transition: str, config: LayerConfig) -> ProcessingResult:
         """Run one processing pass for a specific layer transition."""

@@ -14,6 +14,7 @@ def cmd_process(args, k: "Kernle"):
     if args.process_action == "run":
         transition = getattr(args, "transition", None)
         force = getattr(args, "force", False)
+        allow_no_inference_override = getattr(args, "allow_no_inference_override", False)
 
         if transition and transition not in VALID_TRANSITIONS:
             print(f"Invalid transition: {transition}")
@@ -21,7 +22,11 @@ def cmd_process(args, k: "Kernle"):
             return
 
         try:
-            results = k.process(transition=transition, force=force)
+            results = k.process(
+                transition=transition,
+                force=force,
+                allow_no_inference_override=allow_no_inference_override,
+            )
         except RuntimeError as e:
             print(f"Error: {e}")
             print("Memory processing requires a bound model. Use entity.set_model() first.")
@@ -46,13 +51,16 @@ def cmd_process(args, k: "Kernle"):
                         "errors": r.errors,
                         "skipped": r.skipped,
                         "skip_reason": r.skip_reason,
+                        "inference_blocked": r.inference_blocked,
                     }
                 )
             print(json.dumps(output, indent=2, default=str))
         else:
             print(f"Processing complete ({len(results)} transition(s)):\n")
             for r in results:
-                if r.skipped:
+                if r.inference_blocked:
+                    print(f"  {r.layer_transition}: BLOCKED (no inference) -- {r.skip_reason}")
+                elif r.skipped:
                     print(f"  {r.layer_transition}: skipped ({r.skip_reason})")
                 else:
                     print(

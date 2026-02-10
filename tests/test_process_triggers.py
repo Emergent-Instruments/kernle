@@ -43,7 +43,9 @@ class TestKernleProcess:
         k._entity = mock_entity
 
         result = k.process(transition="raw_to_episode", force=True)
-        mock_entity.process.assert_called_once_with(transition="raw_to_episode", force=True)
+        mock_entity.process.assert_called_once_with(
+            transition="raw_to_episode", force=True, allow_no_inference_override=False
+        )
         assert result == []
 
     def test_process_no_args_delegates_defaults(self, kernle_instance):
@@ -55,7 +57,9 @@ class TestKernleProcess:
         k._entity = mock_entity
 
         k.process()
-        mock_entity.process.assert_called_once_with(transition=None, force=False)
+        mock_entity.process.assert_called_once_with(
+            transition=None, force=False, allow_no_inference_override=False
+        )
 
     def test_process_propagates_runtime_error(self, kernle_instance):
         """Kernle.process() propagates RuntimeError from entity."""
@@ -545,15 +549,22 @@ class TestDefaultConfigPersistence:
             assert lc.quantity_threshold == 20
             assert lc.batch_size == 5
 
-    def test_entity_process_no_model_raises(self):
-        """Entity.process() raises RuntimeError without model."""
+    def test_entity_process_no_model_gates_identity_layers(self):
+        """Entity.process() without model blocks identity layers (no longer raises)."""
         from kernle.entity import Entity
+        from kernle.processing import IDENTITY_LAYER_TRANSITIONS
 
         entity = Entity(core_id="test-no-model")
 
         mock_stack = Mock()
+        mock_stack.get_processing_config.return_value = []
+        # Set up backend returns so raw transitions can proceed (they skip for no sources)
+        mock_stack._backend.list_raw.return_value = []
+        mock_stack.get_episodes.return_value = []
+        mock_stack.get_beliefs.return_value = []
         entity._require_active_stack = Mock(return_value=mock_stack)
         entity._get_inference_service = Mock(return_value=None)
 
-        with pytest.raises(RuntimeError, match="No model bound"):
-            entity.process()
+        results = entity.process(force=True)
+        blocked = [r for r in results if r.inference_blocked]
+        assert len(blocked) == len(IDENTITY_LAYER_TRANSITIONS)

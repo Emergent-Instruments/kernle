@@ -1075,6 +1075,11 @@ def main():
     process_run.add_argument(
         "--force", "-f", action="store_true", help="Process even if thresholds aren't met"
     )
+    process_run.add_argument(
+        "--allow-no-inference-override",
+        action="store_true",
+        help="Allow identity-layer writes without inference (except values). Requires --force.",
+    )
     process_run.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 
     process_status = process_sub.add_parser(
