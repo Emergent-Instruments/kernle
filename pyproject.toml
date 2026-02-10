@@ -115,6 +115,12 @@ line-length = 100
 select = ["E", "F", "I", "N", "W"]
 ignore = ["E501"]
 
+[tool.coverage.run]
+branch = true
+
+[tool.coverage.report]
+fail_under = 73
+
 [tool.pytest.ini_options]
 markers = [
     "stub: marks tests that verify stub behavior (will need replacement with integration tests)",
