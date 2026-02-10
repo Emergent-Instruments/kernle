@@ -171,6 +171,7 @@ Seed an agent from a corpus (repo, docs), process the full pipeline until exhaus
 - **Process-until-exhaustion runner** — iterative pipeline with intensity scaling (light→medium→heavy across cycles) and convergence detection; stops when no new promotions emerge ([#486](https://github.com/emergent-instruments/kernle/issues/486))
 - **Cognitive quality assertions** — test framework for provenance integrity, contradiction detection, duplicate detection, content quality, and pipeline health metrics ([#487](https://github.com/emergent-instruments/kernle/issues/487))
 - **Golden corpus integration test** — end-to-end test: seed from known corpus → process to exhaustion → assert on cognitive quality; extends golden snapshot test #407 with holistic validation ([#488](https://github.com/emergent-instruments/kernle/issues/488))
+- **Dev dashboard** — self-contained local memory stack inspector (`dev/dashboard.py`); stdlib HTTP server serving an embedded dark-theme HTML/CSS/JS dashboard with 16 API endpoints, 6 tabs (Overview, Raw Entries, Memories, Suggestions, Audit Log, Settings), anxiety visualization, strength bars, and provenance chain display ([#544](https://github.com/emergent-instruments/kernle/issues/544))
 
 ### v0.12.03 — Governance & Observability
 

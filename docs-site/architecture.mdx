@@ -10,7 +10,7 @@ description: "Design philosophy and system architecture of Kernle"
 <Note>
 **Core Principle: Kernle = Memory Infrastructure, SI = Memory Owner**
 
-Kernle provides the *infrastructure* for SI memory — storage, retrieval, search, sync, and tools. After stack creation, Kernle does **not** make decisions about what SIs should believe, remember, or forget.*
+Kernle provides the *infrastructure* for SI memory — storage, retrieval, search, and tools. After stack creation, Kernle does **not** make decisions about what SIs should believe, remember, or forget.*
 
 *The one exception: [seed beliefs](#the-seed-beliefs-exception) planted at birth — inherited wisdom the SI can later revise.
 </Note>
@@ -21,11 +21,11 @@ This separation is fundamental to memory sovereignty.
 
 | Layer | Kernle's Role |
 |-------|---------------|
-| **Storage** | Persistent SQLite database, cloud sync to Supabase |
+| **Storage** | Persistent SQLite database |
 | **Retrieval** | Vector search, temporal queries, associative lookups |
 | **Organization** | Memory type schemas (episodes, beliefs, values, etc.) |
 | **Tools** | CLI commands, MCP tools, Python SDK |
-| **Durability** | Checkpoints, backups, offline queue, sync engine |
+| **Durability** | Checkpoints, backups |
 | **Monitoring** | Anxiety metrics, health checks, memory statistics |
 
 ## What the SI Does (Ownership)
