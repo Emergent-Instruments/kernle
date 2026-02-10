@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -633,6 +634,11 @@ class SQLiteStack(
             "belief", belief.derived_from, getattr(belief, "source_entity", None)
         )
         self._validate_source_type("belief", belief.source_type)
+        # Lint check: reject malformed or low-signal beliefs (ACTIVE state only)
+        if self._state == StackState.ACTIVE:
+            lint_result = self._lint_belief(belief)
+            if not lint_result.passed:
+                return self._redirect_to_suggestion("belief", belief, lint_result)
         result_id = self._backend.save_belief(belief)
         self._dispatch_on_save("belief", result_id, belief)
         return result_id
@@ -642,6 +648,11 @@ class SQLiteStack(
             "value", value.derived_from, getattr(value, "source_entity", None)
         )
         self._validate_source_type("value", value.source_type)
+        # Lint check: reject malformed or low-signal values (ACTIVE state only)
+        if self._state == StackState.ACTIVE:
+            lint_result = self._lint_value(value)
+            if not lint_result.passed:
+                return self._redirect_to_suggestion("value", value, lint_result)
         result_id = self._backend.save_value(value)
         self._dispatch_on_save("value", result_id, value)
         return result_id
@@ -1504,6 +1515,96 @@ class SQLiteStack(
         self._inference = inference
         for component in self._components.values():
             component.set_inference(inference)
+
+    # ---- Lint Helpers ----
+
+    def _get_lint_config(self) -> Dict[str, Any]:
+        """Get lint configuration from stack settings."""
+        from kernle.lint import get_lint_config
+
+        return get_lint_config(self.get_stack_setting)
+
+    def _lint_belief(self, belief: Belief) -> Any:
+        """Run lint on a belief's statement. Returns a LintResult."""
+        from kernle.lint import lint_belief
+
+        config = self._get_lint_config()
+        return lint_belief(belief.statement, config)
+
+    def _lint_value(self, value: Value) -> Any:
+        """Run lint on a value's name and statement. Returns a LintResult."""
+        from kernle.lint import lint_value
+
+        config = self._get_lint_config()
+        return lint_value(value.name, value.statement, config)
+
+    def _redirect_to_suggestion(self, memory_type: str, memory: Any, lint_result: Any) -> str:
+        """Redirect a lint-failed memory to a suggestion and log to audit.
+
+        Instead of saving the malformed memory directly, store it as a
+        MemorySuggestion with status='rejected' and resolution_reason
+        indicating the lint failure. This keeps the structured memory
+        clean while preserving the content for manual review.
+
+        Returns the suggestion ID (prefixed with 'suggestion:' to indicate
+        it was redirected).
+        """
+        suggestion_id = str(uuid.uuid4())
+
+        # Build content dict from the memory object
+        if memory_type == "belief":
+            content = {
+                "statement": memory.statement,
+                "belief_type": getattr(memory, "belief_type", "fact"),
+                "confidence": getattr(memory, "confidence", 0.8),
+            }
+        elif memory_type == "value":
+            content = {
+                "name": memory.name,
+                "statement": memory.statement,
+                "priority": getattr(memory, "priority", 50),
+            }
+        else:
+            content = {"raw": str(memory)}
+
+        # Build source_raw_ids from derived_from if available
+        derived_from = getattr(memory, "derived_from", None) or []
+        source_raw_ids = [ref for ref in derived_from if ref]
+
+        suggestion = MemorySuggestion(
+            id=suggestion_id,
+            stack_id=self.stack_id,
+            memory_type=memory_type,
+            content=content,
+            confidence=0.0,
+            source_raw_ids=source_raw_ids,
+            status="rejected",
+            resolution_reason=f"lint_failed: {lint_result.summary}",
+            created_at=datetime.now(timezone.utc),
+            resolved_at=datetime.now(timezone.utc),
+        )
+        self._backend.save_suggestion(suggestion)
+
+        # Log lint failure to audit
+        self._backend.log_audit(
+            memory_type,
+            suggestion_id,
+            "lint_rejected",
+            "system",
+            {
+                "failures": lint_result.failures,
+                "redirected_to": f"suggestion:{suggestion_id}",
+            },
+        )
+
+        logger.info(
+            "Lint rejected %s, redirected to suggestion:%s: %s",
+            memory_type,
+            suggestion_id,
+            lint_result.summary,
+        )
+
+        return f"suggestion:{suggestion_id}"
 
     # ---- Private Helpers ----
 
