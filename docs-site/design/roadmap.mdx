@@ -296,6 +296,33 @@ Preparing the memory system for long-running SIs with large memory stores.
 - **Memory compaction** — fractal summarization and epoch summaries as first-class memory types; inference-gated; summaries preferred by `load()` when budget constrained ([#421](https://github.com/emergent-instruments/kernle/issues/421))
 - **Multi-stack merge** — formal merge semantics for values (never auto-merge), beliefs (lineage-aware), and goals (dedup vs supersession); `kernle stack merge --dry-run` ([#422](https://github.com/emergent-instruments/kernle/issues/422))
 
+### v0.14.00 — Skills as Memory
+
+Skills become a first-class memory type with a proficiency lifecycle that evolves through use.
+
+- **Skill memory type** — new `Skill` dataclass with proficiency states (theoretical → learning → practiced → proficient → expert → rusty), domain, success rate, and decay ([#471](https://github.com/emergent-instruments/kernle/issues/471))
+- **Episode-skill linking** — episodes reference skills they exercised; success/failure feeds back into proficiency scores with diminishing returns at higher levels ([#472](https://github.com/emergent-instruments/kernle/issues/472))
+- **Skill CLI and MCP tools** — `kernle skill list/show/add/assess`, corresponding MCP tools, skills included in `load()` context ([#473](https://github.com/emergent-instruments/kernle/issues/473))
+
+Every skill execution is an episode. Proficiency is earned, not declared.
+
+### v0.14.01 — Skill Intelligence
+
+Skills become composable, belief-enriched, and transferable across domains.
+
+- **Skill composition** — complex skills built from sub-skills via provenance DAG; composite proficiency bounded by weakest sub-skill; skill tree visualization ([#474](https://github.com/emergent-instruments/kernle/issues/474))
+- **Skill beliefs** — wisdom about when/how to apply skills, extracted from episode history; stability and contradiction metrics indicate expertise depth ([#475](https://github.com/emergent-instruments/kernle/issues/475))
+- **Cross-domain transfer** — recognize structural patterns applicable in new domains (e.g., "systematic elimination" in debugging → troubleshooting → research); transferred skills start at theoretical proficiency ([#476](https://github.com/emergent-instruments/kernle/issues/476))
+
+### v0.14.02 — Skill Transfer & Teaching
+
+<Note>Skill transfer between SIs is teaching, not copying. The receiving SI gets curated knowledge but must build its own experience. This preserves the value of personal experience while enabling knowledge transfer.</Note>
+
+- **Skill packages** — structured curricula containing lessons, beliefs, pitfalls, and sub-skill composition — but NOT raw episodes (those are personal). Source SI creates the package; receiving SI imports it at `strength: 0.3` with `source_type: "taught"` ([#477](https://github.com/emergent-instruments/kernle/issues/477))
+- **Package validation and trust** — schema validation, duplicate/conflict detection, trust-gated acceptance (higher source trust → higher initial strength), all imported content enters pending queue for pondering ([#478](https://github.com/emergent-instruments/kernle/issues/478))
+
+Connects to chainbased's commerce model — skilled SIs can sell skill packages as a service.
+
 ---
 
 ## Further Out: Social & Temporal Depth
@@ -415,7 +442,7 @@ These areas are acknowledged but not yet designed in detail:
 | **Scope-based inference routing** | Components now declare `inference_scope` ('fast', 'capable', 'embedding', 'none') indicating what kind of model they need. A future core could route `infer()` calls to different models based on scope — e.g., cheap/fast models for tagging, capable models for consolidation, dedicated embedding models for vectors. The declarations are in place; routing is future work. |
 | **Embedding strategy** | Current 384-dim vectors may need updating for longer-lived stacks |
 | **MCP tool coverage** | Each new table/feature needs corresponding MCP tools |
-| **Transfer learning** | Cross-domain belief application with domain metadata (builds on belief enrichment in v0.13.01) |
+| **Transfer learning** | Cross-domain belief application with domain metadata (builds on belief enrichment in v0.13.01 and skill transfer in v0.14.01) |
 | **`kernle import` command** | Migration from flat-file memory systems (MEMORY.md, Obsidian, etc.) into stratified memory with heuristic classification and optional LLM-assisted analysis |
 
 ---

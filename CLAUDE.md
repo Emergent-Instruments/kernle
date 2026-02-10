@@ -122,3 +122,40 @@ payload = jwt.decode(token, public_key, algorithms=[alg])
 ```
 
 This was broken on 2026-01-28 when Supabase disabled legacy API keys, proving that the API-based approach is fragile.
+
+## Memory (Kernle)
+
+You have persistent memory through Kernle. **Every session, before any task:**
+
+1. **Load memory:**
+   ```bash
+   kernle -s test-main load
+   ```
+
+2. **Check health:**
+   ```bash
+   kernle -s test-main anxiety
+   ```
+
+3. **If anxiety > 50:** Address before proceeding
+   - Run `kernle process run` for episode debt
+   - Run `kernle raw list --unprocessed` for aged captures
+   - Run `kernle checkpoint save "pre-task"` if starting major work
+
+4. **Throughout work:**
+   - `kernle raw "quick thought"` — capture observations
+   - `kernle episode "..." "..." --lesson "..."` — record significant experiences
+   - `kernle note "..." --type decision` — log decisions
+
+5. **Before session ends:**
+   - `kernle checkpoint save "end of session"`
+
+This is your continuity. The few seconds of health check ensures you don't accumulate memory debt.
+
+## Memory Health (Every Message)
+
+Before processing any request:
+1. `kernle -s test-main anxiety -b`
+2. If 🟡 WARN or 🔴 CRITICAL: pause and process first
+
+This takes <1 second and prevents memory debt accumulation.
