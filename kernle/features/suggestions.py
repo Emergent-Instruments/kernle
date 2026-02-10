@@ -449,13 +449,19 @@ class SuggestionsMixin:
         status: Optional[str] = None,
         memory_type: Optional[str] = None,
         limit: int = 100,
+        min_confidence: Optional[float] = None,
+        max_age_hours: Optional[float] = None,
+        source_raw_id: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Get memory suggestions.
 
         Args:
-            status: Filter by status (pending, promoted, modified, rejected)
+            status: Filter by status (pending, promoted, modified, rejected, dismissed, expired)
             memory_type: Filter by type (episode, belief, note)
             limit: Maximum suggestions to return
+            min_confidence: Minimum confidence threshold
+            max_age_hours: Only return suggestions created within this many hours
+            source_raw_id: Filter to suggestions derived from this raw entry ID
 
         Returns:
             List of suggestion dicts
@@ -464,6 +470,9 @@ class SuggestionsMixin:
             status=status,
             memory_type=memory_type,
             limit=limit,
+            min_confidence=min_confidence,
+            max_age_hours=max_age_hours,
+            source_raw_id=source_raw_id,
         )
 
         return [self._suggestion_to_dict(s) for s in suggestions]
@@ -568,6 +577,60 @@ class SuggestionsMixin:
             status="rejected",
             resolution_reason=reason,
         )
+
+    def accept_suggestion(
+        self: "Kernle",
+        suggestion_id: str,
+        modifications: Optional[Dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """Accept a suggestion and promote it to a structured memory.
+
+        Alias for promote_suggestion with 'accepted' semantics.
+
+        Args:
+            suggestion_id: ID of the suggestion to accept
+            modifications: Optional modifications to apply before promotion
+
+        Returns:
+            ID of the created memory, or None if failed
+        """
+        return self.promote_suggestion(suggestion_id, modifications)
+
+    def dismiss_suggestion(
+        self: "Kernle",
+        suggestion_id: str,
+        reason: Optional[str] = None,
+    ) -> bool:
+        """Dismiss a suggestion (it will not be promoted).
+
+        Sets status to 'dismissed' with an optional reason.
+
+        Args:
+            suggestion_id: ID of the suggestion to dismiss
+            reason: Optional reason for dismissal
+
+        Returns:
+            True if dismissed, False if failed
+        """
+        return self._storage.update_suggestion_status(
+            suggestion_id=suggestion_id,
+            status="dismissed",
+            resolution_reason=reason,
+        )
+
+    def expire_suggestions(
+        self: "Kernle",
+        max_age_hours: float = 168.0,
+    ) -> List[str]:
+        """Auto-dismiss pending suggestions older than max_age_hours.
+
+        Args:
+            max_age_hours: Age threshold in hours (default: 168 = 7 days)
+
+        Returns:
+            List of expired suggestion IDs
+        """
+        return self._storage.expire_suggestions(max_age_hours=max_age_hours)
 
     def _suggestion_to_dict(
         self: "Kernle",

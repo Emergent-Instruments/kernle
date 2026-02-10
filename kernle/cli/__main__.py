@@ -1206,14 +1206,23 @@ def main():
     p_suggestions = subparsers.add_parser("suggestions", help="Memory suggestion management")
     suggestions_sub = p_suggestions.add_subparsers(dest="suggestions_action", required=True)
 
-    # kernle suggestions list [--pending|--approved|--rejected] [--type TYPE]
+    # kernle suggestions list [--pending|--approved|--rejected|--dismissed|--expired] [--type TYPE]
     suggestions_list = suggestions_sub.add_parser("list", help="List suggestions")
     suggestions_list.add_argument("--pending", action="store_true", help="Show only pending")
     suggestions_list.add_argument("--approved", action="store_true", help="Show only approved")
     suggestions_list.add_argument("--rejected", action="store_true", help="Show only rejected")
+    suggestions_list.add_argument("--dismissed", action="store_true", help="Show only dismissed")
+    suggestions_list.add_argument("--expired", action="store_true", help="Show only expired")
     suggestions_list.add_argument(
         "--type", "-t", choices=["episode", "belief", "note"], help="Filter by memory type"
     )
+    suggestions_list.add_argument(
+        "--min-confidence", type=float, help="Minimum confidence threshold (0.0-1.0)"
+    )
+    suggestions_list.add_argument(
+        "--max-age-hours", type=float, help="Only show suggestions created within N hours"
+    )
+    suggestions_list.add_argument("--source", help="Filter by source raw entry ID")
     suggestions_list.add_argument("--limit", "-l", type=int, default=50)
     suggestions_list.add_argument("--json", "-j", action="store_true")
 
@@ -1224,7 +1233,7 @@ def main():
 
     # kernle suggestions approve <id> [--objective ...] [--outcome ...] [--statement ...]
     suggestions_approve = suggestions_sub.add_parser(
-        "approve", help="Approve and promote a suggestion"
+        "approve", help="Approve and promote a suggestion (alias for accept)"
     )
     suggestions_approve.add_argument("id", help="Suggestion ID (or prefix)")
     suggestions_approve.add_argument("--objective", help="Override objective (for episodes)")
@@ -1232,10 +1241,38 @@ def main():
     suggestions_approve.add_argument("--statement", help="Override statement (for beliefs)")
     suggestions_approve.add_argument("--content", help="Override content (for notes)")
 
+    # kernle suggestions accept <id> [--objective ...] [--outcome ...] [--statement ...]
+    suggestions_accept = suggestions_sub.add_parser(
+        "accept", help="Accept and promote a suggestion to a structured memory"
+    )
+    suggestions_accept.add_argument("id", help="Suggestion ID (or prefix)")
+    suggestions_accept.add_argument("--objective", help="Override objective (for episodes)")
+    suggestions_accept.add_argument("--outcome", help="Override outcome (for episodes)")
+    suggestions_accept.add_argument("--statement", help="Override statement (for beliefs)")
+    suggestions_accept.add_argument("--content", help="Override content (for notes)")
+
     # kernle suggestions reject <id> [--reason ...]
     suggestions_reject = suggestions_sub.add_parser("reject", help="Reject a suggestion")
     suggestions_reject.add_argument("id", help="Suggestion ID (or prefix)")
     suggestions_reject.add_argument("--reason", "-r", help="Rejection reason")
+
+    # kernle suggestions dismiss <id> [--reason ...]
+    suggestions_dismiss = suggestions_sub.add_parser(
+        "dismiss", help="Dismiss a suggestion (will not be promoted)"
+    )
+    suggestions_dismiss.add_argument("id", help="Suggestion ID (or prefix)")
+    suggestions_dismiss.add_argument("--reason", "-r", help="Dismissal reason")
+
+    # kernle suggestions expire [--max-age-hours N]
+    suggestions_expire = suggestions_sub.add_parser(
+        "expire", help="Auto-dismiss stale pending suggestions"
+    )
+    suggestions_expire.add_argument(
+        "--max-age-hours",
+        type=float,
+        default=168.0,
+        help="Age threshold in hours (default: 168 = 7 days)",
+    )
 
     # kernle suggestions extract [--limit N]
     suggestions_extract = suggestions_sub.add_parser(

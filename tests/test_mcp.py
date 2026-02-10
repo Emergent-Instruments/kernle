@@ -1933,7 +1933,12 @@ class TestSuggestionTools:
         assert "-> belief-99999999" in text
 
         patched_suggestion_kernle.get_suggestions.assert_called_once_with(
-            status=None, memory_type=None, limit=20
+            status=None,
+            memory_type=None,
+            limit=20,
+            min_confidence=None,
+            max_age_hours=None,
+            source_raw_id=None,
         )
 
     @pytest.mark.asyncio
@@ -1957,7 +1962,12 @@ class TestSuggestionTools:
         assert "Pending:" not in text or "Approved:" not in text
 
         patched_suggestion_kernle.get_suggestions.assert_called_once_with(
-            status="pending", memory_type=None, limit=20
+            status="pending",
+            memory_type=None,
+            limit=20,
+            min_confidence=None,
+            max_age_hours=None,
+            source_raw_id=None,
         )
 
     @pytest.mark.asyncio
@@ -1969,7 +1979,12 @@ class TestSuggestionTools:
         )
 
         patched_suggestion_kernle.get_suggestions.assert_called_once_with(
-            status="pending", memory_type="episode", limit=5
+            status="pending",
+            memory_type="episode",
+            limit=5,
+            min_confidence=None,
+            max_age_hours=None,
+            source_raw_id=None,
         )
 
     @pytest.mark.asyncio

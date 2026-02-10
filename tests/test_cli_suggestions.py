@@ -117,6 +117,9 @@ class TestCmdSuggestionsList:
             status="pending",
             memory_type=None,
             limit=50,
+            min_confidence=None,
+            max_age_hours=None,
+            source_raw_id=None,
         )
         captured = capsys.readouterr()
         assert "No pending suggestions found" in captured.out
@@ -142,6 +145,9 @@ class TestCmdSuggestionsList:
             status="promoted",
             memory_type=None,
             limit=50,
+            min_confidence=None,
+            max_age_hours=None,
+            source_raw_id=None,
         )
 
     def test_list_with_status_filter_rejected(self, capsys):
@@ -165,6 +171,9 @@ class TestCmdSuggestionsList:
             status="rejected",
             memory_type=None,
             limit=50,
+            min_confidence=None,
+            max_age_hours=None,
+            source_raw_id=None,
         )
 
     def test_list_with_type_filter(self, capsys):
@@ -188,6 +197,9 @@ class TestCmdSuggestionsList:
             status=None,
             memory_type="episode",
             limit=50,
+            min_confidence=None,
+            max_age_hours=None,
+            source_raw_id=None,
         )
 
     def test_list_json_output(self, capsys):
@@ -504,8 +516,8 @@ class TestCmdSuggestionsShow:
         assert "- Lesson 2" in captured.out
         assert "Source raw entries:" in captured.out
         assert "Actions:" in captured.out
-        assert "Approve:" in captured.out
-        assert "Reject:" in captured.out
+        assert "Accept:" in captured.out
+        assert "Dismiss:" in captured.out
 
     def test_show_belief_formatted(self, capsys):
         """Test show belief suggestion with formatted output."""

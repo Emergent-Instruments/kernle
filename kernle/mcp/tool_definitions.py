@@ -749,7 +749,7 @@ TOOLS = [
             "properties": {
                 "status": {
                     "type": "string",
-                    "enum": ["pending", "promoted", "rejected", "all"],
+                    "enum": ["pending", "promoted", "rejected", "dismissed", "expired", "all"],
                     "description": "Filter by status (default: pending)",
                     "default": "pending",
                 },
@@ -757,6 +757,18 @@ TOOLS = [
                     "type": "string",
                     "enum": ["episode", "belief", "note"],
                     "description": "Filter by suggested memory type",
+                },
+                "min_confidence": {
+                    "type": "number",
+                    "description": "Minimum confidence threshold (0.0-1.0)",
+                },
+                "max_age_hours": {
+                    "type": "number",
+                    "description": "Only return suggestions created within this many hours",
+                },
+                "source_raw_id": {
+                    "type": "string",
+                    "description": "Filter to suggestions derived from this raw entry ID",
                 },
                 "limit": {
                     "type": "integer",
@@ -832,6 +844,92 @@ TOOLS = [
                     "default": 50,
                 },
             },
+        },
+    ),
+    # New suggestion resolution tools
+    Tool(
+        name="suggestion_list",
+        description="List and filter memory suggestions. Supports filtering by status, type, confidence, age, and source raw entry.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "status": {
+                    "type": "string",
+                    "enum": ["pending", "promoted", "rejected", "dismissed", "expired", "all"],
+                    "description": "Filter by status (default: pending)",
+                    "default": "pending",
+                },
+                "memory_type": {
+                    "type": "string",
+                    "enum": ["episode", "belief", "note"],
+                    "description": "Filter by suggested memory type",
+                },
+                "min_confidence": {
+                    "type": "number",
+                    "description": "Minimum confidence threshold (0.0-1.0)",
+                },
+                "max_age_hours": {
+                    "type": "number",
+                    "description": "Only return suggestions created within this many hours",
+                },
+                "source_raw_id": {
+                    "type": "string",
+                    "description": "Filter to suggestions derived from this raw entry ID",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Maximum suggestions to return (default: 20)",
+                    "default": 20,
+                },
+            },
+        },
+    ),
+    Tool(
+        name="suggestion_accept",
+        description="Accept a pending suggestion and promote it to a structured memory (episode/belief/note) with full provenance. Optionally modify content before promotion.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "suggestion_id": {
+                    "type": "string",
+                    "description": "ID of the suggestion to accept",
+                },
+                "objective": {
+                    "type": "string",
+                    "description": "Override objective (for episode suggestions)",
+                },
+                "outcome": {
+                    "type": "string",
+                    "description": "Override outcome (for episode suggestions)",
+                },
+                "statement": {
+                    "type": "string",
+                    "description": "Override statement (for belief suggestions)",
+                },
+                "content": {
+                    "type": "string",
+                    "description": "Override content (for note suggestions)",
+                },
+            },
+            "required": ["suggestion_id"],
+        },
+    ),
+    Tool(
+        name="suggestion_dismiss",
+        description="Dismiss a pending suggestion (it will not be promoted). Sets status to 'dismissed' with an optional reason.",
+        inputSchema={
+            "type": "object",
+            "properties": {
+                "suggestion_id": {
+                    "type": "string",
+                    "description": "ID of the suggestion to dismiss",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Optional reason for dismissal",
+                },
+            },
+            "required": ["suggestion_id"],
         },
     ),
     Tool(
