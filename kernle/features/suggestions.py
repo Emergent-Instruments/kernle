@@ -505,6 +505,13 @@ class SuggestionsMixin:
         Returns:
             ID of the created memory, or None if failed
         """
+        # In strict mode, delegate to the stack's accept_suggestion which
+        # handles provenance correctly (source_entity="kernle:suggestion-promotion").
+        if getattr(self, "_strict", False):
+            stack = getattr(self, "stack", None)
+            if stack is not None and hasattr(stack, "accept_suggestion"):
+                return stack.accept_suggestion(suggestion_id, modifications)
+
         suggestion = self._storage.get_suggestion(suggestion_id)
         if not suggestion or suggestion.status != "pending":
             return None
@@ -518,18 +525,25 @@ class SuggestionsMixin:
         memory_id = None
         memory_type = suggestion.memory_type
 
+        # Build provenance: derived_from the source raw entries with raw: prefix
+        derived_from = [f"raw:{rid}" for rid in (suggestion.source_raw_ids or [])]
+
         if memory_type == "episode":
             memory_id = self.episode(
                 objective=content.get("objective", ""),
                 outcome=content.get("outcome", ""),
                 lessons=content.get("lessons"),
                 tags=["auto-suggested"],
+                derived_from=derived_from,
+                source_type="processing",
             )
         elif memory_type == "belief":
             memory_id = self.belief(
                 statement=content.get("statement", ""),
                 type=content.get("belief_type", "fact"),
                 confidence=content.get("confidence", 0.7),
+                derived_from=derived_from,
+                source_type="processing",
             )
         elif memory_type == "note":
             memory_id = self.note(
@@ -538,6 +552,8 @@ class SuggestionsMixin:
                 speaker=content.get("speaker"),
                 reason=content.get("reason"),
                 tags=["auto-suggested"],
+                derived_from=derived_from,
+                source_type="processing",
             )
 
         if memory_id:
