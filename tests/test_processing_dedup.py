@@ -1180,7 +1180,6 @@ class TestRandomIngestionOrder:
             rec.outcome = f"out-{i}"
             rec.derived_from = [ref_pool[i]]
             existing_records.append(rec)
-        dedup_index = processor._build_existing_index("raw_to_episode", existing_records)
 
         # Shuffle the items and verify same dedup outcome
         for _ in range(5):
@@ -1188,7 +1187,9 @@ class TestRandomIngestionOrder:
             rng.shuffle(shuffled)
             mock_stack.save_episode.reset_mock()
             mock_stack.save_episode.return_value = "ep-new"
-            created = processor._write_memories("raw_to_episode", shuffled, [], dedup_index)
+            # Rebuild index each iteration since _write_memories mutates it
+            fresh_index = processor._build_existing_index("raw_to_episode", existing_records)
+            created = processor._write_memories("raw_to_episode", shuffled, [], fresh_index)
             # Items 0-2 are duplicates, items 3-4 are new
             assert (
                 processor._last_deduplicated == 3
@@ -1215,14 +1216,15 @@ class TestRandomIngestionOrder:
             rec.derived_from = None
             del rec.objective
             existing.append(rec)
-        dedup_index = processor._build_existing_index("episode_to_belief", existing)
 
         for _ in range(5):
             shuffled = list(items)
             rng.shuffle(shuffled)
             mock_stack.save_belief.reset_mock()
             mock_stack.save_belief.return_value = "b-new"
-            created = processor._write_memories("episode_to_belief", shuffled, [], dedup_index)
+            # Rebuild index each iteration since _write_memories mutates it
+            fresh_index = processor._build_existing_index("episode_to_belief", existing)
+            created = processor._write_memories("episode_to_belief", shuffled, [], fresh_index)
             assert processor._last_deduplicated == 4
             assert len(created) == 2
 
@@ -1408,3 +1410,160 @@ class TestUpdatedContentPolicy:
         created = processor._write_memories("raw_to_episode", items, [], dedup_index)
         assert len(created) == 1  # Only the genuinely new one
         assert processor._last_deduplicated == 2  # Both duplicates caught
+
+
+# =============================================================================
+# Intra-batch dedup (P1 regression: duplicate items within a single batch)
+# =============================================================================
+
+
+class TestIntraBatchDedup:
+    """Regression tests for intra-batch dedup gap (P1 bug).
+
+    The bug: _write_memories() checked dedup only against the prebuilt
+    dedup_index but did NOT update the index as new items were written
+    during the same batch. Two identical parsed items in one run were
+    both created (deduplicated=0).
+    """
+
+    def test_identical_items_in_same_batch_by_content(self):
+        """Two identical parsed items in one batch: only 1 created, 1 deduped."""
+        mock_stack = _make_mock_stack()
+        mock_stack.save_episode.return_value = "ep-new"
+        processor, _ = _make_processor(mock_stack)
+
+        dedup_index = {"provenance": {}, "content": {}}
+
+        parsed = [
+            {"objective": "same thing", "outcome": "same result", "source_raw_ids": ["r1"]},
+            {"objective": "same thing", "outcome": "same result", "source_raw_ids": ["r1"]},
+        ]
+        created = processor._write_memories("raw_to_episode", parsed, [], dedup_index)
+        assert len(created) == 1, f"Expected 1 created, got {len(created)}"
+        assert (
+            processor._last_deduplicated == 1
+        ), f"Expected 1 deduplicated, got {processor._last_deduplicated}"
+        mock_stack.save_episode.assert_called_once()
+
+    def test_identical_items_in_same_batch_by_provenance(self):
+        """Two items with same provenance but different content: only 1 created."""
+        mock_stack = _make_mock_stack()
+        mock_stack.save_episode.return_value = "ep-new"
+        processor, _ = _make_processor(mock_stack)
+
+        dedup_index = {"provenance": {}, "content": {}}
+
+        parsed = [
+            {
+                "objective": "interpretation A",
+                "outcome": "version A",
+                "source_raw_ids": ["r1", "r2"],
+            },
+            {
+                "objective": "interpretation B",
+                "outcome": "version B",
+                "source_raw_ids": ["r1", "r2"],
+            },
+        ]
+        created = processor._write_memories("raw_to_episode", parsed, [], dedup_index)
+        assert len(created) == 1
+        assert processor._last_deduplicated == 1
+        mock_stack.save_episode.assert_called_once()
+
+    def test_three_identical_items_in_batch(self):
+        """Three identical items: only 1 created, 2 deduped."""
+        mock_stack = _make_mock_stack()
+        mock_stack.save_belief.return_value = "b-new"
+        processor, _ = _make_processor(mock_stack)
+
+        dedup_index = {"provenance": {}, "content": {}}
+
+        parsed = [
+            {"statement": "testing is important", "source_episode_ids": ["ep1"]},
+            {"statement": "testing is important", "source_episode_ids": ["ep1"]},
+            {"statement": "testing is important", "source_episode_ids": ["ep1"]},
+        ]
+        created = processor._write_memories("episode_to_belief", parsed, [], dedup_index)
+        assert len(created) == 1
+        assert processor._last_deduplicated == 2
+        mock_stack.save_belief.assert_called_once()
+
+    def test_intra_batch_mixed_unique_and_duplicate(self):
+        """Batch with 2 unique + 2 duplicates: 2 created, 2 deduped."""
+        mock_stack = _make_mock_stack()
+        mock_stack.save_episode.side_effect = ["ep-1", "ep-2"]
+        processor, _ = _make_processor(mock_stack)
+
+        dedup_index = {"provenance": {}, "content": {}}
+
+        parsed = [
+            {"objective": "first unique", "outcome": "out1", "source_raw_ids": ["r1"]},
+            {"objective": "second unique", "outcome": "out2", "source_raw_ids": ["r2"]},
+            {"objective": "first unique", "outcome": "out1", "source_raw_ids": ["r1"]},
+            {"objective": "second unique", "outcome": "out2", "source_raw_ids": ["r2"]},
+        ]
+        created = processor._write_memories("raw_to_episode", parsed, [], dedup_index)
+        assert len(created) == 2
+        assert processor._last_deduplicated == 2
+
+    def test_intra_batch_content_only_no_provenance(self):
+        """Content-only dedup within batch (no provenance refs)."""
+        mock_stack = _make_mock_stack()
+        mock_stack.save_belief.return_value = "b-new"
+        processor, _ = _make_processor(mock_stack)
+
+        dedup_index = {"provenance": {}, "content": {}}
+
+        parsed = [
+            {"statement": "Honesty matters", "source_episode_ids": []},
+            {"statement": "honesty   matters", "source_episode_ids": []},
+        ]
+        created = processor._write_memories("episode_to_belief", parsed, [], dedup_index)
+        assert len(created) == 1
+        assert processor._last_deduplicated == 1
+
+    def test_full_pipeline_intra_batch_dedup(self, stack):
+        """Full integration: model returns duplicate items in one response."""
+        # Save raw entries
+        raw_ids = []
+        for i in range(3):
+            rid = stack.save_raw(
+                RawEntry(
+                    id=str(uuid.uuid4()),
+                    stack_id=STACK_ID,
+                    blob=f"Content {i}",
+                    source="test",
+                )
+            )
+            raw_ids.append(rid)
+
+        # Model returns two identical episodes in one response
+        response = json.dumps(
+            [
+                {
+                    "objective": "Learned about testing",
+                    "outcome": "Testing is important",
+                    "outcome_type": "success",
+                    "source_raw_ids": raw_ids,
+                },
+                {
+                    "objective": "Learned about testing",
+                    "outcome": "Testing is important",
+                    "outcome_type": "success",
+                    "source_raw_ids": raw_ids,
+                },
+            ]
+        )
+        inference = MockInference(response)
+        processor = MemoryProcessor(stack=stack, inference=inference, core_id="test")
+        results = processor.process("raw_to_episode", force=True, auto_promote=True)
+
+        assert len(results) == 1
+        assert len(results[0].created) == 1, f"Expected 1 created, got {len(results[0].created)}"
+        assert (
+            results[0].deduplicated == 1
+        ), f"Expected 1 deduplicated, got {results[0].deduplicated}"
+
+        # Only 1 episode in the stack
+        episodes = stack.get_episodes()
+        assert len(episodes) == 1
