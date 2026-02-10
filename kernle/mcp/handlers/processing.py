@@ -114,7 +114,9 @@ def handle_memory_process(args: Dict[str, Any], k: Kernle) -> str:
             )
             if suggestion_summary:
                 lines.append(f"    Suggestions: {suggestion_summary}")
-            lines.append("    Use memory_suggestions to review and accept/reject.")
+            lines.append(
+                "    Use suggestion_list to review and suggestion_accept/suggestion_dismiss."
+            )
             if r.gate_blocked:
                 lines.append(f"    Gate blocked: {r.gate_blocked} item(s)")
                 for detail in r.gate_details:
