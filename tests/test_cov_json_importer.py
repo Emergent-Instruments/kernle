@@ -5,7 +5,6 @@ error handling during import, and unknown type handling.
 """
 
 import json
-from unittest.mock import MagicMock
 
 from kernle.importers.json_importer import (
     JsonImporter,
@@ -24,15 +23,6 @@ class TestImportJsonItemDuplicateEpisode:
         # Create an existing episode
         k.episode(objective="Existing objective", outcome="Existing outcome")
 
-        # Mock k.search to behave like record_types is supported
-        episodes = storage.get_episodes(limit=5)
-        mock_results = []
-        for ep in episodes:
-            r = MagicMock()
-            r.record = ep
-            mock_results.append(r)
-        k.search = MagicMock(return_value=mock_results)
-
         item = JsonImportItem(
             type="episode",
             data={"objective": "Existing objective", "outcome": "Existing outcome"},
@@ -43,9 +33,6 @@ class TestImportJsonItemDuplicateEpisode:
     def test_episode_import_when_no_duplicate(self, kernle_instance):
         """Import episode when no duplicate exists."""
         k, storage = kernle_instance
-
-        # Mock search returning empty (no duplicates)
-        k.search = MagicMock(return_value=[])
 
         item = JsonImportItem(
             type="episode",
@@ -70,15 +57,6 @@ class TestImportJsonItemDuplicateNote:
         # Create an existing note
         k.note(content="Existing note content")
 
-        # Mock k.search to return matching note
-        notes = storage.get_notes(limit=5)
-        mock_results = []
-        for n in notes:
-            r = MagicMock()
-            r.record = n
-            mock_results.append(r)
-        k.search = MagicMock(return_value=mock_results)
-
         item = JsonImportItem(
             type="note",
             data={"content": "Existing note content"},
@@ -89,9 +67,6 @@ class TestImportJsonItemDuplicateNote:
     def test_note_import_when_no_duplicate(self, kernle_instance):
         """Import note when no duplicate exists."""
         k, storage = kernle_instance
-
-        # Mock search returning empty (no duplicates)
-        k.search = MagicMock(return_value=[])
 
         item = JsonImportItem(
             type="note",
