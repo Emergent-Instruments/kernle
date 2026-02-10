@@ -4,6 +4,7 @@ Each module contains related command handlers extracted from __main__.py.
 """
 
 from kernle.cli.commands.anxiety import cmd_anxiety
+from kernle.cli.commands.audit import cmd_audit
 from kernle.cli.commands.auth import cmd_auth, cmd_auth_keys
 from kernle.cli.commands.belief import cmd_belief
 from kernle.cli.commands.credentials import (
@@ -60,6 +61,7 @@ from kernle.cli.commands.sync import cmd_sync
 
 __all__ = [
     "cmd_anxiety",
+    "cmd_audit",
     "cmd_auth",
     "cmd_auth_keys",
     "cmd_belief",
