@@ -1,11 +1,13 @@
 """Coverage tests for kernle/mcp/server.py.
 
 Targets uncovered lines: set_stack_id, handle_tool_error branches,
-plugin tool call_tool path, and main().
+plugin tool call_tool path, main(), run_server(), and __main__ block.
 """
 
 import json
-from unittest.mock import MagicMock
+import runpy
+from contextlib import asynccontextmanager
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from mcp.types import TextContent
@@ -17,6 +19,7 @@ from kernle.mcp.server import (
     get_kernle,
     handle_tool_error,
     main,
+    run_server,
     set_stack_id,
 )
 
@@ -150,7 +153,7 @@ class TestMain:
             captured_stack_id["id"] = sid
 
         def fake_run(coro):
-            # Don't actually run the coroutine
+            coro.close()  # Properly clean up the coroutine
             captured_run["called"] = True
 
         monkeypatch.setattr("kernle.mcp.server.set_stack_id", fake_set_stack_id)
@@ -171,7 +174,65 @@ class TestMain:
 
         monkeypatch.setattr("kernle.utils.resolve_stack_id", fake_resolve)
         monkeypatch.setattr("kernle.mcp.server.set_stack_id", lambda sid: None)
-        monkeypatch.setattr("asyncio.run", lambda coro: None)
+        monkeypatch.setattr("asyncio.run", lambda coro: coro.close())
 
         main()  # default stack_id="default"
         assert resolved_args["explicit"] is None
+
+
+class TestRunServer:
+    """Tests for run_server() — covers lines 191-192."""
+
+    @pytest.mark.asyncio
+    async def test_run_server_opens_stdio_and_runs_mcp(self):
+        """run_server() opens stdio_server context and calls mcp.run()."""
+        import kernle.mcp.server as srv
+
+        fake_read = MagicMock(name="read_stream")
+        fake_write = MagicMock(name="write_stream")
+
+        @asynccontextmanager
+        async def fake_stdio_server():
+            yield (fake_read, fake_write)
+
+        fake_mcp_run = AsyncMock(return_value=None)
+        fake_init_opts = {"server_name": "kernle"}
+
+        original_run = srv.mcp.run
+        original_init = srv.mcp.create_initialization_options
+        try:
+            srv.mcp.run = fake_mcp_run
+            srv.mcp.create_initialization_options = MagicMock(return_value=fake_init_opts)
+
+            with patch("kernle.mcp.server.stdio_server", fake_stdio_server):
+                await run_server()
+
+            fake_mcp_run.assert_called_once_with(fake_read, fake_write, fake_init_opts)
+        finally:
+            srv.mcp.run = original_run
+            srv.mcp.create_initialization_options = original_init
+
+
+class TestMainModule:
+    """Tests for if __name__ == '__main__' block — covers line 217."""
+
+    def test_dunder_main_invokes_main(self):
+        """Running server.py as __main__ calls main() at line 217."""
+        import importlib
+        import sys
+
+        # Remove the module from sys.modules so runpy can re-execute it
+        saved_modules = {}
+        for key in list(sys.modules):
+            if key == "kernle.mcp.server" or key.startswith("kernle.mcp.server."):
+                saved_modules[key] = sys.modules.pop(key)
+
+        try:
+            # Patch asyncio.run to prevent the real server from starting
+            with patch("asyncio.run", side_effect=lambda coro: coro.close()):
+                runpy.run_module("kernle.mcp.server", run_name="__main__", alter_sys=False)
+        finally:
+            # Restore original modules
+            sys.modules.update(saved_modules)
+            # Re-import to restore normal state
+            importlib.import_module("kernle.mcp.server")
