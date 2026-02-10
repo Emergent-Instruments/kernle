@@ -15,6 +15,30 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _validate_backend_url(url: str) -> "str | None":
+    """Validate backend URL to avoid leaking auth tokens over plaintext HTTP.
+
+    Mirrors the validation in CloudClient._validate_backend_url().
+    """
+    if not url:
+        return None
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme not in {"https", "http"}:
+        logger.warning("Invalid backend_url scheme; only http/https allowed.")
+        return None
+    if not parsed.netloc:
+        logger.warning("Invalid backend_url; missing host.")
+        return None
+    if parsed.scheme == "http":
+        host = parsed.hostname or ""
+        if host not in {"localhost", "127.0.0.1"}:
+            logger.warning("Refusing non-local http backend_url for security.")
+            return None
+    return url
+
+
 def cmd_sync(args, k: "Kernle"):
     """Handle sync subcommands for local-to-cloud synchronization."""
     # Load credentials with priority:
@@ -62,6 +86,10 @@ def cmd_sync(args, k: "Kernle"):
                 auth_token = auth_token or config.get("auth_token")
         except Exception as e:
             logger.debug(f"Failed to load legacy config file: {e}")
+
+    # Validate backend URL security
+    if backend_url:
+        backend_url = _validate_backend_url(backend_url)
 
     def get_local_project_name():
         """Extract the local project name from stack_id (without namespace)."""
