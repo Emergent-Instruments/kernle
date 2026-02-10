@@ -526,7 +526,7 @@ class TestEmergencySaveErrorPaths:
     def test_success_flag_true_when_no_errors(self, k):
         """Success flag should be True when no errors occur."""
         result = k.emergency_save()
-        assert result["success"] == (len(result["errors"]) == 0)
+        assert result["success"] is True
 
 
 class TestRawAgingReportIntegration:
@@ -538,7 +538,7 @@ class TestRawAgingReportIntegration:
             report = k.get_anxiety_report()
             dim = report["dimensions"]["raw_aging"]
             assert "all fresh" in dim["detail"]
-            assert dim["score"] == min(30, 5 * 3)
+            assert dim["score"] == 15
 
     def test_few_aging_entries_report(self, k):
         """1-3 aging entries should show >24h old detail (lines 313-314)."""
@@ -546,7 +546,7 @@ class TestRawAgingReportIntegration:
             report = k.get_anxiety_report()
             dim = report["dimensions"]["raw_aging"]
             assert ">24h old" in dim["detail"]
-            assert dim["score"] == int(30 + 2 * 15)
+            assert dim["score"] == 60
 
 
 class TestIdentityCoherenceStrong:
@@ -631,7 +631,7 @@ class TestContextPressureRanges:
         report = k.get_anxiety_report(context_tokens=190000, context_limit=200000)
         dim = report["dimensions"]["context_pressure"]
         # 95% -> 90 + (95-85) * 0.67 = 96
-        assert dim["score"] >= 90
+        assert dim["score"] == 96
 
 
 class TestUnsavedWorkRanges:
@@ -643,4 +643,4 @@ class TestUnsavedWorkRanges:
             report = k.get_anxiety_report()
             dim = report["dimensions"]["unsaved_work"]
             # 30 + (30-15) * 1.1 = 46.5 -> 46
-            assert 30 < dim["score"] < 80
+            assert dim["score"] == 46
