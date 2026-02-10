@@ -287,7 +287,8 @@ class TestNoStorage:
         component.attach("stack-001")
         result = component.on_maintenance()
         assert isinstance(result, dict)
-        assert result.get("skipped") is True or "reason" in result.get("skipped", "") or True
+        assert result.get("skipped") is True
+        assert isinstance(result.get("reason"), str) and result["reason"]
 
     @pytest.mark.parametrize("cls", ALL_COMPONENTS)
     def test_on_save_without_storage(self, cls):
