@@ -160,13 +160,14 @@ class TestEvaluateTriggers:
         )
         assert evaluate_triggers("raw_to_note", config, 1, cumulative_valence=3.0)
 
-    def test_valence_threshold_ignored_for_non_raw(self):
+    def test_valence_threshold_triggers_for_episode_to_belief(self):
         config = LayerConfig(
             layer_transition="episode_to_belief",
             quantity_threshold=100,
             valence_threshold=2.0,
         )
-        assert not evaluate_triggers("episode_to_belief", config, 1, cumulative_valence=10.0)
+        assert not evaluate_triggers("episode_to_belief", config, 1, cumulative_valence=1.5)
+        assert evaluate_triggers("episode_to_belief", config, 1, cumulative_valence=2.5)
 
     def test_time_threshold_triggers(self):
         config = LayerConfig(
