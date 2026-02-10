@@ -96,7 +96,9 @@
         "features/narratives",
         "features/summaries",
         "features/diagnostics",
-        "features/subscriptions"
+        "features/subscriptions",
+        "features/corpus-seeding",
+        "features/dev-dashboard"
       ]
     },
     {
