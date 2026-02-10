@@ -1,6 +1,6 @@
 """Handlers for corpus seeding tools: seed_repo, seed_docs, seed_status."""
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from kernle.core import Kernle
 from kernle.mcp.sanitize import sanitize_string
@@ -10,11 +10,23 @@ from kernle.mcp.sanitize import sanitize_string
 # ---------------------------------------------------------------------------
 
 
+def _sanitize_string_list(value: Any) -> Optional[list]:
+    """Coerce value to a list of strings, or None if invalid/empty."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        # Common tool-call mistake: string instead of array — split on comma
+        return [s.strip() for s in value.split(",") if s.strip()]
+    if isinstance(value, list):
+        return [str(item) for item in value if item]
+    return None
+
+
 def validate_memory_seed_repo(arguments: Dict[str, Any]) -> Dict[str, Any]:
     sanitized: Dict[str, Any] = {}
     sanitized["path"] = sanitize_string(arguments.get("path"), "path", 1000, required=True)
-    sanitized["extensions"] = arguments.get("extensions")
-    sanitized["exclude"] = arguments.get("exclude")
+    sanitized["extensions"] = _sanitize_string_list(arguments.get("extensions"))
+    sanitized["exclude"] = _sanitize_string_list(arguments.get("exclude"))
     sanitized["max_chunk_size"] = arguments.get("max_chunk_size", 2000)
     if not isinstance(sanitized["max_chunk_size"], int):
         sanitized["max_chunk_size"] = 2000
@@ -27,7 +39,7 @@ def validate_memory_seed_repo(arguments: Dict[str, Any]) -> Dict[str, Any]:
 def validate_memory_seed_docs(arguments: Dict[str, Any]) -> Dict[str, Any]:
     sanitized: Dict[str, Any] = {}
     sanitized["path"] = sanitize_string(arguments.get("path"), "path", 1000, required=True)
-    sanitized["extensions"] = arguments.get("extensions")
+    sanitized["extensions"] = _sanitize_string_list(arguments.get("extensions"))
     sanitized["max_chunk_size"] = arguments.get("max_chunk_size", 2000)
     if not isinstance(sanitized["max_chunk_size"], int):
         sanitized["max_chunk_size"] = 2000

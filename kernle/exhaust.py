@@ -140,8 +140,10 @@ class ExhaustionRunner:
             result.cycles_completed = cycle_num
             result.total_promotions += cycle_result.promotions
 
-            # Check convergence
-            if cycle_result.promotions == 0:
+            # Check convergence — error-only cycles don't count as zero-promotion
+            if cycle_result.errors and cycle_result.promotions == 0:
+                consecutive_zero = 0  # Reset: errors mean we can't trust "no promotions"
+            elif cycle_result.promotions == 0:
                 consecutive_zero += 1
                 if consecutive_zero >= 2:
                     result.converged = True

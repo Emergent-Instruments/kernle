@@ -407,6 +407,14 @@ class TestProcessingSourceType:
         result = assertions.processing_source_type()
         assert not result.passed
 
+    def test_fail_derived_from_wrong_source_type(self, storage, assertions):
+        """Memory with derived_from but non-processing source_type should fail."""
+        raw_id = _make_raw(storage, processed=True)
+        _make_episode(storage, derived_from=[f"raw:{raw_id}"], source_type="user")
+        result = assertions.processing_source_type()
+        assert not result.passed
+        assert "has derived_from but source_type='user'" in result.details["mismatched"][0]["issue"]
+
     def test_pass_empty_stack(self, assertions):
         """Empty stack passes."""
         result = assertions.processing_source_type()

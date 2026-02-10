@@ -603,7 +603,12 @@ class CognitiveAssertions:
         )
 
     def processing_source_type(self) -> AssertionResult:
-        """Check that processing-created memories have source_type='processing'."""
+        """Check that processing-created memories have source_type='processing' and vice versa.
+
+        Validates both directions:
+        - source_type='processing' must have derived_from refs
+        - derived_from refs present must have source_type='processing'
+        """
         all_memories = self._get_all_memories()
         mismatched: List[Dict[str, str]] = []
 
@@ -611,15 +616,22 @@ class CognitiveAssertions:
             for mem in memories:
                 derived = getattr(mem, "derived_from", None) or []
                 st = getattr(mem, "source_type", None)
-                # If it has derived_from refs AND source_type is 'processing',
-                # that's correct. If it has processing source_type but no refs,
-                # that's suspicious.
+                # source_type='processing' but no provenance refs
                 if st == "processing" and not derived:
                     mismatched.append(
                         {
                             "memory_type": mem_type,
                             "memory_id": mem.id,
                             "issue": "source_type='processing' but no derived_from",
+                        }
+                    )
+                # Has provenance refs but source_type is not 'processing'
+                elif derived and st and st != "processing":
+                    mismatched.append(
+                        {
+                            "memory_type": mem_type,
+                            "memory_id": mem.id,
+                            "issue": f"has derived_from but source_type='{st}' (expected 'processing')",
                         }
                     )
 
@@ -634,7 +646,7 @@ class CognitiveAssertions:
             category="pipeline",
             name="processing_source_type",
             passed=False,
-            message=f"{len(mismatched)} processing memory(ies) lack provenance",
+            message=f"{len(mismatched)} processing memory(ies) with mismatched provenance",
             details={"mismatched": mismatched},
         )
 

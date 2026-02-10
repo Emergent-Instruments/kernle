@@ -359,6 +359,44 @@ class TestErrorHandling:
         errors = result.cycle_results[0].errors
         assert any("raw_to_note" in e and "model unavailable" in e for e in errors)
 
+    def test_error_only_cycles_do_not_converge(self):
+        """Cycles with errors but 0 promotions should NOT count as convergence."""
+
+        def always_error(**kwargs):
+            transition = kwargs.get("transition", "")
+            return [_make_result(transition, errors=["model unavailable"])]
+
+        k = _mock_kernle(always_error)
+        runner = ExhaustionRunner(k, max_cycles=5)
+        result = runner.run()
+
+        # Should NOT converge — every cycle has errors
+        assert result.converged is False
+        assert result.convergence_reason == "max_cycles_reached"
+        assert result.cycles_completed == 5
+
+    def test_error_then_clean_zero_converges(self):
+        """Error cycle followed by 2 clean zero-promotion cycles converges."""
+        call_count = [0]
+
+        def error_then_empty(**kwargs):
+            call_count[0] += 1
+            transition = kwargs.get("transition", "")
+            # Cycle 1 (calls 1-2): errors on everything
+            if call_count[0] <= 2:
+                return [_make_result(transition, errors=["temporary failure"])]
+            # Cycles 2+ (calls 3+): clean, no promotions
+            return []
+
+        k = _mock_kernle(error_then_empty)
+        runner = ExhaustionRunner(k, max_cycles=10)
+        result = runner.run()
+
+        assert result.converged is True
+        assert result.convergence_reason == "two_consecutive_zero_promotion_cycles"
+        # Cycle 1: errors (reset streak), Cycle 2: clean zero, Cycle 3: clean zero -> converge
+        assert result.cycles_completed == 3
+
 
 # =============================================================================
 # MCP Handler/Validator Tests

@@ -348,11 +348,12 @@ class CorpusIngestor:
     def get_status(self) -> dict:
         """Return counts of corpus raw entries.
 
+        Paginates through all raw entries to avoid truncation on large stacks.
+
         Returns:
             Dict with corpus entry counts.
         """
-        all_raw = self._k._storage.list_raw(limit=10000)
-        corpus_entries = [e for e in all_raw if _is_corpus_entry(e)]
+        corpus_entries = _collect_all_corpus_entries(self._k._storage)
         return {
             "total_corpus_entries": len(corpus_entries),
             "repo_entries": sum(1 for e in corpus_entries if "[corpus:repo]" in (e.blob or "")),
@@ -472,20 +473,39 @@ class CorpusIngestor:
             return None
 
     def _load_existing_hashes(self) -> None:
-        """Load content hashes from existing corpus entries for dedup."""
+        """Load content hashes from existing corpus entries for dedup.
+
+        Paginates through all raw entries to avoid truncation on large stacks.
+        """
         try:
-            all_raw = self._k._storage.list_raw(limit=10000)
-            for entry in all_raw:
-                if _is_corpus_entry(entry):
-                    blob = entry.blob or ""
-                    # Extract content after the header line
-                    content = _extract_corpus_content(blob)
-                    if content:
-                        h = compute_content_hash(content)
-                        if h:
-                            self._seen_hashes.add(h)
+            corpus_entries = _collect_all_corpus_entries(self._k._storage)
+            for entry in corpus_entries:
+                blob = entry.blob or ""
+                content = _extract_corpus_content(blob)
+                if content:
+                    h = compute_content_hash(content)
+                    if h:
+                        self._seen_hashes.add(h)
         except Exception as e:
             logger.warning("Could not load existing corpus hashes: %s", e)
+
+
+_CORPUS_SCAN_LIMIT = 100000
+
+
+def _collect_all_corpus_entries(storage) -> list:
+    """Fetch all raw entries and filter to corpus entries.
+
+    Uses a large limit to avoid silently truncating on active stacks.
+    Logs a warning if the limit is reached (potential missed entries).
+    """
+    all_raw = storage.list_raw(limit=_CORPUS_SCAN_LIMIT)
+    if len(all_raw) >= _CORPUS_SCAN_LIMIT:
+        logger.warning(
+            "Raw entry scan hit %d limit — corpus dedup/status may be incomplete",
+            _CORPUS_SCAN_LIMIT,
+        )
+    return [e for e in all_raw if _is_corpus_entry(e)]
 
 
 def _is_corpus_entry(entry) -> bool:
