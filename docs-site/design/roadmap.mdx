@@ -7,7 +7,7 @@ This roadmap outlines planned features that extend Kernle's cognitive infrastruc
 
 ## What's Been Built
 
-The core cognitive infrastructure is in place, built across eight versioned milestones:
+The core cognitive infrastructure is in place, built across nine versioned milestones:
 
 <CardGroup cols={3}>
   <Card title="Protocol System" icon="diagram-project">
@@ -23,7 +23,7 @@ The core cognitive infrastructure is in place, built across eight versioned mile
 
 ### Version History
 
-#### v0.3.0 — Protocol & Types Foundation
+#### v0.03.00 — Protocol & Types Foundation
 
 Established the protocol definitions, shared type system, and plugin discovery mechanism that all subsequent architecture builds on.
 
@@ -31,7 +31,7 @@ Established the protocol definitions, shared type system, and plugin discovery m
 - Shared types (`types.py` — all memory dataclasses)
 - Discovery system (`discovery.py` — entry point discovery via `importlib.metadata`)
 
-#### v0.4.0 — Core/Stack Split
+#### v0.04.00 — Core/Stack Split
 
 Separated the coordinator (Entity) from the memory container (SQLiteStack), enabling independent evolution and composability.
 
@@ -41,7 +41,7 @@ Separated the coordinator (Entity) from the memory container (SQLiteStack), enab
 - **Contract tests** — 163 tests for StackProtocol + CoreProtocol conformance
 - **CLI migration** — composition info in status, plugin discovery
 
-#### v0.5.0 — Stack Components
+#### v0.05.00 — Stack Components
 
 Extracted feature mixins into discoverable, composable stack components that can be independently configured.
 
@@ -50,7 +50,7 @@ Extracted feature mixins into discoverable, composable stack components that can
 - **7 feature mixin components** — forgetting, consolidation, emotions, anxiety, suggestions, metamemory, knowledge
 - **Component discovery** — auto-loading of 8 default components via entry points
 
-#### v0.6.0 — Plugin System
+#### v0.06.00 — Plugin System
 
 Added model provider implementations and wired plugin tools through the Entity and MCP server.
 
@@ -58,7 +58,7 @@ Added model provider implementations and wired plugin tools through the Entity a
 - **Plugin CLI/MCP tool registration** — Entity wiring, namespaced `{plugin_name}.{tool_name}` dispatch
 - **MCP dispatch fix** — resolved `validate_tool_input` rejecting plugin tool names
 
-#### v0.7.0 — Plugin Extraction
+#### v0.07.00 — Plugin Extraction
 
 Moved commerce and communications into independent packages that implement PluginProtocol.
 
@@ -66,7 +66,7 @@ Moved commerce and communications into independent packages that implement Plugi
 - **fatline** — AgentRegistry + Ed25519 crypto identity, own SQLite DB in plugin data dir
 - Both registered as `kernle.plugins` entry points
 
-#### v0.9.0 — Memory Integrity
+#### v0.09.00 — Memory Integrity
 
 Introduced provenance enforcement, continuous memory strength replacing binary forgetting, and controlled access with audit trails.
 
@@ -77,7 +77,7 @@ Introduced provenance enforcement, continuous memory strength replacing binary f
 - **Strict mode** (`strict=True` default) — enforces provenance and source_type requirements
 - **Plugin registration** — live settings sync between stack settings and stack components
 
-#### v0.10.0 — Provenance Wiring + Strength Cascade
+#### v0.10.00 — Provenance Wiring + Strength Cascade
 
 Wired provenance through all interfaces (CLI, MCP, core methods), added strength cascade across memory lineage, and enabled component inference.
 
@@ -89,15 +89,15 @@ Wired provenance through all interfaces (CLI, MCP, core methods), added strength
 - **Memory processing** — MCP tools + CLI (`memory_process`, `memory_process_status`, `kernle process run/status`)
 - **Audit fixes** — enforce_provenance=True default, strict=True default, strength-tier gating, on_save mutation persistence
 
----
+#### v0.11.x — Platform Integration & Architecture
 
-## Platform Integration Plugins
+Shipped deep AI runtime integrations, then progressively improved test quality and module architecture across 8 patch releases.
+
+**v0.11.00 — Hook CLI & Platform Integration**
 
 Deep integration with AI runtimes ensures automatic memory capture — not just loading, but writing. Both plugins are shipped and available in the `integrations/` directory.
 
-### OpenClaw Plugin
-
-Native OpenClaw plugin using the Plugin SDK. Replaces the old CLI hook approach with lifecycle hooks that capture memory automatically through the plugin runtime:
+**OpenClaw Plugin** — Native Plugin SDK integration with lifecycle hooks:
 
 | Plugin Hook | Kernle Use |
 |-------------|-----------|
@@ -110,9 +110,7 @@ Installation: `cd integrations/openclaw && npm install && npm run build && openc
 
 See [OpenClaw Integration](/integration/openclaw) for full details.
 
-### Claude Code Hooks
-
-Claude Code integration using `kernle hook` CLI commands. Provides full lifecycle coverage — automatic loading, pre-compaction checkpointing, session-end checkpointing, and native write interception:
+**Claude Code Hooks** — Full lifecycle coverage via `kernle hook` CLI commands:
 
 | Hook | Kernle Use |
 |------|-----------|
@@ -127,24 +125,63 @@ No repo access needed — works directly from `pip install kernle`. Configuratio
 
 See [Claude Code Integration](/integration/claude-code) for full details.
 
-### Future Plugin Enhancements
+**v0.11.01–v0.11.08 — Architecture Improvements**
 
-| Platform | Hook | Purpose |
-|----------|------|---------|
-| Claude Code | `PostToolUse` | Track significant tool calls (Write, Edit, Bash) as raw captures |
-| Claude Code | `UserPromptSubmit` | Inject relevant memory context based on the user's prompt |
+- **v0.11.01** — Lazy decay-on-read, provenance migration, component ordering, CLI migration guide, plugin documentation, search regression fix, checkpoint provenance fix
+- **v0.11.02** — Fragmented monolithic `sqlite.py` and `core.py` into focused modules
+- **v0.11.03** — Refactored MCP `call_tool` to handler registry pattern
+- **v0.11.04** — Test coverage for MCP suggestion tools, cloud.py, embeddings.py
+- **v0.11.05** — Sync engine tests, belief revision edge cases, tautological test fixes
+- **v0.11.06** — Extracted CLI command modules (sync, auth, memory, relations, diagnostic, migrate), CI coverage gate raised to 77%
+- **v0.11.07** — Tests for all extracted CLI command modules
+- **v0.11.08** — Fragmented `storage/sqlite.py` and `core.py` into focused modules with 80%+ test coverage
 
 ---
 
-## Near-Term: Enriched Cognition
+## Planned Milestones
+
+Development is organized into versioned milestones. Each minor version (e.g., v0.12.x) is a milestone, with patch versions (e.g., v0.12.00, v0.12.01) as parent issues within. The v0.12.x series addresses critical pipeline integrity findings from a memory pipeline audit, while v0.13.x introduces enriched cognition features and trust enforcement.
+
+### v0.12.00 — Pipeline Safety
+
+<Warning>Critical fixes from the 2026-02-09 memory pipeline audit. These prevent identity corruption when inference is unavailable and establish the suggestions-first governance model.</Warning>
+
+The pipeline audit revealed that `force processing` with `inference_available=false` promoted malformed beliefs and values — identity corruption, not identity continuity. This milestone introduces the invariants that prevent it.
+
+- **No-inference safe-mode** — prevent identity-layer writes when `inference_available=false`; allow only raw capture, basic notes, and suggestions ([#399](https://github.com/emergent-instruments/kernle/issues/399))
+- **`source_type` taxonomy** — resolve `"processed"` mismatch; establish canonical SourceType enum aligned with docs ([#400](https://github.com/emergent-instruments/kernle/issues/400))
+- **Suggestions-first promotion** — make suggestions the default output of processing; require explicit opt-in for auto-promotion into beliefs/values ([#401](https://github.com/emergent-instruments/kernle/issues/401))
+- **Memory lint pass** — reject malformed or low-signal beliefs/values before commit; store failures as suggestions instead ([#402](https://github.com/emergent-instruments/kernle/issues/402))
+- **Transition idempotency** — deduplicate by provenance hash and content hash; reprocessing the same batch produces zero duplicates ([#403](https://github.com/emergent-instruments/kernle/issues/403))
+
+### v0.12.01 — Pipeline Robustness
+
+With the safety invariants in place, this milestone makes the pipeline smarter about *when* and *whether* to promote.
+
+- **Time/valence triggers** — wire aging, emotional arousal, and consolidation debt into `check_triggers()` alongside quantity thresholds ([#404](https://github.com/emergent-instruments/kernle/issues/404))
+- **Promotion gates** — require minimum evidence count, confidence floor, and trust floor before creating beliefs/values; build on existing strength-tier mechanism ([#405](https://github.com/emergent-instruments/kernle/issues/405))
+- **Suggestion resolution workflow** — full lifecycle: list, accept, dismiss, expire; CLI commands, MCP tools, and audit events ([#406](https://github.com/emergent-instruments/kernle/issues/406))
+- **Golden snapshot test** — end-to-end pipeline regression test with fixed inputs; covers inference-on/off variants ([#407](https://github.com/emergent-instruments/kernle/issues/407))
+
+### v0.12.02 — Governance & Observability
+
+Auditability and belief management tooling for long-running SIs.
+
+- **Promotion explanations** — store rationale on every promoted memory: trigger condition, evidence list, confidence inputs, trust gate result ([#408](https://github.com/emergent-instruments/kernle/issues/408))
+- **Belief revision** — contradiction detection (lexical + embedding), supersession workflow with lineage preservation, downstream impact flagging ([#409](https://github.com/emergent-instruments/kernle/issues/409))
+- **JSONL audit events** — standardized, versioned audit event schema with correlation IDs for pipeline runs ([#410](https://github.com/emergent-instruments/kernle/issues/410))
+- **Terminology docs** — canonical pipeline diagram, glossary (transition, promotion, suggestion, maintenance, consolidation), end-to-end reference page ([#411](https://github.com/emergent-instruments/kernle/issues/411))
+- **Component ordering DAG** — formalize component execution order with declared dependencies; validate at init ([#423](https://github.com/emergent-instruments/kernle/issues/423))
+
+### v0.13.00 — Enriched Cognition
 
 These features extend the existing protocol system with no breaking changes. New capabilities are delivered as StackComponentProtocol implementations or protocol extensions.
 
-### Memory Echoes
+#### Memory Echoes
 
-<Note>Partially addressed in v0.9.0/v0.10.0. Strength-tier filtering now excludes weak and dormant memories from `load()` while keeping them searchable — providing a form of peripheral awareness. The explicit echoes metadata below remains future work for richer hints.</Note>
+<Note>Partially addressed in v0.09.00/v0.10.00. Strength-tier filtering now excludes weak and dormant memories from `load()` while keeping them searchable — providing a form of peripheral awareness. The explicit echoes metadata below remains future work for richer hints.</Note>
 
-When `load()` excludes memories because of budget limits, those memories are invisible. Memory echoes provide peripheral awareness — lightweight hints about excluded memories:
+When `load()` excludes memories because of budget limits, those memories are invisible. Memory echoes provide peripheral awareness — lightweight hints about excluded memories ([#412](https://github.com/emergent-instruments/kernle/issues/412)):
 
 ```python
 "_meta": {
@@ -159,9 +196,9 @@ When `load()` excludes memories because of budget limits, those memories are inv
 
 Echoes cost ~200 tokens for 20 entries but give the entity awareness that relevant memories exist beyond what's currently loaded.
 
-### Goal Types
+#### Goal Types
 
-Not all goals are the same cognitive object. A `goal_type` field differentiates:
+Not all goals are the same cognitive object. A `goal_type` field differentiates ([#413](https://github.com/emergent-instruments/kernle/issues/413)):
 
 | Type | Completion Model | Forgetting | Example |
 |------|-----------------|-----------|---------|
@@ -170,9 +207,9 @@ Not all goals are the same cognitive object. A `goal_type` field differentiates:
 | `commitment` | Recurring (resets) | No decay while active, protected | "Review PRs within 24 hours" |
 | `exploration` | Open-ended (may spawn new goals) | Normal decay | "Investigate distributed consensus" |
 
-### Belief Enrichment
+#### Belief Enrichment
 
-Two new fields on beliefs to support transfer learning and identity modeling:
+Two new fields on beliefs to support transfer learning and identity modeling ([#414](https://github.com/emergent-instruments/kernle/issues/414)):
 
 **Belief Scope** — distinguishes self-model beliefs from world-model beliefs:
 
@@ -190,11 +227,34 @@ cross_domain_applications: ["writing", "teaching"]
 abstraction_level: "domain"  # 'specific' | 'domain' | 'universal'
 ```
 
+#### Plugin Enhancements
+
+| Platform | Hook | Purpose | Issue |
+|----------|------|---------|-------|
+| Claude Code | `PostToolUse` | Track significant tool calls (Write, Edit, Bash) as raw captures | [#415](https://github.com/emergent-instruments/kernle/issues/415) |
+| Claude Code | `UserPromptSubmit` | Inject relevant memory context based on the user's prompt | [#416](https://github.com/emergent-instruments/kernle/issues/416) |
+
+### v0.13.01 — Trust & Access Control
+
+Enforcing trust at the write path — without this, trust is theater.
+
+- **Trust-layer write gating** — require trust evaluation for accepting suggestions, promoting beliefs/values, and loading memory into context; minimum trust thresholds per memory type ([#417](https://github.com/emergent-instruments/kernle/issues/417))
+- **Access control & consent enforcement** — implement read/write scopes and export/redaction policies using existing `access_grants`/`consent_grants` fields ([#418](https://github.com/emergent-instruments/kernle/issues/418))
+- **Dynamic trust** — compute trust scores from episode history: interaction-based trust, trust decay, self-trust floor at historical accuracy rate ([#419](https://github.com/emergent-instruments/kernle/issues/419))
+
+### v0.13.02 — Scale & Depth
+
+Preparing the memory system for long-running SIs with large memory stores.
+
+- **Load-time memory curation** — token budgeting with "must include" sets (protected values, active goals), priority-ordered allocation, transparent selection reporting ([#420](https://github.com/emergent-instruments/kernle/issues/420))
+- **Memory compaction** — fractal summarization and epoch summaries as first-class memory types; inference-gated; summaries preferred by `load()` when budget constrained ([#421](https://github.com/emergent-instruments/kernle/issues/421))
+- **Multi-stack merge** — formal merge semantics for values (never auto-merge), beliefs (lineage-aware), and goals (dedup vs supersession); `kernle stack merge --dry-run` ([#422](https://github.com/emergent-instruments/kernle/issues/422))
+
 ---
 
-## Medium-Term: Social & Temporal Depth
+## Further Out: Social & Temporal Depth
 
-These features involve new storage schemas and more sophisticated protocol interactions.
+These features involve new storage schemas and more sophisticated protocol interactions. Not yet assigned to milestones.
 
 ### Relationship History
 
@@ -280,25 +340,13 @@ The `derived_from` provenance tracks this abstraction step.
 
 ---
 
-## Longer-Term: Dynamic Trust & Full Diagnostics
-
-### Dynamic Trust
-
-Trust scores currently come from manual assessment. Dynamic trust computes scores from episode history:
-
-- **Interaction-based trust**: Track predictions vs outcomes for each entity
-- **Trust decay**: Trust scores degrade over time without reinforcement
-- **Self-trust floor**: Entity's trust in its own reasoning floored at historical accuracy rate
-
-```python
-self_trust_floor = max(0.5, historical_accuracy_rate)
-```
+## Further Out: Diagnostics & Infrastructure
 
 ### Transitive Trust Chains
 
 Trust propagation through relationships: "I trust Claire, Claire trusts Bob, therefore I have derived trust in Bob (at a discount)."
 
-This requires graph-based trust computation with appropriate decay at each hop.
+This requires graph-based trust computation with appropriate decay at each hop. Builds on dynamic trust work in v0.13.01.
 
 ### Formal Diagnostic Sessions
 
@@ -318,11 +366,10 @@ These areas are acknowledged but not yet designed in detail:
 
 | Area | Description |
 |------|-------------|
-| **Scope-based inference routing** | Components now declare `inference_scope` ('fast', 'capable', 'embedding', 'none') indicating what kind of model they need. A future core could route `infer()` calls to different models based on scope — e.g., cheap/fast models for tagging, capable models for consolidation, dedicated embedding models for vectors. The declarations are in place (v0.12); routing is future work. |
-| **Multi-stack synthesis** | How to merge context from multiple stacks for richer reasoning |
+| **Scope-based inference routing** | Components now declare `inference_scope` ('fast', 'capable', 'embedding', 'none') indicating what kind of model they need. A future core could route `infer()` calls to different models based on scope — e.g., cheap/fast models for tagging, capable models for consolidation, dedicated embedding models for vectors. The declarations are in place; routing is future work. |
 | **Embedding strategy** | Current 384-dim vectors may need updating for longer-lived stacks |
 | **MCP tool coverage** | Each new table/feature needs corresponding MCP tools |
-| **Transfer learning** | Cross-domain belief application with domain metadata |
+| **Transfer learning** | Cross-domain belief application with domain metadata (builds on belief enrichment in v0.13.00) |
 | **`kernle import` command** | Migration from flat-file memory systems (MEMORY.md, Obsidian, etc.) into stratified memory with heuristic classification and optional LLM-assisted analysis |
 
 ---
