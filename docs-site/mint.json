@@ -33,12 +33,7 @@
     "name": "Get Started",
     "url": "https://kernle.ai/register"
   },
-  "tabs": [
-    {
-      "name": "API Reference",
-      "url": "api-reference"
-    }
-  ],
+  "tabs": [],
   "anchors": [
     {
       "name": "GitHub",
@@ -95,8 +90,14 @@
         "features/trust",
         "features/narratives",
         "features/summaries",
-        "features/diagnostics",
-        "features/subscriptions"
+        "features/diagnostics"
+      ]
+    },
+    {
+      "group": "Developer Tools",
+      "pages": [
+        "features/corpus-seeding",
+        "features/dev-dashboard"
       ]
     },
     {
@@ -104,7 +105,6 @@
       "pages": [
         "cli/overview",
         "cli/memory-commands",
-        "cli/sync-commands",
         "cli/utility-commands"
       ]
     },
@@ -130,17 +130,6 @@
       "pages": [
         "troubleshooting/upgrading",
         "troubleshooting/context-overload"
-      ]
-    },
-    {
-      "group": "API Reference",
-      "pages": [
-        "api-reference/overview",
-        "api-reference/authentication",
-        "api-reference/sync",
-        "api-reference/search",
-        "api-reference/embeddings",
-        "api-reference/subscriptions"
       ]
     }
   ],

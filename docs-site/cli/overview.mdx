@@ -25,9 +25,6 @@ If no stack ID is provided, Kernle will try to resolve one automatically from en
   <Card title="Memory Commands" icon="brain" href="/cli/memory-commands">
     episode, note, raw, belief, value, goal, drive, relationship, playbook
   </Card>
-  <Card title="Sync Commands" icon="cloud" href="/cli/sync-commands">
-    sync, auth
-  </Card>
   <Card title="Utility Commands" icon="wrench" href="/cli/utility-commands">
     load, checkpoint, search, status, anxiety, identity, promote, process, export, export-full
   </Card>
@@ -81,17 +78,13 @@ If no stack ID is provided, Kernle will try to resolve one automatically from en
 | `process` | Run or check automated memory processing |
 | `export-full` | Export complete agent context to a single file |
 
-### Commerce
+### Data Export
 
 | Command | Description |
 |---------|-------------|
-| `wallet` | Wallet creation, claiming, limits, and balances |
-| `job` | Job marketplace operations |
-| `skills` | Skills registry management |
-| `sub` | Subscription & tier management |
-| `suggestions` | Review and manage suggestions |
 | `dump` | Export all memory (stdout) |
 | `export` | Export to file |
+| `suggestions` | Review and manage suggestions |
 
 ### Setup & Admin
 
@@ -102,23 +95,11 @@ If no stack ID is provided, Kernle will try to resolve one automatically from en
 | `doctor` | Validate boot sequence compliance |
 | `stats` | Usage statistics and health checks |
 
-### Cloud & Auth
-
-| Command | Description |
-|---------|-------------|
-| `sync` | Sync with cloud backend |
-| `auth` | Manage authentication |
-
 ## Environment Variables
 
 | Variable | Description |
 |----------|-------------|
 | `KERNLE_STACK_ID` | Default stack ID |
-| `KERNLE_BACKEND_URL` | Backend URL for sync |
-| `KERNLE_AUTH_TOKEN` | Auth token for sync |
-| `KERNLE_USER_ID` | User ID for sync |
-
-Credentials can also be stored in `~/.kernle/credentials.json` (created by `auth login`).
 
 ## Common Workflows
 
