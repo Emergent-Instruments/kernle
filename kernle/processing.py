@@ -1335,6 +1335,7 @@ class MemoryProcessor:
         from kernle.types import MemorySuggestion
 
         suggestions_created: List[Dict[str, str]] = []
+        self._last_deduplicated = 0
         self._last_gate_blocked = 0
         self._last_gate_details: List[str] = []
         now = datetime.now(timezone.utc)

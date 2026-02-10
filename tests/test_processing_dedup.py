@@ -1567,3 +1567,114 @@ class TestIntraBatchDedup:
         # Only 1 episode in the stack
         episodes = stack.get_episodes()
         assert len(episodes) == 1
+
+
+# =============================================================================
+# P3 Regression: stale _last_deduplicated in suggestions mode
+# =============================================================================
+
+
+class TestStaleDedupMetricInSuggestionsMode:
+    """Regression tests for P3: _write_suggestions() did not reset
+    _last_deduplicated, so a subsequent suggestions-mode run could report
+    a stale dedup count from a prior auto_promote run.
+    """
+
+    def test_suggestions_mode_resets_deduplicated_count(self):
+        """After auto_promote run with dedup > 0, suggestions mode must report 0."""
+        mock_stack = _make_mock_stack()
+        mock_stack.save_episode.return_value = "ep-new"
+        processor, _ = _make_processor(mock_stack)
+
+        # 1. Run _write_memories with a duplicate -> sets _last_deduplicated = 1
+        existing = MagicMock()
+        existing.id = "existing-ep"
+        phash = compute_provenance_hash(["raw:r1"])
+        dedup_index = {"provenance": {phash: existing}, "content": {}}
+
+        parsed = [
+            {"objective": "dup", "outcome": "skip", "source_raw_ids": ["r1"]},
+        ]
+        processor._write_memories("raw_to_episode", parsed, [], dedup_index)
+        assert processor._last_deduplicated == 1
+
+        # 2. Run _write_suggestions (suggestions mode) -> must reset to 0
+        mock_stack.save_suggestion = MagicMock(return_value="sug-1")
+        mock_stack._backend.execute.return_value = None
+        suggestions_parsed = [
+            {"objective": "new thing", "outcome": "novel", "source_raw_ids": ["r99"]},
+        ]
+        processor._write_suggestions("raw_to_episode", suggestions_parsed, [])
+        assert processor._last_deduplicated == 0, (
+            f"Expected _last_deduplicated=0 after _write_suggestions, "
+            f"got {processor._last_deduplicated}"
+        )
+
+    def test_full_pipeline_suggestions_after_promote_no_stale_dedup(self, stack):
+        """Integration: auto_promote run with dedup, then suggestions run reports 0."""
+        # 1. Save raw entries
+        raw_ids = []
+        for i in range(3):
+            rid = stack.save_raw(
+                RawEntry(
+                    id=str(uuid.uuid4()),
+                    stack_id=STACK_ID,
+                    blob=f"Content {i}",
+                    source="test",
+                )
+            )
+            raw_ids.append(rid)
+
+        # 2. First pass: auto_promote=True, creates an episode
+        response = json.dumps(
+            [
+                {
+                    "objective": "Learned something",
+                    "outcome": "Good result",
+                    "outcome_type": "success",
+                    "source_raw_ids": raw_ids,
+                }
+            ]
+        )
+        inference = MockInference(response)
+        processor = MemoryProcessor(stack=stack, inference=inference, core_id="test")
+        results1 = processor.process("raw_to_episode", force=True, auto_promote=True)
+        assert len(results1) == 1
+        assert len(results1[0].created) == 1
+        assert results1[0].deduplicated == 0
+
+        # 3. Save more raws so second pass finds sources
+        for i in range(3):
+            stack.save_raw(
+                RawEntry(
+                    id=str(uuid.uuid4()),
+                    stack_id=STACK_ID,
+                    blob=f"New raw {i}",
+                    source="test",
+                )
+            )
+
+        # 4. Second pass: auto_promote=True, same response -> dedup fires
+        results2 = processor.process("raw_to_episode", force=True, auto_promote=True)
+        assert len(results2) == 1
+        assert results2[0].deduplicated == 1
+
+        # 5. Save more raws for third pass
+        for i in range(3):
+            stack.save_raw(
+                RawEntry(
+                    id=str(uuid.uuid4()),
+                    stack_id=STACK_ID,
+                    blob=f"Third batch raw {i}",
+                    source="test",
+                )
+            )
+
+        # 6. Third pass: auto_promote=False (suggestions mode)
+        #    Must NOT carry stale deduplicated=1 from pass 2
+        results3 = processor.process("raw_to_episode", force=True, auto_promote=False)
+        assert len(results3) == 1
+        assert results3[0].deduplicated == 0, (
+            f"Expected deduplicated=0 in suggestions mode, "
+            f"got {results3[0].deduplicated} (stale value leaked)"
+        )
