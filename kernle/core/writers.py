@@ -384,16 +384,22 @@ class WritersMixin:
             for e in entries
         ]
 
-    def process(self, transition=None, force=False):
-        """Run memory processing. Requires a bound model.
+    def process(self, transition=None, force=False, allow_no_inference_override=False):
+        """Run memory processing.
 
         Promotes memories up the hierarchy using the bound model:
         raw -> episode/note, episode -> belief/goal/relationship/drive,
         belief -> value.
 
+        When no model is bound, identity-layer transitions are blocked
+        by the no-inference safety policy. Values can never be created
+        without inference.
+
         Args:
             transition: Specific layer transition to process (None = check all)
             force: Process even if triggers aren't met
+            allow_no_inference_override: Allow identity-layer writes without
+                inference (except values). Only effective with force=True.
 
         Returns:
             List of ProcessingResult for each transition that ran
@@ -401,7 +407,11 @@ class WritersMixin:
         entity = self.entity
         if entity is None:
             raise RuntimeError("process() requires Entity (use SQLite storage)")
-        return entity.process(transition=transition, force=force)
+        return entity.process(
+            transition=transition,
+            force=force,
+            allow_no_inference_override=allow_no_inference_override,
+        )
 
     def process_raw(
         self,

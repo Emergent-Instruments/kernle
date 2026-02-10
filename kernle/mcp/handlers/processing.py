@@ -28,6 +28,9 @@ def validate_memory_process(arguments: Dict[str, Any]) -> Dict[str, Any]:
     sanitized["force"] = arguments.get("force", False)
     if not isinstance(sanitized["force"], bool):
         sanitized["force"] = False
+    sanitized["allow_no_inference_override"] = arguments.get("allow_no_inference_override", False)
+    if not isinstance(sanitized["allow_no_inference_override"], bool):
+        sanitized["allow_no_inference_override"] = False
     return sanitized
 
 
@@ -43,8 +46,13 @@ def validate_memory_process_status(arguments: Dict[str, Any]) -> Dict[str, Any]:
 def handle_memory_process(args: Dict[str, Any], k: Kernle) -> str:
     transition = args.get("transition")
     force = args.get("force", False)
+    allow_no_inference_override = args.get("allow_no_inference_override", False)
     try:
-        results = k.process(transition=transition, force=force)
+        results = k.process(
+            transition=transition,
+            force=force,
+            allow_no_inference_override=allow_no_inference_override,
+        )
     except RuntimeError:
         return "Memory processing requires a bound model. Use entity.set_model() first."
 
@@ -58,7 +66,9 @@ def handle_memory_process(args: Dict[str, Any], k: Kernle) -> str:
 
     lines = [f"Processing complete ({len(results)} transition(s)):\n"]
     for r in results:
-        if r.skipped:
+        if r.inference_blocked:
+            lines.append(f"  {r.layer_transition}: BLOCKED (no inference) -- {r.skip_reason}")
+        elif r.skipped:
             lines.append(f"  {r.layer_transition}: skipped ({r.skip_reason})")
         else:
             created_summary = ", ".join(f"{c['type']}:{c['id'][:8]}" for c in r.created)
