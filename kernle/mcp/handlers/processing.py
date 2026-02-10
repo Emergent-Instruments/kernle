@@ -83,6 +83,10 @@ def handle_memory_process(args: Dict[str, Any], k: Kernle) -> str:
             )
             if created_summary:
                 lines.append(f"    Created: {created_summary}")
+            if r.gate_blocked:
+                lines.append(f"    Gate blocked: {r.gate_blocked} item(s)")
+                for detail in r.gate_details:
+                    lines.append(f"      - {detail}")
             if r.errors:
                 for err in r.errors:
                     lines.append(f"    Error: {err}")
@@ -95,6 +99,10 @@ def handle_memory_process(args: Dict[str, Any], k: Kernle) -> str:
             if suggestion_summary:
                 lines.append(f"    Suggestions: {suggestion_summary}")
             lines.append("    Use memory_suggestions to review and accept/reject.")
+            if r.gate_blocked:
+                lines.append(f"    Gate blocked: {r.gate_blocked} item(s)")
+                for detail in r.gate_details:
+                    lines.append(f"      - {detail}")
             if r.errors:
                 for err in r.errors:
                     lines.append(f"    Error: {err}")

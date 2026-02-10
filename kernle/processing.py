@@ -102,6 +102,43 @@ def _extract_derived_from(transition: str, item: dict) -> List[str]:
 
 
 @dataclass
+class PromotionGateConfig:
+    """Configurable promotion eligibility criteria.
+
+    Identity layers should be "hard to write, easy to read." These gates
+    ensure promotions are earned through repeated evidence, not created
+    from thin evidence.
+    """
+
+    # Belief creation gates
+    belief_min_evidence: int = 3  # Min episodes/notes required in derived_from
+    belief_min_confidence: float = 0.6  # Min confidence score
+
+    # Value creation gates
+    value_min_evidence: int = 5  # Min beliefs/episodes in derived_from
+    value_requires_protection: bool = True  # Source beliefs must be protected
+
+
+# Singleton default config
+DEFAULT_PROMOTION_GATES = PromotionGateConfig()
+
+
+@dataclass
+class PromotionGateResult:
+    """Result of a promotion gate check for a single item."""
+
+    passed: bool
+    transition: str
+    failures: List[str] = field(default_factory=list)
+
+    @property
+    def summary(self) -> str:
+        if self.passed:
+            return "promotion gate passed"
+        return "; ".join(self.failures)
+
+
+@dataclass
 class LayerConfig:
     """Configuration for a single layer transition."""
 
@@ -181,6 +218,8 @@ class ProcessingResult:
     inference_blocked: bool = False  # True if blocked by no-inference safety
     auto_promote: bool = False  # Whether direct promotion was used
     deduplicated: int = 0  # Items skipped due to provenance/content match
+    gate_blocked: int = 0  # Items blocked by promotion gates
+    gate_details: List[str] = field(default_factory=list)  # Per-item gate failure messages
 
 
 # =============================================================================
@@ -494,6 +533,7 @@ class MemoryProcessor:
         configs: Optional[Dict[str, LayerConfig]] = None,
         inference_available: bool = True,
         auto_promote: bool = False,
+        promotion_gates: Optional[PromotionGateConfig] = None,
     ) -> None:
         self._stack = stack
         self._inference = inference
@@ -501,6 +541,7 @@ class MemoryProcessor:
         self._configs = configs or dict(DEFAULT_LAYER_CONFIGS)
         self._inference_available = inference_available
         self._auto_promote = auto_promote
+        self._promotion_gates = promotion_gates or DEFAULT_PROMOTION_GATES
 
     def update_config(self, transition: str, config: LayerConfig) -> None:
         """Update configuration for a layer transition."""
@@ -669,6 +710,65 @@ class MemoryProcessor:
 
         return None
 
+    def _check_promotion_gate(self, transition: str, item: dict) -> PromotionGateResult:
+        """Check if a parsed item meets promotion gate criteria.
+
+        Only applies to identity-layer transitions (episode_to_belief,
+        belief_to_value). Other transitions always pass.
+
+        Args:
+            transition: The layer transition being processed.
+            item: The parsed item from inference output.
+
+        Returns:
+            PromotionGateResult with pass/fail and failure details.
+        """
+        gates = self._promotion_gates
+        failures: List[str] = []
+
+        if transition == "episode_to_belief":
+            # Evidence count check
+            evidence = item.get("source_episode_ids", [])
+            if len(evidence) < gates.belief_min_evidence:
+                failures.append(
+                    f"insufficient evidence: {len(evidence)} episodes "
+                    f"(need >= {gates.belief_min_evidence})"
+                )
+            # Confidence floor check
+            confidence = item.get("confidence", 0.7)
+            if confidence < gates.belief_min_confidence:
+                failures.append(
+                    f"confidence too low: {confidence:.2f} "
+                    f"(need >= {gates.belief_min_confidence:.2f})"
+                )
+
+        elif transition == "belief_to_value":
+            # Evidence count check
+            evidence = item.get("source_belief_ids", [])
+            if len(evidence) < gates.value_min_evidence:
+                failures.append(
+                    f"insufficient evidence: {len(evidence)} beliefs "
+                    f"(need >= {gates.value_min_evidence})"
+                )
+            # Protection flag check — verify source beliefs are protected
+            if gates.value_requires_protection and evidence:
+                unprotected = []
+                for bid in evidence:
+                    belief = self._stack.get_memory("belief", bid)
+                    if belief and not getattr(belief, "is_protected", False):
+                        unprotected.append(bid)
+                if unprotected:
+                    failures.append(
+                        f"unprotected source beliefs: {', '.join(unprotected[:3])}... "
+                        f"(value promotion requires protected beliefs)"
+                    )
+
+        return PromotionGateResult(
+            passed=len(failures) == 0,
+            transition=transition,
+            failures=failures,
+        )
+
     def _process_layer(
         self, transition: str, config: LayerConfig, *, auto_promote: bool = False
     ) -> ProcessingResult:
@@ -740,6 +840,8 @@ class MemoryProcessor:
             suggestions = self._write_suggestions(transition, parsed, sources)
             result.suggestions = suggestions
         result.deduplicated = getattr(self, "_last_deduplicated", 0)
+        result.gate_blocked = getattr(self, "_last_gate_blocked", 0)
+        result.gate_details = getattr(self, "_last_gate_details", [])
 
         # 8. Mark sources as processed
         created_or_suggested = result.created or result.suggestions
@@ -757,6 +859,8 @@ class MemoryProcessor:
                 "suggestion_count": len(result.suggestions),
                 "auto_promote": auto_promote,
                 "deduplicated": result.deduplicated,
+                "gate_blocked": result.gate_blocked,
+                "gate_details": result.gate_details,
                 "errors": result.errors,
             },
         )
@@ -1051,6 +1155,8 @@ class MemoryProcessor:
 
         created = []
         self._last_deduplicated = 0
+        self._last_gate_blocked = 0
+        self._last_gate_details: List[str] = []
         now = datetime.now(timezone.utc)
 
         for item in parsed:
@@ -1061,6 +1167,18 @@ class MemoryProcessor:
                     if existing_id is not None:
                         self._last_deduplicated += 1
                         continue
+
+                # Check promotion gates for identity-layer transitions
+                gate_result = self._check_promotion_gate(transition, item)
+                if not gate_result.passed:
+                    self._last_gate_blocked += 1
+                    self._last_gate_details.append(gate_result.summary)
+                    logger.info(
+                        "Promotion gate blocked %s item: %s",
+                        transition,
+                        gate_result.summary,
+                    )
+                    continue
 
                 if transition == "raw_to_episode":
                     raw_ids = item.get("source_raw_ids", [])
@@ -1195,6 +1313,8 @@ class MemoryProcessor:
         from kernle.types import MemorySuggestion
 
         suggestions_created: List[Dict[str, str]] = []
+        self._last_gate_blocked = 0
+        self._last_gate_details: List[str] = []
         now = datetime.now(timezone.utc)
 
         # Map transitions to their target memory type
@@ -1213,6 +1333,18 @@ class MemoryProcessor:
 
         for item in parsed:
             try:
+                # Check promotion gates for identity-layer transitions
+                gate_result = self._check_promotion_gate(transition, item)
+                if not gate_result.passed:
+                    self._last_gate_blocked += 1
+                    self._last_gate_details.append(gate_result.summary)
+                    logger.info(
+                        "Promotion gate blocked %s suggestion: %s",
+                        transition,
+                        gate_result.summary,
+                    )
+                    continue
+
                 # Extract source IDs for provenance
                 source_ids = self._extract_source_ids(transition, item)
 

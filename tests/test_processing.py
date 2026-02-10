@@ -32,11 +32,20 @@ from kernle.processing import (
     LayerConfig,
     MemoryProcessor,
     ProcessingResult,
+    PromotionGateConfig,
     evaluate_triggers,
 )
 from kernle.stack.sqlite_stack import SQLiteStack
 from kernle.storage.sqlite import SQLiteStorage
 from kernle.types import Episode, Note, RawEntry
+
+# Relaxed promotion gates for tests that don't test gating behavior
+_NO_GATES = PromotionGateConfig(
+    belief_min_evidence=0,
+    belief_min_confidence=0.0,
+    value_min_evidence=0,
+    value_requires_protection=False,
+)
 
 STACK_ID = "test-stack"
 
@@ -124,7 +133,12 @@ def _make_mock_stack():
 def _make_processor(mock_stack, response="[]"):
     """Create a MemoryProcessor with a mock stack and inference."""
     inference = MockInference(response)
-    return MemoryProcessor(stack=mock_stack, inference=inference, core_id="test"), inference
+    return (
+        MemoryProcessor(
+            stack=mock_stack, inference=inference, core_id="test", promotion_gates=_NO_GATES
+        ),
+        inference,
+    )
 
 
 # =============================================================================
@@ -478,7 +492,11 @@ class TestMemoryProcessor:
         )
         inference = MockInference(response)
         processor = MemoryProcessor(
-            stack=stack, inference=inference, core_id="test", auto_promote=True
+            stack=stack,
+            inference=inference,
+            core_id="test",
+            auto_promote=True,
+            promotion_gates=_NO_GATES,
         )
 
         results = processor.process("episode_to_belief", force=True)
@@ -1730,6 +1748,8 @@ class TestProcessLayer:
                 "suggestion_count": 0,
                 "auto_promote": True,
                 "deduplicated": 0,
+                "gate_blocked": 0,
+                "gate_details": [],
                 "errors": [],
             },
         )

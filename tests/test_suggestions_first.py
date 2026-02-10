@@ -22,9 +22,18 @@ from kernle.processing import (
     DEFAULT_LAYER_CONFIGS,
     MemoryProcessor,
     ProcessingResult,
+    PromotionGateConfig,
 )
 from kernle.stack.sqlite_stack import SQLiteStack
 from kernle.types import Belief, Episode, MemorySuggestion, RawEntry
+
+# Relaxed promotion gates for tests that don't test gating behavior
+_NO_GATES = PromotionGateConfig(
+    belief_min_evidence=0,
+    belief_min_confidence=0.0,
+    value_min_evidence=0,
+    value_requires_protection=False,
+)
 
 STACK_ID = "test-stack"
 
@@ -90,6 +99,7 @@ def _make_processor(mock_stack, response="[]", auto_promote=False):
             inference=inference,
             core_id="test",
             auto_promote=auto_promote,
+            promotion_gates=_NO_GATES,
         ),
         inference,
     )
@@ -234,7 +244,9 @@ class TestDefaultSuggestionsMode:
             ]
         )
         inference = MockInference(response)
-        processor = MemoryProcessor(stack=stack, inference=inference, core_id="test")
+        processor = MemoryProcessor(
+            stack=stack, inference=inference, core_id="test", promotion_gates=_NO_GATES
+        )
 
         results = processor.process("episode_to_belief", force=True)
         assert len(results) == 1
@@ -272,7 +284,9 @@ class TestDefaultSuggestionsMode:
             ]
         )
         inference = MockInference(response)
-        processor = MemoryProcessor(stack=stack, inference=inference, core_id="test")
+        processor = MemoryProcessor(
+            stack=stack, inference=inference, core_id="test", promotion_gates=_NO_GATES
+        )
 
         results = processor.process("belief_to_value", force=True)
         assert len(results) == 1
