@@ -272,7 +272,8 @@ class TestCmdInit:
         with patch.object(k, "checkpoint", side_effect=Exception("DB error")):
             cmd_init(args, k)
         captured = capsys.readouterr().out
-        assert "Warning" in captured or "Setup Complete" in captured
+        assert "Warning" in captured
+        assert "Setup Complete" in captured
 
     def test_init_seed_trust(self, k, capsys):
         """Init calls seed_trust and reports count."""
@@ -285,6 +286,7 @@ class TestCmdInit:
         captured = capsys.readouterr().out
         # seed_trust returns count of seeded assessments
         assert "Setup Complete" in captured
+        assert "trust assessments" in captured
 
     def test_init_env_detection(self, k, capsys, tmp_path):
         """Init detects environment files when none is specified."""
@@ -298,7 +300,7 @@ class TestCmdInit:
             with patch.object(Path, "exists", return_value=True):
                 cmd_init(args, k)
         captured = capsys.readouterr().out
-        assert "Detected" in captured or "Claude Code Setup" in captured
+        assert "Claude Code Setup" in captured
 
 
 # ============================================================================
@@ -368,7 +370,7 @@ class TestRawArgvPreprocessing:
 
         # Should run raw list without error (output may be empty list)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "No raw entries" in captured or "Raw Entries" in captured
 
     def test_raw_with_stack_flag_before(self, k, capsys):
         """'kernle --stack X raw "content"' preprocessing correctly skips flag."""
@@ -402,7 +404,7 @@ class TestRawArgvPreprocessing:
         # Should dispatch to cmd_raw with raw_action=None and content=None
         captured = capsys.readouterr().out
         # Without content, cmd_raw prints an error
-        assert "required" in captured.lower() or captured is not None
+        assert "required" in captured.lower() or "Content" in captured
 
 
 # ============================================================================
@@ -470,44 +472,43 @@ class TestDispatchBranches:
         """Dispatch 'extract' command."""
         self._run_main(["extract", "summary of conversation"], k)
         captured = capsys.readouterr().out
-        assert "Conversation" in captured or "extract" in captured.lower() or captured
+        assert "Extracted" in captured or "extract" in captured.lower()
 
     def test_dispatch_resume(self, k, capsys):
         """Dispatch 'resume' command."""
         self._run_main(["resume"], k)
         captured = capsys.readouterr().out
-        # Resume should run without error
-        assert captured is not None
+        assert "No checkpoint found" in captured or "Resume Point" in captured
 
     def test_dispatch_init(self, k, capsys):
         """Dispatch 'init' command."""
         self._run_main(["init", "--non-interactive", "-y"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "Memory" in captured or "kernle" in captured.lower()
 
     def test_dispatch_doctor(self, k, capsys):
         """Dispatch 'doctor' command (no subcommand)."""
         self._run_main(["doctor"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "instruction" in captured.lower() or "check" in captured.lower()
 
     def test_dispatch_doctor_structural(self, k, capsys):
         """Dispatch 'doctor structural' subcommand."""
         self._run_main(["doctor", "structural"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert isinstance(captured, str)
 
     def test_dispatch_doctor_session_start(self, k, capsys):
         """Dispatch 'doctor session start' subcommand."""
         self._run_main(["doctor", "session", "start"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "session" in captured.lower() or "Session" in captured
 
     def test_dispatch_doctor_session_list(self, k, capsys):
         """Dispatch 'doctor session list' subcommand."""
         self._run_main(["doctor", "session", "list"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "session" in captured.lower() or "No" in captured
 
     def test_dispatch_doctor_session_no_action(self, k, capsys):
         """Dispatch 'doctor session' without start/list shows usage."""
@@ -522,141 +523,142 @@ class TestDispatchBranches:
             self._run_main(["doctor", "report", "latest"], k)
         except SystemExit:
             pass  # May exit with error if no sessions exist
-        captured = capsys.readouterr().out
-        assert captured is not None
+        captured = capsys.readouterr()
+        assert isinstance(captured.out, str)
+        # May print to stdout or stderr depending on whether sessions exist
 
     def test_dispatch_trust(self, k, capsys):
         """Dispatch 'trust' command."""
         self._run_main(["trust", "list"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "trust" in captured.lower() or "No trust assessments" in captured
 
     def test_dispatch_relation(self, k, capsys):
         """Dispatch 'relation' command."""
         self._run_main(["relation", "list"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "No relationships" in captured or "Relationships" in captured
 
     def test_dispatch_entity_model(self, k, capsys):
         """Dispatch 'entity-model' command."""
         self._run_main(["entity-model", "list"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "No entity models" in captured or "Entity Models" in captured
 
     def test_dispatch_identity_default(self, k, capsys):
         """Dispatch 'identity' with no subcommand defaults to show."""
         self._run_main(["identity"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "Identity Synthesis" in captured or "Identity Confidence" in captured
 
     def test_dispatch_identity_show(self, k, capsys):
         """Dispatch 'identity show'."""
         self._run_main(["identity", "show"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "Identity Synthesis" in captured or "Identity Confidence" in captured
 
     def test_dispatch_emotion(self, k, capsys):
         """Dispatch 'emotion' command."""
         self._run_main(["emotion", "summary"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "Emotional Summary" in captured or "No emotional data" in captured
 
     def test_dispatch_meta(self, k, capsys):
         """Dispatch 'meta' command."""
         self._run_main(["meta", "uncertain"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "No memories below" in captured or "Uncertain Memories" in captured
 
     def test_dispatch_anxiety(self, k, capsys):
         """Dispatch 'anxiety' command."""
         self._run_main(["anxiety"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "Memory Anxiety Report" in captured or "Anxiety" in captured
 
     def test_dispatch_stats(self, k, capsys):
         """Dispatch 'stats' command."""
         self._run_main(["stats", "health-checks"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "Health Check Compliance" in captured
 
     def test_dispatch_forget(self, k, capsys):
         """Dispatch 'forget' command."""
         self._run_main(["forget", "candidates"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "No forgetting candidates" in captured or "Forgetting Candidates" in captured
 
     def test_dispatch_epoch(self, k, capsys):
         """Dispatch 'epoch' command."""
         self._run_main(["epoch", "list"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "No epochs found" in captured or "Epochs" in captured
 
     def test_dispatch_summary(self, k, capsys):
         """Dispatch 'summary' command."""
         self._run_main(["summary", "list"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "No summaries found" in captured or "Summaries" in captured
 
     def test_dispatch_narrative(self, k, capsys):
         """Dispatch 'narrative' command."""
         self._run_main(["narrative", "show"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "No active" in captured or "narrative" in captured.lower()
 
     def test_dispatch_playbook(self, k, capsys):
         """Dispatch 'playbook' command."""
         self._run_main(["playbook", "list"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "No playbooks found" in captured or "Playbooks" in captured
 
     def test_dispatch_process(self, k, capsys):
         """Dispatch 'process' command."""
         self._run_main(["process", "status"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "Memory Processing Status" in captured
 
     def test_dispatch_suggestions(self, k, capsys):
         """Dispatch 'suggestions' command."""
         self._run_main(["suggestions", "list"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "No suggestions found" in captured or "Suggestions" in captured
 
     def test_dispatch_belief(self, k, capsys):
         """Dispatch 'belief' command."""
         self._run_main(["belief", "list"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "Beliefs" in captured or "belief" in captured.lower()
 
     def test_dispatch_dump(self, k, capsys):
         """Dispatch 'dump' command."""
         self._run_main(["dump"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert isinstance(captured, str)
 
     def test_dispatch_export(self, k, capsys, tmp_path):
         """Dispatch 'export' command."""
         out_file = str(tmp_path / "export.json")
         self._run_main(["export", out_file, "--format", "json"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "Exported memory to" in captured
 
     def test_dispatch_export_cache(self, k, capsys):
         """Dispatch 'export-cache' command."""
         self._run_main(["export-cache"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert isinstance(captured, str)
 
     def test_dispatch_export_full(self, k, capsys):
         """Dispatch 'export-full' command."""
         self._run_main(["export-full"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert isinstance(captured, str)
 
     def test_dispatch_boot(self, k, capsys):
         """Dispatch 'boot' command."""
         self._run_main(["boot", "list"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "(no boot config)" in captured or "Boot Config" in captured
 
     def test_dispatch_sync(self, k, capsys, tmp_path):
         """Dispatch 'sync' command."""
@@ -666,19 +668,19 @@ class TestDispatchBranches:
         with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
             self._run_main(["sync", "conflicts"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "conflict" in captured.lower() or "No conflicts" in captured
 
     def test_dispatch_auth(self, k, capsys, tmp_path):
         """Dispatch 'auth' command."""
         self._run_main(["auth", "status"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "Not authenticated" in captured or "authenticated" in captured.lower()
 
     def test_dispatch_stack(self, k, capsys):
         """Dispatch 'stack' command."""
         self._run_main(["stack", "list"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "stack" in captured.lower() or "Stack" in captured
 
     def test_dispatch_import(self, k, capsys, tmp_path):
         """Dispatch 'import' command."""
@@ -686,37 +688,37 @@ class TestDispatchBranches:
         test_file.write_text("## Notes\n- Test note\n")
         self._run_main(["import", str(test_file), "--dry-run"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "import" in captured.lower() or "dry" in captured.lower() or "Imported" in captured
 
     def test_dispatch_migrate(self, k, capsys):
         """Dispatch 'migrate' command."""
         self._run_main(["migrate", "seed-beliefs", "--dry-run"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "belief" in captured.lower() or "seed" in captured.lower()
 
     def test_dispatch_setup(self, k, capsys):
         """Dispatch 'setup' command."""
         self._run_main(["setup", "claude-code"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "claude" in captured.lower() or "hook" in captured.lower() or "Install" in captured
 
     def test_dispatch_search(self, k, capsys):
         """Dispatch 'search' command through main()."""
         self._run_main(["search", "test query"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "No results" in captured or "Found" in captured
 
     def test_dispatch_when(self, k, capsys):
         """Dispatch 'when' (temporal) command."""
         self._run_main(["when", "today"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "What happened today" in captured
 
     def test_dispatch_promote(self, k, capsys):
         """Dispatch 'promote' command."""
         self._run_main(["promote"], k)
         captured = capsys.readouterr().out
-        assert captured is not None
+        assert "Promotion Results" in captured
 
     def test_dispatch_mcp(self, k, capsys):
         """Dispatch 'mcp' command through main()."""

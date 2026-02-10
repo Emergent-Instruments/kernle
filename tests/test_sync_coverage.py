@@ -382,7 +382,7 @@ class TestStatusDisplayFormatting:
                     cmd_sync(_args(sync_action="status"), k)
 
         output = capsys.readouterr().out
-        assert "Check backend" in output or "kernle auth login" in output
+        assert "Check backend" in output or "connection" in output.lower()
 
 
 # ============================================================================
@@ -418,7 +418,7 @@ class TestPushOrphanHandling:
                     cmd_sync(_args(sync_action="push"), k)
 
         output = capsys.readouterr().out
-        assert "orphaned" in output.lower() or "Skipped" in output
+        assert "orphaned" in output.lower() or "skipped" in output.lower()
 
     def test_push_bad_payload_no_source_record(self, k, capsys, tmp_path):
         """Push handles bad payload where source record is also missing (orphan path)."""
@@ -445,7 +445,7 @@ class TestPushOrphanHandling:
 
         output = capsys.readouterr().out
         # Bad payload + no source record = orphaned, should be skipped
-        assert "orphaned" in output.lower() or "Skipped" in output
+        assert "orphaned" in output.lower() or "skipped" in output.lower()
 
     def test_push_with_stored_payload(self, k, capsys, tmp_path):
         """Push uses stored payload when available, even if source is deleted."""
@@ -540,7 +540,7 @@ class TestPullConflictDisplay:
                     cmd_sync(_args(sync_action="pull"), k)
 
         output = capsys.readouterr().out
-        assert "conflicts" in output.lower() or "Pulled" in output
+        assert "Pulled" in output
 
     def test_pull_with_user_id_display(self, k, capsys, tmp_path):
         """Pull shows 'From: user/project' when user_id is set."""
@@ -757,7 +757,7 @@ class TestFullSyncPushPaths:
                     cmd_sync(_args(sync_action="full"), k)
 
         output = capsys.readouterr().out
-        assert "orphaned" in output.lower() or "Skipped" in output
+        assert "orphaned" in output.lower() or "skipped" in output.lower()
 
     def test_full_sync_push_with_payload(self, k, capsys, tmp_path):
         """Full sync push uses stored payload when available."""
