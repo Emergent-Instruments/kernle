@@ -17,6 +17,7 @@ from kernle.mcp.server import (
     get_kernle,
     list_tools,
 )
+from kernle.types import VALID_SOURCE_TYPE_VALUES
 
 
 class TestMCPToolDefinitions:
@@ -1639,15 +1640,7 @@ class TestMCPProvenanceParams:
             "memory_goal",
             "memory_drive",
         }
-        expected_enum = [
-            "direct_experience",
-            "inference",
-            "consolidation",
-            "external",
-            "seed",
-            "observation",
-            "unknown",
-        ]
+        expected_enum = sorted(VALID_SOURCE_TYPE_VALUES)
         for tool in TOOLS:
             if tool.name in creation_tools:
                 props = tool.inputSchema["properties"]
