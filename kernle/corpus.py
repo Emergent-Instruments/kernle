@@ -348,7 +348,8 @@ class CorpusIngestor:
     def get_status(self) -> dict:
         """Return counts of corpus raw entries.
 
-        Paginates through all raw entries to avoid truncation on large stacks.
+        Note: scans up to 100k raw entries. Stacks exceeding this limit
+        may report incomplete counts (a warning is logged).
 
         Returns:
             Dict with corpus entry counts.
@@ -475,7 +476,8 @@ class CorpusIngestor:
     def _load_existing_hashes(self) -> None:
         """Load content hashes from existing corpus entries for dedup.
 
-        Paginates through all raw entries to avoid truncation on large stacks.
+        Note: scans up to 100k raw entries. Stacks exceeding this limit
+        may have incomplete dedup (a warning is logged).
         """
         try:
             corpus_entries = _collect_all_corpus_entries(self._k._storage)
