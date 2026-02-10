@@ -177,13 +177,10 @@ def _import_json_item(item: JsonImportItem, k: "Kernle", skip_duplicates: bool =
     if t == "episode":
         # Check for duplicate by objective + outcome
         if skip_duplicates:
-            existing = k.search(data.get("objective", ""), limit=5, record_types=["episode"])
-            for result in existing:
-                if hasattr(result.record, "objective") and hasattr(result.record, "outcome"):
-                    if result.record.objective == data.get(
-                        "objective"
-                    ) and result.record.outcome == data.get("outcome"):
-                        return False
+            existing = k._storage.get_episodes(limit=100)
+            for ep in existing:
+                if ep.objective == data.get("objective") and ep.outcome == data.get("outcome"):
+                    return False
 
         # Build tags, folding in outcome_type if present
         tags = data.get("tags") or []
@@ -201,11 +198,10 @@ def _import_json_item(item: JsonImportItem, k: "Kernle", skip_duplicates: bool =
 
     elif t == "note":
         if skip_duplicates:
-            existing = k.search(data.get("content", "")[:100], limit=5, record_types=["note"])
-            for result in existing:
-                if hasattr(result.record, "content"):
-                    if result.record.content == data.get("content"):
-                        return False
+            existing = k._storage.get_notes(limit=100)
+            for n in existing:
+                if n.content == data.get("content"):
+                    return False
 
         k.note(
             content=data.get("content", ""),
