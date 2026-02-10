@@ -1043,7 +1043,25 @@ class Entity:
         if not inference_available:
             logger.warning("Processing without inference — identity-layer writes will be gated")
 
-        from kernle.processing import MemoryProcessor
+        from kernle.processing import MemoryProcessor, PromotionGateConfig
+
+        # Load promotion gate config from stack settings
+        promotion_gates = PromotionGateConfig()
+        try:
+            bme = stack.get_stack_setting("promotion_gate_belief_min_evidence")
+            if bme is not None:
+                promotion_gates.belief_min_evidence = int(bme)
+            bmc = stack.get_stack_setting("promotion_gate_belief_min_confidence")
+            if bmc is not None:
+                promotion_gates.belief_min_confidence = float(bmc)
+            vme = stack.get_stack_setting("promotion_gate_value_min_evidence")
+            if vme is not None:
+                promotion_gates.value_min_evidence = int(vme)
+            vrp = stack.get_stack_setting("promotion_gate_value_requires_protection")
+            if vrp is not None:
+                promotion_gates.value_requires_protection = vrp == "true"
+        except Exception:
+            pass  # Use defaults if settings loading fails
 
         processor = MemoryProcessor(
             stack=stack,
@@ -1051,6 +1069,7 @@ class Entity:
             core_id=self._core_id,
             inference_available=inference_available,
             auto_promote=auto_promote,
+            promotion_gates=promotion_gates,
         )
 
         # Load any saved config from the stack

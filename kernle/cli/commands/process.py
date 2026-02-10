@@ -56,6 +56,8 @@ def cmd_process(args, k: "Kernle"):
                         "skipped": r.skipped,
                         "skip_reason": r.skip_reason,
                         "inference_blocked": r.inference_blocked,
+                        "gate_blocked": r.gate_blocked,
+                        "gate_details": r.gate_details,
                     }
                 )
             print(json.dumps(output, indent=2, default=str))
@@ -74,6 +76,10 @@ def cmd_process(args, k: "Kernle"):
                     )
                     for c in r.created:
                         print(f"    + {c['type']}:{c['id'][:8]}...")
+                    if r.gate_blocked:
+                        print(f"    gate blocked: {r.gate_blocked} item(s)")
+                        for detail in r.gate_details:
+                            print(f"      - {detail}")
                     for err in r.errors:
                         print(f"    ! {err}")
                 else:
@@ -83,6 +89,10 @@ def cmd_process(args, k: "Kernle"):
                     )
                     for s in r.suggestions:
                         print(f"    ? {s['type']}:{s['id'][:8]}... (pending review)")
+                    if r.gate_blocked:
+                        print(f"    gate blocked: {r.gate_blocked} item(s)")
+                        for detail in r.gate_details:
+                            print(f"      - {detail}")
                     for err in r.errors:
                         print(f"    ! {err}")
 

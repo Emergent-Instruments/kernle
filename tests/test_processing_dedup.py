@@ -27,6 +27,7 @@ import pytest
 from kernle.processing import (
     MemoryProcessor,
     ProcessingResult,
+    PromotionGateConfig,
     _extract_content_text,
     _extract_derived_from,
     compute_content_hash,
@@ -34,6 +35,14 @@ from kernle.processing import (
 )
 from kernle.stack.sqlite_stack import SQLiteStack
 from kernle.types import RawEntry
+
+# Relaxed promotion gates for tests that don't test gating behavior
+_NO_GATES = PromotionGateConfig(
+    belief_min_evidence=0,
+    belief_min_confidence=0.0,
+    value_min_evidence=0,
+    value_requires_protection=False,
+)
 
 STACK_ID = "test-stack"
 
@@ -87,7 +96,12 @@ def _make_mock_stack():
 def _make_processor(mock_stack, response="[]"):
     """Create a MemoryProcessor with a mock stack and inference."""
     inference = MockInference(response)
-    return MemoryProcessor(stack=mock_stack, inference=inference, core_id="test"), inference
+    return (
+        MemoryProcessor(
+            stack=mock_stack, inference=inference, core_id="test", promotion_gates=_NO_GATES
+        ),
+        inference,
+    )
 
 
 # =============================================================================

@@ -485,7 +485,14 @@ class TestProcessingSourceType:
         """All transitions in _write_memories use 'processing' source_type."""
         from unittest.mock import MagicMock
 
-        from kernle.processing import MemoryProcessor
+        from kernle.processing import MemoryProcessor, PromotionGateConfig
+
+        _no_gates = PromotionGateConfig(
+            belief_min_evidence=0,
+            belief_min_confidence=0.0,
+            value_min_evidence=0,
+            value_requires_protection=False,
+        )
 
         mock_stack = MagicMock()
         mock_stack.stack_id = "test"
@@ -502,6 +509,7 @@ class TestProcessingSourceType:
             stack=mock_stack,
             inference=mock_inference,
             core_id="test-core",
+            promotion_gates=_no_gates,
         )
 
         transitions_and_data = [
