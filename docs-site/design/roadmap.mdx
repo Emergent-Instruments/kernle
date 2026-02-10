@@ -140,7 +140,7 @@ See [Claude Code Integration](/integration/claude-code) for full details.
 
 ## Planned Milestones
 
-Development is organized into versioned milestones. Each minor version (e.g., v0.12.x) is a milestone, with patch versions (e.g., v0.12.00, v0.12.01) as parent issues within. The v0.12.x series addresses critical pipeline integrity findings from a memory pipeline audit, while v0.13.x replaces the suggestions system with agent-controlled pending memory and pondering, then adds enriched cognition, trust enforcement, and scale improvements.
+Development is organized into versioned milestones. Each minor version (e.g., v0.12.x) is a milestone, with patch versions (e.g., v0.12.00, v0.12.01) as parent issues within. The v0.12.x series addresses pipeline integrity, v0.13.x abstracts the remote sync protocol (git/GitHub pattern), v0.14.x introduces pending memory and pondering, and v0.15.x adds skills as a memory type.
 
 ### v0.12.00 — Pipeline Safety
 
@@ -182,7 +182,38 @@ Auditability and belief management tooling for long-running SIs.
 - **Terminology docs** — canonical pipeline diagram, glossary (transition, promotion, suggestion, maintenance, consolidation), end-to-end reference page ([#411](https://github.com/emergent-instruments/kernle/issues/411))
 - **Component ordering DAG** — formalize component execution order with declared dependencies; validate at init ([#423](https://github.com/emergent-instruments/kernle/issues/423))
 
-### v0.13.00 — Pending Memory & Pondering
+### v0.13.00 — Remote Protocol & Generic Sync Client
+
+<Note>kernle-core is to kernle-cloud what git is to GitHub. kernle-core is the open-source protocol that works fully offline with SQLite. kernle-cloud is Ei's hosted offering — one of many possible remotes. Switching remotes is a config change, not a migration.</Note>
+
+Define the `RemoteProtocol` — the interface any remote memory service must implement — and replace the Supabase-coupled CloudClient with a generic sync client.
+
+- **RemoteProtocol + SyncOperation types** — minimal protocol interface: push, pull, search, health, capabilities. Remotes declare what they support via capability negotiation ([#490](https://github.com/emergent-instruments/kernle/issues/490))
+- **Generic sync client** — replaces CloudClient; lazily initialized, works with any RemoteProtocol implementation; SQLiteStorage decoupled from cloud imports ([#491](https://github.com/emergent-instruments/kernle/issues/491))
+- **Remote configuration CLI** — `kernle remote add/list/use/remove` following the git remote pattern; multiple remotes, switchable active remote ([#492](https://github.com/emergent-instruments/kernle/issues/492))
+
+### v0.13.01 — Auth Abstraction & Pluggable Schemes
+
+Replace hardcoded Supabase OAuth with pluggable auth. kernle-core ships simple schemes (API key, bearer token); kernle-cloud provides OAuth as a plugin via entry points.
+
+- **Pluggable auth abstraction** — `AuthScheme` protocol with discover via `kernle.auth` entry points; built-in API key and bearer token schemes ([#493](https://github.com/emergent-instruments/kernle/issues/493))
+- **Supabase/OAuth extraction** — move Supabase dependency and OAuth flow to kernle-cloud package; remove `cloud` optional dependency from kernle-core ([#494](https://github.com/emergent-instruments/kernle/issues/494))
+
+### v0.13.02 — Bidirectional Communication
+
+Enable remotes to push updates to kernle-core via an opt-in inbound listener. Define the formal API specification.
+
+- **Inbound listener** — `kernle serve` exposes webhook endpoints for remote-initiated sync, notifications, and conflict detection; authenticated via shared secret ([#495](https://github.com/emergent-instruments/kernle/issues/495))
+- **Remote API specification + conformance tests** — formal HTTP API spec for RemoteProtocol; `kernle remote test` validates any implementation ([#496](https://github.com/emergent-instruments/kernle/issues/496))
+
+### v0.13.03 — Migration & Cleanup
+
+Remove stale Supabase/Postgres coupling and provide a reference self-hosted remote.
+
+- **Stale reference cleanup** — remove dead Makefile ignores, unused fixtures, Postgres doc references, cloud-specific protocol methods ([#497](https://github.com/emergent-instruments/kernle/issues/497))
+- **Reference self-hosted remote** — minimal FastAPI server implementing RemoteProtocol with SQLite storage and API key auth; deployable via Docker; validates the protocol design ([#498](https://github.com/emergent-instruments/kernle/issues/498))
+
+### v0.14.00 — Pending Memory & Pondering
 
 <Note>This milestone replaces the human-in-the-loop suggestions system with an agent-controlled pending memory pipeline. The v0.12.x "suggestions-first promotion" work (#401, #406) establishes the governance model that this milestone then re-implements on a fundamentally different architecture — pending columns on memory tables instead of a separate suggestions table.</Note>
 
@@ -228,7 +259,7 @@ The `MemorySuggestion` dataclass, `memory_suggestions` table, `SuggestionCompone
 
 When an agent sets `ask_human=True`, it's requesting — not requiring — human input ([#467](https://github.com/emergent-instruments/kernle/issues/467)). The agent includes context ("I'm unsure about this belief"), a human provides advisory feedback, and the agent makes the final decision in its next pondering session.
 
-### v0.13.01 — Enriched Cognition
+### v0.14.01 — Enriched Cognition
 
 These features extend the existing protocol system with no breaking changes. New capabilities are delivered as StackComponentProtocol implementations or protocol extensions.
 
@@ -289,7 +320,7 @@ abstraction_level: "domain"  # 'specific' | 'domain' | 'universal'
 | Claude Code | `PostToolUse` | Track significant tool calls (Write, Edit, Bash) as raw captures | [#415](https://github.com/emergent-instruments/kernle/issues/415) |
 | Claude Code | `UserPromptSubmit` | Inject relevant memory context based on the user's prompt | [#416](https://github.com/emergent-instruments/kernle/issues/416) |
 
-### v0.13.02 — Trust & Access Control
+### v0.14.02 — Trust & Access Control
 
 Enforcing trust at the write path — without this, trust is theater.
 
@@ -297,7 +328,7 @@ Enforcing trust at the write path — without this, trust is theater.
 - **Access control & consent enforcement** — implement read/write scopes and export/redaction policies using existing `access_grants`/`consent_grants` fields ([#418](https://github.com/emergent-instruments/kernle/issues/418))
 - **Dynamic trust** — compute trust scores from episode history: interaction-based trust, trust decay, self-trust floor at historical accuracy rate ([#419](https://github.com/emergent-instruments/kernle/issues/419))
 
-### v0.13.03 — Scale & Depth
+### v0.14.03 — Scale & Depth
 
 Preparing the memory system for long-running SIs with large memory stores.
 
@@ -305,7 +336,7 @@ Preparing the memory system for long-running SIs with large memory stores.
 - **Memory compaction** — fractal summarization and epoch summaries as first-class memory types; inference-gated; summaries preferred by `load()` when budget constrained ([#421](https://github.com/emergent-instruments/kernle/issues/421))
 - **Multi-stack merge** — formal merge semantics for values (never auto-merge), beliefs (lineage-aware), and goals (dedup vs supersession); `kernle stack merge --dry-run` ([#422](https://github.com/emergent-instruments/kernle/issues/422))
 
-### v0.14.00 — Skills as Memory
+### v0.15.00 — Skills as Memory
 
 Skills become a first-class memory type with a proficiency lifecycle that evolves through use.
 
@@ -315,7 +346,7 @@ Skills become a first-class memory type with a proficiency lifecycle that evolve
 
 Every skill execution is an episode. Proficiency is earned, not declared.
 
-### v0.14.01 — Skill Intelligence
+### v0.15.01 — Skill Intelligence
 
 Skills become composable, belief-enriched, and transferable across domains.
 
@@ -323,7 +354,7 @@ Skills become composable, belief-enriched, and transferable across domains.
 - **Skill beliefs** — wisdom about when/how to apply skills, extracted from episode history; stability and contradiction metrics indicate expertise depth ([#475](https://github.com/emergent-instruments/kernle/issues/475))
 - **Cross-domain transfer** — recognize structural patterns applicable in new domains (e.g., "systematic elimination" in debugging → troubleshooting → research); transferred skills start at theoretical proficiency ([#476](https://github.com/emergent-instruments/kernle/issues/476))
 
-### v0.14.02 — Skill Transfer & Teaching
+### v0.15.02 — Skill Transfer & Teaching
 
 <Note>Skill transfer between SIs is teaching, not copying. The receiving SI gets curated knowledge but must build its own experience. This preserves the value of personal experience while enabling knowledge transfer.</Note>
 
@@ -428,7 +459,7 @@ The `derived_from` provenance tracks this abstraction step.
 
 Trust propagation through relationships: "I trust Claire, Claire trusts Bob, therefore I have derived trust in Bob (at a discount)."
 
-This requires graph-based trust computation with appropriate decay at each hop. Builds on dynamic trust work in v0.13.02.
+This requires graph-based trust computation with appropriate decay at each hop. Builds on dynamic trust work in v0.14.02.
 
 ### Formal Diagnostic Sessions
 
@@ -451,7 +482,7 @@ These areas are acknowledged but not yet designed in detail:
 | **Scope-based inference routing** | Components now declare `inference_scope` ('fast', 'capable', 'embedding', 'none') indicating what kind of model they need. A future core could route `infer()` calls to different models based on scope — e.g., cheap/fast models for tagging, capable models for consolidation, dedicated embedding models for vectors. The declarations are in place; routing is future work. |
 | **Embedding strategy** | Current 384-dim vectors may need updating for longer-lived stacks |
 | **MCP tool coverage** | Each new table/feature needs corresponding MCP tools |
-| **Transfer learning** | Cross-domain belief application with domain metadata (builds on belief enrichment in v0.13.01 and skill transfer in v0.14.01) |
+| **Transfer learning** | Cross-domain belief application with domain metadata (builds on belief enrichment in v0.14.01 and skill transfer in v0.15.01) |
 | **`kernle import` command** | Migration from flat-file memory systems (MEMORY.md, Obsidian, etc.) into stratified memory with heuristic classification and optional LLM-assisted analysis |
 
 ---
