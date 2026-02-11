@@ -10,18 +10,19 @@ from unittest.mock import MagicMock
 
 from kernle.cli.commands.doctor import (
     ComplianceCheck,
-    StructuralFinding,
-    _generate_summary,
-    check_belief_contradictions,
     check_claude_code_hook,
     check_hooks,
+    cmd_doctor,
+    cmd_doctor_structural,
+    detect_platform,
+)
+from kernle.structural import (
+    StructuralFinding,
+    check_belief_contradictions,
     check_low_confidence_beliefs,
     check_orphaned_references,
     check_stale_goals,
     check_stale_relationships,
-    cmd_doctor,
-    cmd_doctor_structural,
-    detect_platform,
 )
 from kernle.types import Belief, Goal, Relationship
 
@@ -470,7 +471,7 @@ class TestCmdDoctor:
 
 class TestCmdDoctorStructural:
     def test_no_findings_healthy_message(self, capsys, monkeypatch):
-        monkeypatch.setattr("kernle.cli.commands.doctor.run_structural_checks", lambda kobj: [])
+        monkeypatch.setattr("kernle.structural.run_structural_checks", lambda kobj: [])
         k = _mock_kernle()
         args = _make_args()
 
@@ -503,9 +504,7 @@ class TestCmdDoctorStructural:
                 message="stale goal",
             ),
         ]
-        monkeypatch.setattr(
-            "kernle.cli.commands.doctor.run_structural_checks", lambda kobj: findings
-        )
+        monkeypatch.setattr("kernle.structural.run_structural_checks", lambda kobj: findings)
         k = _mock_kernle()
         args = _make_args()
 
@@ -527,9 +526,7 @@ class TestCmdDoctorStructural:
                 message="broken ref",
             ),
         ]
-        monkeypatch.setattr(
-            "kernle.cli.commands.doctor.run_structural_checks", lambda kobj: findings
-        )
+        monkeypatch.setattr("kernle.structural.run_structural_checks", lambda kobj: findings)
         k = _mock_kernle()
         args = _make_args(json=True)
 
@@ -551,9 +548,7 @@ class TestCmdDoctorStructural:
                 message="stale goal",
             ),
         ]
-        monkeypatch.setattr(
-            "kernle.cli.commands.doctor.run_structural_checks", lambda kobj: findings
-        )
+        monkeypatch.setattr("kernle.structural.run_structural_checks", lambda kobj: findings)
         k = _mock_kernle()
         args = _make_args(save_note=True)
 
@@ -565,7 +560,7 @@ class TestCmdDoctorStructural:
         assert "stale_goal" in saved_note.content
 
     def test_save_note_not_called_when_no_findings(self, monkeypatch):
-        monkeypatch.setattr("kernle.cli.commands.doctor.run_structural_checks", lambda kobj: [])
+        monkeypatch.setattr("kernle.structural.run_structural_checks", lambda kobj: [])
         k = _mock_kernle()
         args = _make_args(save_note=True)
 
@@ -830,45 +825,3 @@ class TestCheckStaleGoals:
 
         findings = check_stale_goals(k)
         assert len(findings) == 0
-
-
-# ===================================================================
-# _generate_summary
-# ===================================================================
-
-
-class TestGenerateSummary:
-    def test_no_findings(self):
-        result = _generate_summary([])
-        assert "No issues" in result
-        assert "healthy" in result
-
-    def test_errors_only(self):
-        findings = [{"severity": "error"}]
-        result = _generate_summary(findings)
-        assert "1 finding(s)" in result
-        assert "1 error(s)" in result
-
-    def test_warnings_only(self):
-        findings = [{"severity": "warning"}, {"severity": "warning"}]
-        result = _generate_summary(findings)
-        assert "2 finding(s)" in result
-        assert "2 warning(s)" in result
-
-    def test_info_only(self):
-        findings = [{"severity": "info"}]
-        result = _generate_summary(findings)
-        assert "1 info" in result
-
-    def test_mixed_severities(self):
-        findings = [
-            {"severity": "error"},
-            {"severity": "warning"},
-            {"severity": "warning"},
-            {"severity": "info"},
-        ]
-        result = _generate_summary(findings)
-        assert "4 finding(s)" in result
-        assert "1 error(s)" in result
-        assert "2 warning(s)" in result
-        assert "1 info" in result

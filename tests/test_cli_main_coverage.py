@@ -499,17 +499,55 @@ class TestDispatchBranches:
         assert isinstance(captured, str)
 
     def test_dispatch_doctor_session_start_gate(self, k, capsys):
-        """Dispatch 'doctor session start' shows devtools install message."""
-        with pytest.raises(SystemExit) as exc:
-            self._run_main(["doctor", "session", "start"], k)
+        """Dispatch 'doctor session start' shows devtools install message when not installed."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name.startswith("kernle_devtools"):
+                raise ModuleNotFoundError(name=name)
+            return real_import(name, *args, **kwargs)
+
+        with patch.object(builtins, "__import__", side_effect=mock_import):
+            with pytest.raises(SystemExit) as exc:
+                self._run_main(["doctor", "session", "start"], k)
         assert exc.value.code == 2
         captured = capsys.readouterr().out
         assert "kernle-devtools" in captured
 
     def test_dispatch_doctor_session_list_gate(self, k, capsys):
-        """Dispatch 'doctor session list' shows devtools install message."""
-        with pytest.raises(SystemExit) as exc:
-            self._run_main(["doctor", "session", "list"], k)
+        """Dispatch 'doctor session list' shows devtools install message when not installed."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name.startswith("kernle_devtools"):
+                raise ModuleNotFoundError(name=name)
+            return real_import(name, *args, **kwargs)
+
+        with patch.object(builtins, "__import__", side_effect=mock_import):
+            with pytest.raises(SystemExit) as exc:
+                self._run_main(["doctor", "session", "list"], k)
+        assert exc.value.code == 2
+        captured = capsys.readouterr().out
+        assert "kernle-devtools" in captured
+
+    def test_dispatch_doctor_session_start_import_error_gate(self, k, capsys):
+        """Dispatch 'doctor session start' handles incompatible devtools (ImportError)."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name.startswith("kernle_devtools"):
+                raise ImportError("kernle-devtools requires kernle>=0.12.4")
+            return real_import(name, *args, **kwargs)
+
+        with patch.object(builtins, "__import__", side_effect=mock_import):
+            with pytest.raises(SystemExit) as exc:
+                self._run_main(["doctor", "session", "start"], k)
         assert exc.value.code == 2
         captured = capsys.readouterr().out
         assert "kernle-devtools" in captured
@@ -521,9 +559,19 @@ class TestDispatchBranches:
         assert "Usage" in captured
 
     def test_dispatch_doctor_report_gate(self, k, capsys):
-        """Dispatch 'doctor report' shows devtools install message."""
-        with pytest.raises(SystemExit) as exc:
-            self._run_main(["doctor", "report", "latest"], k)
+        """Dispatch 'doctor report' shows devtools install message when not installed."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name.startswith("kernle_devtools"):
+                raise ModuleNotFoundError(name=name)
+            return real_import(name, *args, **kwargs)
+
+        with patch.object(builtins, "__import__", side_effect=mock_import):
+            with pytest.raises(SystemExit) as exc:
+                self._run_main(["doctor", "report", "latest"], k)
         assert exc.value.code == 2
         captured = capsys.readouterr().out
         assert "kernle-devtools" in captured
