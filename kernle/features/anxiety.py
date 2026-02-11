@@ -94,10 +94,10 @@ class AnxietyMixin:
 
         for entry in raw_entries:
             try:
-                # Use captured_at (preferred) or timestamp (deprecated) for backwards compatibility
-                ts = entry.get("captured_at") or entry.get("timestamp", "")
-                if ts:
-                    entry_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                entry_time = entry.captured_at or entry.timestamp
+                if entry_time:
+                    if isinstance(entry_time, str):
+                        entry_time = datetime.fromisoformat(entry_time.replace("Z", "+00:00"))
                     age = now - entry_time
                     entry_hours = age.total_seconds() / 3600
 
@@ -106,7 +106,7 @@ class AnxietyMixin:
 
                     if entry_hours > oldest_age_hours:
                         oldest_age_hours = entry_hours
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, AttributeError):
                 continue
 
         return len(raw_entries), aging_count, oldest_age_hours
