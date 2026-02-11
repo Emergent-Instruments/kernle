@@ -16,7 +16,9 @@ known issues where import_cmd.py silently catches the resulting errors.
 
 import argparse
 import json
-from unittest.mock import patch
+import sys
+import types
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -2091,6 +2093,30 @@ class TestJsonSkipDuplicatesEdgeCases:
 
 class TestImportPdf:
     """Tests for _import_pdf and PDF auto-detection."""
+
+    @pytest.fixture(autouse=True)
+    def _ensure_pdfminer_module(self):
+        """Ensure pdfminer.high_level exists in sys.modules so patch() can resolve it.
+
+        pdfminer.six is an optional runtime dependency. When it's not installed
+        (e.g. in CI), patch("pdfminer.high_level.extract_text") fails because
+        the target module can't be imported. This fixture injects a stub module
+        so the patch target is resolvable, then cleans up afterwards.
+        """
+        try:
+            import pdfminer.high_level  # noqa: F401
+
+            yield  # already installed, nothing to do
+        except ImportError:
+            stub_pkg = types.ModuleType("pdfminer")
+            stub_hl = types.ModuleType("pdfminer.high_level")
+            stub_hl.extract_text = MagicMock()
+            stub_pkg.high_level = stub_hl
+            sys.modules["pdfminer"] = stub_pkg
+            sys.modules["pdfminer.high_level"] = stub_hl
+            yield
+            sys.modules.pop("pdfminer.high_level", None)
+            sys.modules.pop("pdfminer", None)
 
     def test_auto_detect_pdf_extension(self, k, tmp_path, capsys):
         """cmd_import should auto-detect .pdf files."""
