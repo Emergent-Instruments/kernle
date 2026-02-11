@@ -54,6 +54,11 @@ def validate_memory_process_exhaust(arguments: Dict[str, Any]) -> Dict[str, Any]
     sanitized["dry_run"] = arguments.get("dry_run", False)
     if not isinstance(sanitized["dry_run"], bool):
         sanitized["dry_run"] = False
+    batch_size = arguments.get("batch_size")
+    if isinstance(batch_size, int) and batch_size > 0:
+        sanitized["batch_size"] = batch_size
+    else:
+        sanitized["batch_size"] = None
     return sanitized
 
 
@@ -175,6 +180,7 @@ def handle_memory_process_exhaust(args: Dict[str, Any], k: Kernle) -> str:
         k,
         max_cycles=args.get("max_cycles", 20),
         auto_promote=args.get("auto_promote", True),
+        batch_size=args.get("batch_size"),
     )
     result = runner.run(dry_run=args.get("dry_run", False))
 

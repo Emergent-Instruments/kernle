@@ -4,6 +4,7 @@ Supports importing from:
 - Markdown files (.md, .markdown, .txt)
 - JSON files (Kernle export format)
 - CSV files (tabular format)
+- PDF files (.pdf)
 """
 
 import json
@@ -40,9 +41,11 @@ def cmd_import(args: "argparse.Namespace", k: "Kernle") -> None:
             file_format = "json"
         elif suffix == ".csv":
             file_format = "csv"
+        elif suffix == ".pdf":
+            file_format = "pdf"
         else:
             print(f"Error: Unknown file format: {suffix}")
-            print("Use --format to specify: markdown, json, or csv")
+            print("Use --format to specify: markdown, json, csv, or pdf")
             return
 
     dry_run = getattr(args, "dry_run", False)
@@ -51,12 +54,16 @@ def cmd_import(args: "argparse.Namespace", k: "Kernle") -> None:
     skip_duplicates = getattr(args, "skip_duplicates", True)
     derived_from = getattr(args, "derived_from", None)
 
+    chunk_size = getattr(args, "chunk_size", 2000)
+
     if file_format == "markdown":
         _import_markdown(file_path, k, dry_run, interactive, target_layer, derived_from)
     elif file_format == "json":
         _import_json(file_path, k, dry_run, skip_duplicates, derived_from)
     elif file_format == "csv":
         _import_csv(file_path, k, dry_run, target_layer, skip_duplicates, derived_from)
+    elif file_format == "pdf":
+        _import_pdf(file_path, k, dry_run, skip_duplicates, derived_from, chunk_size)
 
 
 def _import_markdown(
@@ -499,6 +506,96 @@ def _import_csv(
 
     # Import
     _batch_import(items, k, skip_duplicates, derived_from=derived_from)
+
+
+def _import_pdf(
+    file_path: Path,
+    k: "Kernle",
+    dry_run: bool,
+    skip_duplicates: bool,
+    derived_from: Optional[List[str]] = None,
+    max_chunk_size: int = 2000,
+) -> None:
+    """Import from a PDF file by extracting text and chunking into raw entries."""
+    try:
+        from pdfminer.high_level import extract_text
+    except ImportError:
+        print("Error: PDF support requires pdfminer.six")
+        print("Install with: pip install pdfminer.six")
+        return
+
+    try:
+        text = extract_text(str(file_path))
+    except Exception as e:
+        print(f"Error extracting text from PDF: {e}")
+        return
+
+    if not text or not text.strip():
+        print("No text content found in PDF")
+        return
+
+    # Chunk the extracted text using corpus chunking logic
+    from kernle.corpus import chunk_generic
+    from kernle.processing import compute_content_hash
+
+    chunks = chunk_generic(text, str(file_path), max_chunk_size)
+
+    if not chunks:
+        print("No chunks created from PDF content")
+        return
+
+    print(f"Extracted {len(chunks)} chunks from {file_path.name}")
+
+    if dry_run:
+        print("=== DRY RUN (no changes made) ===\n")
+        for i, chunk in enumerate(chunks[:10], 1):
+            preview = chunk["content"][:80].replace("\n", " ")
+            print(f"{i}. [{chunk['chunk_name']}] {preview}...")
+        if len(chunks) > 10:
+            print(f"... and {len(chunks) - 10} more chunks")
+        return
+
+    # Import as raw entries with file metadata
+    imported = 0
+    skipped = 0
+    errors: List[str] = []
+    seen_hashes: set = set()
+
+    # Pre-load existing content hashes for dedup
+    existing_hashes: set = set()
+    if skip_duplicates:
+        existing = k._storage.list_raw(limit=10000)
+        for r in existing:
+            h = compute_content_hash(r.content)
+            if h:
+                existing_hashes.add(h)
+
+    for chunk in chunks:
+        content = chunk["content"]
+        content_hash = compute_content_hash(content)
+
+        # Dedup within this import and against existing
+        if content_hash in seen_hashes or content_hash in existing_hashes:
+            skipped += 1
+            continue
+        seen_hashes.add(content_hash)
+
+        try:
+            source = f"pdf:{file_path.name}"
+            k.raw(blob=content, source=source)
+            imported += 1
+        except Exception as e:
+            errors.append(f"chunk {chunk['chunk_name']}: {str(e)[:50]}")
+
+    print(f"Imported {imported} raw entries from PDF")
+    if skipped > 0:
+        print(f"Skipped {skipped} duplicates")
+    if errors:
+        print(f"{len(errors)} errors:")
+        for err in errors[:5]:
+            print(f"  {err}")
+        if len(errors) > 5:
+            print(f"  ... and {len(errors) - 5} more")
 
 
 # ============================================================================

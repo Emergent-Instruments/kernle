@@ -1910,21 +1910,8 @@ class SQLiteStack(
         return None
 
     def list_raw(self, processed: Optional[bool] = None, limit: int = 100) -> List[Any]:
-        """List raw entries (mixin compatibility)."""
-        entries = self._backend.list_raw(processed=processed, limit=limit)
-        # Return as dicts for AnxietyMixin compatibility
-        result = []
-        for e in entries:
-            result.append(
-                {
-                    "id": e.id,
-                    "captured_at": e.captured_at.isoformat() if e.captured_at else None,
-                    "timestamp": e.timestamp.isoformat() if e.timestamp else None,
-                    "content": e.content,
-                    "processed": e.processed,
-                }
-            )
-        return result
+        """List raw entries."""
+        return self._backend.list_raw(processed=processed, limit=limit)
 
     def get_identity_confidence(self) -> float:
         """Get identity confidence (mixin compatibility).

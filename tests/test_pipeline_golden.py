@@ -27,6 +27,7 @@ import pytest
 from kernle.entity import Entity
 from kernle.processing import (
     IDENTITY_LAYER_TRANSITIONS,
+    VALID_TRANSITIONS,
 )
 from kernle.protocols import ModelResponse
 from kernle.stack.sqlite_stack import SQLiteStack
@@ -93,8 +94,8 @@ EXPECTED_TRANSITIONS_WITH_RESULTS = {
     "episode_to_drive",
 }
 
-# Expected identity-layer transitions blocked without inference.
-EXPECTED_BLOCKED_TRANSITIONS = set(IDENTITY_LAYER_TRANSITIONS)
+# Expected transitions blocked without inference (all transitions).
+EXPECTED_BLOCKED_TRANSITIONS = set(VALID_TRANSITIONS)
 
 
 # =============================================================================

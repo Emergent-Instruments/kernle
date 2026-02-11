@@ -49,6 +49,7 @@ from kernle.cli.commands import (
     cmd_load,
     cmd_meta,
     cmd_migrate,
+    cmd_model,
     cmd_narrative,
     cmd_note,
     cmd_playbook,
@@ -1113,6 +1114,32 @@ def main():
         help="Preview what would run without making changes",
     )
     process_exhaust.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+    process_exhaust.add_argument(
+        "--batch-size",
+        "-b",
+        type=int,
+        default=None,
+        help="Override batch size for processing (default: use config)",
+    )
+    process_exhaust.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Enable verbose logging for exhaust and processing",
+    )
+
+    # model binding
+    p_model = subparsers.add_parser("model", help="Model binding")
+    model_sub = p_model.add_subparsers(dest="model_action", required=True)
+
+    model_show = model_sub.add_parser("show", help="Show current model binding")
+    model_show.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+
+    model_set = model_sub.add_parser("set", help="Bind a model provider")
+    model_set.add_argument("provider", choices=["claude", "openai", "ollama"])
+    model_set.add_argument("--model-id", help="Override default model name")
+
+    model_sub.add_parser("clear", help="Unbind the current model")
 
     # seed (corpus ingestion)
     p_seed = subparsers.add_parser("seed", help="Seed memory from corpus (repo/docs)")
@@ -1892,7 +1919,7 @@ Typical usage:
 
     # import - import from external files (markdown, JSON, CSV)
     p_import = subparsers.add_parser(
-        "import", help="Import memories from markdown, JSON, or CSV files"
+        "import", help="Import memories from markdown, JSON, CSV, or PDF files"
     )
     p_import.add_argument(
         "file", help="Path to file to import (auto-detects format from extension)"
@@ -1900,7 +1927,7 @@ Typical usage:
     p_import.add_argument(
         "--format",
         "-f",
-        choices=["markdown", "json", "csv"],
+        choices=["markdown", "json", "csv", "pdf"],
         help="File format (auto-detected from extension if not specified)",
     )
     p_import.add_argument(
@@ -1940,6 +1967,13 @@ Typical usage:
         action="append",
         dest="derived_from",
         help="Source memory ID for all imported items (repeatable)",
+    )
+    p_import.add_argument(
+        "--chunk-size",
+        type=int,
+        default=2000,
+        dest="chunk_size",
+        help="Max chunk size in characters for PDF imports (default: 2000)",
     )
 
     # migrate - migrate from other platforms
@@ -2226,6 +2260,8 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_playbook(args, k)
         elif args.command == "process":
             cmd_process(args, k)
+        elif args.command == "model":
+            cmd_model(args, k)
         elif args.command == "seed":
             cmd_seed(args, k)
         elif args.command == "raw":

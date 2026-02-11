@@ -9,9 +9,31 @@ if TYPE_CHECKING:
     from kernle import Kernle
 
 
+def _ensure_model(k: "Kernle"):
+    """Auto-bind a model from persisted config or env vars if none is bound."""
+    if k.entity.model is not None:
+        return
+
+    # 1. Try persisted boot_config (from `kernle model set`)
+    from kernle.cli.commands.model import load_persisted_model
+
+    model = load_persisted_model(k)
+    if model is not None:
+        k.entity.set_model(model)
+        return
+
+    # 2. Fall back to env var auto-detection
+    from kernle.models.auto import auto_configure_model
+
+    model = auto_configure_model()
+    if model is not None:
+        k.entity.set_model(model)
+
+
 def cmd_process(args, k: "Kernle"):
     """Handle process subcommands."""
     if args.process_action == "run":
+        _ensure_model(k)
         transition = getattr(args, "transition", None)
         force = getattr(args, "force", False)
         allow_no_inference_override = getattr(args, "allow_no_inference_override", False)
@@ -166,13 +188,24 @@ def cmd_process(args, k: "Kernle"):
             print(f"Error gathering status: {e}")
 
     elif args.process_action == "exhaust":
+        _ensure_model(k)
+        import logging as _logging
+
         from kernle.exhaust import ExhaustionRunner
 
         max_cycles = getattr(args, "max_cycles", 20)
         auto_promote = not getattr(args, "no_auto_promote", False)
         dry_run = getattr(args, "dry_run", False)
+        batch_size = getattr(args, "batch_size", None)
+        verbose = getattr(args, "verbose", False)
 
-        runner = ExhaustionRunner(k, max_cycles=max_cycles, auto_promote=auto_promote)
+        if verbose:
+            _logging.getLogger("kernle.exhaust").setLevel(_logging.DEBUG)
+            _logging.getLogger("kernle.processing").setLevel(_logging.DEBUG)
+
+        runner = ExhaustionRunner(
+            k, max_cycles=max_cycles, auto_promote=auto_promote, batch_size=batch_size
+        )
         result = runner.run(dry_run=dry_run)
 
         if getattr(args, "json", False):
@@ -204,10 +237,23 @@ def cmd_process(args, k: "Kernle"):
                 print("  Snapshot: saved")
             print()
             for cr in result.cycle_results:
-                status = f"{cr.promotions} promotions"
-                if cr.errors:
-                    status += f", {len(cr.errors)} errors"
-                print(f"  Cycle {cr.cycle_number} ({cr.intensity}): {status}")
+                # Check if all results were inference-blocked
+                all_blocked = cr.results and all(
+                    getattr(pr, "inference_blocked", False) for pr in cr.results
+                )
+                if all_blocked:
+                    print(
+                        f"  Cycle {cr.cycle_number} ({cr.intensity}): "
+                        f"blocked — no inference model bound"
+                    )
+                else:
+                    status = f"{cr.promotions} promotions"
+                    if cr.errors:
+                        status += f", {len(cr.errors)} errors"
+                    print(f"  Cycle {cr.cycle_number} ({cr.intensity}): {status}")
+                    if verbose and cr.errors:
+                        for err in cr.errors:
+                            print(f"    ! {err}")
 
     else:
         print("Usage: kernle process {run|status|exhaust}")

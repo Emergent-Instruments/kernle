@@ -29,6 +29,7 @@ from kernle.cli.commands.import_cmd import (
     _import_item,
     _import_json,
     _import_markdown,
+    _import_pdf,
     _interactive_import,
     _preview_item,
     cmd_import,
@@ -74,6 +75,7 @@ def _make_args(**kwargs):
         layer=None,
         skip_duplicates=True,
         derived_from=None,
+        chunk_size=2000,
     )
     defaults.update(kwargs)
     return argparse.Namespace(**defaults)
@@ -2080,3 +2082,195 @@ class TestJsonSkipDuplicatesEdgeCases:
         _import_json(f, k, dry_run=False, skip_duplicates=False)
         out = capsys.readouterr().out
         assert "Imported" in out
+
+
+# ============================================================================
+# TestImportPdf — PDF import
+# ============================================================================
+
+
+class TestImportPdf:
+    """Tests for _import_pdf and PDF auto-detection."""
+
+    def test_auto_detect_pdf_extension(self, k, tmp_path, capsys):
+        """cmd_import should auto-detect .pdf files."""
+        f = tmp_path / "doc.pdf"
+        f.write_bytes(b"fake pdf")
+        args = _make_args(file=str(f))
+        with patch("kernle.cli.commands.import_cmd.extract_text", create=True):
+            # Patch at the point where it's used inside _import_pdf
+            with patch("kernle.cli.commands.import_cmd._import_pdf") as mock_pdf:
+                cmd_import(args, k)
+                mock_pdf.assert_called_once()
+
+    def test_pdf_import_creates_raw_entries(self, k, tmp_path, capsys):
+        """PDF text should be chunked and imported as raw entries."""
+        f = tmp_path / "doc.pdf"
+        f.write_bytes(b"fake pdf")
+
+        sample_text = "First paragraph of the PDF.\n\nSecond paragraph with more content."
+
+        with patch("pdfminer.high_level.extract_text", return_value=sample_text):
+            _import_pdf(f, k, dry_run=False, skip_duplicates=False)
+
+        out = capsys.readouterr().out
+        assert "Imported" in out
+
+        raws = k._storage.list_raw(limit=100)
+        assert len(raws) >= 1
+        # Content should be present in raw entries
+        all_content = " ".join(r.content for r in raws)
+        assert "First paragraph" in all_content
+
+    def test_pdf_dry_run(self, k, tmp_path, capsys):
+        """Dry run should preview without creating entries."""
+        f = tmp_path / "doc.pdf"
+        f.write_bytes(b"fake pdf")
+
+        sample_text = "Paragraph one.\n\nParagraph two."
+
+        with patch("pdfminer.high_level.extract_text", return_value=sample_text):
+            _import_pdf(f, k, dry_run=True, skip_duplicates=False)
+
+        out = capsys.readouterr().out
+        assert "DRY RUN" in out
+
+        raws = k._storage.list_raw(limit=100)
+        assert len(raws) == 0
+
+    def test_pdf_empty_content(self, k, tmp_path, capsys):
+        """Empty PDF should report no content."""
+        f = tmp_path / "empty.pdf"
+        f.write_bytes(b"fake pdf")
+
+        with patch("pdfminer.high_level.extract_text", return_value=""):
+            _import_pdf(f, k, dry_run=False, skip_duplicates=False)
+
+        out = capsys.readouterr().out
+        assert "No text content" in out
+
+    def test_pdf_skip_duplicates(self, k, tmp_path, capsys):
+        """Duplicate chunks should be skipped."""
+        f = tmp_path / "doc.pdf"
+        f.write_bytes(b"fake pdf")
+
+        sample_text = "Some unique PDF content for dedup testing."
+
+        # Import once
+        with patch("pdfminer.high_level.extract_text", return_value=sample_text):
+            _import_pdf(f, k, dry_run=False, skip_duplicates=False)
+
+        raws_after_first = k._storage.list_raw(limit=100)
+        count_first = len(raws_after_first)
+
+        capsys.readouterr()  # clear
+
+        # Import again with skip_duplicates
+        with patch("pdfminer.high_level.extract_text", return_value=sample_text):
+            _import_pdf(f, k, dry_run=False, skip_duplicates=True)
+
+        capsys.readouterr()  # clear output
+
+        raws_after_second = k._storage.list_raw(limit=100)
+        # No new entries should have been created
+        assert len(raws_after_second) == count_first
+
+    def test_pdf_chunking_large_content(self, k, tmp_path, capsys):
+        """Large PDF content should be split into multiple chunks."""
+        f = tmp_path / "large.pdf"
+        f.write_bytes(b"fake pdf")
+
+        # Create content larger than default chunk size
+        paragraphs = [f"Paragraph {i} with enough text to matter. " * 20 for i in range(10)]
+        sample_text = "\n\n".join(paragraphs)
+
+        with patch("pdfminer.high_level.extract_text", return_value=sample_text):
+            _import_pdf(f, k, dry_run=False, skip_duplicates=False, max_chunk_size=500)
+
+        raws = k._storage.list_raw(limit=100)
+        # Should have created multiple raw entries
+        assert len(raws) > 1
+
+    def test_pdf_calls_raw_with_source(self, k, tmp_path, capsys):
+        """PDF import should pass pdf:<filename> as source to k.raw()."""
+        f = tmp_path / "tagged.pdf"
+        f.write_bytes(b"fake pdf")
+
+        with patch("pdfminer.high_level.extract_text", return_value="Tagged PDF content."):
+            with patch.object(k, "raw", wraps=k.raw) as mock_raw:
+                _import_pdf(f, k, dry_run=False, skip_duplicates=False)
+                mock_raw.assert_called_once()
+                _, kwargs = mock_raw.call_args
+                assert (
+                    kwargs.get("source") == "pdf:tagged.pdf"
+                    or mock_raw.call_args[1].get("source") == "pdf:tagged.pdf"
+                )
+
+    def test_pdf_missing_pdfminer(self, k, tmp_path, capsys):
+        """Should show helpful error when pdfminer.six is not installed."""
+        f = tmp_path / "doc.pdf"
+        f.write_bytes(b"fake pdf")
+
+        with patch.dict("sys.modules", {"pdfminer": None, "pdfminer.high_level": None}):
+            # Force ImportError
+            import importlib
+
+            import kernle.cli.commands.import_cmd as mod
+
+            importlib.reload(mod)
+
+            mod._import_pdf(f, k, dry_run=False, skip_duplicates=False)
+
+        out = capsys.readouterr().out
+        assert "pdfminer" in out.lower()
+
+        # Reload to restore
+        importlib.reload(mod)
+
+    def test_pdf_extraction_error(self, k, tmp_path, capsys):
+        """Should handle PDF extraction errors gracefully."""
+        f = tmp_path / "bad.pdf"
+        f.write_bytes(b"not a real pdf")
+
+        with patch(
+            "pdfminer.high_level.extract_text",
+            side_effect=Exception("PDF parse error"),
+        ):
+            _import_pdf(f, k, dry_run=False, skip_duplicates=False)
+
+        out = capsys.readouterr().out
+        assert "Error" in out
+
+    def test_pdf_custom_chunk_size(self, k, tmp_path, capsys):
+        """Custom chunk_size should be respected."""
+        f = tmp_path / "chunked.pdf"
+        f.write_bytes(b"fake pdf")
+
+        # Two paragraphs, each ~100 chars
+        p1 = "A" * 100
+        p2 = "B" * 100
+        sample_text = f"{p1}\n\n{p2}"
+
+        # With large chunk size, should be 1 chunk
+        with patch("pdfminer.high_level.extract_text", return_value=sample_text):
+            _import_pdf(f, k, dry_run=False, skip_duplicates=False, max_chunk_size=5000)
+
+        raws = k._storage.list_raw(limit=100)
+        assert len(raws) == 1
+
+    def test_cmd_import_pdf_with_chunk_size(self, k, tmp_path, capsys):
+        """cmd_import should pass chunk_size to _import_pdf."""
+        f = tmp_path / "doc.pdf"
+        f.write_bytes(b"fake pdf")
+
+        args = _make_args(file=str(f), chunk_size=500)
+        with patch("kernle.cli.commands.import_cmd._import_pdf") as mock_pdf:
+            cmd_import(args, k)
+            mock_pdf.assert_called_once()
+            # chunk_size should be the last positional arg
+            call_args = mock_pdf.call_args
+            assert (
+                call_args[0][-1] == 500
+                or call_args[1].get("chunk_size") == 500
+                or 500 in call_args[0]
+            )

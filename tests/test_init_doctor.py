@@ -352,7 +352,10 @@ class TestCmdDoctor:
 
         args = argparse.Namespace(json=False, verbose=False, fix=False, full=False)
 
-        with patch("sys.stdout", new=StringIO()) as fake_out:
+        with (
+            patch("kernle.cli.commands.doctor.find_instruction_file", return_value=None),
+            patch("sys.stdout", new=StringIO()) as fake_out,
+        ):
             cmd_doctor(args, mock_kernle)
 
         output = fake_out.getvalue()
@@ -364,7 +367,10 @@ class TestCmdDoctor:
 
         args = argparse.Namespace(json=True, verbose=False, fix=False, full=False)
 
-        with patch("sys.stdout", new=StringIO()) as fake_out:
+        with (
+            patch("kernle.cli.commands.doctor.find_instruction_file", return_value=None),
+            patch("sys.stdout", new=StringIO()) as fake_out,
+        ):
             cmd_doctor(args, mock_kernle)
 
         output = json.loads(fake_out.getvalue())
@@ -569,6 +575,8 @@ class TestFindInstructionFile:
     def test_find_none(self, tmp_path, monkeypatch):
         """Test when no instruction file exists."""
         monkeypatch.chdir(tmp_path)
+        # Prevent fallback to real ~/.claude/CLAUDE.md
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "fakehome")
 
         result = find_instruction_file()
 

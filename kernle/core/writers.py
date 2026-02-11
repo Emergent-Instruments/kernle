@@ -385,7 +385,12 @@ class WritersMixin:
         ]
 
     def process(
-        self, transition=None, force=False, allow_no_inference_override=False, auto_promote=False
+        self,
+        transition=None,
+        force=False,
+        allow_no_inference_override=False,
+        auto_promote=False,
+        batch_size=None,
     ):
         """Run memory processing.
 
@@ -403,6 +408,7 @@ class WritersMixin:
                 inference (except values). Only effective with force=True.
             auto_promote: If True, directly write memories. If False (default),
                 create suggestions for review.
+            batch_size: Override the per-transition batch size (None = use config).
 
         Returns:
             List of ProcessingResult for each transition that ran
@@ -410,11 +416,17 @@ class WritersMixin:
         entity = self.entity
         if entity is None:
             raise RuntimeError("process() requires Entity (use SQLite storage)")
+        # Ensure stack is attached — handles lazy property order where
+        # checkpoint() creates _stack before _entity exists, so the
+        # stack property's attach_stack() call never ran.
+        if entity.active_stack is None and self.stack is not None:
+            entity.attach_stack(self.stack, alias="default", set_active=True)
         return entity.process(
             transition=transition,
             force=force,
             allow_no_inference_override=allow_no_inference_override,
             auto_promote=auto_promote,
+            batch_size=batch_size,
         )
 
     def process_raw(

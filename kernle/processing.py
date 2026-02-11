@@ -615,6 +615,7 @@ class MemoryProcessor:
         force: bool = False,
         allow_no_inference_override: bool = False,
         auto_promote: Optional[bool] = None,
+        batch_size: Optional[int] = None,
     ) -> List[ProcessingResult]:
         """Run processing for one or all layer transitions.
 
@@ -626,6 +627,7 @@ class MemoryProcessor:
                 for transitions in OVERRIDE_TRANSITIONS.
             auto_promote: If True, directly write memories. If False (default),
                 create suggestions for review. None uses instance default.
+            batch_size: Override the per-transition batch size (None = use config).
 
         Returns:
             List of ProcessingResult for each transition that ran
@@ -649,7 +651,7 @@ class MemoryProcessor:
             if not force and not self.check_triggers(t):
                 continue
 
-            result = self._process_layer(t, config, auto_promote=promote)
+            result = self._process_layer(t, config, auto_promote=promote, batch_size=batch_size)
             results.append(result)
 
         return results
@@ -669,11 +671,19 @@ class MemoryProcessor:
             return None
 
         if transition not in IDENTITY_LAYER_TRANSITIONS:
-            # Non-identity transitions (raw_to_episode, raw_to_note) still need
-            # inference to run. They will fail at the inference call step, which
-            # is handled gracefully. But we don't block them at the policy level
-            # since the infrastructure handles the error.
-            return None
+            # Non-identity transitions (raw_to_episode, raw_to_note) require
+            # inference to generate output. Block them at the policy level
+            # with a clear message so callers (e.g. exhaust runner) can
+            # detect inference-blocked state cleanly.
+            return ProcessingResult(
+                layer_transition=transition,
+                source_count=0,
+                skipped=True,
+                skip_reason=(
+                    "Blocked: inference unavailable. " "Bind a model to process raw entries."
+                ),
+                inference_blocked=True,
+            )
 
         # Values are never allowed without inference
         if transition in NO_OVERRIDE_TRANSITIONS:
@@ -768,7 +778,12 @@ class MemoryProcessor:
         )
 
     def _process_layer(
-        self, transition: str, config: LayerConfig, *, auto_promote: bool = False
+        self,
+        transition: str,
+        config: LayerConfig,
+        *,
+        auto_promote: bool = False,
+        batch_size: Optional[int] = None,
     ) -> ProcessingResult:
         """Run one processing pass for a specific layer transition."""
         prompts = LAYER_PROMPTS.get(transition)
@@ -781,7 +796,8 @@ class MemoryProcessor:
             )
 
         # 1. Gather unprocessed source memories
-        sources = self._gather_sources(transition, config.batch_size)
+        effective_batch = batch_size if batch_size is not None else config.batch_size
+        sources = self._gather_sources(transition, effective_batch)
         if not sources:
             return ProcessingResult(
                 layer_transition=transition,
@@ -841,10 +857,15 @@ class MemoryProcessor:
         result.gate_blocked = getattr(self, "_last_gate_blocked", 0)
         result.gate_details = getattr(self, "_last_gate_details", [])
 
-        # 8. Mark sources as processed (only if something was actually created)
+        # 8. Mark sources as processed.
+        # If items were gate-blocked (conditions may improve later), keep
+        # sources unprocessed so they can be re-evaluated. Otherwise the
+        # model evaluated the batch — mark processed even if no output was
+        # produced, so the system advances to the next batch.
         created_or_suggested = result.created or result.suggestions
-        if created_or_suggested:
-            self._mark_processed(transition, sources, created_or_suggested)
+        all_gate_blocked = result.gate_blocked > 0 and not created_or_suggested
+        if not all_gate_blocked:
+            self._mark_processed(transition, sources, created_or_suggested or [])
 
         # 9. Log audit
         self._stack.log_audit(
@@ -1006,22 +1027,19 @@ class MemoryProcessor:
     def _build_existing_index(self, transition: str, context: list) -> Dict[str, Any]:
         """Build an index of existing memories for deduplication.
 
-        Returns a dict mapping provenance_hash -> existing memory record,
-        and a set of content hashes for content-based dedup.
+        Returns a dict with content hashes for content-based dedup only.
+        Provenance-based dedup is intentionally absent — the same source
+        material should be allowed to produce multiple memories (e.g. an
+        episode AND a note from the same raw entry, or different insights
+        from re-processing). Near-duplicate cleanup is left to the
+        consolidation component as a higher-level cognitive activity.
 
         The index covers memories already present in the stack that could
-        be duplicates of what this processing pass would create.
+        be exact duplicates of what this processing pass would create.
         """
-        prov_index: Dict[str, Any] = {}  # provenance_hash -> record
         content_index: Dict[str, Any] = {}  # content_hash -> record
 
         for record in context:
-            derived = getattr(record, "derived_from", None) or []
-            if derived:
-                phash = compute_provenance_hash(derived)
-                if phash:
-                    prov_index[phash] = record
-
             # Build content hash based on what type of record this is
             content_text = ""
             if hasattr(record, "objective"):
@@ -1044,56 +1062,26 @@ class MemoryProcessor:
                 if chash:
                     content_index[chash] = record
 
-        return {"provenance": prov_index, "content": content_index}
+        return {"content": content_index}
 
     def _check_duplicate(
         self, transition: str, item: dict, dedup_index: Dict[str, Any]
     ) -> Optional[str]:
-        """Check if a parsed item is a duplicate of an existing memory.
+        """Check if a parsed item is an exact duplicate of an existing memory.
 
-        Policy: skip creation when provenance OR content matches. When
-        provenance matches but content differs (model produced a different
-        interpretation of the same sources), we still skip — the first
-        interpretation is authoritative. This is logged distinctly so
-        operators can audit if needed.
+        Policy: only skip creation when content is identical. Provenance
+        is not checked — the same source material may legitimately produce
+        multiple memories (different layers, different insights, different
+        framings). Near-duplicate consolidation is a separate cognitive
+        activity handled by the consolidation component.
 
         Returns:
             None if not a duplicate.
             The existing memory ID if it's a duplicate (skip creation).
         """
-        derived_from = _extract_derived_from(transition, item)
         content_text = _extract_content_text(transition, item)
 
-        # 1. Check provenance hash match
-        if derived_from:
-            phash = compute_provenance_hash(derived_from)
-            if phash and phash in dedup_index["provenance"]:
-                existing = dedup_index["provenance"][phash]
-                existing_id = getattr(existing, "id", None)
-
-                # Check if content differs (provenance same, content changed)
-                if content_text:
-                    existing_content = self._extract_existing_content(existing)
-                    if existing_content:
-                        existing_chash = compute_content_hash(existing_content)
-                        new_chash = compute_content_hash(content_text)
-                        if existing_chash != new_chash:
-                            logger.info(
-                                "Dedup: skipping %s item — provenance match with %s "
-                                "(content differs, keeping original)",
-                                transition,
-                                existing_id,
-                            )
-                            return existing_id
-
-                logger.info(
-                    "Dedup: skipping %s item — provenance match with %s",
-                    transition,
-                    existing_id,
-                )
-                return existing_id
-
-        # 2. Check content hash match
+        # Check content hash match — only block exact duplicates
         if content_text:
             chash = compute_content_hash(content_text)
             if chash and chash in dedup_index["content"]:
@@ -1107,25 +1095,6 @@ class MemoryProcessor:
                 return existing_id
 
         return None
-
-    @staticmethod
-    def _extract_existing_content(record: Any) -> str:
-        """Extract content text from an existing memory record for comparison."""
-        if hasattr(record, "objective"):
-            return f"{record.objective} {record.outcome}"
-        elif hasattr(record, "statement") and hasattr(record, "belief_type"):
-            return record.statement
-        elif hasattr(record, "content") and hasattr(record, "note_type"):
-            return record.content
-        elif hasattr(record, "title"):
-            return f"{record.title} {getattr(record, 'description', '') or ''}"
-        elif hasattr(record, "drive_type"):
-            return record.drive_type
-        elif hasattr(record, "entity_name"):
-            return record.entity_name
-        elif hasattr(record, "name") and hasattr(record, "statement"):
-            return f"{record.name} {record.statement}"
-        return ""
 
     # ---- Memory Writing ----
 
@@ -1285,8 +1254,8 @@ class MemoryProcessor:
                     drive = Drive(
                         id=str(uuid.uuid4()),
                         stack_id=self._stack.stack_id,
-                        drive_type=item.get("drive_type", "motivation"),
-                        intensity=item.get("intensity", 0.5),
+                        drive_type=item.get("drive_type") or "motivation",
+                        intensity=item.get("intensity") or 0.5,
                         created_at=now,
                         source_type="processing",
                         derived_from=derived_from,
@@ -1306,12 +1275,6 @@ class MemoryProcessor:
 
                     ref = _Ref()
                     ref.id = new_id
-
-                    derived_from = _extract_derived_from(transition, item)
-                    if derived_from:
-                        phash = compute_provenance_hash(derived_from)
-                        if phash:
-                            dedup_index["provenance"][phash] = ref
 
                     content_text = _extract_content_text(transition, item)
                     if content_text:

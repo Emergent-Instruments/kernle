@@ -49,6 +49,7 @@ from kernle.cli.commands.memory import (
 )
 from kernle.cli.commands.meta import cmd_meta
 from kernle.cli.commands.migrate import cmd_migrate
+from kernle.cli.commands.model import cmd_model
 from kernle.cli.commands.narrative import cmd_narrative
 from kernle.cli.commands.playbook import cmd_playbook
 from kernle.cli.commands.process import cmd_process
@@ -91,6 +92,7 @@ __all__ = [
     "cmd_identity",
     "cmd_init_md",
     "cmd_meta",
+    "cmd_model",
     "cmd_migrate",
     "cmd_narrative",
     "cmd_playbook",

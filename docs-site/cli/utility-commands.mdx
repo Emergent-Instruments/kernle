@@ -634,9 +634,9 @@ Available transitions:
   </Tab>
 </Tabs>
 
-<Warning>
-Memory processing requires a bound model (via `entity.set_model()`). Without a model, the command will return an error.
-</Warning>
+<Tip>
+`process run` and `process exhaust` auto-bind a model from environment variables (`CLAUDE_API_KEY` / `ANTHROPIC_API_KEY`) if none is already bound. You can also bind one explicitly with `kernle model set claude`.
+</Tip>
 
 ### process status
 
@@ -670,6 +670,107 @@ Trigger Status:
   episode_to_relationship: 8/5 (READY)
   episode_to_drive: 8/10 (waiting)
   belief_to_value: 3/5 (waiting)
+```
+
+### process exhaust
+
+Run processing cycles repeatedly until convergence (no more promotions possible).
+
+```bash
+kernle -s <stack> process exhaust [--max-cycles N] [--no-auto-promote] [--dry-run] [--json] [--batch-size N] [--verbose]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--max-cycles N` | Maximum processing cycles (default: 20) |
+| `--no-auto-promote` | Create suggestions instead of directly promoting |
+| `-n, --dry-run` | Preview what would run without making changes |
+| `-j, --json` | Output as JSON |
+| `-b, --batch-size N` | Override batch size for processing |
+| `-v, --verbose` | Enable verbose logging |
+
+```bash
+# Run until convergence (auto-binds model from env vars)
+kernle -s my-project process exhaust
+
+# Preview only
+kernle -s my-project process exhaust --dry-run
+
+# With verbose logging
+kernle -s my-project process exhaust --verbose
+```
+
+---
+
+## model
+
+Show, bind, or unbind inference models. Model binding is session-only (not persisted to disk). Process commands auto-bind from environment variables, but `model set` lets you bind explicitly.
+
+### model show
+
+Show the currently bound model.
+
+```bash
+kernle -s <stack> model show [--json]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-j, --json` | Output as JSON |
+
+```bash
+kernle -s my-project model show
+# Output: Model: anthropic / claude-haiku-4-5-20251001
+```
+
+### model set
+
+Bind a model provider.
+
+```bash
+kernle -s <stack> model set <provider> [--model-id MODEL_ID]
+```
+
+| Argument / Option | Description |
+|-------------------|-------------|
+| `provider` | Provider to use: `claude`, `openai`, or `ollama` |
+| `--model-id` | Override the default model name |
+
+Default models per provider:
+
+| Provider | Default Model | Env Var |
+|----------|---------------|---------|
+| `claude` | `claude-haiku-4-5-20251001` | `CLAUDE_API_KEY` or `ANTHROPIC_API_KEY` |
+| `openai` | `gpt-4o-mini` | `OPENAI_API_KEY` |
+| `ollama` | `llama3.2:latest` | _(local server, no key)_ |
+
+<Tabs>
+  <Tab title="Claude">
+    ```bash
+    kernle -s my-project model set claude
+    # Bound model: anthropic / claude-haiku-4-5-20251001
+    ```
+  </Tab>
+  <Tab title="Claude (Custom)">
+    ```bash
+    kernle -s my-project model set claude --model-id claude-sonnet-4-5-20250929
+    # Bound model: anthropic / claude-sonnet-4-5-20250929
+    ```
+  </Tab>
+  <Tab title="Ollama">
+    ```bash
+    kernle -s my-project model set ollama --model-id mistral:7b
+    # Bound model: ollama / mistral:7b
+    ```
+  </Tab>
+</Tabs>
+
+### model clear
+
+Unbind the currently bound model.
+
+```bash
+kernle -s <stack> model clear
 ```
 
 ---
