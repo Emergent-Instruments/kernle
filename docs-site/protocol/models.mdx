@@ -142,7 +142,7 @@ Wraps the Anthropic Python SDK for Claude models.
 from kernle.models.anthropic import AnthropicModel
 from kernle.protocols import ModelMessage
 
-model = AnthropicModel()  # uses ANTHROPIC_API_KEY env var
+model = AnthropicModel()  # uses CLAUDE_API_KEY or ANTHROPIC_API_KEY env var
 model = AnthropicModel(
     model_id="claude-sonnet-4-5-20250929",
     api_key="sk-...",
@@ -153,6 +153,20 @@ response = model.generate([
     ModelMessage(role="user", content="Hello")
 ])
 print(response.content)
+```
+
+**API Key Resolution** (in priority order):
+1. Explicit `api_key=` parameter
+2. `CLAUDE_API_KEY` environment variable
+3. `ANTHROPIC_API_KEY` environment variable
+
+**CLI Usage:**
+```bash
+# Bind via CLI (uses env var automatically)
+kernle -s my-project model set claude
+
+# Or with a specific model
+kernle -s my-project model set claude --model-id claude-sonnet-4-5-20250929
 ```
 
 **Capabilities:**
@@ -279,4 +293,19 @@ from my_package import MyModel
 
 entity = Entity()
 entity.set_model(MyModel())
+```
+
+## Auto-Configuration
+
+For CLI usage, Kernle can auto-configure a model from environment variables. The `process run` and `process exhaust` commands do this automatically. Detection priority:
+
+1. `KERNLE_MODEL_PROVIDER` env var (forces a specific provider)
+2. `CLAUDE_API_KEY` or `ANTHROPIC_API_KEY` → Anthropic
+3. `OPENAI_API_KEY` → OpenAI
+4. No key → graceful degradation (no model)
+
+Override the model name with `KERNLE_MODEL`:
+
+```bash
+KERNLE_MODEL=claude-sonnet-4-5-20250929 kernle -s my-project process exhaust
 ```

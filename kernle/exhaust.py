@@ -177,8 +177,7 @@ class ExhaustionRunner:
 
                 # Check if all transitions were inference-blocked
                 all_inference_blocked = cycle_result.results and all(
-                    getattr(pr, "inference_blocked", False)
-                    for pr in cycle_result.results
+                    getattr(pr, "inference_blocked", False) for pr in cycle_result.results
                 )
                 if all_inference_blocked:
                     logger.info(
@@ -189,10 +188,18 @@ class ExhaustionRunner:
                     level_converged = True
                     break
 
-                # Check convergence -- error-only cycles don't count
+                # Check convergence.
+                # A cycle with 0 promotions but source_count > 0 means
+                # the system is draining unprocessed items (they were
+                # evaluated, just nothing promoted).  Only count as a
+                # "true zero" when no sources remained to process.
+                total_sources = sum(pr.source_count for pr in cycle_result.results)
+
                 if cycle_result.errors and cycle_result.promotions == 0:
+                    # Error-only cycles don't count toward convergence
                     consecutive_zero = 0
-                elif cycle_result.promotions == 0:
+                elif cycle_result.promotions == 0 and total_sources == 0:
+                    # Truly nothing left to process at this intensity
                     consecutive_zero += 1
                     if consecutive_zero >= 2:
                         level_converged = True
@@ -202,6 +209,14 @@ class ExhaustionRunner:
                             level_cycles,
                         )
                         break
+                elif cycle_result.promotions == 0 and total_sources > 0:
+                    # Sources were processed but nothing promoted — keep going
+                    consecutive_zero = 0
+                    logger.debug(
+                        "Cycle %d: 0 promotions but %d sources processed, continuing",
+                        total_cycle,
+                        total_sources,
+                    )
                 else:
                     consecutive_zero = 0
 

@@ -59,8 +59,14 @@ def cmd_status(args, k: "Kernle"):
             print("Plugins:    (none)")
 
         model = entity.model
+        if model is None:
+            from kernle.cli.commands.model import load_persisted_model
+
+            model = load_persisted_model(k)
+            if model is not None:
+                entity.set_model(model)
         if model is not None:
-            print(f"Model:      {model.model_id}")
+            print(f"Model:      {model.capabilities.provider} / {model.model_id}")
         else:
             print("Model:      (none)")
     except Exception as e:

@@ -9,9 +9,31 @@ if TYPE_CHECKING:
     from kernle import Kernle
 
 
+def _ensure_model(k: "Kernle"):
+    """Auto-bind a model from persisted config or env vars if none is bound."""
+    if k.entity.model is not None:
+        return
+
+    # 1. Try persisted boot_config (from `kernle model set`)
+    from kernle.cli.commands.model import load_persisted_model
+
+    model = load_persisted_model(k)
+    if model is not None:
+        k.entity.set_model(model)
+        return
+
+    # 2. Fall back to env var auto-detection
+    from kernle.models.auto import auto_configure_model
+
+    model = auto_configure_model()
+    if model is not None:
+        k.entity.set_model(model)
+
+
 def cmd_process(args, k: "Kernle"):
     """Handle process subcommands."""
     if args.process_action == "run":
+        _ensure_model(k)
         transition = getattr(args, "transition", None)
         force = getattr(args, "force", False)
         allow_no_inference_override = getattr(args, "allow_no_inference_override", False)
@@ -166,6 +188,7 @@ def cmd_process(args, k: "Kernle"):
             print(f"Error gathering status: {e}")
 
     elif args.process_action == "exhaust":
+        _ensure_model(k)
         import logging as _logging
 
         from kernle.exhaust import ExhaustionRunner

@@ -54,9 +54,13 @@ class AnthropicModel:
                 "Install it with: pip install anthropic"
             ) from None
 
-        resolved_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        resolved_key = (
+            api_key or os.environ.get("CLAUDE_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+        )
         if not resolved_key:
-            raise ValueError("An API key is required. Pass api_key= or set ANTHROPIC_API_KEY.")
+            raise ValueError(
+                "An API key is required. Pass api_key= or set CLAUDE_API_KEY / ANTHROPIC_API_KEY."
+            )
 
         self._model_id = model_id
         self._max_tokens = max_tokens

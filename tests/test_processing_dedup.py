@@ -5,14 +5,13 @@ Tests cover:
 - compute_content_hash: normalization, whitespace handling, case insensitivity
 - _extract_content_text: all transition types
 - _extract_derived_from: all transition types
-- _build_existing_index: provenance and content index building
-- _check_duplicate: provenance match, content match, no match
+- _build_existing_index: content index building (content-only dedup)
+- _check_duplicate: content match, no match
 - _write_memories with dedup: skipping duplicates, counting deduplicated
 - Full pipeline: re-running same cycle produces 0 new items
 - New sources still create new items after dedup
 - Edge cases: empty provenance, large provenance sets, partial overlaps
 - Random ingestion order: dedup is order-independent
-- Updated content with same provenance: skip (keep original)
 """
 
 from __future__ import annotations
@@ -308,8 +307,8 @@ class TestBuildExistingIndex:
         mock_stack = _make_mock_stack()
         processor, _ = _make_processor(mock_stack)
         index = processor._build_existing_index("raw_to_episode", [])
-        assert index["provenance"] == {}
         assert index["content"] == {}
+        assert "provenance" not in index
 
     def test_indexes_episodes(self):
         mock_stack = _make_mock_stack()
@@ -320,13 +319,10 @@ class TestBuildExistingIndex:
         ep.outcome = "it worked"
         ep.derived_from = ["raw:r1", "raw:r2"]
         index = processor._build_existing_index("raw_to_episode", [ep])
-        # Provenance hash should be populated
-        phash = compute_provenance_hash(["raw:r1", "raw:r2"])
-        assert phash in index["provenance"]
-        assert index["provenance"][phash] == ep
         # Content hash should be populated
         chash = compute_content_hash("did something it worked")
         assert chash in index["content"]
+        assert "provenance" not in index
 
     def test_indexes_beliefs(self):
         mock_stack = _make_mock_stack()
@@ -339,12 +335,12 @@ class TestBuildExistingIndex:
         # Remove episode attributes so hasattr picks up belief branch
         del belief.objective
         index = processor._build_existing_index("episode_to_belief", [belief])
-        phash = compute_provenance_hash(["episode:ep-1"])
-        assert phash in index["provenance"]
         chash = compute_content_hash("testing matters")
         assert chash in index["content"]
+        assert "provenance" not in index
 
-    def test_no_derived_from_no_provenance_entry(self):
+    def test_no_derived_from_still_indexes_content(self):
+        """Records without derived_from are still indexed by content."""
         mock_stack = _make_mock_stack()
         processor, _ = _make_processor(mock_stack)
         ep = MagicMock()
@@ -353,9 +349,10 @@ class TestBuildExistingIndex:
         ep.outcome = "out"
         ep.derived_from = None
         index = processor._build_existing_index("raw_to_episode", [ep])
-        assert index["provenance"] == {}
         # Content should still be indexed
         assert len(index["content"]) == 1
+        chash = compute_content_hash("obj out")
+        assert chash in index["content"]
 
     def test_indexes_notes(self):
         mock_stack = _make_mock_stack()
@@ -445,16 +442,14 @@ class TestBuildExistingIndex:
 
 
 class TestCheckDuplicate:
-    def test_provenance_match(self):
+    def test_same_provenance_different_content_not_duplicate(self):
+        """Same provenance but different content is NOT a duplicate (content-only dedup)."""
         mock_stack = _make_mock_stack()
         processor, _ = _make_processor(mock_stack)
-        existing = MagicMock()
-        existing.id = "existing-ep"
-        phash = compute_provenance_hash(["raw:r1", "raw:r2"])
-        dedup_index = {"provenance": {phash: existing}, "content": {}}
+        dedup_index = {"content": {}}
         item = {"objective": "new obj", "outcome": "new out", "source_raw_ids": ["r1", "r2"]}
         result = processor._check_duplicate("raw_to_episode", item, dedup_index)
-        assert result == "existing-ep"
+        assert result is None
 
     def test_content_match(self):
         mock_stack = _make_mock_stack()
@@ -462,7 +457,7 @@ class TestCheckDuplicate:
         existing = MagicMock()
         existing.id = "existing-ep"
         chash = compute_content_hash("did something it worked")
-        dedup_index = {"provenance": {}, "content": {chash: existing}}
+        dedup_index = {"content": {chash: existing}}
         item = {"objective": "did something", "outcome": "it worked", "source_raw_ids": []}
         result = processor._check_duplicate("raw_to_episode", item, dedup_index)
         assert result == "existing-ep"
@@ -470,43 +465,37 @@ class TestCheckDuplicate:
     def test_no_match(self):
         mock_stack = _make_mock_stack()
         processor, _ = _make_processor(mock_stack)
-        dedup_index = {"provenance": {}, "content": {}}
+        dedup_index = {"content": {}}
         item = {"objective": "new thing", "outcome": "happened", "source_raw_ids": ["r99"]}
         result = processor._check_duplicate("raw_to_episode", item, dedup_index)
         assert result is None
 
-    def test_provenance_takes_priority(self):
-        """If provenance matches, content hash is not checked."""
+    def test_content_match_is_only_dedup_mechanism(self):
+        """Only content hash is checked for dedup; provenance is ignored."""
         mock_stack = _make_mock_stack()
         processor, _ = _make_processor(mock_stack)
-        prov_existing = MagicMock()
-        prov_existing.id = "prov-match"
         content_existing = MagicMock()
         content_existing.id = "content-match"
-        phash = compute_provenance_hash(["raw:r1"])
         chash = compute_content_hash("did something it worked")
-        dedup_index = {
-            "provenance": {phash: prov_existing},
-            "content": {chash: content_existing},
-        }
+        dedup_index = {"content": {chash: content_existing}}
         item = {"objective": "did something", "outcome": "it worked", "source_raw_ids": ["r1"]}
         result = processor._check_duplicate("raw_to_episode", item, dedup_index)
-        assert result == "prov-match"
+        assert result == "content-match"
 
-    def test_empty_provenance_skips_provenance_check(self):
-        """Items without source IDs skip provenance check, use content."""
+    def test_content_dedup_without_source_ids(self):
+        """Items without source IDs are still deduped by content."""
         mock_stack = _make_mock_stack()
         processor, _ = _make_processor(mock_stack)
         existing = MagicMock()
         existing.id = "content-match"
         chash = compute_content_hash("test statement")
-        dedup_index = {"provenance": {}, "content": {chash: existing}}
+        dedup_index = {"content": {chash: existing}}
         item = {"statement": "test statement", "source_episode_ids": []}
         result = processor._check_duplicate("episode_to_belief", item, dedup_index)
         assert result == "content-match"
 
-    def test_all_transition_types(self):
-        """Verify dedup works for each transition type."""
+    def test_all_transition_types_content_dedup(self):
+        """Verify content-based dedup works for each transition type."""
         mock_stack = _make_mock_stack()
         processor, _ = _make_processor(mock_stack)
 
@@ -524,12 +513,11 @@ class TestCheckDuplicate:
         ]
 
         for transition, item in cases:
-            derived = _extract_derived_from(transition, item)
-            _extract_content_text(transition, item)  # verify no crash
-            phash = compute_provenance_hash(derived)
+            content_text = _extract_content_text(transition, item)
+            chash = compute_content_hash(content_text)
             existing = MagicMock()
             existing.id = f"existing-{transition}"
-            dedup_index = {"provenance": {phash: existing}, "content": {}}
+            dedup_index = {"content": {chash: existing}}
             result = processor._check_duplicate(transition, item, dedup_index)
             assert result == f"existing-{transition}", f"Failed for {transition}"
 
@@ -540,23 +528,21 @@ class TestCheckDuplicate:
 
 
 class TestWriteMemoriesWithDedup:
-    def test_skips_duplicate_by_provenance(self):
+    def test_allows_same_provenance_different_content(self):
+        """Same provenance but different content is NOT skipped (content-only dedup)."""
         mock_stack = _make_mock_stack()
         mock_stack.save_episode.return_value = "ep-new"
         processor, _ = _make_processor(mock_stack)
 
-        existing = MagicMock()
-        existing.id = "existing-ep"
-        phash = compute_provenance_hash(["raw:r1"])
-        dedup_index = {"provenance": {phash: existing}, "content": {}}
+        dedup_index = {"content": {}}
 
         parsed = [
-            {"objective": "duplicate", "outcome": "should skip", "source_raw_ids": ["r1"]},
+            {"objective": "new interpretation", "outcome": "different", "source_raw_ids": ["r1"]},
         ]
         created = processor._write_memories("raw_to_episode", parsed, [], dedup_index)
-        assert len(created) == 0
-        assert processor._last_deduplicated == 1
-        mock_stack.save_episode.assert_not_called()
+        assert len(created) == 1
+        assert processor._last_deduplicated == 0
+        mock_stack.save_episode.assert_called_once()
 
     def test_skips_duplicate_by_content(self):
         mock_stack = _make_mock_stack()
@@ -566,7 +552,7 @@ class TestWriteMemoriesWithDedup:
         existing = MagicMock()
         existing.id = "existing-belief"
         chash = compute_content_hash("testing is vital")
-        dedup_index = {"provenance": {}, "content": {chash: existing}}
+        dedup_index = {"content": {chash: existing}}
 
         parsed = [
             {"statement": "Testing is vital", "source_episode_ids": []},
@@ -581,7 +567,7 @@ class TestWriteMemoriesWithDedup:
         mock_stack.save_episode.return_value = "ep-new"
         processor, _ = _make_processor(mock_stack)
 
-        dedup_index = {"provenance": {}, "content": {}}
+        dedup_index = {"content": {}}
 
         parsed = [
             {"objective": "brand new", "outcome": "novel", "source_raw_ids": ["r99"]},
@@ -592,15 +578,15 @@ class TestWriteMemoriesWithDedup:
         mock_stack.save_episode.assert_called_once()
 
     def test_mixed_dedup_and_new(self):
-        """Some items are duplicates, some are new."""
+        """Some items are content duplicates, some are new."""
         mock_stack = _make_mock_stack()
         mock_stack.save_episode.return_value = "ep-new"
         processor, _ = _make_processor(mock_stack)
 
         existing = MagicMock()
         existing.id = "existing-ep"
-        phash = compute_provenance_hash(["raw:r1"])
-        dedup_index = {"provenance": {phash: existing}, "content": {}}
+        chash = compute_content_hash("duplicate skip")
+        dedup_index = {"content": {chash: existing}}
 
         parsed = [
             {"objective": "duplicate", "outcome": "skip", "source_raw_ids": ["r1"]},
@@ -884,13 +870,13 @@ class TestEdgeCases:
         """Empty parsed list should produce no items and no errors."""
         mock_stack = _make_mock_stack()
         processor, _ = _make_processor(mock_stack)
-        dedup_index = {"provenance": {}, "content": {}}
+        dedup_index = {"content": {}}
         created = processor._write_memories("raw_to_episode", [], [], dedup_index)
         assert created == []
         assert processor._last_deduplicated == 0
 
     def test_all_items_deduplicated(self):
-        """All items being duplicates should produce 0 created items."""
+        """All items being content duplicates should produce 0 created items."""
         mock_stack = _make_mock_stack()
         processor, _ = _make_processor(mock_stack)
 
@@ -898,12 +884,9 @@ class TestEdgeCases:
         existing1.id = "ex-1"
         existing2 = MagicMock()
         existing2.id = "ex-2"
-        phash1 = compute_provenance_hash(["raw:r1"])
-        phash2 = compute_provenance_hash(["raw:r2"])
-        dedup_index = {
-            "provenance": {phash1: existing1, phash2: existing2},
-            "content": {},
-        }
+        chash1 = compute_content_hash("dup1 out1")
+        chash2 = compute_content_hash("dup2 out2")
+        dedup_index = {"content": {chash1: existing1, chash2: existing2}}
 
         parsed = [
             {"objective": "dup1", "outcome": "out1", "source_raw_ids": ["r1"]},
@@ -921,7 +904,7 @@ class TestEdgeCases:
         existing = MagicMock()
         existing.id = "ex-1"
         chash = compute_content_hash("hello world")
-        dedup_index = {"provenance": {}, "content": {chash: existing}}
+        dedup_index = {"content": {chash: existing}}
 
         parsed = [
             {"statement": "  Hello   World  ", "source_episode_ids": []},
@@ -945,21 +928,20 @@ class TestEdgeCases:
         existing.derived_from = large_refs
 
         index = processor._build_existing_index("raw_to_episode", [existing])
-        phash = compute_provenance_hash(large_refs)
-        assert phash in index["provenance"]
+        chash = compute_content_hash("big episode lots of sources")
+        assert chash in index["content"]
 
-    def test_partial_provenance_overlap_not_deduped(self):
-        """Items with overlapping but not identical provenance are NOT duplicates."""
+    def test_different_content_not_deduped(self):
+        """Items with different content are NOT duplicates."""
         mock_stack = _make_mock_stack()
         mock_stack.save_episode.return_value = "ep-new"
         processor, _ = _make_processor(mock_stack)
 
         existing = MagicMock()
         existing.id = "existing"
-        phash = compute_provenance_hash(["raw:r1", "raw:r2"])
-        dedup_index = {"provenance": {phash: existing}, "content": {}}
+        chash = compute_content_hash("existing obj existing out")
+        dedup_index = {"content": {chash: existing}}
 
-        # Partial overlap: only r1, not r1+r2
         parsed = [
             {"objective": "partial", "outcome": "overlap", "source_raw_ids": ["r1"]},
         ]
@@ -968,14 +950,14 @@ class TestEdgeCases:
         assert processor._last_deduplicated == 0
 
     def test_dedup_belief_to_value(self):
-        """Test dedup for belief_to_value transition."""
+        """Test content dedup for belief_to_value transition."""
         mock_stack = _make_mock_stack()
         processor, _ = _make_processor(mock_stack)
 
         existing = MagicMock()
         existing.id = "existing-value"
-        phash = compute_provenance_hash(["belief:b1"])
-        dedup_index = {"provenance": {phash: existing}, "content": {}}
+        chash = compute_content_hash("honesty be truthful")
+        dedup_index = {"content": {chash: existing}}
 
         parsed = [
             {"name": "honesty", "statement": "be truthful", "source_belief_ids": ["b1"]},
@@ -985,14 +967,14 @@ class TestEdgeCases:
         assert processor._last_deduplicated == 1
 
     def test_dedup_episode_to_drive(self):
-        """Test dedup for episode_to_drive transition."""
+        """Test content dedup for episode_to_drive transition."""
         mock_stack = _make_mock_stack()
         processor, _ = _make_processor(mock_stack)
 
         existing = MagicMock()
         existing.id = "existing-drive"
         chash = compute_content_hash("curiosity")
-        dedup_index = {"provenance": {}, "content": {chash: existing}}
+        dedup_index = {"content": {chash: existing}}
 
         parsed = [
             {"drive_type": "Curiosity", "source_episode_ids": []},
@@ -1002,14 +984,14 @@ class TestEdgeCases:
         assert processor._last_deduplicated == 1
 
     def test_dedup_episode_to_relationship(self):
-        """Test dedup for episode_to_relationship transition."""
+        """Test content dedup for episode_to_relationship transition."""
         mock_stack = _make_mock_stack()
         processor, _ = _make_processor(mock_stack)
 
         existing = MagicMock()
         existing.id = "existing-rel"
         chash = compute_content_hash("Alice")
-        dedup_index = {"provenance": {}, "content": {chash: existing}}
+        dedup_index = {"content": {chash: existing}}
 
         parsed = [
             {"entity_name": "alice", "entity_type": "person", "source_episode_ids": []},
@@ -1083,27 +1065,6 @@ ALL_TRANSITIONS_DATA = [
     ids=[t[0] for t in ALL_TRANSITIONS_DATA],
 )
 class TestDedupAllTransitions:
-    def test_provenance_dedup_skips(self, transition, item, save_method, save_return, memory_type):
-        """Provenance dedup should skip creation for each transition type."""
-        mock_stack = _make_mock_stack()
-        getattr(mock_stack, save_method).return_value = save_return
-        processor, _ = _make_processor(mock_stack)
-
-        derived = _extract_derived_from(transition, item)
-        existing = MagicMock()
-        existing.id = f"existing-{memory_type}"
-        phash = compute_provenance_hash(derived)
-        dedup_index = {"provenance": {phash: existing} if phash else {}, "content": {}}
-
-        created = processor._write_memories(transition, [item], [], dedup_index)
-        if phash:
-            assert len(created) == 0
-            assert processor._last_deduplicated == 1
-            getattr(mock_stack, save_method).assert_not_called()
-        else:
-            # Empty provenance means no provenance match, falls through to content check
-            pass
-
     def test_content_dedup_skips(self, transition, item, save_method, save_return, memory_type):
         """Content dedup should skip creation for each transition type."""
         mock_stack = _make_mock_stack()
@@ -1114,7 +1075,7 @@ class TestDedupAllTransitions:
         existing = MagicMock()
         existing.id = f"existing-{memory_type}"
         chash = compute_content_hash(content_text)
-        dedup_index = {"provenance": {}, "content": {chash: existing} if chash else {}}
+        dedup_index = {"content": {chash: existing} if chash else {}}
 
         created = processor._write_memories(transition, [item], [], dedup_index)
         if chash:
@@ -1128,7 +1089,7 @@ class TestDedupAllTransitions:
         getattr(mock_stack, save_method).return_value = save_return
         processor, _ = _make_processor(mock_stack)
 
-        dedup_index = {"provenance": {}, "content": {}}
+        dedup_index = {"content": {}}
         created = processor._write_memories(transition, [item], [], dedup_index)
         assert len(created) == 1
         assert created[0]["type"] == memory_type
@@ -1287,23 +1248,20 @@ class TestRandomIngestionOrder:
 # =============================================================================
 
 
-class TestUpdatedContentPolicy:
-    def test_provenance_match_different_content_skips(self):
-        """When provenance matches but content differs, skip (keep original)."""
+class TestContentOnlyDedupPolicy:
+    def test_same_provenance_different_content_allowed(self):
+        """Same provenance but different content is NOT a duplicate (content-only dedup)."""
         mock_stack = _make_mock_stack()
         mock_stack.save_episode.return_value = "ep-new"
         processor, _ = _make_processor(mock_stack)
 
-        # Existing episode with specific content
+        # Existing episode with specific content indexed
         existing = MagicMock()
         existing.id = "existing-ep"
-        existing.objective = "Original interpretation"
-        existing.outcome = "First version"
-        existing.derived_from = ["raw:r1", "raw:r2"]
-        phash = compute_provenance_hash(["raw:r1", "raw:r2"])
-        dedup_index = {"provenance": {phash: existing}, "content": {}}
+        chash = compute_content_hash("Original interpretation First version")
+        dedup_index = {"content": {chash: existing}}
 
-        # New item from same provenance but different content
+        # New item from same provenance but DIFFERENT content -> should be created
         parsed = [
             {
                 "objective": "Different interpretation",
@@ -1312,23 +1270,20 @@ class TestUpdatedContentPolicy:
             }
         ]
         created = processor._write_memories("raw_to_episode", parsed, [], dedup_index)
-        assert len(created) == 0
-        assert processor._last_deduplicated == 1
-        mock_stack.save_episode.assert_not_called()
+        assert len(created) == 1
+        assert processor._last_deduplicated == 0
+        mock_stack.save_episode.assert_called_once()
 
-    def test_provenance_match_same_content_skips(self):
-        """When provenance and content both match, skip (obvious duplicate)."""
+    def test_same_content_same_provenance_skips(self):
+        """Same content (regardless of provenance) is caught by content dedup."""
         mock_stack = _make_mock_stack()
         mock_stack.save_episode.return_value = "ep-new"
         processor, _ = _make_processor(mock_stack)
 
         existing = MagicMock()
         existing.id = "existing-ep"
-        existing.objective = "Same interpretation"
-        existing.outcome = "Same version"
-        existing.derived_from = ["raw:r1"]
-        phash = compute_provenance_hash(["raw:r1"])
-        dedup_index = {"provenance": {phash: existing}, "content": {}}
+        chash = compute_content_hash("Same interpretation Same version")
+        dedup_index = {"content": {chash: existing}}
 
         parsed = [
             {
@@ -1341,25 +1296,7 @@ class TestUpdatedContentPolicy:
         assert len(created) == 0
         assert processor._last_deduplicated == 1
 
-    def test_provenance_match_different_content_logs_distinctly(self):
-        """When provenance matches but content differs, the log message is distinct."""
-        mock_stack = _make_mock_stack()
-        processor, _ = _make_processor(mock_stack)
-
-        existing = MagicMock()
-        existing.id = "existing-belief"
-        existing.statement = "Original belief statement"
-        existing.belief_type = "factual"
-        existing.derived_from = ["episode:ep1"]
-        phash = compute_provenance_hash(["episode:ep1"])
-        dedup_index = {"provenance": {phash: existing}, "content": {}}
-
-        # Different statement, same provenance
-        item = {"statement": "Different belief statement", "source_episode_ids": ["ep1"]}
-        result = processor._check_duplicate("episode_to_belief", item, dedup_index)
-        assert result == "existing-belief"
-
-    def test_content_only_match_no_provenance_overlap(self):
+    def test_content_only_match_different_provenance(self):
         """Content match with different provenance still deduplicates."""
         mock_stack = _make_mock_stack()
         processor, _ = _make_processor(mock_stack)
@@ -1367,7 +1304,7 @@ class TestUpdatedContentPolicy:
         existing = MagicMock()
         existing.id = "existing-belief"
         chash = compute_content_hash("important insight")
-        dedup_index = {"provenance": {}, "content": {chash: existing}}
+        dedup_index = {"content": {chash: existing}}
 
         # Same content, different provenance
         item = {"statement": "Important insight", "source_episode_ids": ["ep999"]}
@@ -1375,11 +1312,11 @@ class TestUpdatedContentPolicy:
         assert result == "existing-belief"
 
     @pytest.mark.parametrize("seed", [42, 123, 456])
-    def test_mixed_new_and_updated_content(self, seed):
-        """Mix of new items, exact duplicates, and same-provenance-different-content."""
+    def test_mixed_new_and_content_duplicates(self, seed):
+        """Mix of new items and content duplicates (provenance is irrelevant)."""
         rng = random.Random(seed)
         mock_stack = _make_mock_stack()
-        mock_stack.save_episode.return_value = "ep-new"
+        mock_stack.save_episode.side_effect = ["ep-new-1", "ep-new-2"]
         processor, _ = _make_processor(mock_stack)
 
         # Existing memories
@@ -1398,9 +1335,9 @@ class TestUpdatedContentPolicy:
         dedup_index = processor._build_existing_index("raw_to_episode", [existing1, existing2])
 
         items = [
-            # Exact duplicate of existing1
+            # Exact content duplicate of existing1 -> deduplicated
             {"objective": "original obj 1", "outcome": "original out 1", "source_raw_ids": ["r1"]},
-            # Same provenance as existing2, different content
+            # Same provenance as existing2, DIFFERENT content -> NOT deduped (content-only)
             {"objective": "UPDATED obj 2", "outcome": "CHANGED out 2", "source_raw_ids": ["r2"]},
             # Genuinely new
             {"objective": "brand new", "outcome": "novel", "source_raw_ids": ["r99"]},
@@ -1408,8 +1345,8 @@ class TestUpdatedContentPolicy:
 
         rng.shuffle(items)
         created = processor._write_memories("raw_to_episode", items, [], dedup_index)
-        assert len(created) == 1  # Only the genuinely new one
-        assert processor._last_deduplicated == 2  # Both duplicates caught
+        assert len(created) == 2  # Updated content + genuinely new
+        assert processor._last_deduplicated == 1  # Only the exact content duplicate
 
 
 # =============================================================================
@@ -1432,7 +1369,7 @@ class TestIntraBatchDedup:
         mock_stack.save_episode.return_value = "ep-new"
         processor, _ = _make_processor(mock_stack)
 
-        dedup_index = {"provenance": {}, "content": {}}
+        dedup_index = {"content": {}}
 
         parsed = [
             {"objective": "same thing", "outcome": "same result", "source_raw_ids": ["r1"]},
@@ -1445,13 +1382,13 @@ class TestIntraBatchDedup:
         ), f"Expected 1 deduplicated, got {processor._last_deduplicated}"
         mock_stack.save_episode.assert_called_once()
 
-    def test_identical_items_in_same_batch_by_provenance(self):
-        """Two items with same provenance but different content: only 1 created."""
+    def test_same_provenance_different_content_both_created(self):
+        """Two items with same provenance but different content: both created (content-only dedup)."""
         mock_stack = _make_mock_stack()
-        mock_stack.save_episode.return_value = "ep-new"
+        mock_stack.save_episode.side_effect = ["ep-1", "ep-2"]
         processor, _ = _make_processor(mock_stack)
 
-        dedup_index = {"provenance": {}, "content": {}}
+        dedup_index = {"content": {}}
 
         parsed = [
             {
@@ -1466,9 +1403,9 @@ class TestIntraBatchDedup:
             },
         ]
         created = processor._write_memories("raw_to_episode", parsed, [], dedup_index)
-        assert len(created) == 1
-        assert processor._last_deduplicated == 1
-        mock_stack.save_episode.assert_called_once()
+        assert len(created) == 2
+        assert processor._last_deduplicated == 0
+        assert mock_stack.save_episode.call_count == 2
 
     def test_three_identical_items_in_batch(self):
         """Three identical items: only 1 created, 2 deduped."""
@@ -1476,7 +1413,7 @@ class TestIntraBatchDedup:
         mock_stack.save_belief.return_value = "b-new"
         processor, _ = _make_processor(mock_stack)
 
-        dedup_index = {"provenance": {}, "content": {}}
+        dedup_index = {"content": {}}
 
         parsed = [
             {"statement": "testing is important", "source_episode_ids": ["ep1"]},
@@ -1494,7 +1431,7 @@ class TestIntraBatchDedup:
         mock_stack.save_episode.side_effect = ["ep-1", "ep-2"]
         processor, _ = _make_processor(mock_stack)
 
-        dedup_index = {"provenance": {}, "content": {}}
+        dedup_index = {"content": {}}
 
         parsed = [
             {"objective": "first unique", "outcome": "out1", "source_raw_ids": ["r1"]},
@@ -1512,7 +1449,7 @@ class TestIntraBatchDedup:
         mock_stack.save_belief.return_value = "b-new"
         processor, _ = _make_processor(mock_stack)
 
-        dedup_index = {"provenance": {}, "content": {}}
+        dedup_index = {"content": {}}
 
         parsed = [
             {"statement": "Honesty matters", "source_episode_ids": []},
@@ -1586,11 +1523,11 @@ class TestStaleDedupMetricInSuggestionsMode:
         mock_stack.save_episode.return_value = "ep-new"
         processor, _ = _make_processor(mock_stack)
 
-        # 1. Run _write_memories with a duplicate -> sets _last_deduplicated = 1
+        # 1. Run _write_memories with a content duplicate -> sets _last_deduplicated = 1
         existing = MagicMock()
         existing.id = "existing-ep"
-        phash = compute_provenance_hash(["raw:r1"])
-        dedup_index = {"provenance": {phash: existing}, "content": {}}
+        chash = compute_content_hash("dup skip")
+        dedup_index = {"content": {chash: existing}}
 
         parsed = [
             {"objective": "dup", "outcome": "skip", "source_raw_ids": ["r1"]},

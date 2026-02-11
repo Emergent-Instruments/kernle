@@ -26,7 +26,7 @@ If no stack ID is provided, Kernle will try to resolve one automatically from en
     episode, note, raw, belief, value, goal, drive, relationship, playbook
   </Card>
   <Card title="Utility Commands" icon="wrench" href="/cli/utility-commands">
-    load, checkpoint, search, status, anxiety, identity, promote, process, export, export-full
+    load, checkpoint, search, status, anxiety, identity, promote, process, model, export, export-full
   </Card>
   <Card title="MCP Server" icon="plug" href="/integration/mcp">
     mcp - Start MCP server for tool integration
@@ -76,6 +76,7 @@ If no stack ID is provided, Kernle will try to resolve one automatically from en
 | `anxiety` | Check memory health |
 | `forget` | Controlled forgetting |
 | `process` | Run or check automated memory processing |
+| `model` | Show, bind, or unbind inference model |
 | `export-full` | Export complete agent context to a single file |
 
 ### Data Export
@@ -100,6 +101,11 @@ If no stack ID is provided, Kernle will try to resolve one automatically from en
 | Variable | Description |
 |----------|-------------|
 | `KERNLE_STACK_ID` | Default stack ID |
+| `CLAUDE_API_KEY` | Anthropic API key (preferred over `ANTHROPIC_API_KEY`) |
+| `ANTHROPIC_API_KEY` | Anthropic API key (fallback) |
+| `OPENAI_API_KEY` | OpenAI API key |
+| `KERNLE_MODEL_PROVIDER` | Force a specific model provider (`anthropic`, `openai`, `ollama`) |
+| `KERNLE_MODEL` | Override the default model name for the chosen provider |
 
 ## Common Workflows
 
@@ -129,6 +135,9 @@ kernle -s mystack checkpoint save "where I left off" --pending "next task"
 ```bash
 # Check health
 kernle -s mystack anxiety --detailed --actions
+
+# Bind a model for processing
+kernle -s mystack model set claude
 
 # Promote learnings to beliefs
 kernle -s mystack promote
