@@ -615,6 +615,7 @@ class MemoryProcessor:
         force: bool = False,
         allow_no_inference_override: bool = False,
         auto_promote: Optional[bool] = None,
+        batch_size: Optional[int] = None,
     ) -> List[ProcessingResult]:
         """Run processing for one or all layer transitions.
 
@@ -626,6 +627,7 @@ class MemoryProcessor:
                 for transitions in OVERRIDE_TRANSITIONS.
             auto_promote: If True, directly write memories. If False (default),
                 create suggestions for review. None uses instance default.
+            batch_size: Override the per-transition batch size (None = use config).
 
         Returns:
             List of ProcessingResult for each transition that ran
@@ -649,7 +651,7 @@ class MemoryProcessor:
             if not force and not self.check_triggers(t):
                 continue
 
-            result = self._process_layer(t, config, auto_promote=promote)
+            result = self._process_layer(t, config, auto_promote=promote, batch_size=batch_size)
             results.append(result)
 
         return results
@@ -768,7 +770,12 @@ class MemoryProcessor:
         )
 
     def _process_layer(
-        self, transition: str, config: LayerConfig, *, auto_promote: bool = False
+        self,
+        transition: str,
+        config: LayerConfig,
+        *,
+        auto_promote: bool = False,
+        batch_size: Optional[int] = None,
     ) -> ProcessingResult:
         """Run one processing pass for a specific layer transition."""
         prompts = LAYER_PROMPTS.get(transition)
@@ -781,7 +788,8 @@ class MemoryProcessor:
             )
 
         # 1. Gather unprocessed source memories
-        sources = self._gather_sources(transition, config.batch_size)
+        effective_batch = batch_size if batch_size is not None else config.batch_size
+        sources = self._gather_sources(transition, effective_batch)
         if not sources:
             return ProcessingResult(
                 layer_transition=transition,

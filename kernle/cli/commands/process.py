@@ -166,13 +166,23 @@ def cmd_process(args, k: "Kernle"):
             print(f"Error gathering status: {e}")
 
     elif args.process_action == "exhaust":
+        import logging as _logging
+
         from kernle.exhaust import ExhaustionRunner
 
         max_cycles = getattr(args, "max_cycles", 20)
         auto_promote = not getattr(args, "no_auto_promote", False)
         dry_run = getattr(args, "dry_run", False)
+        batch_size = getattr(args, "batch_size", None)
+        verbose = getattr(args, "verbose", False)
 
-        runner = ExhaustionRunner(k, max_cycles=max_cycles, auto_promote=auto_promote)
+        if verbose:
+            _logging.getLogger("kernle.exhaust").setLevel(_logging.DEBUG)
+            _logging.getLogger("kernle.processing").setLevel(_logging.DEBUG)
+
+        runner = ExhaustionRunner(
+            k, max_cycles=max_cycles, auto_promote=auto_promote, batch_size=batch_size
+        )
         result = runner.run(dry_run=dry_run)
 
         if getattr(args, "json", False):

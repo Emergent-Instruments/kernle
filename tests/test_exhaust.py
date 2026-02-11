@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 
 from kernle.exhaust import (
     HEAVY_TRANSITIONS,
+    INTENSITY_LEVELS,
     LIGHT_TRANSITIONS,
     MEDIUM_TRANSITIONS,
     ExhaustCycleResult,
@@ -68,55 +69,93 @@ class TestResultDataclasses:
             cycles_completed=3,
             total_promotions=10,
             converged=True,
-            convergence_reason="two_consecutive_zero_promotion_cycles",
+            convergence_reason="converged",
         )
         assert r.cycles_completed == 3
         assert r.total_promotions == 10
         assert r.converged is True
-        assert r.convergence_reason == "two_consecutive_zero_promotion_cycles"
+        assert r.convergence_reason == "converged"
         assert r.cycle_results == []
         assert r.snapshot is None
 
 
 # =============================================================================
-# Convergence Tests
+# Convergence-Driven Intensity Tests
 # =============================================================================
 
 
-class TestConvergence:
-    def test_convergence_with_empty_stack(self):
-        """Empty stack produces 0 promotions per cycle, converges after 2."""
+class TestConvergenceDrivenIntensity:
+    def test_light_converges_before_medium_begins(self):
+        """Light intensity converges (2 consecutive zeros), then medium starts."""
         k = _mock_kernle()
         runner = ExhaustionRunner(k, max_cycles=20)
         result = runner.run()
 
+        # With no promotions, each intensity converges after 2 cycles
+        # light: cycles 1-2, medium: cycles 3-4, heavy: cycles 5-6
         assert result.converged is True
-        assert result.convergence_reason == "two_consecutive_zero_promotion_cycles"
-        assert result.cycles_completed == 2
-        assert result.total_promotions == 0
+        assert result.convergence_reason == "converged"
+        assert result.cycles_completed == 6  # 2 per intensity * 3 intensities
 
-    def test_two_consecutive_zero_cycles(self):
-        """Convergence requires TWO consecutive zero-promotion cycles."""
-        # Cycle 1: 1 promotion, Cycle 2: 0, Cycle 3: 1, Cycle 4: 0, Cycle 5: 0 -> converge
+        # Verify intensity ordering
+        intensities = [cr.intensity for cr in result.cycle_results]
+        assert intensities == ["light", "light", "medium", "medium", "heavy", "heavy"]
+
+    def test_light_with_promotions_delays_medium(self):
+        """If light produces promotions, it keeps running until 2 consecutive zeros."""
         call_count = [0]
 
-        def process_side_effect(**kwargs):
+        def promote_first_light(**kwargs):
             call_count[0] += 1
             transition = kwargs.get("transition", "")
-            # Return a promotion on first and third call to raw_to_episode
-            if transition == "raw_to_episode" and call_count[0] in (1, 5):
+            # Promote on cycle 1 only (first call to raw_to_episode)
+            if transition == "raw_to_episode" and call_count[0] == 1:
                 return [_make_result(transition, created=[{"type": "episode", "id": "e1"}])]
             return []
 
-        k = _mock_kernle(process_side_effect)
+        k = _mock_kernle(promote_first_light)
         runner = ExhaustionRunner(k, max_cycles=20)
         result = runner.run()
 
         assert result.converged is True
-        assert result.convergence_reason == "two_consecutive_zero_promotion_cycles"
+        # Cycle 1 (light): promotion -> reset. Cycle 2: zero. Cycle 3: zero -> converge light
+        # Then medium 2 cycles, heavy 2 cycles = 3 + 2 + 2 = 7
+        light_cycles = [cr for cr in result.cycle_results if cr.intensity == "light"]
+        assert len(light_cycles) == 3
+        assert light_cycles[0].promotions == 1
+        assert light_cycles[1].promotions == 0
+        assert light_cycles[2].promotions == 0
 
-    def test_max_cycles_respected(self):
-        """Runner stops at max_cycles even without convergence."""
+    def test_medium_converges_before_heavy(self):
+        """Medium must converge before heavy starts."""
+        call_count = [0]
+
+        def promote_in_medium(**kwargs):
+            call_count[0] += 1
+            transition = kwargs.get("transition", "")
+            # Light converges immediately (no promotions).
+            # In medium, promote on the first episode_to_belief call
+            if transition == "episode_to_belief" and call_count[0] <= 10:
+                return [_make_result(transition, created=[{"type": "belief", "id": "b1"}])]
+            return []
+
+        k = _mock_kernle(promote_in_medium)
+        runner = ExhaustionRunner(k, max_cycles=30)
+        result = runner.run()
+
+        assert result.converged is True
+        intensities = [cr.intensity for cr in result.cycle_results]
+        # Light converges first, then medium, then heavy
+        assert intensities[0] == "light"
+        assert "medium" in intensities
+        assert "heavy" in intensities
+        # Medium appears after light
+        first_medium = intensities.index("medium")
+        first_heavy = intensities.index("heavy")
+        assert first_medium < first_heavy
+
+    def test_max_cycles_stops_within_intensity(self):
+        """max_cycles cap applies across all intensity levels."""
 
         def always_promote(**kwargs):
             transition = kwargs.get("transition", "")
@@ -125,82 +164,143 @@ class TestConvergence:
             return []
 
         k = _mock_kernle(always_promote)
-        runner = ExhaustionRunner(k, max_cycles=3)
+        runner = ExhaustionRunner(k, max_cycles=5)
         result = runner.run()
 
         assert result.converged is False
         assert result.convergence_reason == "max_cycles_reached"
-        assert result.cycles_completed == 3
+        assert result.cycles_completed == 5
+        # All 5 cycles should be light (never converged to escalate)
+        assert all(cr.intensity == "light" for cr in result.cycle_results)
 
+    def test_max_cycles_across_levels(self):
+        """max_cycles is shared across intensity levels."""
+        call_count = [0]
 
-# =============================================================================
-# Intensity Scaling Tests
-# =============================================================================
+        def promote_in_medium_always(**kwargs):
+            call_count[0] += 1
+            transition = kwargs.get("transition", "")
+            # Medium always promotes to prevent convergence
+            if transition == "episode_to_belief":
+                return [_make_result(transition, created=[{"type": "belief", "id": "b1"}])]
+            return []
 
+        k = _mock_kernle(promote_in_medium_always)
+        runner = ExhaustionRunner(k, max_cycles=8)
+        result = runner.run()
 
-class TestIntensityScaling:
-    def test_light_cycles_1_to_3(self):
-        """Cycles 1-3 only run light transitions."""
+        assert result.converged is False
+        assert result.convergence_reason == "max_cycles_reached"
+        # 2 light cycles + 6 medium cycles = 8 total
+        assert result.cycles_completed == 8
+
+    def test_empty_stack_converges_all_three_levels(self):
+        """Empty stack converges all three levels in 6 cycles."""
         k = _mock_kernle()
-        runner = ExhaustionRunner(k, max_cycles=3)
-        # Won't converge within 3 cycles since convergence needs 2 zeros
-        # but with empty process it will converge at cycle 2
+        runner = ExhaustionRunner(k, max_cycles=20)
         result = runner.run()
 
-        # Should converge at cycle 2 with empty stack
-        for cr in result.cycle_results:
-            assert cr.intensity == "light"
-            assert cr.transitions_run == LIGHT_TRANSITIONS
+        assert result.converged is True
+        assert result.convergence_reason == "converged"
+        assert result.cycles_completed == 6
+        assert result.total_promotions == 0
 
-    def test_intensity_medium_cycles_4_to_6(self):
-        """Cycles 4-6 use medium transitions."""
-        # Need to prevent convergence until cycle 4+
+
+# =============================================================================
+# Convergence Logic Tests
+# =============================================================================
+
+
+class TestConvergenceLogic:
+    def test_two_consecutive_zero_required(self):
+        """A single zero-promotion cycle is not enough to converge a level."""
         call_count = [0]
 
-        def promote_sometimes(**kwargs):
+        def alternate(**kwargs):
             call_count[0] += 1
             transition = kwargs.get("transition", "")
-            # Promote in cycles 1-4 (transitions 1-8 for light, 1-12 for medium)
-            # Light has 2 transitions per cycle, so calls 1-2=cycle1, 3-4=cycle2, 5-6=cycle3
-            # At cycle 4 (medium, 6 transitions): calls 7-12
-            if transition == "raw_to_episode" and call_count[0] <= 7:
+            # Pattern: promote, empty, promote, empty, empty (converge on 5th light cycle)
+            if transition == "raw_to_episode" and call_count[0] in (1, 5):
                 return [_make_result(transition, created=[{"type": "episode", "id": "e1"}])]
             return []
 
-        k = _mock_kernle(promote_sometimes)
-        runner = ExhaustionRunner(k, max_cycles=10)
+        k = _mock_kernle(alternate)
+        runner = ExhaustionRunner(k, max_cycles=20)
         result = runner.run()
 
-        # Verify cycle 4+ uses medium intensity
-        cycle_4_and_later = [cr for cr in result.cycle_results if cr.cycle_number >= 4]
-        for cr in cycle_4_and_later:
-            if cr.cycle_number <= 6:
-                assert cr.intensity == "medium"
-                assert cr.transitions_run == MEDIUM_TRANSITIONS
+        assert result.converged is True
+        light_cycles = [cr for cr in result.cycle_results if cr.intensity == "light"]
+        # Cycle 1: promote, Cycle 2: zero, Cycle 3: promote, Cycle 4: zero, Cycle 5: zero -> converge
+        assert len(light_cycles) == 5
 
-    def test_intensity_heavy_cycles_7_plus(self):
-        """Cycles 7+ use heavy transitions."""
+    def test_error_only_cycles_reset_convergence(self):
+        """Cycles with errors but 0 promotions don't count toward convergence."""
+
+        def always_error(**kwargs):
+            transition = kwargs.get("transition", "")
+            return [_make_result(transition, errors=["model unavailable"])]
+
+        k = _mock_kernle(always_error)
+        runner = ExhaustionRunner(k, max_cycles=5)
+        result = runner.run()
+
+        assert result.converged is False
+        assert result.convergence_reason == "max_cycles_reached"
+        # All cycles stuck in light (errors reset convergence counter)
+        assert all(cr.intensity == "light" for cr in result.cycle_results)
+
+    def test_error_then_clean_zeros_converges(self):
+        """Error cycle followed by 2 clean zeros converges the level."""
         call_count = [0]
 
-        def promote_until_7(**kwargs):
+        def error_then_empty(**kwargs):
             call_count[0] += 1
             transition = kwargs.get("transition", "")
-            # Keep promoting on raw_to_episode until we get well into cycle 7
-            # Light (2 per cycle) * 3 = 6 calls
-            # Medium (6 per cycle) * 3 = 18 calls
-            # So calls 1-24 cover cycles 1-6
-            if transition == "raw_to_episode" and call_count[0] <= 25:
-                return [_make_result(transition, created=[{"type": "episode", "id": "e1"}])]
+            # First 2 calls (cycle 1): errors
+            if call_count[0] <= 2:
+                return [_make_result(transition, errors=["temporary failure"])]
             return []
 
-        k = _mock_kernle(promote_until_7)
-        runner = ExhaustionRunner(k, max_cycles=10)
+        k = _mock_kernle(error_then_empty)
+        runner = ExhaustionRunner(k, max_cycles=20)
         result = runner.run()
 
-        cycle_7_plus = [cr for cr in result.cycle_results if cr.cycle_number >= 7]
-        for cr in cycle_7_plus:
-            assert cr.intensity == "heavy"
-            assert cr.transitions_run == HEAVY_TRANSITIONS
+        assert result.converged is True
+        light_cycles = [cr for cr in result.cycle_results if cr.intensity == "light"]
+        # Cycle 1: errors (reset), Cycle 2: zero, Cycle 3: zero -> converge
+        assert len(light_cycles) == 3
+
+
+# =============================================================================
+# Batch Size Tests
+# =============================================================================
+
+
+class TestBatchSize:
+    def test_batch_size_passed_through(self):
+        """batch_size is forwarded to k.process() calls."""
+        k = _mock_kernle()
+        runner = ExhaustionRunner(k, max_cycles=20, batch_size=5)
+        runner.run()
+
+        # Every process() call should include batch_size=5
+        for call in k.process.call_args_list:
+            assert call.kwargs.get("batch_size") == 5
+
+    def test_batch_size_none_by_default(self):
+        """When no batch_size specified, None is passed through."""
+        k = _mock_kernle()
+        runner = ExhaustionRunner(k, max_cycles=20)
+        runner.run()
+
+        for call in k.process.call_args_list:
+            assert call.kwargs.get("batch_size") is None
+
+    def test_batch_size_stored_on_runner(self):
+        """batch_size parameter is stored on the runner instance."""
+        k = _mock_kernle()
+        runner = ExhaustionRunner(k, batch_size=42)
+        assert runner._batch_size == 42
 
 
 # =============================================================================
@@ -218,20 +318,18 @@ class TestDryRun:
         k.process.assert_not_called()
         k.checkpoint.assert_not_called()
         assert result.convergence_reason == "dry_run"
-        assert result.cycles_completed == 1
-        assert len(result.cycle_results) == 1
 
-    def test_dry_run_records_transitions(self):
-        """Dry run still records what transitions would run."""
+    def test_dry_run_records_all_intensities(self):
+        """Dry run records one cycle per intensity level."""
         k = _mock_kernle()
-        runner = ExhaustionRunner(k, max_cycles=5)
+        runner = ExhaustionRunner(k, max_cycles=20)
         result = runner.run(dry_run=True)
 
-        cr = result.cycle_results[0]
-        assert cr.cycle_number == 1
-        assert cr.intensity == "light"
-        assert cr.transitions_run == LIGHT_TRANSITIONS
-        assert cr.promotions == 0
+        assert len(result.cycle_results) == 3
+        assert result.cycle_results[0].intensity == "light"
+        assert result.cycle_results[1].intensity == "medium"
+        assert result.cycle_results[2].intensity == "heavy"
+        assert result.cycles_completed == 3
 
 
 # =============================================================================
@@ -243,7 +341,7 @@ class TestSnapshot:
     def test_snapshot_saved(self):
         """Checkpoint is created before first cycle."""
         k = _mock_kernle()
-        runner = ExhaustionRunner(k, max_cycles=5)
+        runner = ExhaustionRunner(k, max_cycles=20)
         result = runner.run()
 
         k.checkpoint.assert_called_once_with("pre-exhaust")
@@ -254,11 +352,10 @@ class TestSnapshot:
         """Checkpoint failure is logged but doesn't abort the run."""
         k = _mock_kernle()
         k.checkpoint.side_effect = RuntimeError("checkpoint failed")
-        runner = ExhaustionRunner(k, max_cycles=5)
+        runner = ExhaustionRunner(k, max_cycles=20)
         result = runner.run()
 
         assert result.snapshot is None
-        # Run should still complete
         assert result.cycles_completed > 0
 
 
@@ -286,10 +383,9 @@ class TestPromotionCounting:
             return []
 
         k = _mock_kernle(promote_first_cycle)
-        runner = ExhaustionRunner(k, max_cycles=5, auto_promote=True)
+        runner = ExhaustionRunner(k, max_cycles=20, auto_promote=True)
         result = runner.run()
 
-        # Cycle 1: 2 promotions (from raw_to_episode)
         assert result.cycle_results[0].promotions == 2
         assert result.total_promotions >= 2
 
@@ -312,7 +408,7 @@ class TestPromotionCounting:
             return []
 
         k = _mock_kernle(suggest_first_cycle)
-        runner = ExhaustionRunner(k, max_cycles=5, auto_promote=False)
+        runner = ExhaustionRunner(k, max_cycles=20, auto_promote=False)
         result = runner.run()
 
         assert result.cycle_results[0].promotions == 2
@@ -334,10 +430,9 @@ class TestErrorHandling:
             return []
 
         k = _mock_kernle(error_on_notes)
-        runner = ExhaustionRunner(k, max_cycles=5)
+        runner = ExhaustionRunner(k, max_cycles=20)
         result = runner.run()
 
-        # First cycle should have errors
         assert "parse error" in result.cycle_results[0].errors
 
     def test_exception_in_process_captured(self):
@@ -350,52 +445,12 @@ class TestErrorHandling:
             return []
 
         k = _mock_kernle(raise_on_notes)
-        runner = ExhaustionRunner(k, max_cycles=5)
+        runner = ExhaustionRunner(k, max_cycles=20)
         result = runner.run()
 
-        # Should still complete (not raise)
         assert result.cycles_completed > 0
-        # Error should be captured
         errors = result.cycle_results[0].errors
         assert any("raw_to_note" in e and "model unavailable" in e for e in errors)
-
-    def test_error_only_cycles_do_not_converge(self):
-        """Cycles with errors but 0 promotions should NOT count as convergence."""
-
-        def always_error(**kwargs):
-            transition = kwargs.get("transition", "")
-            return [_make_result(transition, errors=["model unavailable"])]
-
-        k = _mock_kernle(always_error)
-        runner = ExhaustionRunner(k, max_cycles=5)
-        result = runner.run()
-
-        # Should NOT converge — every cycle has errors
-        assert result.converged is False
-        assert result.convergence_reason == "max_cycles_reached"
-        assert result.cycles_completed == 5
-
-    def test_error_then_clean_zero_converges(self):
-        """Error cycle followed by 2 clean zero-promotion cycles converges."""
-        call_count = [0]
-
-        def error_then_empty(**kwargs):
-            call_count[0] += 1
-            transition = kwargs.get("transition", "")
-            # Cycle 1 (calls 1-2): errors on everything
-            if call_count[0] <= 2:
-                return [_make_result(transition, errors=["temporary failure"])]
-            # Cycles 2+ (calls 3+): clean, no promotions
-            return []
-
-        k = _mock_kernle(error_then_empty)
-        runner = ExhaustionRunner(k, max_cycles=10)
-        result = runner.run()
-
-        assert result.converged is True
-        assert result.convergence_reason == "two_consecutive_zero_promotion_cycles"
-        # Cycle 1: errors (reset streak), Cycle 2: clean zero, Cycle 3: clean zero -> converge
-        assert result.cycles_completed == 3
 
 
 # =============================================================================
@@ -411,29 +466,28 @@ class TestMCPValidation:
         assert result["max_cycles"] == 20
         assert result["auto_promote"] is True
         assert result["dry_run"] is False
+        assert result["batch_size"] is None
 
     def test_validate_custom_values(self):
         from kernle.mcp.handlers.processing import validate_memory_process_exhaust
 
         result = validate_memory_process_exhaust(
-            {"max_cycles": 10, "auto_promote": False, "dry_run": True}
+            {"max_cycles": 10, "auto_promote": False, "dry_run": True, "batch_size": 5}
         )
         assert result["max_cycles"] == 10
         assert result["auto_promote"] is False
         assert result["dry_run"] is True
+        assert result["batch_size"] == 5
 
     def test_validate_max_cycles_bounds(self):
         from kernle.mcp.handlers.processing import validate_memory_process_exhaust
 
-        # Over 100 should clamp to default
         result = validate_memory_process_exhaust({"max_cycles": 200})
         assert result["max_cycles"] == 20
 
-        # 0 should clamp to default
         result = validate_memory_process_exhaust({"max_cycles": 0})
         assert result["max_cycles"] == 20
 
-        # Non-int should clamp to default
         result = validate_memory_process_exhaust({"max_cycles": "abc"})
         assert result["max_cycles"] == 20
 
@@ -443,6 +497,18 @@ class TestMCPValidation:
         result = validate_memory_process_exhaust({"auto_promote": "yes", "dry_run": 1})
         assert result["auto_promote"] is True
         assert result["dry_run"] is False
+
+    def test_validate_batch_size_invalid(self):
+        from kernle.mcp.handlers.processing import validate_memory_process_exhaust
+
+        result = validate_memory_process_exhaust({"batch_size": -1})
+        assert result["batch_size"] is None
+
+        result = validate_memory_process_exhaust({"batch_size": "abc"})
+        assert result["batch_size"] is None
+
+        result = validate_memory_process_exhaust({"batch_size": 0})
+        assert result["batch_size"] is None
 
 
 # =============================================================================
@@ -465,3 +531,66 @@ class TestTransitionConstants:
     def test_heavy_includes_belief_to_value(self):
         assert "belief_to_value" in HEAVY_TRANSITIONS
         assert "belief_to_value" not in MEDIUM_TRANSITIONS
+
+    def test_intensity_levels_ordered(self):
+        assert len(INTENSITY_LEVELS) == 3
+        assert INTENSITY_LEVELS[0][0] == "light"
+        assert INTENSITY_LEVELS[1][0] == "medium"
+        assert INTENSITY_LEVELS[2][0] == "heavy"
+
+
+# =============================================================================
+# Logging Tests
+# =============================================================================
+
+
+class TestLogging:
+    def test_intensity_start_logged(self, caplog):
+        """Each intensity level logs a start message."""
+        import logging
+
+        k = _mock_kernle()
+        runner = ExhaustionRunner(k, max_cycles=20)
+        with caplog.at_level(logging.INFO, logger="kernle.exhaust"):
+            runner.run()
+
+        messages = [r.message for r in caplog.records]
+        assert any("Starting light intensity" in m for m in messages)
+        assert any("Starting medium intensity" in m for m in messages)
+        assert any("Starting heavy intensity" in m for m in messages)
+
+    def test_cycle_logged(self, caplog):
+        """Each cycle logs its number, intensity, and promotions."""
+        import logging
+
+        k = _mock_kernle()
+        runner = ExhaustionRunner(k, max_cycles=20)
+        with caplog.at_level(logging.INFO, logger="kernle.exhaust"):
+            runner.run()
+
+        messages = [r.message for r in caplog.records]
+        assert any("Cycle 1 [light]" in m for m in messages)
+
+    def test_convergence_logged(self, caplog):
+        """Intensity convergence is logged."""
+        import logging
+
+        k = _mock_kernle()
+        runner = ExhaustionRunner(k, max_cycles=20)
+        with caplog.at_level(logging.INFO, logger="kernle.exhaust"):
+            runner.run()
+
+        messages = [r.message for r in caplog.records]
+        assert any("light intensity converged" in m for m in messages)
+
+    def test_completion_logged(self, caplog):
+        """Final summary is logged."""
+        import logging
+
+        k = _mock_kernle()
+        runner = ExhaustionRunner(k, max_cycles=20)
+        with caplog.at_level(logging.INFO, logger="kernle.exhaust"):
+            runner.run()
+
+        messages = [r.message for r in caplog.records]
+        assert any("Exhaust complete" in m for m in messages)

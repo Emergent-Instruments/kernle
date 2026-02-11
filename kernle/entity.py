@@ -1012,6 +1012,7 @@ class Entity:
         force: bool = False,
         allow_no_inference_override: bool = False,
         auto_promote: bool = False,
+        batch_size: Optional[int] = None,
     ) -> list:
         """Run memory processing sessions.
 
@@ -1032,6 +1033,7 @@ class Entity:
                 inference (except values). Only effective with force=True.
             auto_promote: If True, directly write memories. If False (default),
                 create suggestions for review.
+            batch_size: Override the per-transition batch size (None = use config).
 
         Returns:
             List of ProcessingResult for each transition that ran
@@ -1097,6 +1099,7 @@ class Entity:
             force=force,
             allow_no_inference_override=allow_no_inference_override,
             auto_promote=auto_promote,
+            batch_size=batch_size,
         )
 
     # ---- Routed Sync ----

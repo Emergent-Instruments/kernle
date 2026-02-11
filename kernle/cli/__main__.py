@@ -1113,6 +1113,19 @@ def main():
         help="Preview what would run without making changes",
     )
     process_exhaust.add_argument("--json", "-j", action="store_true", help="Output as JSON")
+    process_exhaust.add_argument(
+        "--batch-size",
+        "-b",
+        type=int,
+        default=None,
+        help="Override batch size for processing (default: use config)",
+    )
+    process_exhaust.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="Enable verbose logging for exhaust and processing",
+    )
 
     # seed (corpus ingestion)
     p_seed = subparsers.add_parser("seed", help="Seed memory from corpus (repo/docs)")
