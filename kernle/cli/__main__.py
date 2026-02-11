@@ -29,9 +29,6 @@ from kernle.cli.commands import (
     cmd_boot,
     cmd_checkpoint,
     cmd_doctor,
-    cmd_doctor_report,
-    cmd_doctor_session_list,
-    cmd_doctor_session_start,
     cmd_doctor_structural,
     cmd_drive,
     cmd_dump,
@@ -642,7 +639,9 @@ def main():
     )
 
     # doctor session subcommands
-    p_doctor_session = doctor_sub.add_parser("session", help="Manage diagnostic sessions")
+    p_doctor_session = doctor_sub.add_parser(
+        "session", help="Manage diagnostic sessions (requires kernle-devtools)"
+    )
     session_sub = p_doctor_session.add_subparsers(dest="session_action")
 
     p_session_start = session_sub.add_parser("start", help="Start a new diagnostic session")
@@ -664,7 +663,9 @@ def main():
     p_session_list.add_argument("--json", "-j", action="store_true", help="Output as JSON")
 
     # doctor report subcommand
-    p_doctor_report = doctor_sub.add_parser("report", help="Show a diagnostic report")
+    p_doctor_report = doctor_sub.add_parser(
+        "report", help="Show a diagnostic report (requires kernle-devtools)"
+    )
     p_doctor_report.add_argument(
         "session_id",
         help="Session ID or report ID (or 'latest' for most recent)",
@@ -2146,7 +2147,9 @@ Beliefs already present in the agent's memory will be skipped.
 
     # Discover plugins and register their CLI commands before parsing args.
     # This allows plugins to add subcommands that argparse recognizes.
-    _plugin_commands = {}
+    _plugin_registry = {}  # plugin_name -> plugin_instance
+    _plugin_cmd_map = {}  # command_name -> plugin_instance
+    _collided_commands = {}  # command_name -> (plugin1_name, plugin2_name)
     try:
         from kernle.discovery import discover_plugins, load_component
 
@@ -2156,7 +2159,30 @@ Beliefs already present in the agent's memory will be skipped.
                 plugin = plugin_cls()
                 if hasattr(plugin, "register_cli"):
                     plugin.register_cli(subparsers)
-                    _plugin_commands[comp.name] = plugin
+                    _plugin_registry[comp.name] = plugin
+                    # Build command map from cli_commands() if available
+                    if hasattr(plugin, "cli_commands"):
+                        for cmd_name in plugin.cli_commands():
+                            if cmd_name in _collided_commands:
+                                # Already collided, add to warning
+                                pass
+                            elif cmd_name in _plugin_cmd_map:
+                                existing = _plugin_cmd_map[cmd_name]
+                                logger.warning(
+                                    "Plugin command collision: '%s' claimed by "
+                                    "both '%s' and '%s'; disabling command '%s'",
+                                    cmd_name,
+                                    existing.name,
+                                    plugin.name,
+                                    cmd_name,
+                                )
+                                _collided_commands[cmd_name] = (
+                                    existing.name,
+                                    plugin.name,
+                                )
+                                _plugin_cmd_map.pop(cmd_name)
+                            else:
+                                _plugin_cmd_map[cmd_name] = plugin
             except Exception as e:
                 logger.debug(f"Plugin {comp.name} CLI registration failed: {e}")
     except Exception as e:
@@ -2209,13 +2235,49 @@ Beliefs already present in the agent's memory will be skipped.
             elif doctor_action == "session":
                 session_action = getattr(args, "session_action", None)
                 if session_action == "start":
-                    cmd_doctor_session_start(args, k)
+                    try:
+                        from kernle_devtools.admin_health.diagnostics import (
+                            cmd_doctor_session_start as _dt_session_start,
+                        )
+                    except ModuleNotFoundError as e:
+                        if e.name and e.name.startswith("kernle_devtools"):
+                            print(
+                                "Diagnostic sessions require kernle-devtools: "
+                                "pip install kernle-devtools"
+                            )
+                            sys.exit(2)
+                        raise
+                    _dt_session_start(args, k)
                 elif session_action == "list":
-                    cmd_doctor_session_list(args, k)
+                    try:
+                        from kernle_devtools.admin_health.diagnostics import (
+                            cmd_doctor_session_list as _dt_session_list,
+                        )
+                    except ModuleNotFoundError as e:
+                        if e.name and e.name.startswith("kernle_devtools"):
+                            print(
+                                "Diagnostic sessions require kernle-devtools: "
+                                "pip install kernle-devtools"
+                            )
+                            sys.exit(2)
+                        raise
+                    _dt_session_list(args, k)
                 else:
                     print("Usage: kernle doctor session {start|list}")
             elif doctor_action == "report":
-                cmd_doctor_report(args, k)
+                try:
+                    from kernle_devtools.admin_health.diagnostics import (
+                        cmd_doctor_report as _dt_report,
+                    )
+                except ModuleNotFoundError as e:
+                    if e.name and e.name.startswith("kernle_devtools"):
+                        print(
+                            "Diagnostic reports require kernle-devtools: "
+                            "pip install kernle-devtools"
+                        )
+                        sys.exit(2)
+                    raise
+                _dt_report(args, k)
             else:
                 cmd_doctor(args, k)
         elif args.command == "trust":
@@ -2294,6 +2356,55 @@ Beliefs already present in the agent's memory will be skipped.
             cmd_migrate(args, k)
         elif args.command == "setup":
             cmd_setup(args, k)
+        elif args.command in _collided_commands:
+            p1, p2 = _collided_commands[args.command]
+            print(
+                f"Command '{args.command}' is claimed by both '{p1}' and "
+                f"'{p2}'. Uninstall one to resolve the conflict."
+            )
+            sys.exit(1)
+        elif args.command in _plugin_cmd_map:
+            plugin = _plugin_cmd_map[args.command]
+            # Materialize stack (lazy property) so PluginContext has
+            # active_stack_id when the plugin is activated
+            _ = k.stack
+            # Activate plugin via Entity
+            activated = False
+            try:
+                k.entity.load_plugin(plugin)
+                activated = True
+            except Exception as e:
+                print(
+                    f"Failed to activate plugin '{plugin.name}' for "
+                    f"command '{args.command}': {e}"
+                )
+                sys.exit(1)
+            # Dispatch via canonical handler with legacy adapter
+            try:
+                if hasattr(plugin, "handle_cli"):
+                    try:
+                        result = plugin.handle_cli(args, k)
+                    except TypeError as e:
+                        # Retry with old signature if it's a mismatch
+                        if "argument" in str(e) or "positional" in str(e):
+                            result = plugin.handle_cli(args)
+                        else:
+                            raise
+                    # Legacy handlers may return output strings
+                    if isinstance(result, str) and result:
+                        print(result)
+                else:
+                    print(
+                        f"Plugin '{plugin.name}' registered "
+                        f"'{args.command}' but has no handle_cli(). "
+                        f"Update the plugin for CLI support."
+                    )
+                    sys.exit(1)
+            finally:
+                if activated:
+                    k.entity.unload_plugin(plugin.name)
+        else:
+            parser.print_help()
     except (ValueError, TypeError) as e:
         logger.error(f"Input validation error: {e}")
         sys.exit(1)

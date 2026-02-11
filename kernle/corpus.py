@@ -11,6 +11,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import List, Optional, Set
 
+from kernle.dedup import load_raw_content_hashes, strip_corpus_header
 from kernle.processing import compute_content_hash
 
 logger = logging.getLogger(__name__)
@@ -480,14 +481,8 @@ class CorpusIngestor:
         may have incomplete dedup (a warning is logged).
         """
         try:
-            corpus_entries = _collect_all_corpus_entries(self._k._storage)
-            for entry in corpus_entries:
-                blob = entry.blob or ""
-                content = _extract_corpus_content(blob)
-                if content:
-                    h = compute_content_hash(content)
-                    if h:
-                        self._seen_hashes.add(h)
+            result = load_raw_content_hashes(self._k._storage, source_filter="corpus")
+            self._seen_hashes.update(result.hashes)
         except Exception as e:
             logger.warning("Could not load existing corpus hashes: %s", e)
 
@@ -518,7 +513,7 @@ def _is_corpus_entry(entry) -> bool:
 
 def _extract_corpus_content(blob: str) -> str:
     """Extract the content portion of a corpus blob (after the header line)."""
-    newline_idx = blob.find("\n")
-    if newline_idx < 0:
-        return ""
-    return blob[newline_idx + 1 :]
+    stripped = strip_corpus_header(blob)
+    # strip_corpus_header returns original text when no header found or
+    # no newline in header-only blobs — treat both as empty content
+    return "" if stripped is blob else stripped

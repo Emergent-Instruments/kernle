@@ -1413,6 +1413,29 @@ class PluginProtocol(Protocol):
         """
         ...
 
+    def handle_cli(self, args: Any, k: Any) -> None:
+        """Dispatch a CLI command for this plugin.
+
+        Called by the core CLI when a command registered by this plugin
+        is invoked. Receives parsed args and the Kernle instance.
+
+        Args:
+            args: Parsed argparse namespace.
+            k: The Kernle instance (provides stack, entity, storage).
+        """
+        ...
+
+    def cli_commands(self) -> list[str]:
+        """Return top-level CLI command names registered by this plugin.
+
+        Used by the core CLI dispatcher to route commands to this plugin.
+        Must match the parser names added in register_cli().
+
+        Returns:
+            List of command name strings, e.g. ["wallet", "job", "skills"].
+        """
+        ...
+
 
 # =============================================================================
 # CORE PROTOCOL — Torso
