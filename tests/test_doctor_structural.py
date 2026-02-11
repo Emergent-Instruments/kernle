@@ -9,17 +9,17 @@ from unittest.mock import patch
 
 import pytest
 
-from kernle.cli.commands.doctor import (
+from kernle.cli.commands.doctor import cmd_doctor_structural
+from kernle.storage.base import Belief, Episode, Goal, Note, Relationship
+from kernle.structural import (
     StructuralFinding,
     check_belief_contradictions,
     check_low_confidence_beliefs,
     check_orphaned_references,
     check_stale_goals,
     check_stale_relationships,
-    cmd_doctor_structural,
     run_structural_checks,
 )
-from kernle.storage.base import Belief, Episode, Goal, Note, Relationship
 
 # ---------------------------------------------------------------------------
 # Fixtures
