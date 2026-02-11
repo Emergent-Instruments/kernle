@@ -671,11 +671,20 @@ class MemoryProcessor:
             return None
 
         if transition not in IDENTITY_LAYER_TRANSITIONS:
-            # Non-identity transitions (raw_to_episode, raw_to_note) still need
-            # inference to run. They will fail at the inference call step, which
-            # is handled gracefully. But we don't block them at the policy level
-            # since the infrastructure handles the error.
-            return None
+            # Non-identity transitions (raw_to_episode, raw_to_note) require
+            # inference to generate output. Block them at the policy level
+            # with a clear message so callers (e.g. exhaust runner) can
+            # detect inference-blocked state cleanly.
+            return ProcessingResult(
+                layer_transition=transition,
+                source_count=0,
+                skipped=True,
+                skip_reason=(
+                    "Blocked: inference unavailable. "
+                    "Bind a model to process raw entries."
+                ),
+                inference_blocked=True,
+            )
 
         # Values are never allowed without inference
         if transition in NO_OVERRIDE_TRANSITIONS:

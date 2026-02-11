@@ -48,6 +48,7 @@ class TestKernleProcess:
             force=True,
             allow_no_inference_override=False,
             auto_promote=False,
+            batch_size=None,
         )
         assert result == []
 
@@ -61,7 +62,11 @@ class TestKernleProcess:
 
         k.process()
         mock_entity.process.assert_called_once_with(
-            transition=None, force=False, allow_no_inference_override=False, auto_promote=False
+            transition=None,
+            force=False,
+            allow_no_inference_override=False,
+            auto_promote=False,
+            batch_size=None,
         )
 
     def test_process_propagates_runtime_error(self, kernle_instance):
@@ -555,16 +560,15 @@ class TestDefaultConfigPersistence:
             assert lc.quantity_threshold == 20
             assert lc.batch_size == 5
 
-    def test_entity_process_no_model_gates_identity_layers(self):
-        """Entity.process() without model blocks identity layers (no longer raises)."""
+    def test_entity_process_no_model_gates_all_transitions(self):
+        """Entity.process() without model blocks all transitions."""
         from kernle.entity import Entity
-        from kernle.processing import IDENTITY_LAYER_TRANSITIONS
+        from kernle.processing import VALID_TRANSITIONS
 
         entity = Entity(core_id="test-no-model")
 
         mock_stack = Mock()
         mock_stack.get_processing_config.return_value = []
-        # Set up backend returns so raw transitions can proceed (they skip for no sources)
         mock_stack._backend.list_raw.return_value = []
         mock_stack.get_episodes.return_value = []
         mock_stack.get_beliefs.return_value = []
@@ -573,4 +577,4 @@ class TestDefaultConfigPersistence:
 
         results = entity.process(force=True)
         blocked = [r for r in results if r.inference_blocked]
-        assert len(blocked) == len(IDENTITY_LAYER_TRANSITIONS)
+        assert len(blocked) == len(VALID_TRANSITIONS)

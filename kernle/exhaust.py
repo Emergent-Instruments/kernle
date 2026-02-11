@@ -117,6 +117,7 @@ class ExhaustionRunner:
             return result
 
         total_cycle = 0
+        any_inference_blocked = False
 
         for intensity, transitions in INTENSITY_LEVELS:
             logger.info("Starting %s intensity", intensity)
@@ -174,6 +175,20 @@ class ExhaustionRunner:
                     breakdown_str,
                 )
 
+                # Check if all transitions were inference-blocked
+                all_inference_blocked = cycle_result.results and all(
+                    getattr(pr, "inference_blocked", False)
+                    for pr in cycle_result.results
+                )
+                if all_inference_blocked:
+                    logger.info(
+                        "%s intensity blocked: no inference model bound",
+                        intensity,
+                    )
+                    any_inference_blocked = True
+                    level_converged = True
+                    break
+
                 # Check convergence -- error-only cycles don't count
                 if cycle_result.errors and cycle_result.promotions == 0:
                     consecutive_zero = 0
@@ -194,7 +209,11 @@ class ExhaustionRunner:
                 # Hit max_cycles before this level converged
                 break
 
-        if total_cycle >= self._max_cycles and not result.cycle_results[-1].promotions == 0:
+        if any_inference_blocked and result.total_promotions == 0:
+            # All levels were inference-blocked with no promotions
+            result.converged = True
+            result.convergence_reason = "inference_unavailable"
+        elif total_cycle >= self._max_cycles and not result.cycle_results[-1].promotions == 0:
             result.convergence_reason = "max_cycles_reached"
         elif total_cycle >= self._max_cycles:
             # Check if the last intensity actually converged

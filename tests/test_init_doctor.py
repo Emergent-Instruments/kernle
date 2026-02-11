@@ -575,6 +575,8 @@ class TestFindInstructionFile:
     def test_find_none(self, tmp_path, monkeypatch):
         """Test when no instruction file exists."""
         monkeypatch.chdir(tmp_path)
+        # Prevent fallback to real ~/.claude/CLAUDE.md
+        monkeypatch.setattr(Path, "home", lambda: tmp_path / "fakehome")
 
         result = find_instruction_file()
 

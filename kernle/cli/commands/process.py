@@ -214,10 +214,23 @@ def cmd_process(args, k: "Kernle"):
                 print("  Snapshot: saved")
             print()
             for cr in result.cycle_results:
-                status = f"{cr.promotions} promotions"
-                if cr.errors:
-                    status += f", {len(cr.errors)} errors"
-                print(f"  Cycle {cr.cycle_number} ({cr.intensity}): {status}")
+                # Check if all results were inference-blocked
+                all_blocked = cr.results and all(
+                    getattr(pr, "inference_blocked", False) for pr in cr.results
+                )
+                if all_blocked:
+                    print(
+                        f"  Cycle {cr.cycle_number} ({cr.intensity}): "
+                        f"blocked — no inference model bound"
+                    )
+                else:
+                    status = f"{cr.promotions} promotions"
+                    if cr.errors:
+                        status += f", {len(cr.errors)} errors"
+                    print(f"  Cycle {cr.cycle_number} ({cr.intensity}): {status}")
+                    if verbose and cr.errors:
+                        for err in cr.errors:
+                            print(f"    ! {err}")
 
     else:
         print("Usage: kernle process {run|status|exhaust}")

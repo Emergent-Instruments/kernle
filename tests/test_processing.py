@@ -742,11 +742,11 @@ class TestEntityProcess:
         with pytest.raises(Exception):
             ent.process()
 
-    def test_no_model_blocks_identity_layers(self, entity):
-        """Without a model, identity-layer transitions are blocked (not raised)."""
+    def test_no_model_blocks_all_transitions(self, entity):
+        """Without a model, all transitions are blocked (not raised)."""
         results = entity.process(force=True)
         blocked = [r for r in results if r.inference_blocked]
-        assert len(blocked) == len(IDENTITY_LAYER_TRANSITIONS)
+        assert len(blocked) == len(VALID_TRANSITIONS)
 
     def test_process_with_mock_model(self, entity):
         """Entity.process() works with a mock model and no data."""
@@ -1934,15 +1934,17 @@ class TestNoInferenceSafetyGating:
             result = processor._check_inference_safety(transition, force=True, allow_override=True)
             assert result is None, f"{transition} should be allowed with force+override"
 
-    def test_no_inference_allows_raw_transitions(self):
-        """raw_to_episode and raw_to_note are not blocked at policy level."""
+    def test_no_inference_blocks_raw_transitions(self):
+        """raw_to_episode and raw_to_note are blocked when inference unavailable."""
         mock_stack = _make_mock_stack()
         processor, _ = _make_no_inference_processor(mock_stack)
         for transition in ("raw_to_episode", "raw_to_note"):
             result = processor._check_inference_safety(
                 transition, force=False, allow_override=False
             )
-            assert result is None, f"{transition} should not be blocked at policy level"
+            assert result is not None, f"{transition} should be blocked"
+            assert result.inference_blocked is True
+            assert result.skipped is True
 
 
 class TestNoInferenceProcessMethod:
@@ -1959,22 +1961,19 @@ class TestNoInferenceProcessMethod:
         assert results[0].inference_blocked
         assert results[0].skipped
 
-    def test_no_inference_blocks_all_identity_layers_by_default(self):
-        """Running process() with force=True blocks all identity layers."""
+    def test_no_inference_blocks_all_transitions_by_default(self):
+        """Running process() with force=True blocks all transitions."""
         mock_stack = _make_mock_stack()
         mock_stack._backend.list_raw.return_value = []
         mock_stack.get_episodes.return_value = []
         mock_stack.get_beliefs.return_value = []
         processor, _ = _make_no_inference_processor(mock_stack)
         results = processor.process(force=True)
-        # Identity layers should be blocked, raw layers should skip (no sources)
         blocked = [r for r in results if r.inference_blocked]
-        assert len(blocked) == len(IDENTITY_LAYER_TRANSITIONS)
-        for r in blocked:
-            assert r.layer_transition in IDENTITY_LAYER_TRANSITIONS
+        assert len(blocked) == len(VALID_TRANSITIONS)
 
-    def test_no_inference_allows_raw_transitions_to_proceed(self):
-        """raw_to_episode/raw_to_note are not policy-blocked (will skip for no sources)."""
+    def test_no_inference_blocks_raw_transitions(self):
+        """raw_to_episode/raw_to_note are blocked when inference unavailable."""
         mock_stack = _make_mock_stack()
         mock_stack._backend.list_raw.return_value = []
         mock_stack.get_episodes.return_value = []
@@ -1985,10 +1984,8 @@ class TestNoInferenceProcessMethod:
             r for r in results if r.layer_transition in ("raw_to_episode", "raw_to_note")
         ]
         for r in raw_results:
-            assert not r.inference_blocked
-            # They will be skipped due to no sources, not inference
+            assert r.inference_blocked
             assert r.skipped
-            assert r.skip_reason == "No unprocessed sources"
 
     def test_no_inference_with_override_allows_beliefs(self):
         """force=True + allow_no_inference_override=True unblocks beliefs."""
@@ -2030,8 +2027,8 @@ class TestNoInferenceProcessMethod:
 class TestNoInferenceEntity:
     """Test Entity.process() with no model bound."""
 
-    def test_entity_process_no_model_blocks_identity(self, tmp_path):
-        """Entity.process() without model blocks identity-layer writes."""
+    def test_entity_process_no_model_blocks_all_transitions(self, tmp_path):
+        """Entity.process() without model blocks all transitions."""
         ent = Entity(core_id="test-core", data_dir=tmp_path / "entity")
         st = SQLiteStack(
             STACK_ID, db_path=tmp_path / "test.db", components=[], enforce_provenance=False
@@ -2040,10 +2037,10 @@ class TestNoInferenceEntity:
         # No model set — inference_available=False
         results = ent.process(force=True)
         blocked = [r for r in results if r.inference_blocked]
-        assert len(blocked) == len(IDENTITY_LAYER_TRANSITIONS)
+        assert len(blocked) == len(VALID_TRANSITIONS)
 
-    def test_entity_process_no_model_allows_raw_layers(self, tmp_path):
-        """Entity.process() without model lets raw transitions through (they skip for no sources)."""
+    def test_entity_process_no_model_blocks_raw_layers(self, tmp_path):
+        """Entity.process() without model blocks raw transitions."""
         ent = Entity(core_id="test-core", data_dir=tmp_path / "entity")
         st = SQLiteStack(
             STACK_ID, db_path=tmp_path / "test.db", components=[], enforce_provenance=False
@@ -2051,7 +2048,7 @@ class TestNoInferenceEntity:
         ent.attach_stack(st)
         results = ent.process("raw_to_episode", force=True)
         assert len(results) == 1
-        assert not results[0].inference_blocked
+        assert results[0].inference_blocked
 
     def test_entity_process_no_model_override_flag_unblocks(self, tmp_path):
         """Entity.process() with override flag unblocks non-value identity layers."""
