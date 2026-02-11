@@ -2239,28 +2239,36 @@ Beliefs already present in the agent's memory will be skipped.
                         from kernle_devtools.admin_health.diagnostics import (
                             cmd_doctor_session_start as _dt_session_start,
                         )
-                    except ModuleNotFoundError as e:
-                        if e.name and e.name.startswith("kernle_devtools"):
-                            print(
-                                "Diagnostic sessions require kernle-devtools: "
-                                "pip install kernle-devtools"
-                            )
-                            sys.exit(2)
-                        raise
+                    except (ModuleNotFoundError, ImportError) as e:
+                        if (
+                            isinstance(e, ModuleNotFoundError)
+                            and e.name
+                            and not e.name.startswith("kernle_devtools")
+                        ):
+                            raise
+                        print(
+                            "Diagnostic sessions require kernle-devtools: "
+                            "pip install kernle-devtools"
+                        )
+                        sys.exit(2)
                     _dt_session_start(args, k)
                 elif session_action == "list":
                     try:
                         from kernle_devtools.admin_health.diagnostics import (
                             cmd_doctor_session_list as _dt_session_list,
                         )
-                    except ModuleNotFoundError as e:
-                        if e.name and e.name.startswith("kernle_devtools"):
-                            print(
-                                "Diagnostic sessions require kernle-devtools: "
-                                "pip install kernle-devtools"
-                            )
-                            sys.exit(2)
-                        raise
+                    except (ModuleNotFoundError, ImportError) as e:
+                        if (
+                            isinstance(e, ModuleNotFoundError)
+                            and e.name
+                            and not e.name.startswith("kernle_devtools")
+                        ):
+                            raise
+                        print(
+                            "Diagnostic sessions require kernle-devtools: "
+                            "pip install kernle-devtools"
+                        )
+                        sys.exit(2)
                     _dt_session_list(args, k)
                 else:
                     print("Usage: kernle doctor session {start|list}")
@@ -2269,14 +2277,17 @@ Beliefs already present in the agent's memory will be skipped.
                     from kernle_devtools.admin_health.diagnostics import (
                         cmd_doctor_report as _dt_report,
                     )
-                except ModuleNotFoundError as e:
-                    if e.name and e.name.startswith("kernle_devtools"):
-                        print(
-                            "Diagnostic reports require kernle-devtools: "
-                            "pip install kernle-devtools"
-                        )
-                        sys.exit(2)
-                    raise
+                except (ModuleNotFoundError, ImportError) as e:
+                    if (
+                        isinstance(e, ModuleNotFoundError)
+                        and e.name
+                        and not e.name.startswith("kernle_devtools")
+                    ):
+                        raise
+                    print(
+                        "Diagnostic reports require kernle-devtools: " "pip install kernle-devtools"
+                    )
+                    sys.exit(2)
                 _dt_report(args, k)
             else:
                 cmd_doctor(args, k)

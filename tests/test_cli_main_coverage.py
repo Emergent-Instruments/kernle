@@ -534,6 +534,24 @@ class TestDispatchBranches:
         captured = capsys.readouterr().out
         assert "kernle-devtools" in captured
 
+    def test_dispatch_doctor_session_start_import_error_gate(self, k, capsys):
+        """Dispatch 'doctor session start' handles incompatible devtools (ImportError)."""
+        import builtins
+
+        real_import = builtins.__import__
+
+        def mock_import(name, *args, **kwargs):
+            if name.startswith("kernle_devtools"):
+                raise ImportError("kernle-devtools requires kernle>=0.12.4")
+            return real_import(name, *args, **kwargs)
+
+        with patch.object(builtins, "__import__", side_effect=mock_import):
+            with pytest.raises(SystemExit) as exc:
+                self._run_main(["doctor", "session", "start"], k)
+        assert exc.value.code == 2
+        captured = capsys.readouterr().out
+        assert "kernle-devtools" in captured
+
     def test_dispatch_doctor_session_no_action(self, k, capsys):
         """Dispatch 'doctor session' without start/list shows usage."""
         self._run_main(["doctor", "session"], k)
