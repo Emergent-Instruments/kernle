@@ -416,6 +416,11 @@ class WritersMixin:
         entity = self.entity
         if entity is None:
             raise RuntimeError("process() requires Entity (use SQLite storage)")
+        # Ensure stack is attached — handles lazy property order where
+        # checkpoint() creates _stack before _entity exists, so the
+        # stack property's attach_stack() call never ran.
+        if entity.active_stack is None and self.stack is not None:
+            entity.attach_stack(self.stack, alias="default", set_active=True)
         return entity.process(
             transition=transition,
             force=force,
