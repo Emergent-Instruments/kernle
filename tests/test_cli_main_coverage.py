@@ -498,17 +498,21 @@ class TestDispatchBranches:
         captured = capsys.readouterr().out
         assert isinstance(captured, str)
 
-    def test_dispatch_doctor_session_start(self, k, capsys):
-        """Dispatch 'doctor session start' subcommand."""
-        self._run_main(["doctor", "session", "start"], k)
+    def test_dispatch_doctor_session_start_gate(self, k, capsys):
+        """Dispatch 'doctor session start' shows devtools install message."""
+        with pytest.raises(SystemExit) as exc:
+            self._run_main(["doctor", "session", "start"], k)
+        assert exc.value.code == 2
         captured = capsys.readouterr().out
-        assert "session" in captured.lower() or "Session" in captured
+        assert "kernle-devtools" in captured
 
-    def test_dispatch_doctor_session_list(self, k, capsys):
-        """Dispatch 'doctor session list' subcommand."""
-        self._run_main(["doctor", "session", "list"], k)
+    def test_dispatch_doctor_session_list_gate(self, k, capsys):
+        """Dispatch 'doctor session list' shows devtools install message."""
+        with pytest.raises(SystemExit) as exc:
+            self._run_main(["doctor", "session", "list"], k)
+        assert exc.value.code == 2
         captured = capsys.readouterr().out
-        assert "session" in captured.lower() or "No" in captured
+        assert "kernle-devtools" in captured
 
     def test_dispatch_doctor_session_no_action(self, k, capsys):
         """Dispatch 'doctor session' without start/list shows usage."""
@@ -516,16 +520,13 @@ class TestDispatchBranches:
         captured = capsys.readouterr().out
         assert "Usage" in captured
 
-    def test_dispatch_doctor_report(self, k, capsys):
-        """Dispatch 'doctor report' subcommand."""
-        # This may error with no session, but it should dispatch correctly
-        try:
+    def test_dispatch_doctor_report_gate(self, k, capsys):
+        """Dispatch 'doctor report' shows devtools install message."""
+        with pytest.raises(SystemExit) as exc:
             self._run_main(["doctor", "report", "latest"], k)
-        except SystemExit:
-            pass  # May exit with error if no sessions exist
-        captured = capsys.readouterr()
-        assert isinstance(captured.out, str)
-        # May print to stdout or stderr depending on whether sessions exist
+        assert exc.value.code == 2
+        captured = capsys.readouterr().out
+        assert "kernle-devtools" in captured
 
     def test_dispatch_trust(self, k, capsys):
         """Dispatch 'trust' command."""

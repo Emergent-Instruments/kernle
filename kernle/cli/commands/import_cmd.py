@@ -536,6 +536,7 @@ def _import_pdf(
 
     # Chunk the extracted text using corpus chunking logic
     from kernle.corpus import chunk_generic
+    from kernle.dedup import load_raw_content_hashes
     from kernle.processing import compute_content_hash
 
     chunks = chunk_generic(text, str(file_path), max_chunk_size)
@@ -561,14 +562,12 @@ def _import_pdf(
     errors: List[str] = []
     seen_hashes: set = set()
 
-    # Pre-load existing content hashes for dedup
+    # Pre-load existing content hashes for dedup (strips corpus headers
+    # so PDF chunks match against the actual content of corpus entries)
     existing_hashes: set = set()
     if skip_duplicates:
-        existing = k._storage.list_raw(limit=10000)
-        for r in existing:
-            h = compute_content_hash(r.content)
-            if h:
-                existing_hashes.add(h)
+        result = load_raw_content_hashes(k._storage)
+        existing_hashes = result.hashes
 
     for chunk in chunks:
         content = chunk["content"]

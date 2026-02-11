@@ -28,9 +28,6 @@ from kernle.cli.commands.diagnostic import (
 )
 from kernle.cli.commands.doctor import (
     cmd_doctor,
-    cmd_doctor_report,
-    cmd_doctor_session_list,
-    cmd_doctor_session_start,
     cmd_doctor_structural,
 )
 from kernle.cli.commands.emotion import cmd_emotion
@@ -81,9 +78,6 @@ __all__ = [
     "cmd_note",
     "cmd_promote",
     "cmd_doctor",
-    "cmd_doctor_report",
-    "cmd_doctor_session_list",
-    "cmd_doctor_session_start",
     "cmd_doctor_structural",
     "cmd_emotion",
     "cmd_epoch",
