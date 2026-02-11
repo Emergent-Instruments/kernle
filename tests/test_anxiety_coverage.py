@@ -18,6 +18,7 @@ Targets uncovered lines:
 """
 
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -86,9 +87,9 @@ class TestGetAgingRawEntries:
         recent_time = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
 
         mock_entries = [
-            {"id": "1", "captured_at": old_time, "timestamp": old_time},
-            {"id": "2", "captured_at": recent_time, "timestamp": recent_time},
-            {"id": "3", "captured_at": old_time, "timestamp": old_time},
+            SimpleNamespace(id="1", captured_at=old_time, timestamp=old_time),
+            SimpleNamespace(id="2", captured_at=recent_time, timestamp=recent_time),
+            SimpleNamespace(id="3", captured_at=old_time, timestamp=old_time),
         ]
         with patch.object(k, "list_raw", return_value=mock_entries):
             total, aging, oldest = k._get_aging_raw_entries(24)
@@ -100,8 +101,8 @@ class TestGetAgingRawEntries:
         """All fresh entries should have aging_count 0."""
         recent_time = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
         mock_entries = [
-            {"id": "1", "captured_at": recent_time},
-            {"id": "2", "captured_at": recent_time},
+            SimpleNamespace(id="1", captured_at=recent_time, timestamp=None),
+            SimpleNamespace(id="2", captured_at=recent_time, timestamp=None),
         ]
         with patch.object(k, "list_raw", return_value=mock_entries):
             total, aging, oldest = k._get_aging_raw_entries(24)
@@ -119,9 +120,9 @@ class TestGetAgingRawEntries:
     def test_invalid_timestamp_in_entry_skipped(self, k):
         """Entries with invalid timestamps should be skipped (line 109-110)."""
         mock_entries = [
-            {"id": "1", "captured_at": "bad-date", "timestamp": "bad-date"},
-            {"id": "2", "captured_at": None, "timestamp": None},
-            {"id": "3"},  # No timestamp fields at all
+            SimpleNamespace(id="1", captured_at="bad-date", timestamp="bad-date"),
+            SimpleNamespace(id="2", captured_at=None, timestamp=None),
+            SimpleNamespace(id="3", captured_at=None, timestamp=None),
         ]
         with patch.object(k, "list_raw", return_value=mock_entries):
             total, aging, oldest = k._get_aging_raw_entries(24)
@@ -134,7 +135,7 @@ class TestGetAgingRawEntries:
         recent_time = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
 
         mock_entries = [
-            {"id": "1", "captured_at": old_time, "timestamp": recent_time},
+            SimpleNamespace(id="1", captured_at=old_time, timestamp=recent_time),
         ]
         with patch.object(k, "list_raw", return_value=mock_entries):
             total, aging, oldest = k._get_aging_raw_entries(24)
@@ -145,7 +146,7 @@ class TestGetAgingRawEntries:
         old_time = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
 
         mock_entries = [
-            {"id": "1", "captured_at": None, "timestamp": old_time},
+            SimpleNamespace(id="1", captured_at=None, timestamp=old_time),
         ]
         with patch.object(k, "list_raw", return_value=mock_entries):
             total, aging, oldest = k._get_aging_raw_entries(24)
@@ -324,7 +325,9 @@ class TestRawAgingHighCounts:
     def test_4_to_7_aging_entries(self, k):
         """4-7 aging entries should show days-old info."""
         old_time = (datetime.now(timezone.utc) - timedelta(hours=72)).isoformat()
-        mock_entries = [{"id": str(i), "captured_at": old_time} for i in range(5)]
+        mock_entries = [
+            SimpleNamespace(id=str(i), captured_at=old_time, timestamp=None) for i in range(5)
+        ]
         with patch.object(k, "list_raw", return_value=mock_entries):
             report = k.get_anxiety_report()
             dim = report["dimensions"]["raw_aging"]
@@ -334,7 +337,9 @@ class TestRawAgingHighCounts:
     def test_8_plus_aging_entries_stale(self, k):
         """8+ aging entries should show STALE with review needed."""
         old_time = (datetime.now(timezone.utc) - timedelta(hours=96)).isoformat()
-        mock_entries = [{"id": str(i), "captured_at": old_time} for i in range(10)]
+        mock_entries = [
+            SimpleNamespace(id=str(i), captured_at=old_time, timestamp=None) for i in range(10)
+        ]
         with patch.object(k, "list_raw", return_value=mock_entries):
             report = k.get_anxiety_report()
             dim = report["dimensions"]["raw_aging"]
