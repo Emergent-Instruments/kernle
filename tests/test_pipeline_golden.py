@@ -25,10 +25,7 @@ from typing import Dict, Optional
 import pytest
 
 from kernle.entity import Entity
-from kernle.processing import (
-    IDENTITY_LAYER_TRANSITIONS,
-    VALID_TRANSITIONS,
-)
+from kernle.processing import VALID_TRANSITIONS
 from kernle.protocols import ModelResponse
 from kernle.stack.sqlite_stack import SQLiteStack
 from kernle.types import (
