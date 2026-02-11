@@ -22,9 +22,6 @@ jobs:
 
       - name: Dependency Review
         uses: actions/dependency-review-action@v4
-        # Requires Dependency graph enabled in repo Settings > Code security.
-        # Non-blocking until enabled — results still surface as annotations.
-        continue-on-error: true
         with:
           fail-on-severity: high
           deny-licenses: GPL-3.0, AGPL-3.0
