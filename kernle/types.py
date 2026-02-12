@@ -830,6 +830,12 @@ VALID_SUGGESTION_STATUSES = frozenset(
     ["pending", "promoted", "modified", "rejected", "dismissed", "expired"]
 )
 
+# Canonical set of memory types that the suggestion system supports.
+# Used by processing.py (producer) and sqlite_stack.py (resolver).
+SUGGESTION_MEMORY_TYPES = frozenset(
+    {"episode", "belief", "note", "goal", "relationship", "value", "drive"}
+)
+
 
 @dataclass
 class SearchResult:
