@@ -515,6 +515,108 @@ class TestSuggestionRoundtrip:
         assert retrieved.memory_type == "belief"
 
 
+class TestSuggestionLifecycle:
+    """Contract tests for suggestion lifecycle APIs (get, filter, accept, dismiss)."""
+
+    def test_get_suggestion_returns_saved(self, stack):
+        s = _make_suggestion()
+        stack.save_suggestion(s)
+        retrieved = stack.get_suggestion(s.id)
+        assert retrieved is not None
+        assert retrieved.id == s.id
+        assert retrieved.memory_type == "belief"
+        assert retrieved.status == "pending"
+
+    def test_get_suggestions_filters_by_status(self, stack):
+        s1 = _make_suggestion(status="pending")
+        s2 = _make_suggestion(status="pending")
+        stack.save_suggestion(s1)
+        stack.save_suggestion(s2)
+        # Dismiss one to change its status
+        stack.dismiss_suggestion(s2.id, reason="not useful")
+
+        pending = stack.get_suggestions(status="pending")
+        assert any(s.id == s1.id for s in pending)
+        assert not any(s.id == s2.id for s in pending)
+
+        dismissed = stack.get_suggestions(status="dismissed")
+        assert any(s.id == s2.id for s in dismissed)
+
+    def test_get_suggestions_filters_by_memory_type(self, stack):
+        s_belief = _make_suggestion(memory_type="belief")
+        s_episode = _make_suggestion(
+            memory_type="episode", content={"objective": "Test", "outcome": "Done"}
+        )
+        stack.save_suggestion(s_belief)
+        stack.save_suggestion(s_episode)
+
+        beliefs = stack.get_suggestions(memory_type="belief")
+        assert any(s.id == s_belief.id for s in beliefs)
+        assert not any(s.id == s_episode.id for s in beliefs)
+
+    def test_get_suggestions_filters_by_min_confidence(self, stack):
+        s_high = _make_suggestion(confidence=0.9)
+        s_low = _make_suggestion(confidence=0.3)
+        stack.save_suggestion(s_high)
+        stack.save_suggestion(s_low)
+
+        high_conf = stack.get_suggestions(min_confidence=0.7)
+        assert any(s.id == s_high.id for s in high_conf)
+        assert not any(s.id == s_low.id for s in high_conf)
+
+    def test_get_suggestions_filters_by_source_raw_id(self, stack):
+        s1 = _make_suggestion(source_raw_ids=["raw-123"])
+        s2 = _make_suggestion(source_raw_ids=["raw-456"])
+        stack.save_suggestion(s1)
+        stack.save_suggestion(s2)
+
+        results = stack.get_suggestions(source_raw_id="raw-123")
+        assert any(s.id == s1.id for s in results)
+        assert not any(s.id == s2.id for s in results)
+
+    def test_accept_suggestion_creates_memory(self, stack):
+        s = _make_suggestion(
+            memory_type="belief",
+            content={"statement": "Testing is essential", "belief_type": "fact"},
+        )
+        stack.save_suggestion(s)
+        memory_id = stack.accept_suggestion(s.id)
+        assert memory_id is not None
+
+        # Verify the belief was created
+        beliefs = stack.get_beliefs(limit=100)
+        assert any(b.id == memory_id for b in beliefs)
+
+    def test_accept_suggestion_marks_promoted(self, stack):
+        s = _make_suggestion(
+            memory_type="belief",
+            content={"statement": "Promoted belief"},
+        )
+        stack.save_suggestion(s)
+        stack.accept_suggestion(s.id)
+
+        updated = stack.get_suggestion(s.id)
+        assert updated is not None
+        assert updated.status == "promoted"
+
+    def test_dismiss_suggestion_marks_dismissed(self, stack):
+        s = _make_suggestion()
+        stack.save_suggestion(s)
+        result = stack.dismiss_suggestion(s.id, reason="not relevant")
+        assert result is True
+
+        updated = stack.get_suggestion(s.id)
+        assert updated is not None
+        assert updated.status == "dismissed"
+
+    @pytest.mark.xfail(reason="Phase 2a (#538) will add ValueError for unknown types")
+    def test_accept_unknown_type_raises(self, stack):
+        s = _make_suggestion(memory_type="widget", content={"foo": "bar"})
+        stack.save_suggestion(s)
+        with pytest.raises(ValueError, match="[Uu]nsupported.*widget"):
+            stack.accept_suggestion(s.id)
+
+
 # ============================================================================
 # 2. Search
 # ============================================================================
