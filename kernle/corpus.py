@@ -11,7 +11,7 @@ from fnmatch import fnmatch
 from pathlib import Path
 from typing import List, Optional, Set
 
-from kernle.dedup import load_raw_content_hashes, strip_corpus_header
+from kernle.dedup import strip_corpus_header
 from kernle.processing import compute_content_hash
 
 logger = logging.getLogger(__name__)
@@ -475,34 +475,55 @@ class CorpusIngestor:
             return None
 
     def _load_existing_hashes(self) -> None:
-        """Load content hashes from existing corpus entries for dedup.
+        """Load content hashes from all existing corpus entries for dedup.
 
-        Note: scans up to 100k raw entries. Stacks exceeding this limit
-        may have incomplete dedup (a warning is logged).
+        Uses the same full-pagination path as ``_collect_all_corpus_entries``
+        to avoid silent truncation on large stacks.
         """
         try:
-            result = load_raw_content_hashes(self._k._storage, source_filter="corpus")
-            self._seen_hashes.update(result.hashes)
+            corpus_entries = _collect_all_corpus_entries(self._k._storage)
+            for entry in corpus_entries:
+                text = getattr(entry, "blob", None) or getattr(entry, "content", None) or ""
+                text = strip_corpus_header(text)
+                h = compute_content_hash(text)
+                if h:
+                    self._seen_hashes.add(h)
+            logger.debug(
+                "Loaded %d corpus hashes from %d corpus entries",
+                len(self._seen_hashes),
+                len(corpus_entries),
+            )
         except Exception as e:
             logger.warning("Could not load existing corpus hashes: %s", e)
 
 
-_CORPUS_SCAN_LIMIT = 100000
+_CORPUS_BATCH_SIZE = 10000
 
 
 def _collect_all_corpus_entries(storage) -> list:
-    """Fetch all raw entries and filter to corpus entries.
+    """Paginate through all raw entries and filter to corpus entries.
 
-    Uses a large limit to avoid silently truncating on active stacks.
-    Logs a warning if the limit is reached (potential missed entries).
+    Uses OFFSET pagination with deterministic ordering (captured_at DESC, id DESC).
+    Correctness depends on no concurrent writes during scan — acceptable for
+    corpus ingestion which serializes its own writes.
     """
-    all_raw = storage.list_raw(limit=_CORPUS_SCAN_LIMIT)
-    if len(all_raw) >= _CORPUS_SCAN_LIMIT:
-        logger.warning(
-            "Raw entry scan hit %d limit — corpus dedup/status may be incomplete",
-            _CORPUS_SCAN_LIMIT,
-        )
-    return [e for e in all_raw if _is_corpus_entry(e)]
+    corpus = []
+    offset = 0
+    total_scanned = 0
+    while True:
+        batch = storage.list_raw(limit=_CORPUS_BATCH_SIZE, offset=offset)
+        total_scanned += len(batch)
+        corpus.extend(e for e in batch if _is_corpus_entry(e))
+        if len(batch) < _CORPUS_BATCH_SIZE:
+            break
+        offset += _CORPUS_BATCH_SIZE
+    logger.debug(
+        "Corpus scan: %d scanned, %d corpus entries, %d batches",
+        total_scanned,
+        len(corpus),
+        (offset // _CORPUS_BATCH_SIZE) + 1,
+    )
+    return corpus
 
 
 def _is_corpus_entry(entry) -> bool:

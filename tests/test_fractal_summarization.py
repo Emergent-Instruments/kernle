@@ -386,4 +386,4 @@ class TestSchemaVersion:
     def test_schema_version_updated(self):
         from kernle.storage.sqlite import SCHEMA_VERSION
 
-        assert SCHEMA_VERSION == 24
+        assert SCHEMA_VERSION == 25

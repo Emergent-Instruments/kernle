@@ -1,4 +1,4 @@
-"""Tests for list_raw returning full RawEntry objects and AnxietyMixin compat."""
+"""Tests for list_raw returning full RawEntry objects, offset/pagination, and AnxietyMixin compat."""
 
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -119,3 +119,94 @@ class TestRawAgingViaCore:
 
         score = compute_raw_aging_score(total_unprocessed=1, aging_count=0, oldest_hours=0)
         assert score == 3  # min(30, 1*3)
+
+
+class TestListRawOffset:
+    """Tests for list_raw offset/pagination support."""
+
+    def _save_n(self, stack, n):
+        """Save n entries with distinct captured_at values for deterministic ordering."""
+        ids = []
+        for i in range(n):
+            entry = RawEntry(
+                id=str(uuid.uuid4()),
+                stack_id="test-stack",
+                blob=f"entry-{i}",
+                source="cli",
+            )
+            rid = stack.save_raw(entry)
+            ids.append(rid)
+            # Backdate so each has a unique captured_at (oldest first)
+            ts = (datetime.now(timezone.utc) - timedelta(seconds=n - i)).isoformat()
+            with stack._backend._connect() as conn:
+                conn.execute(
+                    "UPDATE raw_entries SET captured_at = ?, timestamp = ? WHERE id = ?",
+                    (ts, ts, rid),
+                )
+        return ids
+
+    def test_offset_skips_entries(self, stack):
+        """Offset should skip the first N entries."""
+        self._save_n(stack, 5)
+        all_entries = stack.list_raw(limit=100)
+        offset_entries = stack.list_raw(limit=100, offset=2)
+        assert len(offset_entries) == 3
+        assert [e.id for e in offset_entries] == [e.id for e in all_entries[2:]]
+
+    def test_offset_beyond_total_returns_empty(self, stack):
+        """Offset past the end should return an empty list."""
+        self._save_n(stack, 3)
+        entries = stack.list_raw(limit=100, offset=100)
+        assert entries == []
+
+    def test_paginate_all_no_gaps_no_dupes(self, stack):
+        """Paginating in small batches should yield exactly the full set with no duplicates."""
+        self._save_n(stack, 10)
+        all_entries = stack.list_raw(limit=100)
+        all_ids = {e.id for e in all_entries}
+        assert len(all_ids) == 10
+
+        # Paginate in batches of 3
+        paginated_ids = []
+        offset = 0
+        while True:
+            batch = stack.list_raw(limit=3, offset=offset)
+            if not batch:
+                break
+            paginated_ids.extend(e.id for e in batch)
+            offset += 3
+
+        assert len(paginated_ids) == 10
+        assert set(paginated_ids) == all_ids
+        # No duplicates
+        assert len(paginated_ids) == len(set(paginated_ids))
+
+    def test_deterministic_ordering(self, stack):
+        """Entries with identical captured_at produce stable pages across repeated queries."""
+        # Insert entries with same captured_at
+        ts = datetime.now(timezone.utc).isoformat()
+        for i in range(5):
+            rid = str(uuid.uuid4())
+            entry = RawEntry(id=rid, stack_id="test-stack", blob=f"same-ts-{i}", source="cli")
+            stack.save_raw(entry)
+            with stack._backend._connect() as conn:
+                conn.execute(
+                    "UPDATE raw_entries SET captured_at = ?, timestamp = ? WHERE id = ?",
+                    (ts, ts, rid),
+                )
+
+        # Run the same query multiple times and check for stable ordering
+        first_run = [e.id for e in stack.list_raw(limit=100)]
+        for _ in range(5):
+            this_run = [e.id for e in stack.list_raw(limit=100)]
+            assert this_run == first_run
+
+    def test_negative_offset_raises(self, stack):
+        """Negative offset should raise ValueError."""
+        with pytest.raises(ValueError, match="offset must be non-negative"):
+            stack.list_raw(offset=-1)
+
+    def test_zero_limit_raises(self, stack):
+        """Zero limit should raise ValueError."""
+        with pytest.raises(ValueError, match="limit must be positive"):
+            stack.list_raw(limit=0)

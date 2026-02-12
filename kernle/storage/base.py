@@ -436,7 +436,9 @@ class Storage(Protocol):
         ...
 
     @abstractmethod
-    def list_raw(self, processed: Optional[bool] = None, limit: int = 100) -> List[RawEntry]:
+    def list_raw(
+        self, processed: Optional[bool] = None, limit: int = 100, offset: int = 0
+    ) -> List[RawEntry]:
         """Get raw entries, optionally filtered by processed state."""
         ...
 

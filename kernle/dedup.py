@@ -14,6 +14,7 @@ from kernle.processing import compute_content_hash
 logger = logging.getLogger(__name__)
 
 _DEFAULT_SCAN_LIMIT = 100_000
+_DEDUP_BATCH_SIZE = 10_000
 
 
 def strip_corpus_header(text: str) -> str:
@@ -47,8 +48,8 @@ def load_raw_content_hashes(
     """Load content hashes from raw entries for dedup.
 
     Args:
-        storage: Storage backend with ``list_raw(limit=...)``.
-        limit: Max entries to scan.
+        storage: Storage backend with ``list_raw(limit=..., offset=...)``.
+        limit: Max total entries to scan (hard cap). Pagination is internal.
         source_filter: If set, only include entries whose source matches
             (e.g. ``"corpus"`` to only scan corpus entries). ``None`` scans all.
 
@@ -62,36 +63,47 @@ def load_raw_content_hashes(
     hashes: set = set()
     rows_scanned = 0
     rows_matched = 0
+    offset = 0
+    batch_size = min(_DEDUP_BATCH_SIZE, limit)
 
-    all_raw = storage.list_raw(limit=limit)
-    if len(all_raw) >= limit:
+    while rows_scanned < limit:
+        remaining = limit - rows_scanned
+        fetch_size = min(batch_size, remaining)
+        batch = storage.list_raw(limit=fetch_size, offset=offset)
+        if not batch:
+            break
+
+        for entry in batch:
+            rows_scanned += 1
+
+            # Source filtering
+            if source_filter:
+                if source_filter == "corpus":
+                    blob = getattr(entry, "blob", None) or ""
+                    if not blob.startswith("[corpus:"):
+                        continue
+                else:
+                    entry_source = getattr(entry, "source", None) or ""
+                    if entry_source != source_filter:
+                        continue
+
+            rows_matched += 1
+            text = getattr(entry, "blob", None) or getattr(entry, "content", None) or ""
+            text = strip_corpus_header(text)
+            h = compute_content_hash(text)
+            if h:
+                hashes.add(h)
+
+        if len(batch) < fetch_size:
+            break
+        offset += len(batch)
+
+    if rows_scanned >= limit:
         logger.warning(
-            "Raw entry scan hit %d limit — dedup may be incomplete",
-            limit,
+            "Dedup scan hit limit (%d rows scanned, %d matched). "
+            "Results may be incomplete — consider increasing the limit.",
+            rows_scanned,
+            rows_matched,
         )
-
-    for entry in all_raw:
-        rows_scanned += 1
-
-        # Source filtering
-        if source_filter:
-            if source_filter == "corpus":
-                # Corpus dedup: match on blob header only (preserves original
-                # corpus.py behavior — source field is unreliable, see known issues)
-                blob = getattr(entry, "blob", None) or ""
-                if not blob.startswith("[corpus:"):
-                    continue
-            else:
-                entry_source = getattr(entry, "source", None) or ""
-                if entry_source != source_filter:
-                    continue
-
-        rows_matched += 1
-        text = getattr(entry, "blob", None) or getattr(entry, "content", None) or ""
-        # Strip corpus metadata header if present
-        text = strip_corpus_header(text)
-        h = compute_content_hash(text)
-        if h:
-            hashes.add(h)
 
     return DedupResult(hashes=hashes, rows_scanned=rows_scanned, rows_matched=rows_matched)

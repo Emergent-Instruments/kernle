@@ -2011,9 +2011,11 @@ class SQLiteStack(
 
     # ---- Stack-level helpers ----
 
-    def list_raw(self, processed: Optional[bool] = None, limit: int = 100) -> List[Any]:
+    def list_raw(
+        self, processed: Optional[bool] = None, limit: int = 100, offset: int = 0
+    ) -> List[Any]:
         """List raw entries."""
-        return self._backend.list_raw(processed=processed, limit=limit)
+        return self._backend.list_raw(processed=processed, limit=limit, offset=offset)
 
     def get_identity_confidence(self) -> float:
         """Get identity confidence from values and beliefs.
