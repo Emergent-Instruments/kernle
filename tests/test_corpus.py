@@ -264,6 +264,41 @@ class TestSourceMetadata:
             assert "[chunk:" in blob
 
 
+class TestCollectAllPaginates:
+    def test_collect_all_paginates(self, monkeypatch):
+        """_collect_all_corpus_entries paginates through multiple batches."""
+        from unittest.mock import MagicMock
+
+        import kernle.corpus as corpus_mod
+        from kernle.corpus import _collect_all_corpus_entries
+
+        # Shrink batch size to force pagination
+        monkeypatch.setattr(corpus_mod, "_CORPUS_BATCH_SIZE", 2)
+
+        mock_storage = MagicMock()
+        entry1 = MagicMock()
+        entry1.blob = "[corpus:repo] file1\ncontent1"
+        entry2 = MagicMock()
+        entry2.blob = "not a corpus entry"
+        entry3 = MagicMock()
+        entry3.blob = "[corpus:repo] file2\ncontent2"
+
+        # First call returns 2 entries (full batch), second returns 1 (partial = end)
+        mock_storage.list_raw.side_effect = [
+            [entry1, entry2],  # batch 1: full (2 == batch_size)
+            [entry3],  # batch 2: partial (1 < 2) => stop
+        ]
+
+        result = _collect_all_corpus_entries(mock_storage)
+        assert len(result) == 2  # only corpus entries
+        assert mock_storage.list_raw.call_count == 2
+
+        # Verify offsets
+        calls = mock_storage.list_raw.call_args_list
+        assert calls[0].kwargs["offset"] == 0
+        assert calls[1].kwargs["offset"] == 2
+
+
 class TestStatus:
     def test_status_counts(self, k, sample_repo):
         ingestor = CorpusIngestor(k)

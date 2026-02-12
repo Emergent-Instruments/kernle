@@ -3291,10 +3291,10 @@ class SQLiteStorage:
         with self._connect() as conn:
             return _get_raw(conn, self.stack_id, raw_id)
 
-    def list_raw(self, processed=None, limit=100):
+    def list_raw(self, processed=None, limit=100, offset=0):
         """List raw entries. Delegates to raw_entries.list_raw()."""
         with self._connect() as conn:
-            return _list_raw(conn, self.stack_id, processed, limit)
+            return _list_raw(conn, self.stack_id, processed, limit, offset)
 
     def search_raw_fts(self, query, limit=50):
         """Search raw entries via FTS5. Delegates to raw_entries.search_raw_fts()."""

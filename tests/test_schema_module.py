@@ -44,7 +44,7 @@ class TestSchemaConstants:
 
     def test_schema_version_is_current(self):
         assert isinstance(SCHEMA_VERSION, int)
-        assert SCHEMA_VERSION == 24
+        assert SCHEMA_VERSION == 25
 
     def test_allowed_tables_has_core_tables(self):
         core_tables = {
@@ -1049,4 +1049,91 @@ class TestMigrateStackSettings:
         row = conn.execute("SELECT * FROM stack_settings WHERE key = 'theme'").fetchone()
         assert row["value"] == "dark"
         assert row["stack_id"] == "test-stack"
+        conn.close()
+
+
+class TestMigrateSchemaV25:
+    """Tests for v25 migration: captured_at backfill + compound index."""
+
+    def test_v25_backfills_captured_at(self):
+        """Rows with captured_at IS NULL get backfilled from timestamp."""
+        conn = _make_old_schema_conn()
+        # Insert a raw entry with timestamp but no captured_at
+        conn.execute(
+            "INSERT INTO raw_entries (id, stack_id, content, timestamp, source, processed, "
+            "local_updated_at, version, deleted) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("r1", "s", "my content", "2026-01-15T12:00:00", "cli", 0, "2026-01-15", 1, 0),
+        )
+        conn.commit()
+
+        migrate_schema(conn, "s")
+
+        row = conn.execute("SELECT captured_at FROM raw_entries WHERE id = 'r1'").fetchone()
+        assert row["captured_at"] == "2026-01-15T12:00:00"
+        conn.close()
+
+    def test_v25_does_not_overwrite_existing_captured_at(self):
+        """Rows that already have captured_at should not be changed."""
+        conn = _make_old_schema_conn()
+        migrate_schema(conn, "s")  # This adds blob/captured_at columns
+
+        # Insert with both captured_at and timestamp set
+        conn.execute(
+            "INSERT INTO raw_entries (id, stack_id, content, blob, timestamp, captured_at, "
+            "source, processed, local_updated_at, version, deleted) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                "r2",
+                "s",
+                "content",
+                "blob",
+                "2026-01-10T10:00:00",
+                "2026-01-15T12:00:00",
+                "cli",
+                0,
+                "2026-01-15",
+                1,
+                0,
+            ),
+        )
+        conn.commit()
+
+        # Run migration again
+        migrate_schema(conn, "s")
+
+        row = conn.execute("SELECT captured_at FROM raw_entries WHERE id = 'r2'").fetchone()
+        assert row["captured_at"] == "2026-01-15T12:00:00"  # Unchanged
+        conn.close()
+
+    def test_v24_to_v25_replaces_index(self):
+        """Migration should replace the old single-column index with compound (captured_at DESC, id DESC)."""
+        conn = _make_old_schema_conn()
+
+        # First run migration to get up to v24 (adds blob, captured_at columns)
+        migrate_schema(conn, "test-stack")
+
+        # Manually create the old-style single-column index to simulate a v24 database
+        conn.execute("DROP INDEX IF EXISTS idx_raw_captured_at")
+        conn.execute("CREATE INDEX idx_raw_captured_at ON raw_entries(stack_id, captured_at DESC)")
+        conn.commit()
+
+        # Verify the old index does NOT contain "id DESC"
+        old_idx = conn.execute("""
+            SELECT sql FROM sqlite_master
+            WHERE type='index' AND name='idx_raw_captured_at'
+        """).fetchone()
+        assert old_idx is not None
+        assert "id DESC" not in old_idx[0], "Pre-condition: old index should not have id DESC"
+
+        # Run migration — should detect old index and replace it
+        migrate_schema(conn, "test-stack")
+
+        # Verify the new compound index
+        new_idx = conn.execute("""
+            SELECT sql FROM sqlite_master
+            WHERE type='index' AND name='idx_raw_captured_at'
+        """).fetchone()
+        assert new_idx is not None
+        assert "id DESC" in new_idx[0], "New index should contain id DESC"
+        assert "captured_at DESC" in new_idx[0]
         conn.close()

@@ -448,8 +448,25 @@ def list_raw(
     stack_id: str,
     processed: Optional[bool] = None,
     limit: int = 100,
+    offset: int = 0,
 ) -> List[RawEntry]:
-    """Get raw entries, optionally filtered by processed state."""
+    """Get raw entries, optionally filtered by processed state.
+
+    Args:
+        conn: Database connection.
+        stack_id: Stack identifier.
+        processed: Filter by processed state (None = all).
+        limit: Maximum entries to return. Must be positive.
+        offset: Number of entries to skip. Must be non-negative.
+
+    Raises:
+        ValueError: If limit <= 0 or offset < 0.
+    """
+    if limit <= 0:
+        raise ValueError(f"limit must be positive, got {limit}")
+    if offset < 0:
+        raise ValueError(f"offset must be non-negative, got {offset}")
+
     query = "SELECT * FROM raw_entries WHERE stack_id = ? AND deleted = 0"
     params: List[Any] = [stack_id]
 
@@ -457,9 +474,9 @@ def list_raw(
         query += " AND processed = ?"
         params.append(1 if processed else 0)
 
-    # Use COALESCE to handle both new (captured_at) and legacy (timestamp) schemas
-    query += " ORDER BY COALESCE(captured_at, timestamp) DESC LIMIT ?"
+    query += " ORDER BY captured_at DESC, id DESC LIMIT ? OFFSET ?"
     params.append(limit)
+    params.append(offset)
 
     rows = conn.execute(query, params).fetchall()
     return [row_to_raw_entry(row) for row in rows]

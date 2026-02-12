@@ -302,17 +302,20 @@ class WritersMixin:
             return self._write_backend.save_raw(raw_entry)
         return self._storage.save_raw(blob=blob, source=source)
 
-    def list_raw(self, processed: Optional[bool] = None, limit: int = 100) -> List[Dict[str, Any]]:
+    def list_raw(
+        self, processed: Optional[bool] = None, limit: int = 100, offset: int = 0
+    ) -> List[Dict[str, Any]]:
         """List raw entries, optionally filtered by processed state.
 
         Args:
             processed: Filter by processed state (None = all, True = processed, False = unprocessed)
             limit: Maximum entries to return
+            offset: Number of entries to skip
 
         Returns:
             List of raw entry dicts with blob as primary content field
         """
-        entries = self._storage.list_raw(processed=processed, limit=limit)
+        entries = self._storage.list_raw(processed=processed, limit=limit, offset=offset)
         return [
             {
                 "id": e.id,

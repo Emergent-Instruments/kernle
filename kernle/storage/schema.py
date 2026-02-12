@@ -15,9 +15,7 @@ import sqlite3
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = (
-    24  # Memory integrity: strength field replaces is_forgotten, add audit/processing tables
-)
+SCHEMA_VERSION = 25  # Add offset/pagination to list_raw: backfill captured_at, compound index
 
 # Allowed table names for SQL queries (security: prevents SQL injection via table names)
 ALLOWED_TABLES = frozenset(
@@ -579,7 +577,7 @@ CREATE TABLE IF NOT EXISTS raw_entries (
 );
 CREATE INDEX IF NOT EXISTS idx_raw_agent ON raw_entries(stack_id);
 CREATE INDEX IF NOT EXISTS idx_raw_processed ON raw_entries(stack_id, processed);
-CREATE INDEX IF NOT EXISTS idx_raw_captured_at ON raw_entries(stack_id, captured_at);
+CREATE INDEX IF NOT EXISTS idx_raw_captured_at ON raw_entries(stack_id, captured_at DESC, id DESC);
 -- Partial index for anxiety system queries (unprocessed entries)
 CREATE INDEX IF NOT EXISTS idx_raw_unprocessed ON raw_entries(captured_at)
     WHERE processed = 0 AND deleted = 0;
@@ -1814,3 +1812,37 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
             logger.info("Migrated stack_settings table to include stack_id")
 
     conn.commit()
+
+    # v25: Backfill captured_at from timestamp and create compound index for pagination
+    if "raw_entries" in table_names:
+        try:
+            backfilled = conn.execute("""
+                UPDATE raw_entries SET captured_at = timestamp
+                WHERE captured_at IS NULL AND timestamp IS NOT NULL
+            """).rowcount
+            if backfilled > 0:
+                logger.info(f"v25: Backfilled captured_at for {backfilled} raw entries")
+        except Exception as e:
+            logger.warning(f"v25: captured_at backfill failed: {e}")
+
+        # Replace old single-column index with compound index for pagination
+        try:
+            idx_info = conn.execute("""
+                SELECT sql FROM sqlite_master
+                WHERE type='index' AND name='idx_raw_captured_at'
+            """).fetchone()
+            needs_rebuild = True
+            if idx_info and idx_info[0] and "id DESC" in idx_info[0]:
+                needs_rebuild = False  # Already has compound index
+
+            if needs_rebuild:
+                conn.execute("DROP INDEX IF EXISTS idx_raw_captured_at")
+                conn.execute("""
+                    CREATE INDEX idx_raw_captured_at
+                    ON raw_entries(stack_id, captured_at DESC, id DESC)
+                """)
+                logger.info("v25: Created compound index idx_raw_captured_at")
+        except Exception as e:
+            logger.warning(f"v25: Index rebuild failed: {e}")
+
+        conn.commit()
