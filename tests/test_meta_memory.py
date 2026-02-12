@@ -7,9 +7,7 @@ Tests memory about memory functionality:
 - Lineage tracking
 """
 
-import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pytest
 
@@ -27,12 +25,9 @@ from kernle.storage import (
 
 
 @pytest.fixture
-def temp_db():
+def temp_db(tmp_path):
     """Create a temporary database path."""
-    path = Path(tempfile.mktemp(suffix=".db"))
-    yield path
-    if path.exists():
-        path.unlink()
+    return tmp_path / "test.db"
 
 
 @pytest.fixture

@@ -7,7 +7,6 @@ Tests local-first SQLite storage with:
 - Embedding management
 """
 
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -26,13 +25,9 @@ from kernle.storage import (
 
 
 @pytest.fixture
-def temp_db():
+def temp_db(tmp_path):
     """Create a temporary database path."""
-    path = Path(tempfile.mktemp(suffix=".db"))
-    yield path
-    # Cleanup
-    if path.exists():
-        path.unlink()
+    return tmp_path / "test.db"
 
 
 @pytest.fixture
