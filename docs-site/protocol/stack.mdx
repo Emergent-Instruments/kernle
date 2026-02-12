@@ -45,6 +45,19 @@ Low-level storage methods. The intended write path is through the core's routed 
 
 All `save_*` methods return the memory ID of the saved record.
 
+### Suggestion Lifecycle *(v0.13.01)*
+
+Methods for reviewing and resolving auto-generated memory suggestions.
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `get_suggestion` | `(suggestion_id: str) -> Optional[MemorySuggestion]` | Retrieve a single suggestion by ID |
+| `get_suggestions` | `(*, status=None, memory_type=None, limit=100, min_confidence=None, max_age_hours=None, source_raw_id=None) -> list[MemorySuggestion]` | List suggestions with filtering |
+| `accept_suggestion` | `(suggestion_id: str, modifications=None) -> Optional[str]` | Accept and promote to structured memory |
+| `dismiss_suggestion` | `(suggestion_id: str, reason=None) -> bool` | Dismiss a suggestion with optional reason |
+
+`accept_suggestion` creates the target memory type (episode, belief, note, goal, value, relationship, or drive) with full provenance (`source_entity="kernle:suggestion-promotion"`), marks the suggestion as promoted, and returns the new memory ID. Returns `None` if the suggestion is not found, not pending, or was lint-rejected.
+
 ### Batch Write
 
 | Method | Signature |

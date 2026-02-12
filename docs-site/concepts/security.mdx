@@ -102,6 +102,17 @@ Authority gating is **advisory, not blocking**. The sovereignty principle means 
 
 ---
 
+## Credential Transport Security *(v0.13.01)*
+
+The auth CLI blocks credential submission over plaintext HTTP to prevent credential interception:
+
+- **Login and register** refuse to send API keys or passwords to non-HTTPS, non-localhost URLs
+- **URL validation** uses proper hostname parsing (`urllib.parse.urlparse`) to prevent bypass via crafted hostnames (e.g., `http://localhost.evil.com`)
+- **Localhost exception**: `http://localhost` and `http://127.0.0.1` are allowed for local development
+- **Sync client** already enforced HTTPS for non-local URLs since v0.12
+
+---
+
 ## Sync Security
 
 ### Stack Isolation
