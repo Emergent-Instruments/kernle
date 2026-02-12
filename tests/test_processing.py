@@ -57,7 +57,9 @@ STACK_ID = "test-stack"
 
 @pytest.fixture
 def storage(tmp_path):
-    return SQLiteStorage(STACK_ID, db_path=tmp_path / "test.db")
+    s = SQLiteStorage(STACK_ID, db_path=tmp_path / "test.db")
+    yield s
+    s.close()
 
 
 @pytest.fixture

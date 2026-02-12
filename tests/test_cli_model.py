@@ -154,14 +154,11 @@ class TestLoadPersistedModel:
                 "model_id": "claude-haiku-4-5-20251001",
             }
         )
-        mock_module = MagicMock()
-        with patch.dict("sys.modules", {"anthropic": mock_module}):
-            # Make constructor raise ValueError for missing key
+        fake_anthropic_module = MagicMock()
+        fake_anthropic_module.AnthropicModel.side_effect = ValueError("missing api key")
+        with patch.dict("sys.modules", {"kernle.models.anthropic": fake_anthropic_module}):
             model = load_persisted_model(k)
-        # Should return None gracefully (ValueError caught)
-        # Note: with mocked module, constructor won't actually raise,
-        # but this tests the path through the code
-        assert model is not None or model is None  # either is valid with mock
+        assert model is None
 
     def test_returns_none_for_unknown_provider(self):
         k = _make_kernle_mock(

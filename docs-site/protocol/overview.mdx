@@ -69,7 +69,7 @@ Two supporting interfaces complete the picture:
 
 ## Why Protocols?
 
-**Interchangeability.** Swap SQLiteStack for PostgresStack without changing anything else. Replace Anthropic with Ollama and the entity keeps its memories but thinks differently.
+**Interchangeability.** Swap SQLiteStack for another `StackProtocol` implementation without changing anything else. Replace Anthropic with Ollama and the entity keeps its memories but thinks differently.
 
 **Testability.** Every protocol can be tested against a contract test suite. If your custom implementation passes the contract tests, it works with the system.
 

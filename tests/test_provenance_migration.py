@@ -26,7 +26,9 @@ STACK_ID = "test-migration"
 @pytest.fixture
 def storage(tmp_path):
     db_path = tmp_path / "test.db"
-    return SQLiteStorage(STACK_ID, db_path=db_path)
+    s = SQLiteStorage(STACK_ID, db_path=db_path)
+    yield s
+    s.close()
 
 
 @pytest.fixture

@@ -80,7 +80,9 @@ class TestPlaybookStorage:
     def storage(self, tmp_path):
         """Create a temporary SQLite storage."""
         db_path = tmp_path / "test_playbooks.db"
-        return SQLiteStorage(stack_id="test_agent", db_path=db_path)
+        s = SQLiteStorage(stack_id="test_agent", db_path=db_path)
+        yield s
+        s.close()
 
     def test_save_and_get_playbook(self, storage):
         """Test saving and retrieving a playbook."""

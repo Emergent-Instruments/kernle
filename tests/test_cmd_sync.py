@@ -19,10 +19,8 @@ from kernle.types import SyncConflict
 
 
 @pytest.fixture
-def storage(tmp_path):
-    s = SQLiteStorage(stack_id="test-sync", db_path=tmp_path / "sync.db")
-    yield s
-    s.close()
+def storage(tmp_path, sqlite_storage_factory):
+    return sqlite_storage_factory(stack_id="test-sync", db_path=tmp_path / "sync.db")
 
 
 @pytest.fixture
@@ -222,10 +220,12 @@ class TestSyncStatus:
                     finally:
                         sys.stdout = old_stdout
 
-        output = json.loads(captured.getvalue())
-        assert output["local_stack_id"] == "myproject"
-        assert output["namespaced_stack_id"] == "u1/myproject"
-        storage.close()
+        try:
+            output = json.loads(captured.getvalue())
+            assert output["local_stack_id"] == "myproject"
+            assert output["namespaced_stack_id"] == "u1/myproject"
+        finally:
+            inst._storage.close()
 
     def test_status_env_var_fallback(self, k, capsys, tmp_path):
         """Falls back to KERNLE_BACKEND_URL/KERNLE_AUTH_TOKEN env vars."""
