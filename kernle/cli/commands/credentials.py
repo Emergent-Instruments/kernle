@@ -3,6 +3,7 @@
 import json
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 from kernle.utils import get_kernle_home
 
@@ -43,6 +44,20 @@ def clear_credentials():
     return False
 
 
+def _is_local_http(url: str) -> bool:
+    """Check if a URL is a local development HTTP URL (localhost or 127.0.0.1).
+
+    Uses proper URL parsing to prevent bypass via crafted hostnames like
+    http://localhost.evil.com or http://localhost@evil.com.
+    """
+    try:
+        parsed = urlparse(url)
+        hostname = parsed.hostname  # Strips port, userinfo, etc.
+        return hostname in ("localhost", "127.0.0.1")
+    except Exception:
+        return False
+
+
 def prompt_backend_url(current_url: str = None) -> str:
     """Prompt user for backend URL."""
     default = current_url or "https://api.kernle.io"
@@ -52,7 +67,7 @@ def prompt_backend_url(current_url: str = None) -> str:
         result = url if url else default
         # SECURITY: Warn if not using HTTPS (credentials would be sent in cleartext)
         if result and not result.startswith("https://"):
-            if result.startswith("http://localhost") or result.startswith("http://127.0.0.1"):
+            if _is_local_http(result):
                 pass  # Allow localhost for development
             else:
                 print("⚠️  WARNING: Using non-HTTPS URL. Credentials will be sent in cleartext!")
@@ -72,8 +87,8 @@ def warn_non_https_url(url: str, source: str = None) -> None:
     """
     if not url or url.startswith("https://"):
         return
-    # Allow localhost for development
-    if url.startswith("http://localhost") or url.startswith("http://127.0.0.1"):
+    # Allow localhost for development (uses proper URL parsing)
+    if _is_local_http(url):
         return
     source_msg = f" (from {source})" if source else ""
     print(f"⚠️  WARNING: Using non-HTTPS URL{source_msg}. Credentials will be sent in cleartext!")
@@ -89,7 +104,8 @@ def require_https_url(url: str, source: str = None) -> None:
     """
     if not url or url.startswith("https://"):
         return
-    if url.startswith("http://localhost") or url.startswith("http://127.0.0.1"):
+    # Allow localhost for development (uses proper URL parsing)
+    if _is_local_http(url):
         return
     source_msg = f" (from {source})" if source else ""
     print(f"\n⚠  BLOCKED: Refusing to send credentials over plaintext HTTP{source_msg}")

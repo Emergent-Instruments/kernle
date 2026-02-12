@@ -46,6 +46,33 @@ class TestRequireHttpsUrl:
         captured = capsys.readouterr()
         assert "http://evil.com/api" in captured.out
 
+    def test_blocks_localhost_dot_evil(self):
+        """http://localhost.evil.com must be blocked (not real localhost)."""
+        with pytest.raises(SystemExit):
+            require_https_url("http://localhost.evil.com")
+
+    def test_blocks_localhost_at_evil(self):
+        """http://localhost@evil.com must be blocked (userinfo bypass)."""
+        with pytest.raises(SystemExit):
+            require_https_url("http://localhost@evil.com")
+
+    def test_blocks_127_dot_evil(self):
+        """http://127.0.0.1.evil.com must be blocked."""
+        with pytest.raises(SystemExit):
+            require_https_url("http://127.0.0.1.evil.com")
+
+    def test_allows_localhost_with_port(self):
+        """http://localhost:3000 is valid localhost."""
+        require_https_url("http://localhost:3000")  # should not raise
+
+    def test_allows_localhost_with_path(self):
+        """http://localhost/api/v1 is valid localhost."""
+        require_https_url("http://localhost/api/v1")  # should not raise
+
+    def test_allows_bare_localhost(self):
+        """http://localhost with no port or path is valid."""
+        require_https_url("http://localhost")  # should not raise
+
 
 def _make_login_args(backend_url="https://api.example.com", api_key=None, json_flag=False):
     """Create a mock args object for the login flow."""
