@@ -813,6 +813,11 @@ class SQLiteStack(
             )
             memory_id = self.save_note(note)
 
+        # Check if save was lint-redirected (not actually created)
+        if isinstance(memory_id, str) and memory_id.startswith("suggestion:"):
+            # Lint rejected — original suggestion stays pending, new suggestion was created
+            return None
+
         if memory_id:
             status = "modified" if modifications else "promoted"
             self._backend.update_suggestion_status(
