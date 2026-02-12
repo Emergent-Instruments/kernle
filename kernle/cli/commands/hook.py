@@ -187,8 +187,20 @@ def cmd_hook_pre_tool_use(args) -> None:
             }
         }
         json.dump(output, sys.stdout)
-    except Exception:
-        pass
+    except Exception as e:
+        # Fail closed: emit deny using hookSpecificOutput schema
+        # MUST use same schema as normal deny and exit(0) per hook contract
+        deny_output = {
+            "hookSpecificOutput": {
+                "hookEventName": "PreToolUse",
+                "permissionDecision": "deny",
+                "permissionDecisionReason": f"Hook internal error: {e}",
+            }
+        }
+        try:
+            json.dump(deny_output, sys.stdout)
+        except Exception:
+            pass  # stdout itself is broken; still exit(0) per contract
 
     sys.exit(0)
 
