@@ -519,6 +519,39 @@ episode,Build the comprehensive quantum computing feature for distributed system
         assert result["skipped"].get("episode", 0) == 1
         assert len(storage.get_episodes()) == 1
 
+    def test_note_dedup_ignores_non_note_search_hits(self, tmp_path, kernle_instance):
+        """A belief with matching content should not block note import dedup."""
+        note_content = "Shared sentence used in both note and belief for dedup safety validation."
+        csv_file = tmp_path / "note.csv"
+        csv_file.write_text(f"""memory_type,content
+note,{note_content}
+""")
+        k, storage = kernle_instance
+        k.belief(statement=note_content, confidence=0.8)
+
+        importer = CsvImporter(str(csv_file))
+        result = importer.import_to(k, dry_run=False, skip_duplicates=True)
+        assert result["imported"].get("note", 0) == 1
+        assert len(storage.get_notes()) == 1
+
+    def test_episode_dedup_allows_same_prefix_different_objective(self, tmp_path, kernle_instance):
+        """Episodes sharing first 60 chars should not be considered duplicates."""
+        shared_prefix = "A" * 60
+        objective_one = f"{shared_prefix}-first-objective"
+        objective_two = f"{shared_prefix}-second-objective"
+        csv_file = tmp_path / "episodes_prefix.csv"
+        csv_file.write_text(f"""memory_type,objective,outcome
+episode,{objective_one},Outcome one
+episode,{objective_two},Outcome two
+""")
+        k, storage = kernle_instance
+        importer = CsvImporter(str(csv_file))
+        result = importer.import_to(k, dry_run=False, skip_duplicates=True)
+        assert result["imported"].get("episode", 0) == 2
+        episodes = storage.get_episodes()
+        assert len(episodes) == 2
+        assert {ep.objective for ep in episodes} == {objective_one, objective_two}
+
 
 class TestCsvImporterEmptyAndMissingFields:
     """Test handling of empty/missing required fields per type."""

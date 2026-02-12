@@ -945,7 +945,7 @@ class TestErrorHandling:
 class TestAgentCommand:
     """Test agent management commands."""
 
-    def test_cmd_stack_list(self, mock_kernle):
+    def test_cmd_stack_list(self, mock_kernle, tmp_path):
         """Test agent list command."""
         import argparse
 
@@ -955,13 +955,18 @@ class TestAgentCommand:
         mock_kernle.stack_id = "test-agent"
 
         args = argparse.Namespace(stack_action="list")
+        kernle_home = tmp_path / ".kernle"
+        (kernle_home / "test-agent" / "raw").mkdir(parents=True)
+        (kernle_home / "test-agent" / "raw" / "entry.md").write_text("test")
 
-        with patch("sys.stdout", new=StringIO()) as fake_out:
-            cmd_stack(args, mock_kernle)
+        with patch("kernle.cli.commands.stack.get_kernle_home", return_value=kernle_home):
+            with patch("sys.stdout", new=StringIO()) as fake_out:
+                cmd_stack(args, mock_kernle)
 
         output = fake_out.getvalue()
         # Should run without error
-        assert "Stacks" in output or "stacks" in output or "No agents" in output
+        assert "Local Stacks" in output
+        assert "test-agent" in output
 
 
 class TestImportCommand:

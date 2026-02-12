@@ -7,7 +7,8 @@ Updated to work with the storage abstraction layer.
 import json
 import os
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -922,6 +923,96 @@ class TestSync:
 
         assert "pending" in status
         assert "online" in status
+
+
+class TestSyncHooks:
+    """Test non-blocking sync helpers used by load/checkpoint paths."""
+
+    def _make_storage(self):
+        storage = MagicMock()
+        storage.get_pending_sync_count.return_value = 0
+        return storage
+
+    def test_sync_before_load_offline(self):
+        storage = self._make_storage()
+        storage.is_online.return_value = False
+        kernle = Kernle("test-agent", storage=storage, strict=False)
+
+        result = kernle._sync_before_load()
+
+        assert result == {"attempted": False, "pulled": 0, "conflicts": 0, "errors": []}
+        storage.pull_changes.assert_not_called()
+
+    def test_sync_before_load_with_pull_and_errors(self):
+        storage = self._make_storage()
+        storage.is_online.return_value = True
+        storage.pull_changes.return_value = SimpleNamespace(
+            pulled=3,
+            conflicts=1,
+            errors=["cloud warning"],
+        )
+        kernle = Kernle("test-agent", storage=storage, strict=False)
+
+        result = kernle._sync_before_load()
+
+        assert result["attempted"] is True
+        assert result["pulled"] == 3
+        assert result["conflicts"] == 1
+        assert result["errors"] == ["cloud warning"]
+
+    def test_sync_before_load_handles_exception(self):
+        storage = self._make_storage()
+        storage.is_online.return_value = True
+        storage.pull_changes.side_effect = RuntimeError("pull boom")
+        kernle = Kernle("test-agent", storage=storage, strict=False)
+
+        result = kernle._sync_before_load()
+
+        assert result["attempted"] is True
+        assert any("pull boom" in err for err in result["errors"])
+
+    def test_sync_after_checkpoint_offline(self):
+        storage = self._make_storage()
+        storage.is_online.return_value = False
+        kernle = Kernle("test-agent", storage=storage, strict=False)
+
+        result = kernle._sync_after_checkpoint()
+
+        assert result == {
+            "attempted": False,
+            "pushed": 0,
+            "conflicts": 0,
+            "errors": ["Offline - changes queued"],
+        }
+        storage.sync.assert_not_called()
+
+    def test_sync_after_checkpoint_with_push_and_errors(self):
+        storage = self._make_storage()
+        storage.is_online.return_value = True
+        storage.sync.return_value = SimpleNamespace(
+            pushed=2,
+            conflicts=1,
+            errors=["push warning"],
+        )
+        kernle = Kernle("test-agent", storage=storage, strict=False)
+
+        result = kernle._sync_after_checkpoint()
+
+        assert result["attempted"] is True
+        assert result["pushed"] == 2
+        assert result["conflicts"] == 1
+        assert result["errors"] == ["push warning"]
+
+    def test_sync_after_checkpoint_handles_exception(self):
+        storage = self._make_storage()
+        storage.is_online.return_value = True
+        storage.sync.side_effect = RuntimeError("sync boom")
+        kernle = Kernle("test-agent", storage=storage, strict=False)
+
+        result = kernle._sync_after_checkpoint()
+
+        assert result["attempted"] is True
+        assert any("sync boom" in err for err in result["errors"])
 
 
 class TestBatchInsertion:

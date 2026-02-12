@@ -267,10 +267,9 @@ def _import_csv_item(item: CsvImportItem, k: "Kernle", skip_duplicates: bool = T
             return False
 
         if skip_duplicates:
-            existing = k.search(objective, limit=5)
-            for result in existing:
-                # search() returns dicts with type/title/content keys
-                if result.get("type") == "episode" and result.get("title", "").startswith(objective[:60]):
+            existing_episodes = k._storage.get_episodes(limit=500)
+            for episode in existing_episodes:
+                if episode.objective == objective:
                     return False
 
         # Build tags, folding in outcome_type if present
@@ -293,10 +292,9 @@ def _import_csv_item(item: CsvImportItem, k: "Kernle", skip_duplicates: bool = T
             return False
 
         if skip_duplicates:
-            existing = k.search(content[:100], limit=5)
-            for result in existing:
-                # search() returns dicts with type/title/content keys
-                if result.get("content") == content:
+            existing_notes = k._storage.get_notes(limit=500)
+            for note in existing_notes:
+                if note.content == content:
                     return False
 
         k.note(

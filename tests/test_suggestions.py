@@ -73,6 +73,11 @@ class TestPatternExtraction:
 
         assert score < 0.3
 
+    def test_empty_pattern_list_scores_zero(self, tmp_path):
+        """Empty pattern list should return zero score."""
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
+        assert k._score_patterns("anything", []) == 0.0
+
 
 class TestSuggestionExtraction:
     """Test full suggestion extraction from raw entries."""
@@ -167,6 +172,58 @@ class TestSuggestionExtraction:
 
         # save_suggestion should be called for each extracted suggestion
         assert k._storage.save_suggestion.call_count == len(suggestions)
+
+    def test_extract_suggestions_from_unprocessed(self, tmp_path):
+        """Batch extraction should process each unprocessed raw entry."""
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
+        now = datetime.now(timezone.utc)
+        raw_entries = [
+            RawEntry(
+                id="raw-a",
+                stack_id="test-agent",
+                content="first",
+                timestamp=now,
+                source="test",
+            ),
+            RawEntry(
+                id="raw-b",
+                stack_id="test-agent",
+                content="second",
+                timestamp=now,
+                source="test",
+            ),
+        ]
+        k._storage.list_raw = MagicMock(return_value=raw_entries)
+
+        suggestion_a = MemorySuggestion(
+            id="s-a",
+            stack_id="test-agent",
+            memory_type="note",
+            content={"content": "a"},
+            confidence=0.6,
+            source_raw_ids=["raw-a"],
+            status="pending",
+            created_at=now,
+        )
+        suggestion_b = MemorySuggestion(
+            id="s-b",
+            stack_id="test-agent",
+            memory_type="belief",
+            content={"statement": "b", "belief_type": "fact", "confidence": 0.7},
+            confidence=0.7,
+            source_raw_ids=["raw-b"],
+            status="pending",
+            created_at=now,
+        )
+        k.extract_suggestions = MagicMock(side_effect=[[suggestion_a], [suggestion_b]])
+
+        result = k.extract_suggestions_from_unprocessed(limit=2)
+
+        assert len(result) == 2
+        assert {item["id"] for item in result} == {"s-a", "s-b"}
+        k._storage.list_raw.assert_called_once_with(processed=False, limit=2)
+        k.extract_suggestions.assert_any_call(raw_entries[0], auto_save=True)
+        k.extract_suggestions.assert_any_call(raw_entries[1], auto_save=True)
 
 
 class TestSuggestionStorage:
@@ -483,6 +540,77 @@ class TestPromotionWorkflow:
 
         storage.close()
 
+    def test_promote_note_suggestion(self, tmp_path):
+        """Note suggestions should promote into notes."""
+        from kernle.storage import SQLiteStorage
+
+        storage = SQLiteStorage("test-agent", db_path=tmp_path / "test.db")
+        k = Kernle("test-agent", storage=storage, strict=False)
+
+        suggestion = MemorySuggestion(
+            id="sug-note",
+            stack_id="test-agent",
+            memory_type="note",
+            content={
+                "content": "Remember to pin dependency versions.",
+                "note_type": "insight",
+                "speaker": "alice",
+                "reason": "build reproducibility",
+            },
+            confidence=0.75,
+            source_raw_ids=[],
+            status="pending",
+            created_at=datetime.now(timezone.utc),
+        )
+        storage.save_suggestion(suggestion)
+
+        memory_id = k.promote_suggestion("sug-note")
+        assert memory_id is not None
+        note = next((n for n in storage.get_notes(limit=100) if n.id == memory_id), None)
+        assert note is not None
+        assert "Remember to pin dependency versions." in note.content
+        assert note.note_type in {"insight", "note"}
+
+        storage.close()
+
+    def test_promote_unknown_type_returns_none(self, tmp_path):
+        """Unknown memory type should not promote."""
+        from kernle.storage import SQLiteStorage
+
+        storage = SQLiteStorage("test-agent", db_path=tmp_path / "test.db")
+        k = Kernle("test-agent", storage=storage, strict=False)
+
+        suggestion = MemorySuggestion(
+            id="sug-unknown",
+            stack_id="test-agent",
+            memory_type="unknown",
+            content={"foo": "bar"},
+            confidence=0.75,
+            source_raw_ids=[],
+            status="pending",
+            created_at=datetime.now(timezone.utc),
+        )
+        storage.save_suggestion(suggestion)
+
+        assert k.promote_suggestion("sug-unknown") is None
+        assert storage.get_suggestion("sug-unknown").status == "pending"
+
+        storage.close()
+
+    def test_strict_mode_delegates_to_stack_accept(self, tmp_path):
+        """Strict mode should delegate promotion to stack.accept_suggestion."""
+        from kernle.storage import SQLiteStorage
+
+        storage = SQLiteStorage("test-agent", db_path=tmp_path / "test.db")
+        k = Kernle("test-agent", storage=storage, strict=False)
+        k._strict = True
+        k._stack = MagicMock()
+        k._stack.accept_suggestion = MagicMock(return_value="delegated-id")
+        k._storage.get_suggestion = MagicMock(side_effect=AssertionError("should not be called"))
+
+        assert k.promote_suggestion("any-id") == "delegated-id"
+        k._stack.accept_suggestion.assert_called_once_with("any-id", None)
+
 
 class TestHelperMethods:
     """Test helper extraction methods."""
@@ -499,6 +627,34 @@ class TestHelperMethods:
         content2 = "First line\nSecond line"
         result2 = k._extract_first_sentence(content2)
         assert result2 == "First line"
+
+    def test_extract_first_sentence_short_fallback(self):
+        """When no long sentence exists, helper should return truncated fallback."""
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
+        assert k._extract_first_sentence("short") == "short"
+
+    def test_extract_outcome_none_when_no_pattern(self):
+        """Outcome extraction should return None if no pattern matches."""
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
+        assert k._extract_outcome("This narrative has no completion marker") is None
+
+    def test_extract_lessons_deduplicates(self):
+        """Duplicate lesson matches should be deduplicated."""
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
+        content = (
+            "Lesson: check assumptions carefully. "
+            "takeaway: check assumptions carefully. "
+            "insight: validate edge cases first."
+        )
+        lessons = k._extract_lessons(content)
+        assert "check assumptions carefully" in lessons
+        assert len(lessons) == 2
+
+    def test_extract_belief_statement_falls_back_to_first_sentence(self):
+        """Belief statement extraction should fallback when no opinion phrase exists."""
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
+        content = "Fallback sentence from plain statement. Second sentence."
+        assert k._extract_belief_statement(content) == "Fallback sentence from plain statement"
 
     def test_infer_outcome_type(self):
         """Should infer outcome type from content."""
@@ -527,6 +683,63 @@ class TestHelperMethods:
         assert k._infer_note_type("I decided to use Python") == "decision"
         assert k._infer_note_type("Interesting insight about X") == "insight"
         assert k._infer_note_type("Random note content") == "note"
+
+    def test_extract_speaker_from_quote_and_fallback(self):
+        """Speaker extraction should parse known forms and return None otherwise."""
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
+        assert k._extract_speaker('Alice said "let us simplify this"') == "Alice"
+        assert k._extract_speaker('"Just a quote"') is None
+
+    def test_extract_reason_from_decision_and_fallback(self):
+        """Reason extraction should parse because-clause and return None if absent."""
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
+        assert (
+            k._extract_reason("I decided to switch databases because migrations were failing")
+            == "migrations were failing"
+        )
+        assert k._extract_reason("I decided to switch databases") is None
+
+    def test_create_suggestions_return_none_for_short_content(self):
+        """Creation helpers should guard against very short content."""
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
+        raw = RawEntry(
+            id="raw-short",
+            stack_id="test-agent",
+            content="short",
+            timestamp=datetime.now(timezone.utc),
+            source="test",
+        )
+        assert k._create_episode_suggestion(raw, 0.7) is None
+        assert k._create_belief_suggestion(raw, 0.7) is None
+        assert k._create_note_suggestion(raw, 0.7) is None
+
+    def test_create_note_suggestion_extracts_quote_and_decision_fields(self):
+        """Quote and decision notes should populate speaker and reason fields."""
+        k = Kernle("test-agent", storage=MagicMock(), strict=False)
+        quote_raw = RawEntry(
+            id="raw-quote",
+            stack_id="test-agent",
+            content='Alice said "we should validate inputs first"',
+            timestamp=datetime.now(timezone.utc),
+            source="test",
+        )
+        decision_raw = RawEntry(
+            id="raw-decision",
+            stack_id="test-agent",
+            content="I decided to keep SQLite because setup is simple",
+            timestamp=datetime.now(timezone.utc),
+            source="test",
+        )
+
+        quote_suggestion = k._create_note_suggestion(quote_raw, 0.8)
+        decision_suggestion = k._create_note_suggestion(decision_raw, 0.8)
+
+        assert quote_suggestion is not None
+        assert quote_suggestion.content["note_type"] == "quote"
+        assert quote_suggestion.content["speaker"] == "Alice"
+        assert decision_suggestion is not None
+        assert decision_suggestion.content["note_type"] == "decision"
+        assert decision_suggestion.content["reason"] == "setup is simple"
 
 
 class TestStatsIncludesSuggestions:
