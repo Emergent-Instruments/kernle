@@ -2,10 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createAgentEnd } from "../../src/hooks/agent-end.js";
 
 vi.mock("../../src/services/kernle-bridge.js", () => ({
-  KernleBridge: vi.fn().mockImplementation(() => ({
-    checkpoint: vi.fn(),
-    raw: vi.fn(),
-  })),
+  KernleBridge: vi.fn().mockImplementation(function () {
+    return { checkpoint: vi.fn(), raw: vi.fn() };
+  }),
 }));
 
 import { KernleBridge } from "../../src/services/kernle-bridge.js";
@@ -18,9 +17,9 @@ describe("agent_end hook", () => {
     vi.clearAllMocks();
     mockCheckpoint = vi.fn().mockResolvedValue(true);
     mockRaw = vi.fn().mockResolvedValue(true);
-    vi.mocked(KernleBridge).mockImplementation(
-      () => ({ checkpoint: mockCheckpoint, raw: mockRaw } as any)
-    );
+    vi.mocked(KernleBridge).mockImplementation(function () {
+      return { checkpoint: mockCheckpoint, raw: mockRaw } as any;
+    });
   });
 
   it("saves checkpoint with last user message as task", async () => {

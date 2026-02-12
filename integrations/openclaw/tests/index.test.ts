@@ -2,11 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { register } from "../src/index.js";
 
 vi.mock("../src/services/kernle-bridge.js", () => ({
-  KernleBridge: vi.fn().mockImplementation(() => ({
-    load: vi.fn(),
-    checkpoint: vi.fn(),
-    raw: vi.fn(),
-  })),
+  KernleBridge: vi.fn().mockImplementation(function () {
+    return { load: vi.fn(), checkpoint: vi.fn(), raw: vi.fn() };
+  }),
 }));
 
 describe("register", () => {

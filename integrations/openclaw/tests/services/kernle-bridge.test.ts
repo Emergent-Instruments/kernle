@@ -6,7 +6,7 @@ vi.mock("node:child_process", () => ({
   exec: vi.fn(),
 }));
 vi.mock("node:util", () => ({
-  promisify: (fn: Function) => fn,
+  promisify: function (fn: Function) { return fn; },
 }));
 
 import { exec } from "node:child_process";

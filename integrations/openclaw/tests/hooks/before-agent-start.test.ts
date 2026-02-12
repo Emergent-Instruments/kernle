@@ -3,9 +3,9 @@ import { createBeforeAgentStart } from "../../src/hooks/before-agent-start.js";
 
 // Mock KernleBridge
 vi.mock("../../src/services/kernle-bridge.js", () => ({
-  KernleBridge: vi.fn().mockImplementation(() => ({
-    load: vi.fn(),
-  })),
+  KernleBridge: vi.fn().mockImplementation(function () {
+    return { load: vi.fn() };
+  }),
 }));
 
 import { KernleBridge } from "../../src/services/kernle-bridge.js";
@@ -16,9 +16,9 @@ describe("before_agent_start hook", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockLoad = vi.fn();
-    vi.mocked(KernleBridge).mockImplementation(
-      () => ({ load: mockLoad } as any)
-    );
+    vi.mocked(KernleBridge).mockImplementation(function () {
+      return { load: mockLoad } as any;
+    });
   });
 
   it("loads memory and returns prependContext", async () => {
