@@ -18,8 +18,6 @@ from kernle.types import (
     MemorySuggestion,
 )
 
-STACK_ID = "type-resolution-test"
-
 
 def _uid() -> str:
     return str(uuid.uuid4())
@@ -31,20 +29,22 @@ def _now() -> datetime:
 
 @pytest.fixture
 def stack(tmp_path):
+    stack_id = f"type-resolution-{uuid.uuid4().hex[:8]}"
     db_path = tmp_path / "type_resolution.db"
-    return SQLiteStack(stack_id=STACK_ID, db_path=db_path, components=[], enforce_provenance=False)
+    return SQLiteStack(stack_id=stack_id, db_path=db_path, components=[], enforce_provenance=False)
 
 
 @pytest.fixture
 def strict_stack(tmp_path):
+    stack_id = f"type-resolution-strict-{uuid.uuid4().hex[:8]}"
     db_path = tmp_path / "type_resolution_strict.db"
-    return SQLiteStack(stack_id=STACK_ID, db_path=db_path, components=[], enforce_provenance=True)
+    return SQLiteStack(stack_id=stack_id, db_path=db_path, components=[], enforce_provenance=True)
 
 
-def _make_suggestion(memory_type: str, content: dict) -> MemorySuggestion:
+def _make_suggestion(memory_type: str, content: dict, stack_id: str) -> MemorySuggestion:
     return MemorySuggestion(
         id=_uid(),
-        stack_id=STACK_ID,
+        stack_id=stack_id,
         memory_type=memory_type,
         content=content,
         confidence=0.8,
@@ -66,6 +66,7 @@ class TestSuggestionTypeResolution:
                 "priority": "high",
                 "status": "active",
             },
+            stack.stack_id,
         )
         stack.save_suggestion(s)
         memory_id = stack.accept_suggestion(s.id)
@@ -82,6 +83,7 @@ class TestSuggestionTypeResolution:
                 "statement": "Systems should be dependable",
                 "priority": 75,
             },
+            stack.stack_id,
         )
         stack.save_suggestion(s)
         memory_id = stack.accept_suggestion(s.id)
@@ -99,6 +101,7 @@ class TestSuggestionTypeResolution:
                 "relationship_type": "collaborator",
                 "notes": "Good partner",
             },
+            stack.stack_id,
         )
         stack.save_suggestion(s)
         memory_id = stack.accept_suggestion(s.id)
@@ -115,6 +118,7 @@ class TestSuggestionTypeResolution:
                 "intensity": 0.7,
                 "focus_areas": ["learning"],
             },
+            stack.stack_id,
         )
         stack.save_suggestion(s)
         memory_id = stack.accept_suggestion(s.id)
@@ -124,7 +128,7 @@ class TestSuggestionTypeResolution:
         assert any(d.id == memory_id for d in drives)
 
     def test_accept_unknown_type_raises_value_error(self, stack):
-        s = _make_suggestion("widget", {"foo": "bar"})
+        s = _make_suggestion("widget", {"foo": "bar"}, stack.stack_id)
         stack.save_suggestion(s)
         with pytest.raises(ValueError, match="[Uu]nsupported.*widget"):
             stack.accept_suggestion(s.id)
@@ -152,6 +156,7 @@ class TestSuggestionTypeResolutionStrictMode:
                 "priority": "high",
                 "status": "active",
             },
+            strict_stack.stack_id,
         )
         strict_stack.save_suggestion(s)
         memory_id = strict_stack.accept_suggestion(s.id)
@@ -165,6 +170,7 @@ class TestSuggestionTypeResolutionStrictMode:
                 "statement": "Systems should be dependable",
                 "priority": 75,
             },
+            strict_stack.stack_id,
         )
         strict_stack.save_suggestion(s)
         memory_id = strict_stack.accept_suggestion(s.id)
@@ -179,6 +185,7 @@ class TestSuggestionTypeResolutionStrictMode:
                 "relationship_type": "collaborator",
                 "notes": "Good partner",
             },
+            strict_stack.stack_id,
         )
         strict_stack.save_suggestion(s)
         memory_id = strict_stack.accept_suggestion(s.id)
@@ -192,6 +199,7 @@ class TestSuggestionTypeResolutionStrictMode:
                 "intensity": 0.7,
                 "focus_areas": ["learning"],
             },
+            strict_stack.stack_id,
         )
         strict_stack.save_suggestion(s)
         memory_id = strict_stack.accept_suggestion(s.id)
