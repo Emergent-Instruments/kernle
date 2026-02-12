@@ -78,3 +78,21 @@ def warn_non_https_url(url: str, source: str = None) -> None:
     source_msg = f" (from {source})" if source else ""
     print(f"⚠️  WARNING: Using non-HTTPS URL{source_msg}. Credentials will be sent in cleartext!")
     print("   This is insecure for production use.")
+
+
+def require_https_url(url: str, source: str = None) -> None:
+    """Block non-HTTPS, non-localhost URLs. Raises SystemExit.
+
+    Args:
+        url: The backend URL to check
+        source: Where the URL came from (e.g., "args", "env", "credentials") for context
+    """
+    if not url or url.startswith("https://"):
+        return
+    if url.startswith("http://localhost") or url.startswith("http://127.0.0.1"):
+        return
+    source_msg = f" (from {source})" if source else ""
+    print(f"\n⚠  BLOCKED: Refusing to send credentials over plaintext HTTP{source_msg}")
+    print(f"   URL: {url}")
+    print("   Use https:// or http://localhost for development.")
+    sys.exit(1)
