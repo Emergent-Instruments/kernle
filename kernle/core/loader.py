@@ -74,34 +74,52 @@ class LoaderMixin:
             stack_budget -= estimate_tokens(checkpoint_text)
             stack_budget = max(MIN_TOKEN_BUDGET, stack_budget)
 
-        # Delegate to stack for core memory assembly
-        # Stack handles: budget selection, strength filtering, component on_load hooks,
-        # access tracking, and memory echoes
-        effective_max_chars = max_item_chars if truncate else 10000
-        stack_result = self.stack.load(
-            token_budget=stack_budget,
-            epoch_id=epoch_id,
-            max_item_chars=effective_max_chars,
-            track_access=track_access,
-        )
+        # Delegate to stack if available, otherwise fall back to individual queries
+        if self.stack is not None:
+            # Stack handles: budget selection, strength filtering, component on_load hooks,
+            # access tracking, and memory echoes
+            effective_max_chars = max_item_chars if truncate else 10000
+            stack_result = self.stack.load(
+                token_budget=stack_budget,
+                epoch_id=epoch_id,
+                max_item_chars=effective_max_chars,
+                track_access=track_access,
+            )
 
-        # Transform stack output → Kernle output contract
-        result = self._transform_stack_output(stack_result, truncate, max_item_chars)
+            # Transform stack output → Kernle output contract
+            result = self._transform_stack_output(stack_result, truncate, max_item_chars)
+
+            # Update meta with full budget info + memory echoes
+            stack_meta = stack_result.get("_meta", {})
+            cp_tokens = budget - stack_budget if checkpoint else 0
+            excluded_candidates = stack_meta.get("_excluded_candidates", [])
+            echoes_data = _build_memory_echoes(excluded_candidates)
+            result["_meta"] = {
+                "budget_used": stack_meta.get("budget_used", 0) + cp_tokens,
+                "budget_total": budget,
+                "excluded_count": stack_meta.get("excluded_count", 0),
+                **echoes_data,
+            }
+        else:
+            # Fallback for non-SQLite backends (no stack available)
+            result = {
+                "values": self.load_values(),
+                "beliefs": self.load_beliefs(),
+                "goals": self.load_goals(),
+                "drives": self.load_drives(),
+                "lessons": self.load_lessons(),
+                "recent_work": self.load_recent_work(),
+                "recent_notes": self.load_recent_notes(),
+                "relationships": self.load_relationships(),
+                "_meta": {
+                    "budget_used": budget,
+                    "budget_total": budget,
+                    "excluded_count": 0,
+                },
+            }
 
         # Add checkpoint
         result["checkpoint"] = checkpoint
-
-        # Update meta with full budget info + memory echoes
-        stack_meta = stack_result.get("_meta", {})
-        cp_tokens = budget - stack_budget if checkpoint else 0
-        excluded_candidates = stack_meta.get("_excluded_candidates", [])
-        echoes_data = _build_memory_echoes(excluded_candidates)
-        result["_meta"] = {
-            "budget_used": stack_meta.get("budget_used", 0) + cp_tokens,
-            "budget_total": budget,
-            "excluded_count": stack_meta.get("excluded_count", 0),
-            **echoes_data,
-        }
 
         # Kernle-specific augmentations
         boot = self.boot_list()

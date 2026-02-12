@@ -1322,8 +1322,12 @@ class SQLiteStack(
                     "entity_type": r.entity_type,
                     "sentiment": r.sentiment,
                     "interaction_count": getattr(r, "interaction_count", 0),
-                    "last_interaction": getattr(r, "last_interaction", None),
-                    "notes": r.notes,
+                    "last_interaction": (
+                        r.last_interaction.isoformat()
+                        if getattr(r, "last_interaction", None)
+                        else None
+                    ),
+                    "notes": _truncate_at_word_boundary(r.notes or "", max_item_chars),
                 }
                 for r in selected["relationships"]
             ],

@@ -5,6 +5,7 @@ transforms the output to maintain backward compatibility.
 """
 
 import uuid
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -245,3 +246,75 @@ class TestStackLoadExtensions:
         )
         result = stack.load(epoch_id="nonexistent")
         assert isinstance(result, dict)
+
+
+class TestNonSQLiteStorageFallback:
+    """Kernle.load() must work when storage is not SQLite-based."""
+
+    def test_load_with_non_sqlite_storage(self, tmp_path):
+        """Non-SQLite storage should fall back to individual queries."""
+        # Create a mock storage that quacks like a storage backend
+        # but is NOT an instance of SQLiteStorage
+        mock_storage = MagicMock()
+        mock_storage.get_values.return_value = []
+        mock_storage.get_beliefs.return_value = []
+        mock_storage.get_goals.return_value = []
+        mock_storage.get_drives.return_value = []
+        mock_storage.get_episodes.return_value = []
+        mock_storage.get_notes.return_value = []
+        mock_storage.load_all.return_value = None
+        mock_storage.list_summaries.return_value = []
+        mock_storage.list_self_narratives.return_value = []
+        mock_storage.get_relationships.return_value = []
+
+        checkpoint_dir = tmp_path / "checkpoints"
+        checkpoint_dir.mkdir()
+        k = Kernle(
+            stack_id="test-non-sqlite",
+            storage=mock_storage,
+            checkpoint_dir=checkpoint_dir,
+            strict=False,
+        )
+        # self.stack returns None for non-SQLite storage
+        assert k.stack is None
+        # load() must not crash
+        result = k.load()
+        assert isinstance(result, dict)
+        assert "values" in result
+        assert "_meta" in result
+
+
+class TestRelationshipOutputCompat:
+    """Relationship output must match the old contract."""
+
+    def test_last_interaction_is_iso_string(self, k):
+        """last_interaction must be serialized to ISO string, not raw datetime."""
+        k.relationship(
+            other_stack_id="test-entity",
+            entity_type="agent",
+            notes="We worked together",
+        )
+        result = k.load(budget=50000)
+        rels = result.get("relationships", [])
+        if rels:
+            last = rels[0].get("last_interaction")
+            if last is not None:
+                assert isinstance(
+                    last, str
+                ), f"last_interaction should be ISO string, got {type(last)}"
+
+    def test_relationship_notes_truncated(self, k):
+        """Relationship notes must be truncated by max_item_chars."""
+        k.relationship(
+            other_stack_id="verbose-entity",
+            entity_type="agent",
+            notes="x" * 400,
+        )
+        result = k.load(max_item_chars=50)
+        rels = result.get("relationships", [])
+        for r in rels:
+            notes = r.get("notes")
+            if notes:
+                assert (
+                    len(notes) <= 70
+                ), f"Relationship notes should be truncated, got len={len(notes)}"
