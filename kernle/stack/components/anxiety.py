@@ -11,35 +11,19 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from kernle.anxiety_core import (
+    FIVE_DIM_WEIGHTS,
+    compute_consolidation_score,
+    compute_epoch_staleness_score,
+    compute_identity_coherence_score,
+    compute_memory_uncertainty_score,
+)
+from kernle.anxiety_core import get_anxiety_level as _get_anxiety_level
 from kernle.protocols import InferenceService, SearchResult
 
 logger = logging.getLogger(__name__)
 
-# Anxiety level thresholds
-ANXIETY_LEVELS = {
-    (0, 30): ("calm", "Calm"),
-    (31, 50): ("aware", "Aware"),
-    (51, 70): ("elevated", "Elevated"),
-    (71, 85): ("high", "High"),
-    (86, 100): ("critical", "Critical"),
-}
-
-# Dimension weights for composite score
-ANXIETY_WEIGHTS = {
-    "consolidation_debt": 0.30,
-    "raw_aging": 0.20,
-    "identity_coherence": 0.20,
-    "memory_uncertainty": 0.20,
-    "epoch_staleness": 0.10,
-}
-
-
-def _get_anxiety_level(score: int) -> tuple:
-    """Get key and label for an anxiety score."""
-    for (low, high), (key, label) in ANXIETY_LEVELS.items():
-        if low <= score <= high:
-            return key, label
-    return "critical", "Critical"
+ANXIETY_WEIGHTS = FIVE_DIM_WEIGHTS
 
 
 class AnxietyComponent:
@@ -121,14 +105,7 @@ class AnxietyComponent:
             e for e in episodes if (not e.tags or "checkpoint" not in e.tags) and not e.lessons
         ]
         unreflected_count = len(unreflected)
-        if unreflected_count <= 3:
-            consolidation_score = unreflected_count * 7
-        elif unreflected_count <= 7:
-            consolidation_score = int(21 + (unreflected_count - 3) * 10)
-        elif unreflected_count <= 15:
-            consolidation_score = int(61 + (unreflected_count - 7) * 4)
-        else:
-            consolidation_score = min(100, int(93 + (unreflected_count - 15) * 0.5))
+        consolidation_score = compute_consolidation_score(unreflected_count)
         dimensions["consolidation_debt"] = {
             "score": min(100, consolidation_score),
             "detail": f"{unreflected_count} unreflected episodes",
@@ -137,12 +114,7 @@ class AnxietyComponent:
         # Memory uncertainty
         beliefs = self._storage.get_beliefs(limit=100)
         low_conf = [b for b in beliefs if b.confidence < 0.5]
-        if len(low_conf) <= 2:
-            uncertainty_score = len(low_conf) * 15
-        elif len(low_conf) <= 5:
-            uncertainty_score = int(30 + (len(low_conf) - 2) * 15)
-        else:
-            uncertainty_score = min(100, int(75 + (len(low_conf) - 5) * 5))
+        uncertainty_score = compute_memory_uncertainty_score(len(low_conf))
         dimensions["memory_uncertainty"] = {
             "score": min(100, uncertainty_score),
             "detail": f"{len(low_conf)} low-confidence beliefs",
@@ -159,7 +131,7 @@ class AnxietyComponent:
             total_conf += b.confidence
             count += 1
         identity_confidence = total_conf / count if count > 0 else 0.0
-        identity_anxiety = int((1.0 - identity_confidence) * 100)
+        identity_anxiety = compute_identity_coherence_score(identity_confidence)
         dimensions["identity_coherence"] = {
             "score": identity_anxiety,
             "detail": f"{identity_confidence:.0%} identity confidence",
@@ -167,9 +139,48 @@ class AnxietyComponent:
 
         # Raw aging
         raw_aging_score = 0
+        raw_aging_detail = "No unprocessed raw entries"
+        try:
+            if hasattr(self._storage, "list_raw"):
+                from kernle.anxiety_core import compute_raw_aging_score
+
+                raw_entries = self._storage.list_raw(processed=False, limit=100)
+                now = datetime.now(timezone.utc)
+                total_unprocessed = len(raw_entries)
+                aging_count = 0
+                oldest_hours = 0.0
+                for entry in raw_entries:
+                    try:
+                        entry_time = getattr(entry, "captured_at", None) or getattr(
+                            entry, "timestamp", None
+                        )
+                        if entry_time:
+                            if isinstance(entry_time, str):
+                                entry_time = datetime.fromisoformat(
+                                    entry_time.replace("Z", "+00:00")
+                                )
+                            age = now - entry_time
+                            entry_hours = age.total_seconds() / 3600
+                            if entry_hours > 24:
+                                aging_count += 1
+                            if entry_hours > oldest_hours:
+                                oldest_hours = entry_hours
+                    except (ValueError, TypeError, AttributeError):
+                        continue
+                raw_aging_score = compute_raw_aging_score(
+                    total_unprocessed, aging_count, oldest_hours
+                )
+                if total_unprocessed == 0:
+                    raw_aging_detail = "No unprocessed raw entries"
+                elif aging_count == 0:
+                    raw_aging_detail = f"{total_unprocessed} unprocessed (all fresh)"
+                else:
+                    raw_aging_detail = f"{aging_count}/{total_unprocessed} entries >24h old"
+        except Exception:
+            pass
         dimensions["raw_aging"] = {
             "score": raw_aging_score,
-            "detail": "Raw aging check",
+            "detail": raw_aging_detail,
         }
 
         # Epoch staleness
@@ -182,12 +193,7 @@ class AnxietyComponent:
                     started = datetime.fromisoformat(started.replace("Z", "+00:00"))
                 now = datetime.now(timezone.utc)
                 months = (now - started).total_seconds() / (30.44 * 86400)
-                if months < 6:
-                    epoch_staleness_score = int(months * 5)
-                elif months < 12:
-                    epoch_staleness_score = int(30 + (months - 6) * 6.7)
-                else:
-                    epoch_staleness_score = min(100, int(70 + (months - 12) * 4))
+                epoch_staleness_score = compute_epoch_staleness_score(months)
         except Exception:
             pass
         dimensions["epoch_staleness"] = {

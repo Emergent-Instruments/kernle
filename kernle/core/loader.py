@@ -1,8 +1,11 @@
-"""Memory loading operations for Kernle."""
+"""Memory loading operations for Kernle.
+
+Delegates to stack.load() when available, falls back to individual
+queries for non-SQLite backends.
+"""
 
 import json
 import logging
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from kernle.core.utils import (
@@ -11,9 +14,7 @@ from kernle.core.utils import (
     MAX_TOKEN_BUDGET,
     MIN_TOKEN_BUDGET,
     _build_memory_echoes,
-    compute_priority_score,
     estimate_tokens,
-    truncate_at_word_boundary,
 )
 from kernle.logging_config import log_load
 
@@ -34,19 +35,10 @@ class LoaderMixin:
     ) -> Dict[str, Any]:
         """Load working memory context with budget-aware selection.
 
-        Memories are loaded by priority across all types until the budget
-        is exhausted, preventing context overflow. Higher priority items
-        are loaded first.
-
-        Priority order (highest first):
-        - Checkpoint: Always loaded (task continuity)
-        - Values: 0.90 base, sorted by priority DESC
-        - Beliefs: 0.70 base, sorted by confidence DESC
-        - Goals: 0.65 base, sorted by recency
-        - Drives: 0.60 base, sorted by intensity DESC
-        - Episodes: 0.40 base, sorted by recency
-        - Notes: 0.35 base, sorted by recency
-        - Relationships: 0.30 base, sorted by last_interaction
+        Delegates core memory assembly to stack.load() which handles
+        budget selection, strength filtering, and component hooks.
+        Kernle adds checkpoint, boot_config, trust summary, and
+        transforms the output shape.
 
         Args:
             budget: Token budget for memory (default: 8000, range: 100-50000)
@@ -54,15 +46,12 @@ class LoaderMixin:
             max_item_chars: Max characters per item when truncating (default: 500)
             sync: Override auto_sync setting. If None, uses self.auto_sync.
             track_access: If True (default), record access for salience tracking.
-                Set to False for internal operations (like sync) that should not
-                affect salience decay.
-            epoch_id: If set, filter candidates to this specific epoch before
-                budget selection. NULL epoch_id memories are excluded.
+            epoch_id: If set, filter candidates to this specific epoch.
 
         Returns:
             Dict containing all memory layers
         """
-        # Validate budget parameter (defense in depth - also validated at MCP layer)
+        # Validate budget parameter
         if not isinstance(budget, int) or budget < MIN_TOKEN_BUDGET:
             budget = MIN_TOKEN_BUDGET
         elif budget > MAX_TOKEN_BUDGET:
@@ -79,380 +68,71 @@ class LoaderMixin:
         if should_sync:
             self._sync_before_load()
 
-        # Load checkpoint first - always included
+        # Load checkpoint first — Kernle-only concept
         checkpoint = self.load_checkpoint()
-        remaining_budget = budget
 
-        # Estimate checkpoint tokens
+        # Reserve budget for checkpoint
+        stack_budget = budget
         if checkpoint:
             checkpoint_text = json.dumps(checkpoint, default=str)
-            remaining_budget -= estimate_tokens(checkpoint_text)
+            stack_budget -= estimate_tokens(checkpoint_text)
+            stack_budget = max(MIN_TOKEN_BUDGET, stack_budget)
 
-        # Fetch candidates from all types with high limits for budget selection
-        batched = self._storage.load_all(
-            values_limit=None,  # Use high limit (1000)
-            beliefs_limit=None,
-            goals_limit=None,
-            goals_status="active",
-            episodes_limit=None,
-            notes_limit=None,
-            drives_limit=None,
-            relationships_limit=None,
-            epoch_id=epoch_id,
-        )
+        # Delegate to stack if available, otherwise fall back to individual queries
+        if self.stack is not None:
+            # Stack handles: budget selection, strength filtering, component on_load hooks,
+            # access tracking, and memory echoes
+            effective_max_chars = max_item_chars if truncate else 10000
+            stack_result = self.stack.load(
+                token_budget=stack_budget,
+                epoch_id=epoch_id,
+                max_item_chars=effective_max_chars,
+                track_access=track_access,
+            )
 
-        if batched is not None:
-            # Build candidate list with priority scores
-            candidates = []
+            # Transform stack output → Kernle output contract
+            result = self._transform_stack_output(stack_result, truncate, max_item_chars)
 
-            # Values - sorted by priority DESC
-            for v in batched.get("values", []):
-                candidates.append((compute_priority_score("value", v), "value", v))
-
-            # Beliefs - sorted by confidence DESC
-            for b in batched.get("beliefs", []):
-                candidates.append((compute_priority_score("belief", b), "belief", b))
-
-            # Goals - recency already handled by storage
-            for g in batched.get("goals", []):
-                candidates.append((compute_priority_score("goal", g), "goal", g))
-
-            # Drives - sorted by intensity DESC
-            for d in batched.get("drives", []):
-                candidates.append((compute_priority_score("drive", d), "drive", d))
-
-            # Episodes - recency already handled by storage
-            for e in batched.get("episodes", []):
-                candidates.append((compute_priority_score("episode", e), "episode", e))
-
-            # Notes - recency already handled by storage
-            for n in batched.get("notes", []):
-                candidates.append((compute_priority_score("note", n), "note", n))
-
-            # Relationships - sorted by last_interaction
-            for r in batched.get("relationships", []):
-                candidates.append((compute_priority_score("relationship", r), "relationship", r))
-
-            # Summaries - with supersession logic
-            all_summaries = self._storage.list_summaries(self.stack_id)
-            # Collect IDs superseded by higher-scope summaries
-            superseded_ids = set()
-            for s in all_summaries:
-                if s.supersedes:
-                    superseded_ids.update(s.supersedes)
-            # Only include non-superseded summaries
-            for s in all_summaries:
-                if s.id not in superseded_ids:
-                    scope_key = f"summary_{s.scope}"
-                    candidates.append((compute_priority_score(scope_key, s), "summary", s))
-
-            # Self-narratives - only active ones
-            active_narratives = self._storage.list_self_narratives(self.stack_id, active_only=True)
-            for n in active_narratives:
-                candidates.append(
-                    (compute_priority_score("self_narrative", n), "self_narrative", n)
-                )
-
-            # Sort by priority descending
-            candidates.sort(key=lambda x: x[0], reverse=True)
-
-            # Track total candidates for metadata
-            total_candidates = len(candidates)
-            selected_count = 0
-
-            # Fill budget with highest priority items
-            selected = {
-                "values": [],
-                "beliefs": [],
-                "goals": [],
-                "drives": [],
-                "episodes": [],
-                "notes": [],
-                "relationships": [],
-                "summaries": [],
-                "self_narratives": [],
+            # Update meta with full budget info + memory echoes
+            stack_meta = stack_result.get("_meta", {})
+            cp_tokens = budget - stack_budget if checkpoint else 0
+            excluded_candidates = stack_meta.get("_excluded_candidates", [])
+            echoes_data = _build_memory_echoes(excluded_candidates)
+            result["_meta"] = {
+                "budget_used": stack_meta.get("budget_used", 0) + cp_tokens,
+                "budget_total": budget,
+                "excluded_count": stack_meta.get("excluded_count", 0),
+                **echoes_data,
             }
-
-            selected_indices = set()
-            for idx, (priority, memory_type, record) in enumerate(candidates):
-                # Format the record for token estimation
-                if memory_type == "value":
-                    text = f"{record.name}: {record.statement}"
-                elif memory_type == "belief":
-                    text = record.statement
-                elif memory_type == "goal":
-                    text = f"{record.title} {record.description or ''}"
-                elif memory_type == "drive":
-                    text = f"{record.drive_type}: {record.focus_areas or ''}"
-                elif memory_type == "episode":
-                    text = f"{record.objective} {record.outcome}"
-                elif memory_type == "note":
-                    text = record.content
-                elif memory_type == "relationship":
-                    text = f"{record.entity_name}: {record.notes or ''}"
-                elif memory_type == "summary":
-                    text = f"[{record.scope}] {record.content}"
-                elif memory_type == "self_narrative":
-                    text = f"[{record.narrative_type}] {record.content}"
-                else:
-                    text = str(record)
-
-                # Truncate if enabled and text exceeds limit
-                if truncate and len(text) > max_item_chars:
-                    text = truncate_at_word_boundary(text, max_item_chars)
-
-                # Estimate tokens for this item
-                tokens = estimate_tokens(text)
-
-                # Check if it fits in budget
-                if tokens <= remaining_budget:
-                    if memory_type == "value":
-                        selected["values"].append(record)
-                    elif memory_type == "belief":
-                        selected["beliefs"].append(record)
-                    elif memory_type == "goal":
-                        selected["goals"].append(record)
-                    elif memory_type == "drive":
-                        selected["drives"].append(record)
-                    elif memory_type == "episode":
-                        selected["episodes"].append(record)
-                    elif memory_type == "note":
-                        selected["notes"].append(record)
-                    elif memory_type == "relationship":
-                        selected["relationships"].append(record)
-                    elif memory_type == "summary":
-                        selected["summaries"].append(record)
-                    elif memory_type == "self_narrative":
-                        selected["self_narratives"].append(record)
-
-                    remaining_budget -= tokens
-                    selected_count += 1
-                    selected_indices.add(idx)
-
-                # Stop if budget exhausted
-                if remaining_budget <= 0:
-                    break
-
-            # Build excluded list (preserves priority order) for memory echoes
-            excluded_candidates = [c for i, c in enumerate(candidates) if i not in selected_indices]
-
-            # Extract lessons from selected episodes
-            lessons = []
-            for ep in selected["episodes"]:
-                if ep.lessons:
-                    lessons.extend(ep.lessons[:2])
-
-            # Filter recent work (non-checkpoint episodes)
-            recent_work = [
-                {
-                    "objective": e.objective,
-                    "outcome_type": e.outcome_type,
-                    "tags": e.tags,
-                    "created_at": e.created_at.isoformat() if e.created_at else None,
-                }
-                for e in selected["episodes"]
-                if not e.tags or "checkpoint" not in e.tags
-            ][:5]
-
-            # Format selected items for API compatibility
-            batched_result = {
-                "checkpoint": checkpoint,
-                "values": [
-                    {
-                        "id": v.id,
-                        "name": v.name,
-                        "statement": (
-                            truncate_at_word_boundary(v.statement, max_item_chars)
-                            if truncate
-                            else v.statement
-                        ),
-                        "priority": v.priority,
-                        "value_type": "core_value",
-                    }
-                    for v in selected["values"]
-                ],
-                "beliefs": [
-                    {
-                        "id": b.id,
-                        "statement": (
-                            truncate_at_word_boundary(b.statement, max_item_chars)
-                            if truncate
-                            else b.statement
-                        ),
-                        "belief_type": b.belief_type,
-                        "confidence": b.confidence,
-                    }
-                    for b in sorted(selected["beliefs"], key=lambda x: x.confidence, reverse=True)
-                ],
-                "goals": [
-                    {
-                        "id": g.id,
-                        "title": g.title,
-                        "description": (
-                            truncate_at_word_boundary(g.description, max_item_chars)
-                            if truncate and g.description
-                            else g.description
-                        ),
-                        "priority": g.priority,
-                        "status": g.status,
-                    }
-                    for g in selected["goals"]
-                ],
-                "drives": [
-                    {
-                        "id": d.id,
-                        "drive_type": d.drive_type,
-                        "intensity": d.intensity,
-                        "last_satisfied_at": d.updated_at.isoformat() if d.updated_at else None,
-                        "focus_areas": d.focus_areas,
-                    }
-                    for d in selected["drives"]
-                ],
-                "lessons": lessons,
-                "recent_work": recent_work,
-                "recent_notes": [
-                    {
-                        "content": (
-                            truncate_at_word_boundary(n.content, max_item_chars)
-                            if truncate
-                            else n.content
-                        ),
-                        "metadata": {
-                            "note_type": n.note_type,
-                            "tags": n.tags,
-                            "speaker": n.speaker,
-                            "reason": n.reason,
-                        },
-                        "created_at": n.created_at.isoformat() if n.created_at else None,
-                    }
-                    for n in selected["notes"]
-                ],
-                "relationships": [
-                    {
-                        "other_stack_id": r.entity_name,
-                        "entity_name": r.entity_name,
-                        "trust_level": (r.sentiment + 1) / 2,
-                        "sentiment": r.sentiment,
-                        "interaction_count": r.interaction_count,
-                        "last_interaction": (
-                            r.last_interaction.isoformat() if r.last_interaction else None
-                        ),
-                        "notes": (
-                            truncate_at_word_boundary(r.notes, max_item_chars)
-                            if truncate and r.notes
-                            else r.notes
-                        ),
-                    }
-                    for r in sorted(
-                        selected["relationships"],
-                        key=lambda x: x.last_interaction
-                        or datetime.min.replace(tzinfo=timezone.utc),
-                        reverse=True,
-                    )
-                ],
-                "summaries": [
-                    {
-                        "id": s.id,
-                        "scope": s.scope,
-                        "period_start": s.period_start,
-                        "period_end": s.period_end,
-                        "content": (
-                            truncate_at_word_boundary(s.content, max_item_chars)
-                            if truncate
-                            else s.content
-                        ),
-                        "key_themes": s.key_themes,
-                    }
-                    for s in selected["summaries"]
-                ],
-                "self_narratives": [
-                    {
-                        "id": sn.id,
-                        "narrative_type": sn.narrative_type,
-                        "content": (
-                            truncate_at_word_boundary(sn.content, max_item_chars)
-                            if truncate
-                            else sn.content
-                        ),
-                        "key_themes": sn.key_themes,
-                        "unresolved_tensions": sn.unresolved_tensions,
-                    }
-                    for sn in selected["self_narratives"]
-                ],
+        else:
+            # Fallback for non-SQLite backends (no stack available)
+            result = {
+                "values": self.load_values(),
+                "beliefs": self.load_beliefs(),
+                "goals": self.load_goals(),
+                "drives": self.load_drives(),
+                "lessons": self.load_lessons(),
+                "recent_work": self.load_recent_work(),
+                "recent_notes": self.load_recent_notes(),
+                "relationships": self.load_relationships(),
                 "_meta": {
-                    "budget_used": budget - remaining_budget,
+                    "budget_used": budget,
                     "budget_total": budget,
-                    "excluded_count": total_candidates - selected_count,
-                    **_build_memory_echoes(excluded_candidates),
+                    "excluded_count": 0,
                 },
             }
 
-            # Track access for all loaded memories (for salience-based forgetting)
-            if track_access:
-                accesses = []
-                for v in selected["values"]:
-                    accesses.append(("value", v.id))
-                for b in selected["beliefs"]:
-                    accesses.append(("belief", b.id))
-                for g in selected["goals"]:
-                    accesses.append(("goal", g.id))
-                for d in selected["drives"]:
-                    accesses.append(("drive", d.id))
-                for e in selected["episodes"]:
-                    accesses.append(("episode", e.id))
-                for n in selected["notes"]:
-                    accesses.append(("note", n.id))
-                for r in selected["relationships"]:
-                    accesses.append(("relationship", r.id))
+        # Add checkpoint
+        result["checkpoint"] = checkpoint
 
-                if accesses:
-                    self._storage.record_access_batch(accesses)
-
-            # Log the load operation (batched path)
-            log_load(
-                self.stack_id,
-                values=len(selected["values"]),
-                beliefs=len(selected["beliefs"]),
-                episodes=len(selected["episodes"]),
-                checkpoint=checkpoint is not None,
-            )
-
-            # Include boot config (zero-cost, always available)
-            boot = self.boot_list()
-            if boot:
-                batched_result["boot_config"] = boot
-
-            # Include trust summary
-            trust_summary = self._build_trust_summary()
-            if trust_summary:
-                batched_result["trust"] = trust_summary
-
-            return batched_result
-
-        # Fallback to individual queries (for backends without load_all)
-        # Note: This path doesn't do budget-aware selection, so we report
-        # the budget as fully used and no exclusions (legacy behavior)
-        result = {
-            "checkpoint": self.load_checkpoint(),
-            "values": self.load_values(),
-            "beliefs": self.load_beliefs(),
-            "goals": self.load_goals(),
-            "drives": self.load_drives(),
-            "lessons": self.load_lessons(),
-            "recent_work": self.load_recent_work(),
-            "recent_notes": self.load_recent_notes(),
-            "relationships": self.load_relationships(),
-            "_meta": {
-                "budget_used": budget,
-                "budget_total": budget,
-                "excluded_count": 0,
-            },
-        }
-
-        # Include boot config
+        # Kernle-specific augmentations
         boot = self.boot_list()
         if boot:
             result["boot_config"] = boot
+
+        trust_summary = self._build_trust_summary()
+        if trust_summary:
+            result["trust"] = trust_summary
 
         # Log the load operation
         log_load(
@@ -460,8 +140,117 @@ class LoaderMixin:
             values=len(result.get("values", [])),
             beliefs=len(result.get("beliefs", [])),
             episodes=len(result.get("recent_work", [])),
-            checkpoint=result.get("checkpoint") is not None,
+            checkpoint=checkpoint is not None,
         )
+
+        return result
+
+    def _transform_stack_output(
+        self,
+        stack_result: Dict[str, Any],
+        truncate: bool = True,
+        max_item_chars: int = DEFAULT_MAX_ITEM_CHARS,
+    ) -> Dict[str, Any]:
+        """Transform stack.load() output to Kernle.load() contract.
+
+        Stack returns: values, beliefs, goals, drives, episodes, notes,
+                       relationships, summaries, self_narratives
+        Kernle returns: values (with value_type), beliefs (sorted by confidence),
+                        goals, drives (with last_satisfied_at), lessons,
+                        recent_work, recent_notes (with metadata), relationships
+                        (with trust_level), summaries, self_narratives
+        """
+        result: Dict[str, Any] = {}
+
+        # Values — add value_type for backward compat
+        result["values"] = [
+            {**v, "value_type": v.get("value_type", "core_value")}
+            for v in stack_result.get("values", [])
+        ]
+
+        # Beliefs — sort by confidence descending
+        beliefs = stack_result.get("beliefs", [])
+        result["beliefs"] = sorted(beliefs, key=lambda b: b.get("confidence", 0), reverse=True)
+
+        # Goals, drives — pass through
+        result["goals"] = stack_result.get("goals", [])
+
+        # Drives — add last_satisfied_at if missing
+        result["drives"] = stack_result.get("drives", [])
+
+        # Episodes → lessons + recent_work
+        episodes = stack_result.get("episodes", [])
+        lessons = []
+        for ep in episodes:
+            ep_lessons = ep.get("lessons") or []
+            lessons.extend(ep_lessons[:2])
+        result["lessons"] = lessons
+
+        # recent_work — non-checkpoint episodes
+        result["recent_work"] = [
+            {
+                "objective": ep.get("objective"),
+                "outcome_type": ep.get("outcome_type"),
+                "tags": ep.get("tags"),
+                "created_at": ep.get("created_at"),
+            }
+            for ep in episodes
+            if not ep.get("tags") or "checkpoint" not in (ep.get("tags") or [])
+        ][:5]
+
+        # Notes → recent_notes (add metadata wrapper)
+        notes = stack_result.get("notes", [])
+        result["recent_notes"] = [
+            {
+                "content": n.get("content"),
+                "metadata": {
+                    "note_type": n.get("note_type"),
+                    "tags": n.get("tags"),
+                    "speaker": n.get("speaker"),
+                    "reason": n.get("reason"),
+                },
+                "created_at": n.get("created_at"),
+            }
+            for n in notes
+        ]
+
+        # Relationships — add trust_level, interaction_count, other_stack_id
+        rels = stack_result.get("relationships", [])
+        result["relationships"] = [
+            {
+                "other_stack_id": r.get("entity_name"),
+                "entity_name": r.get("entity_name"),
+                "trust_level": (r.get("sentiment", 0) + 1) / 2,
+                "sentiment": r.get("sentiment"),
+                "interaction_count": r.get("interaction_count", 0),
+                "last_interaction": r.get("last_interaction"),
+                "notes": r.get("notes"),
+                "entity_type": r.get("entity_type"),
+            }
+            for r in rels
+        ]
+
+        # Summaries + self_narratives — pass through
+        if stack_result.get("summaries"):
+            result["summaries"] = stack_result["summaries"]
+        if stack_result.get("self_narratives"):
+            result["self_narratives"] = stack_result["self_narratives"]
+
+        # Pass through component contributions (e.g., anxiety)
+        for key in stack_result:
+            if key not in (
+                "values",
+                "beliefs",
+                "goals",
+                "drives",
+                "episodes",
+                "notes",
+                "relationships",
+                "summaries",
+                "self_narratives",
+                "_meta",
+            ):
+                result[key] = stack_result[key]
 
         return result
 
