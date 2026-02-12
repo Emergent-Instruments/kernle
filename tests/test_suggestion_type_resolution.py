@@ -12,6 +12,7 @@ import pytest
 
 from kernle import Kernle
 from kernle.stack import SQLiteStack
+from kernle.storage.sqlite import SQLiteStorage
 from kernle.types import (
     SUGGESTION_MEMORY_TYPES,
     MemorySuggestion,
@@ -206,7 +207,9 @@ class TestSuggestionsMixinTypeResolution:
 
     @pytest.fixture
     def kernle_instance(self, tmp_path):
-        return Kernle("mixin-test", strict=False)
+        db_path = tmp_path / "mixin_test.db"
+        storage = SQLiteStorage("mixin-test", db_path=db_path)
+        return Kernle("mixin-test", storage=storage, strict=False)
 
     def _save_and_promote(self, k, memory_type, content):
         """Helper: save a suggestion and promote it via the Kernle compat layer."""
@@ -265,6 +268,23 @@ class TestSuggestionsMixinTypeResolution:
         rels = kernle_instance._storage.get_relationships()
         assert any(r.id == memory_id for r in rels)
 
+    def test_promote_relationship_preserves_type(self, kernle_instance):
+        """relationship_type from suggestion must map to interaction_type."""
+        memory_id = self._save_and_promote(
+            kernle_instance,
+            "relationship",
+            {
+                "entity_name": "bob",
+                "entity_type": "human",
+                "relationship_type": "collaborator",
+                "notes": "Works on kernle",
+            },
+        )
+        assert memory_id is not None
+        rels = kernle_instance._storage.get_relationships()
+        rel = next(r for r in rels if r.id == memory_id)
+        assert rel.relationship_type == "collaborator"
+
     def test_promote_drive_creates_drive(self, kernle_instance):
         memory_id = self._save_and_promote(
             kernle_instance,
@@ -278,3 +298,14 @@ class TestSuggestionsMixinTypeResolution:
         assert memory_id is not None
         drives = kernle_instance._storage.get_drives()
         assert any(d.id == memory_id for d in drives)
+
+    def test_promote_drive_missing_type_does_not_raise(self, kernle_instance):
+        """drive_type missing from content should not raise ValueError."""
+        memory_id = self._save_and_promote(
+            kernle_instance,
+            "drive",
+            {
+                "intensity": 0.6,
+            },
+        )
+        assert memory_id is not None

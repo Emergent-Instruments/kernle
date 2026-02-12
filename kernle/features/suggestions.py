@@ -576,12 +576,13 @@ class SuggestionsMixin:
             memory_id = self.relationship(
                 other_stack_id=content.get("entity_name", "unknown"),
                 entity_type=content.get("entity_type"),
+                interaction_type=content.get("relationship_type"),
                 notes=content.get("notes"),
                 derived_from=derived_from,
             )
         elif memory_type == "drive":
             memory_id = self.drive(
-                drive_type=content.get("drive_type", "general"),
+                drive_type=content.get("drive_type", "curiosity"),
                 intensity=content.get("intensity", 0.5),
                 focus_areas=content.get("focus_areas"),
                 derived_from=derived_from,
