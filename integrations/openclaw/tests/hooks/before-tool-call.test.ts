@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createBeforeToolCall } from "../../src/hooks/before-tool-call.js";
 
 vi.mock("../../src/services/kernle-bridge.js", () => ({
-  KernleBridge: vi.fn().mockImplementation(() => ({
-    raw: vi.fn(),
-  })),
+  KernleBridge: vi.fn().mockImplementation(function () {
+    return { raw: vi.fn() };
+  }),
 }));
 
 import { KernleBridge } from "../../src/services/kernle-bridge.js";
@@ -15,9 +15,9 @@ describe("before_tool_call hook", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockRaw = vi.fn().mockResolvedValue(true);
-    vi.mocked(KernleBridge).mockImplementation(
-      () => ({ raw: mockRaw } as any)
-    );
+    vi.mocked(KernleBridge).mockImplementation(function () {
+      return { raw: mockRaw } as any;
+    });
   });
 
   it("blocks write_file to memory/", async () => {
