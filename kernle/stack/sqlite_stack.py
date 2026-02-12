@@ -823,6 +823,7 @@ class SQLiteStack(
                 status=content.get("status", "active"),
                 derived_from=derived_from,
                 source_type="processing",
+                source_entity="kernle:suggestion-promotion",
                 created_at=datetime.now(timezone.utc),
             )
             memory_id = self.save_goal(goal)
@@ -835,6 +836,7 @@ class SQLiteStack(
                 priority=content.get("priority", 50),
                 derived_from=derived_from,
                 source_type="processing",
+                source_entity="kernle:suggestion-promotion",
                 created_at=datetime.now(timezone.utc),
             )
             memory_id = self.save_value(value)
@@ -849,6 +851,7 @@ class SQLiteStack(
                 sentiment=content.get("sentiment", 0.0),
                 derived_from=derived_from,
                 source_type="processing",
+                source_entity="kernle:suggestion-promotion",
                 created_at=datetime.now(timezone.utc),
             )
             memory_id = self.save_relationship(relationship)
@@ -861,6 +864,7 @@ class SQLiteStack(
                 focus_areas=content.get("focus_areas"),
                 derived_from=derived_from,
                 source_type="processing",
+                source_entity="kernle:suggestion-promotion",
                 created_at=datetime.now(timezone.utc),
             )
             memory_id = self.save_drive(drive)

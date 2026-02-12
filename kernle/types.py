@@ -340,6 +340,7 @@ class Value:
     # Meta-memory fields
     confidence: float = 0.9  # Values tend to be high-confidence
     source_type: str = "direct_experience"  # SourceType value
+    source_entity: Optional[str] = None  # Who provided it (name, email, or ID; entity-neutral)
     source_episodes: Optional[List[str]] = None  # IDs of supporting episodes
     derived_from: Optional[List[str]] = None  # Memory IDs this was derived from
     last_verified: Optional[datetime] = None
@@ -381,6 +382,7 @@ class Goal:
     # Meta-memory fields
     confidence: float = 0.8
     source_type: str = "direct_experience"  # SourceType value
+    source_entity: Optional[str] = None  # Who provided it (name, email, or ID; entity-neutral)
     source_episodes: Optional[List[str]] = None  # IDs of supporting episodes
     derived_from: Optional[List[str]] = None  # Memory IDs this was derived from
     last_verified: Optional[datetime] = None
@@ -465,6 +467,7 @@ class Drive:
     # Meta-memory fields
     confidence: float = 0.8
     source_type: str = "direct_experience"  # SourceType value
+    source_entity: Optional[str] = None  # Who provided it (name, email, or ID; entity-neutral)
     source_episodes: Optional[List[str]] = None  # IDs of supporting episodes
     derived_from: Optional[List[str]] = None  # Memory IDs this was derived from
     last_verified: Optional[datetime] = None
@@ -508,6 +511,7 @@ class Relationship:
     # Meta-memory fields
     confidence: float = 0.8
     source_type: str = "direct_experience"  # SourceType value
+    source_entity: Optional[str] = None  # Who provided it (name, email, or ID; entity-neutral)
     source_episodes: Optional[List[str]] = None  # IDs of supporting episodes
     derived_from: Optional[List[str]] = None  # Memory IDs this was derived from
     last_verified: Optional[datetime] = None

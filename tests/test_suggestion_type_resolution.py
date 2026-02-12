@@ -33,6 +33,12 @@ def stack(tmp_path):
     return SQLiteStack(stack_id=STACK_ID, db_path=db_path, components=[], enforce_provenance=False)
 
 
+@pytest.fixture
+def strict_stack(tmp_path):
+    db_path = tmp_path / "type_resolution_strict.db"
+    return SQLiteStack(stack_id=STACK_ID, db_path=db_path, components=[], enforce_provenance=True)
+
+
 def _make_suggestion(memory_type: str, content: dict) -> MemorySuggestion:
     return MemorySuggestion(
         id=_uid(),
@@ -125,3 +131,66 @@ class TestSuggestionTypeResolution:
         """Hard assertion: the shared constant covers all 7 types."""
         expected = {"episode", "belief", "note", "goal", "relationship", "value", "drive"}
         assert SUGGESTION_MEMORY_TYPES == expected
+
+
+class TestSuggestionTypeResolutionStrictMode:
+    """Verify accept_suggestion works with enforce_provenance=True.
+
+    The source_entity='kernle:suggestion-promotion' bypass must be set
+    on all type handlers, otherwise strict mode raises ProvenanceError.
+    """
+
+    def test_accept_goal_strict_mode(self, strict_stack):
+        s = _make_suggestion(
+            "goal",
+            {
+                "title": "Ship v2.0",
+                "description": "Release the next version",
+                "goal_type": "task",
+                "priority": "high",
+                "status": "active",
+            },
+        )
+        strict_stack.save_suggestion(s)
+        memory_id = strict_stack.accept_suggestion(s.id)
+        assert memory_id is not None
+
+    def test_accept_value_strict_mode(self, strict_stack):
+        s = _make_suggestion(
+            "value",
+            {
+                "name": "Reliability",
+                "statement": "Systems should be dependable",
+                "priority": 75,
+            },
+        )
+        strict_stack.save_suggestion(s)
+        memory_id = strict_stack.accept_suggestion(s.id)
+        assert memory_id is not None
+
+    def test_accept_relationship_strict_mode(self, strict_stack):
+        s = _make_suggestion(
+            "relationship",
+            {
+                "entity_name": "alice",
+                "entity_type": "human",
+                "relationship_type": "collaborator",
+                "notes": "Good partner",
+            },
+        )
+        strict_stack.save_suggestion(s)
+        memory_id = strict_stack.accept_suggestion(s.id)
+        assert memory_id is not None
+
+    def test_accept_drive_strict_mode(self, strict_stack):
+        s = _make_suggestion(
+            "drive",
+            {
+                "drive_type": "curiosity",
+                "intensity": 0.7,
+                "focus_areas": ["learning"],
+            },
+        )
+        strict_stack.save_suggestion(s)
+        memory_id = strict_stack.accept_suggestion(s.id)
+        assert memory_id is not None
