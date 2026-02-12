@@ -698,9 +698,13 @@ class TestDispatchBranches:
         captured = capsys.readouterr().out
         assert "Not authenticated" in captured or "authenticated" in captured.lower()
 
-    def test_dispatch_stack(self, k, capsys):
+    def test_dispatch_stack(self, k, capsys, tmp_path):
         """Dispatch 'stack' command."""
-        self._run_main(["stack", "list"], k)
+        kernle_home = tmp_path / ".kernle"
+        (kernle_home / "test-main" / "raw").mkdir(parents=True)
+        (kernle_home / "test-main" / "raw" / "entry.md").write_text("test")
+        with patch("kernle.cli.commands.stack.get_kernle_home", return_value=kernle_home):
+            self._run_main(["stack", "list"], k)
         captured = capsys.readouterr().out
         assert "stack" in captured.lower() or "Stack" in captured
 

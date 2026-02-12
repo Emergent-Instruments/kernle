@@ -284,9 +284,12 @@ LAYER_PROMPTS: Dict[str, Dict[str, str]] = {
             '[{{"objective": "...", "outcome": "...", "outcome_type": "success|failure|neutral|mixed", '
             '"lessons": ["..."], "source_raw_ids": ["raw_id_1", "raw_id_2"]}}]\n\n'
             "Rules:\n"
+            "- Each objective and outcome must be a self-contained description, "
+            "meaningful without the original raw context\n"
             "- Group related raws into one episode\n"
             "- Skip raws that duplicate existing episodes\n"
             "- Each raw should appear in at most one episode\n"
+            "- If no meaningful episodes can be formed, return an empty array []\n"
             "- Respond with ONLY the JSON array, no other text"
         ),
     },
@@ -303,8 +306,11 @@ LAYER_PROMPTS: Dict[str, Dict[str, str]] = {
             '[{{"content": "...", "note_type": "observation|reference|procedure|fact", '
             '"source_raw_ids": ["raw_id_1"]}}]\n\n'
             "Rules:\n"
+            "- Each note must be a self-contained statement, meaningful on its own "
+            "without the original raw context\n"
             "- Only extract clear factual content, not experiences\n"
             "- Each raw can produce zero or more notes\n"
+            "- If no clear facts are present, return an empty array []\n"
             "- Respond with ONLY the JSON array, no other text"
         ),
     },
@@ -322,9 +328,12 @@ LAYER_PROMPTS: Dict[str, Dict[str, str]] = {
             '[{{"statement": "...", "belief_type": "causal|evaluative|procedural|factual", '
             '"confidence": 0.5-0.9, "source_episode_ids": ["ep_id_1"]}}]\n\n'
             "Rules:\n"
+            "- Each statement must be a self-contained assertion that is meaningful "
+            "without any surrounding context — not a response or fragment like 'yes' or 'it works'\n"
             "- Only create beliefs supported by multiple episodes or strong single episodes\n"
             "- Avoid duplicating existing beliefs\n"
             "- Confidence reflects how well-supported the belief is\n"
+            "- If no substantial beliefs emerge, return an empty array []\n"
             "- Respond with ONLY the JSON array, no other text"
         ),
     },
@@ -342,8 +351,11 @@ LAYER_PROMPTS: Dict[str, Dict[str, str]] = {
             '[{{"title": "...", "description": "...", "goal_type": "task|aspiration|commitment|exploration", '
             '"priority": "low|medium|high|critical", "source_episode_ids": ["ep_id_1"]}}]\n\n'
             "Rules:\n"
+            "- Each title and description must be self-contained and meaningful "
+            "without the original episode context\n"
             "- Only suggest actionable, concrete goals\n"
             "- Avoid duplicating existing goals\n"
+            "- If no actionable goals emerge, return an empty array []\n"
             "- Respond with ONLY the JSON array, no other text"
         ),
     },
@@ -361,8 +373,11 @@ LAYER_PROMPTS: Dict[str, Dict[str, str]] = {
             '"sentiment": -1.0 to 1.0, "context_note": "...", '
             '"source_episode_ids": ["ep_id_1"]}}]\n\n'
             "Rules:\n"
+            "- Each entity_name and context_note must be self-contained and meaningful "
+            "without the original episode context\n"
             "- Only create relationships with clearly identified entities\n"
             "- Update existing relationships rather than creating duplicates\n"
+            "- If no clear relationships are present, return an empty array []\n"
             "- Respond with ONLY the JSON array, no other text"
         ),
     },
@@ -380,9 +395,12 @@ LAYER_PROMPTS: Dict[str, Dict[str, str]] = {
             '[{{"name": "...", "statement": "...", "priority": 1-100, '
             '"source_belief_ids": ["belief_id_1"]}}]\n\n'
             "Rules:\n"
+            "- Each name and statement must be self-contained and meaningful "
+            "without the original belief context\n"
             "- Only promote beliefs that are fundamental and enduring\n"
             "- Avoid duplicating existing values\n"
             "- Priority 1=minor, 100=core identity\n"
+            "- If no beliefs rise to the level of core values, return an empty array []\n"
             "- Respond with ONLY the JSON array, no other text"
         ),
     },
@@ -399,8 +417,11 @@ LAYER_PROMPTS: Dict[str, Dict[str, str]] = {
             '[{{"drive_type": "...", "intensity": 0.1-1.0, '
             '"source_episode_ids": ["ep_id_1"]}}]\n\n'
             "Rules:\n"
+            "- Each drive_type must be a self-contained description, meaningful "
+            "without the original episode context\n"
             "- Only identify clear motivational patterns\n"
             "- Avoid duplicating existing drives\n"
+            "- If no clear drives emerge, return an empty array []\n"
             "- Respond with ONLY the JSON array, no other text"
         ),
     },

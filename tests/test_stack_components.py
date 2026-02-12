@@ -741,6 +741,140 @@ class TestKnowledgeComponent:
         result = c.on_maintenance()
         assert result["inference_available"] is False
 
+    def test_on_maintenance_with_inference(self):
+        """When inference is available, inference_available is True."""
+        c = KnowledgeComponent()
+        storage = _make_mock_storage()
+        inference = _make_mock_inference()
+        c.set_storage(storage)
+        c.set_inference(inference)
+        result = c.on_maintenance()
+        assert result["inference_available"] is True
+
+    def test_on_maintenance_skips_general_domains(self):
+        """Domains named 'general', 'manual', 'auto-captured' are skipped in analysis."""
+        c = KnowledgeComponent()
+        storage = _make_mock_storage()
+        storage.get_beliefs.return_value = [
+            _make_mock_belief(belief_type="general", confidence=0.9),
+            _make_mock_belief(belief_type="general", confidence=0.85),
+            _make_mock_belief(belief_type="manual", confidence=0.7),
+            _make_mock_belief(belief_type="auto-captured", confidence=0.6),
+        ]
+        storage.get_episodes.return_value = []
+        storage.get_notes.return_value = []
+        c.set_storage(storage)
+
+        result = c.on_maintenance()
+        # These domains exist in domain_stats but are skipped in classification
+        assert result["strength_domains"] == 0
+        assert result["weakness_domains"] == 0
+
+    def test_on_maintenance_weakness_detection(self):
+        """Domains with avg confidence < 0.5 are counted as weaknesses."""
+        c = KnowledgeComponent()
+        storage = _make_mock_storage()
+        storage.get_beliefs.return_value = [
+            _make_mock_belief(belief_type="rust", confidence=0.3),
+            _make_mock_belief(belief_type="rust", confidence=0.4),
+            _make_mock_belief(belief_type="rust", confidence=0.2),
+        ]
+        storage.get_episodes.return_value = [
+            _make_mock_episode(tags=["rust"]),
+        ]
+        storage.get_notes.return_value = []
+        c.set_storage(storage)
+
+        result = c.on_maintenance()
+        assert result["weakness_domains"] >= 1
+
+    def test_on_maintenance_uncertain_areas(self):
+        """Domains with beliefs and low confidence are marked uncertain."""
+        c = KnowledgeComponent()
+        storage = _make_mock_storage()
+        storage.get_beliefs.return_value = [
+            _make_mock_belief(belief_type="quantum", confidence=0.3),
+            _make_mock_belief(belief_type="quantum", confidence=0.4),
+        ]
+        storage.get_episodes.return_value = [
+            _make_mock_episode(tags=["quantum"]),
+        ]
+        storage.get_notes.return_value = []
+        c.set_storage(storage)
+
+        result = c.on_maintenance()
+        assert result["uncertain_areas"] >= 1
+
+    def test_extract_domains_episodes_without_tags(self):
+        """Episodes without tags fall into 'general' domain."""
+        c = KnowledgeComponent()
+        storage = _make_mock_storage()
+        storage.get_beliefs.return_value = []
+        storage.get_episodes.return_value = [
+            _make_mock_episode(tags=[]),
+            _make_mock_episode(tags=None),
+        ]
+        # Set tags to None for second mock
+        storage.get_episodes.return_value[1].tags = None
+        storage.get_notes.return_value = []
+        c.set_storage(storage)
+
+        result = c.on_maintenance()
+        assert result["domains_found"] >= 1  # 'general' domain
+
+    def test_extract_domains_notes_with_tags(self):
+        """Notes with tags contribute to domain stats."""
+        c = KnowledgeComponent()
+        storage = _make_mock_storage()
+        mock_note = MagicMock()
+        mock_note.tags = ["python", "testing"]
+        mock_note_no_tags = MagicMock()
+        mock_note_no_tags.tags = []
+        storage.get_beliefs.return_value = []
+        storage.get_episodes.return_value = []
+        storage.get_notes.return_value = [mock_note, mock_note_no_tags]
+        c.set_storage(storage)
+
+        result = c.on_maintenance()
+        # Should have python, testing, and general domains
+        assert result["domains_found"] >= 2
+
+    def test_extract_domains_episodes_filter_meta_tags(self):
+        """Meta tags like 'checkpoint', 'working_state' are filtered from episodes."""
+        c = KnowledgeComponent()
+        storage = _make_mock_storage()
+        storage.get_beliefs.return_value = []
+        storage.get_episodes.return_value = [
+            _make_mock_episode(tags=["checkpoint", "working_state", "python"]),
+            _make_mock_episode(tags=["checkpoint"]),  # Only meta tags → general
+        ]
+        storage.get_notes.return_value = []
+        c.set_storage(storage)
+
+        result = c.on_maintenance()
+        assert result["domains_found"] >= 1  # python + general
+
+    def test_on_maintenance_no_storage(self):
+        """Without storage, maintenance is skipped."""
+        c = KnowledgeComponent()
+        result = c.on_maintenance()
+        assert result.get("skipped") is True
+
+    def test_domain_below_threshold_skipped(self):
+        """Domains with total < 2 records are skipped in classification."""
+        c = KnowledgeComponent()
+        storage = _make_mock_storage()
+        storage.get_beliefs.return_value = [
+            _make_mock_belief(belief_type="niche", confidence=0.9),
+        ]
+        storage.get_episodes.return_value = []
+        storage.get_notes.return_value = []
+        c.set_storage(storage)
+
+        result = c.on_maintenance()
+        # 'niche' has only 1 record (1 belief), so it shouldn't be classified
+        assert result["strength_domains"] == 0
+
 
 # ============================================================================
 # EmotionalTaggingComponent Inference Tests
