@@ -8,8 +8,29 @@ memory loss.
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from kernle.anxiety_core import (
+    SEVEN_DIM_WEIGHTS,
+    compute_consolidation_score,
+    compute_context_pressure_score,
+    compute_epoch_staleness_score,
+    compute_identity_coherence_score,
+    compute_memory_uncertainty_score,
+    compute_raw_aging_score,
+    compute_unsaved_work_score,
+)
+
 if TYPE_CHECKING:
     from kernle.core import Kernle
+
+
+# Emoji mapping for anxiety levels (Kernle-layer presentation)
+_LEVEL_EMOJIS = {
+    "calm": "🟢",
+    "aware": "🟡",
+    "elevated": "🟠",
+    "high": "🔴",
+    "critical": "⚫",
+}
 
 
 class AnxietyMixin:
@@ -35,15 +56,7 @@ class AnxietyMixin:
     }
 
     # Dimension weights for composite score (7-factor model)
-    ANXIETY_WEIGHTS = {
-        "context_pressure": 0.25,
-        "unsaved_work": 0.20,
-        "consolidation_debt": 0.15,
-        "raw_aging": 0.10,
-        "identity_coherence": 0.10,
-        "memory_uncertainty": 0.10,
-        "epoch_staleness": 0.10,
-    }
+    ANXIETY_WEIGHTS = SEVEN_DIM_WEIGHTS
 
     def _get_anxiety_level(self: "Kernle", score: int) -> tuple:
         """Get emoji and label for an anxiety score."""
@@ -187,15 +200,7 @@ class AnxietyMixin:
                 context_pressure_pct = 10
                 context_detail = "No checkpoint (fresh session)"
 
-        # Map pressure to anxiety (non-linear: gets worse above 70%)
-        if context_pressure_pct < 50:
-            context_score = int(context_pressure_pct * 0.6)
-        elif context_pressure_pct < 70:
-            context_score = int(30 + (context_pressure_pct - 50) * 1.5)
-        elif context_pressure_pct < 85:
-            context_score = int(60 + (context_pressure_pct - 70) * 2)
-        else:
-            context_score = int(90 + (context_pressure_pct - 85) * 0.67)
+        context_score = compute_context_pressure_score(context_pressure_pct)
 
         dimensions["context_pressure"] = {
             "score": min(100, context_score),
@@ -206,17 +211,12 @@ class AnxietyMixin:
 
         # 2. Unsaved Work (0-100%)
         checkpoint_age = self._get_checkpoint_age_minutes()
+        unsaved_score = compute_unsaved_work_score(checkpoint_age)
         if checkpoint_age is None:
-            unsaved_score = 50
             unsaved_detail = "No checkpoint found"
-        elif checkpoint_age < 15:
-            unsaved_score = int(checkpoint_age * 2)
-            unsaved_detail = f"{checkpoint_age} min since checkpoint"
         elif checkpoint_age < 60:
-            unsaved_score = int(30 + (checkpoint_age - 15) * 1.1)
             unsaved_detail = f"{checkpoint_age} min since checkpoint"
         else:
-            unsaved_score = min(100, int(80 + (checkpoint_age - 60) * 0.33))
             unsaved_detail = f"{checkpoint_age} min since checkpoint (STALE)"
 
         dimensions["unsaved_work"] = {
@@ -229,18 +229,15 @@ class AnxietyMixin:
         # 3. Consolidation Debt (0-100%)
         unreflected = self._get_unreflected_episodes()
         unreflected_count = len(unreflected)
+        consolidation_score = compute_consolidation_score(unreflected_count)
 
         if unreflected_count <= 3:
-            consolidation_score = unreflected_count * 7
             consolidation_detail = f"{unreflected_count} unreflected episodes"
         elif unreflected_count <= 7:
-            consolidation_score = int(21 + (unreflected_count - 3) * 10)
             consolidation_detail = f"{unreflected_count} unreflected episodes (building up)"
         elif unreflected_count <= 15:
-            consolidation_score = int(61 + (unreflected_count - 7) * 4)
             consolidation_detail = f"{unreflected_count} unreflected episodes (significant backlog)"
         else:
-            consolidation_score = min(100, int(93 + (unreflected_count - 15) * 0.5))
             consolidation_detail = f"{unreflected_count} unreflected episodes (URGENT)"
 
         dimensions["consolidation_debt"] = {
@@ -252,7 +249,7 @@ class AnxietyMixin:
 
         # 4. Identity Coherence (inverted - high coherence = low anxiety)
         identity_confidence = self.get_identity_confidence()
-        identity_anxiety = int((1.0 - identity_confidence) * 100)
+        identity_anxiety = compute_identity_coherence_score(identity_confidence)
 
         if identity_confidence >= 0.8:
             identity_detail = f"{identity_confidence:.0%} identity confidence (strong)"
@@ -279,16 +276,14 @@ class AnxietyMixin:
         else:
             uncertainty_detail = ""  # Will be set below based on low_conf count
 
+        uncertainty_score = compute_memory_uncertainty_score(len(low_conf_beliefs))
         if len(low_conf_beliefs) <= 2:
-            uncertainty_score = len(low_conf_beliefs) * 15
             uncertainty_detail = f"{len(low_conf_beliefs)} low-confidence beliefs"
         elif len(low_conf_beliefs) <= 5:
-            uncertainty_score = int(30 + (len(low_conf_beliefs) - 2) * 15)
             uncertainty_detail = (
                 f"{len(low_conf_beliefs)} low-confidence beliefs (some uncertainty)"
             )
         else:
-            uncertainty_score = min(100, int(75 + (len(low_conf_beliefs) - 5) * 5))
             uncertainty_detail = (
                 f"{len(low_conf_beliefs)} low-confidence beliefs (HIGH uncertainty)"
             )
@@ -302,22 +297,18 @@ class AnxietyMixin:
 
         # 6. Raw Entry Aging (0-100%)
         total_unprocessed, aging_count, oldest_hours = self._get_aging_raw_entries(24)
+        raw_aging_score = compute_raw_aging_score(total_unprocessed, aging_count, oldest_hours)
 
         if total_unprocessed == 0:
-            raw_aging_score = 0
             raw_aging_detail = "No unprocessed raw entries"
         elif aging_count == 0:
-            raw_aging_score = min(30, total_unprocessed * 3)
             raw_aging_detail = f"{total_unprocessed} unprocessed (all fresh)"
         elif aging_count <= 3:
-            raw_aging_score = int(30 + aging_count * 15)
             raw_aging_detail = f"{aging_count}/{total_unprocessed} entries >24h old"
         elif aging_count <= 7:
-            raw_aging_score = int(60 + (aging_count - 3) * 8)
             oldest_days = int(oldest_hours / 24)
             raw_aging_detail = f"{aging_count} entries aging (oldest: {oldest_days}d)"
         else:
-            raw_aging_score = min(100, int(92 + (aging_count - 7) * 1))
             oldest_days = int(oldest_hours / 24)
             raw_aging_detail = (
                 f"{aging_count} entries STALE (oldest: {oldest_days}d) - review needed"
@@ -332,29 +323,21 @@ class AnxietyMixin:
 
         # 7. Epoch Staleness (0-100%)
         epoch_months = self._get_epoch_staleness_months()
+        epoch_staleness_score = compute_epoch_staleness_score(epoch_months)
+
         if epoch_months is None:
-            # Epochs not in use -- neutral score
-            epoch_staleness_score = 0
             epoch_staleness_detail = "No epochs (not in use)"
         elif epoch_months < 6:
-            # Calm: < 6 months
-            epoch_staleness_score = int(epoch_months * 5)  # 0-30 range
             epoch_staleness_detail = f"{epoch_months:.1f} months (current epoch is fresh)"
         elif epoch_months < 12:
-            # Aware: 6-12 months
-            epoch_staleness_score = int(30 + (epoch_months - 6) * 6.7)  # 30-70 range
             epoch_staleness_detail = (
                 f"{epoch_months:.1f} months (consider whether current epoch is still accurate)"
             )
         elif epoch_months < 18:
-            # Elevated: 12-18 months
-            epoch_staleness_score = int(70 + (epoch_months - 12) * 4)  # 70-90 range
             epoch_staleness_detail = (
                 f"{epoch_months:.1f} months (significant time without deep reflection)"
             )
         else:
-            # High: > 18 months
-            epoch_staleness_score = min(100, int(90 + (epoch_months - 18) * 1.67))
             epoch_staleness_detail = f"{epoch_months:.1f} months (likely overdue for epoch review)"
 
         dimensions["epoch_staleness"] = {

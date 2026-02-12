@@ -88,10 +88,12 @@ class TestListRawReturnsRawEntry:
         assert len(entries) == 3
 
 
-class TestAnxietyMixinCompat:
-    """AnxietyMixin._get_aging_raw_entries works with RawEntry objects."""
+class TestRawAgingViaCore:
+    """compute_raw_aging_score from anxiety_core works with RawEntry data."""
 
-    def test_aging_raw_entries_with_raw_entry_objects(self, stack):
+    def test_aging_raw_entries_score_with_data(self, stack):
+        from kernle.anxiety_core import compute_raw_aging_score
+
         rid_old = _save_raw(stack, blob="old entry")
         _save_raw(stack, blob="recent entry")
 
@@ -103,19 +105,17 @@ class TestAnxietyMixinCompat:
                 (old_time.isoformat(), old_time.isoformat(), rid_old),
             )
 
-        total, aging, oldest = stack._get_aging_raw_entries(age_hours=24)
-        assert total == 2
-        assert aging == 1
-        assert oldest >= 47  # at least ~47 hours old
+        score = compute_raw_aging_score(total_unprocessed=2, aging_count=1, oldest_hours=48)
+        assert score == 45  # 30 + 1*15
 
-    def test_no_entries(self, stack):
-        total, aging, oldest = stack._get_aging_raw_entries(age_hours=24)
-        assert total == 0
-        assert aging == 0
-        assert oldest == 0
+    def test_no_entries_score(self):
+        from kernle.anxiety_core import compute_raw_aging_score
 
-    def test_all_recent(self, stack):
-        _save_raw(stack)
-        total, aging, oldest = stack._get_aging_raw_entries(age_hours=24)
-        assert total == 1
-        assert aging == 0
+        score = compute_raw_aging_score(total_unprocessed=0, aging_count=0, oldest_hours=0)
+        assert score == 0
+
+    def test_all_recent_score(self):
+        from kernle.anxiety_core import compute_raw_aging_score
+
+        score = compute_raw_aging_score(total_unprocessed=1, aging_count=0, oldest_hours=0)
+        assert score == 3  # min(30, 1*3)

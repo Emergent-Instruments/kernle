@@ -20,7 +20,6 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from kernle.features import (
-    AnxietyMixin,
     ConsolidationMixin,
     EmotionsMixin,
     ForgettingMixin,
@@ -152,7 +151,6 @@ ANNOTATION_REF_TYPES = {"context", "kernle"}
 
 
 class SQLiteStack(
-    AnxietyMixin,
     ConsolidationMixin,
     EmotionsMixin,
     ForgettingMixin,
@@ -1126,8 +1124,19 @@ class SQLiteStack(
         *,
         token_budget: int = DEFAULT_TOKEN_BUDGET,
         context: Optional[str] = None,
+        epoch_id: Optional[str] = None,
+        max_item_chars: int = DEFAULT_MAX_ITEM_CHARS,
+        track_access: bool = True,
     ) -> Dict[str, Any]:
-        """Assemble working memory within a token budget."""
+        """Assemble working memory within a token budget.
+
+        Args:
+            token_budget: Token budget for memory assembly.
+            context: Optional context string (unused, for future use).
+            epoch_id: If set, filter candidates to this specific epoch.
+            max_item_chars: Max characters per item when truncating.
+            track_access: If True, record access for salience tracking.
+        """
         budget = max(MIN_TOKEN_BUDGET, min(MAX_TOKEN_BUDGET, token_budget))
         remaining = budget
 
@@ -1141,6 +1150,7 @@ class SQLiteStack(
             notes_limit=None,
             drives_limit=None,
             relationships_limit=None,
+            epoch_id=epoch_id,
         )
 
         if batched is None:
@@ -1218,9 +1228,14 @@ class SQLiteStack(
             "self_narratives": [],
         }
 
+        excluded = []
+        budget_exhausted = False
         for priority, memory_type, record in candidates:
+            if budget_exhausted:
+                excluded.append((priority, memory_type, record))
+                continue
             text = self._record_to_text(memory_type, record)
-            text = _truncate_at_word_boundary(text, DEFAULT_MAX_ITEM_CHARS)
+            text = _truncate_at_word_boundary(text, max_item_chars)
             tokens = _estimate_tokens(text)
             if tokens <= remaining:
                 key = (
@@ -1231,19 +1246,28 @@ class SQLiteStack(
                 if key in selected:
                     selected[key].append(record)
                 remaining -= tokens
+            else:
+                excluded.append((priority, memory_type, record))
             if remaining <= 0:
-                break
+                budget_exhausted = True
 
-        # Format output
+        excluded_count = len(excluded)
+
+        # Format output (truncate text fields to max_item_chars)
         result: Dict[str, Any] = {
             "values": [
-                {"id": v.id, "name": v.name, "statement": v.statement, "priority": v.priority}
+                {
+                    "id": v.id,
+                    "name": v.name,
+                    "statement": _truncate_at_word_boundary(v.statement, max_item_chars),
+                    "priority": v.priority,
+                }
                 for v in selected["values"]
             ],
             "beliefs": [
                 {
                     "id": b.id,
-                    "statement": b.statement,
+                    "statement": _truncate_at_word_boundary(b.statement, max_item_chars),
                     "belief_type": b.belief_type,
                     "confidence": b.confidence,
                 }
@@ -1253,7 +1277,7 @@ class SQLiteStack(
                 {
                     "id": g.id,
                     "title": g.title,
-                    "description": g.description,
+                    "description": _truncate_at_word_boundary(g.description or "", max_item_chars),
                     "priority": g.priority,
                     "status": g.status,
                 }
@@ -1271,9 +1295,11 @@ class SQLiteStack(
             "episodes": [
                 {
                     "id": e.id,
-                    "objective": e.objective,
-                    "outcome": e.outcome,
+                    "objective": _truncate_at_word_boundary(e.objective or "", max_item_chars),
+                    "outcome": _truncate_at_word_boundary(e.outcome or "", max_item_chars),
+                    "outcome_type": getattr(e, "outcome_type", None),
                     "tags": e.tags,
+                    "lessons": e.lessons if e.lessons else [],
                     "created_at": e.created_at.isoformat() if e.created_at else None,
                 }
                 for e in selected["episodes"]
@@ -1281,9 +1307,11 @@ class SQLiteStack(
             "notes": [
                 {
                     "id": n.id,
-                    "content": n.content,
+                    "content": _truncate_at_word_boundary(n.content or "", max_item_chars),
                     "note_type": n.note_type,
                     "tags": n.tags,
+                    "speaker": getattr(n, "speaker", None),
+                    "reason": getattr(n, "reason", None),
                     "created_at": n.created_at.isoformat() if n.created_at else None,
                 }
                 for n in selected["notes"]
@@ -1293,6 +1321,8 @@ class SQLiteStack(
                     "entity_name": r.entity_name,
                     "entity_type": r.entity_type,
                     "sentiment": r.sentiment,
+                    "interaction_count": getattr(r, "interaction_count", 0),
+                    "last_interaction": getattr(r, "last_interaction", None),
                     "notes": r.notes,
                 }
                 for r in selected["relationships"]
@@ -1300,6 +1330,8 @@ class SQLiteStack(
             "_meta": {
                 "budget_used": budget - remaining,
                 "budget_total": budget,
+                "excluded_count": excluded_count,
+                "_excluded_candidates": excluded,
             },
         }
 
@@ -1308,7 +1340,7 @@ class SQLiteStack(
                 {
                     "id": s.id,
                     "scope": s.scope,
-                    "content": _truncate_at_word_boundary(s.content, DEFAULT_MAX_ITEM_CHARS),
+                    "content": _truncate_at_word_boundary(s.content, max_item_chars),
                 }
                 for s in selected["summaries"]
             ]
@@ -1318,19 +1350,30 @@ class SQLiteStack(
                 {
                     "id": sn.id,
                     "narrative_type": sn.narrative_type,
-                    "content": _truncate_at_word_boundary(sn.content, DEFAULT_MAX_ITEM_CHARS),
+                    "content": _truncate_at_word_boundary(sn.content, max_item_chars),
+                    "key_themes": sn.key_themes,
+                    "unresolved_tensions": sn.unresolved_tensions,
                 }
                 for sn in selected["self_narratives"]
             ]
 
         # Track access for salience
-        accesses = []
-        for key in ("values", "beliefs", "goals", "drives", "episodes", "notes", "relationships"):
-            for rec in selected[key]:
-                type_name = key.rstrip("s") if key != "values" else "value"
-                accesses.append((type_name, rec.id))
-        if accesses:
-            self._backend.record_access_batch(accesses)
+        if track_access:
+            accesses = []
+            for key in (
+                "values",
+                "beliefs",
+                "goals",
+                "drives",
+                "episodes",
+                "notes",
+                "relationships",
+            ):
+                for rec in selected[key]:
+                    type_name = key.rstrip("s") if key != "values" else "value"
+                    accesses.append((type_name, rec.id))
+            if accesses:
+                self._backend.record_access_batch(accesses)
 
         self._dispatch_on_load(result)
         return result
@@ -1899,24 +1942,16 @@ class SQLiteStack(
             ]
         return json.dumps(data, indent=2, default=str)
 
-    # ---- Mixin compatibility helpers ----
-    # These are needed by the mixins that reference methods on Kernle
-    # that don't exist on the stack. We provide minimal stubs.
-
-    def load_checkpoint(self) -> Optional[Dict[str, Any]]:
-        """Load checkpoint (stub for mixin compatibility)."""
-        # Checkpoints are a Kernle concept, not a stack concept.
-        # Return None to signal no checkpoint.
-        return None
+    # ---- Stack-level helpers ----
 
     def list_raw(self, processed: Optional[bool] = None, limit: int = 100) -> List[Any]:
         """List raw entries."""
         return self._backend.list_raw(processed=processed, limit=limit)
 
     def get_identity_confidence(self) -> float:
-        """Get identity confidence (mixin compatibility).
+        """Get identity confidence from values and beliefs.
 
-        Measures coherence from values and beliefs.
+        Used by AnxietyComponent to compute identity_coherence dimension.
         """
         values = self._backend.get_values(limit=10)
         beliefs = self._backend.get_beliefs(limit=20)
@@ -1931,26 +1966,3 @@ class SQLiteStack(
             total_conf += b.confidence
             count += 1
         return total_conf / count if count > 0 else 0.0
-
-    def get_sync_status(self) -> Dict[str, Any]:
-        """Get sync status (mixin compatibility)."""
-        return {
-            "online": self._backend.is_online(),
-            "pending": self._backend.get_pending_sync_count(),
-        }
-
-    def synthesize_identity(self) -> Dict[str, Any]:
-        """Synthesize identity (stub for mixin compatibility)."""
-        return {"confidence": self.get_identity_confidence()}
-
-    def checkpoint(self, **kwargs: Any) -> Optional[Dict[str, Any]]:
-        """Checkpoint (stub for mixin compatibility)."""
-        return None
-
-    def episode(self, **kwargs: Any) -> Optional[str]:
-        """Episode creation (stub for mixin compatibility)."""
-        return None
-
-    def boot_list(self) -> Dict[str, str]:
-        """Boot config (stub for mixin compatibility)."""
-        return {}
