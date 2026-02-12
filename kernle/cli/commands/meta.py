@@ -211,6 +211,9 @@ def cmd_meta(args, k: "Kernle"):
 
         if result.get("error"):
             print(f"✗ {result['error']}")
+        elif result["updated"] == 0:
+            print(f"  No derived memories needed updating for {memory_type}:{memory_id[:8]}...")
+            print(f"  Source confidence: {result['source_confidence']:.0%}")
         else:
             print(f"✓ Propagated confidence from {memory_type}:{memory_id[:8]}...")
             print(f"  Source confidence: {result['source_confidence']:.0%}")
