@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 import pytest
 
+from kernle import Kernle
 from kernle.stack import SQLiteStack
 from kernle.types import (
     SUGGESTION_MEMORY_TYPES,
@@ -194,3 +195,86 @@ class TestSuggestionTypeResolutionStrictMode:
         strict_stack.save_suggestion(s)
         memory_id = strict_stack.accept_suggestion(s.id)
         assert memory_id is not None
+
+
+class TestSuggestionsMixinTypeResolution:
+    """Verify promote_suggestion (non-strict Kernle compat) handles all 7 types.
+
+    The SuggestionsMixin.promote_suggestion() is the legacy path used when
+    strict=False. It must handle the same types as SQLiteStack.accept_suggestion().
+    """
+
+    @pytest.fixture
+    def kernle_instance(self, tmp_path):
+        return Kernle("mixin-test", strict=False)
+
+    def _save_and_promote(self, k, memory_type, content):
+        """Helper: save a suggestion and promote it via the Kernle compat layer."""
+        s = MemorySuggestion(
+            id=_uid(),
+            stack_id=k.stack_id,
+            memory_type=memory_type,
+            content=content,
+            confidence=0.8,
+            source_raw_ids=["raw-1"],
+            created_at=_now(),
+        )
+        k._storage.save_suggestion(s)
+        return k.accept_suggestion(s.id)
+
+    def test_promote_goal_creates_goal(self, kernle_instance):
+        memory_id = self._save_and_promote(
+            kernle_instance,
+            "goal",
+            {
+                "title": "Ship v2.0",
+                "description": "Release the next version",
+                "goal_type": "task",
+                "priority": "high",
+            },
+        )
+        assert memory_id is not None
+        goals = kernle_instance._storage.get_goals()
+        assert any(g.id == memory_id for g in goals)
+
+    def test_promote_value_creates_value(self, kernle_instance):
+        memory_id = self._save_and_promote(
+            kernle_instance,
+            "value",
+            {
+                "name": "Reliability",
+                "statement": "Systems should be dependable",
+                "priority": 75,
+            },
+        )
+        assert memory_id is not None
+        values = kernle_instance._storage.get_values()
+        assert any(v.id == memory_id for v in values)
+
+    def test_promote_relationship_creates_relationship(self, kernle_instance):
+        memory_id = self._save_and_promote(
+            kernle_instance,
+            "relationship",
+            {
+                "entity_name": "alice",
+                "entity_type": "human",
+                "notes": "Good partner",
+            },
+        )
+        assert memory_id is not None
+        rels = kernle_instance._storage.get_relationships()
+        assert any(r.id == memory_id for r in rels)
+
+    def test_promote_drive_creates_drive(self, kernle_instance):
+        memory_id = self._save_and_promote(
+            kernle_instance,
+            "drive",
+            {
+                "drive_type": "curiosity",
+                "intensity": 0.7,
+                "focus_areas": ["learning"],
+            },
+        )
+        assert memory_id is not None
+        drives = kernle_instance._storage.get_drives()
+        assert any(d.id == memory_id for d in drives)
