@@ -805,33 +805,82 @@ kernle -s my-project init -y --style minimal
 
 ## suggestions
 
-Manage memory suggestions (auto-generated recommendations).
+Manage memory suggestions (auto-generated recommendations from the processing pipeline).
 
 ### suggestions list
 
 ```bash
-kernle -s <stack> suggestions list [--pending] [--approved] [--rejected] [--type TYPE] [--limit L]
+kernle -s <stack> suggestions list [options]
 ```
 
 | Option | Description |
 |--------|-------------|
 | `--pending` | Show only pending suggestions |
-| `--approved` | Show only approved suggestions |
+| `--approved` | Show only approved (promoted) suggestions |
 | `--rejected` | Show only rejected suggestions |
+| `--dismissed` | Show only dismissed suggestions |
+| `--expired` | Show only expired suggestions |
 | `--type TYPE` | Filter by memory type |
-| `-l, --limit L` | Maximum results (default: 20) |
+| `--min-confidence C` | Minimum confidence threshold |
+| `--max-age-hours H` | Maximum age in hours |
+| `--source SOURCE` | Filter by source raw entry ID |
+| `-l, --limit L` | Maximum results (default: 50) |
+| `-j, --json` | Output as JSON |
 
-### suggestions approve
+### suggestions show
+
+Show details for a specific suggestion. Supports partial ID matching.
 
 ```bash
-kernle -s <stack> suggestions approve SUGGESTION_ID
+kernle -s <stack> suggestions show ID [--json]
 ```
 
-### suggestions reject
+### suggestions accept
+
+Accept a suggestion and promote it to structured memory. Supports all 7 memory types (episode, belief, note, goal, value, relationship, drive).
 
 ```bash
-kernle -s <stack> suggestions reject SUGGESTION_ID
+kernle -s <stack> suggestions accept ID [--objective O] [--outcome O] [--statement S] [--content C]
 ```
+
+| Option | Description |
+|--------|-------------|
+| `--objective O` | Override objective (for episodes) |
+| `--outcome O` | Override outcome (for episodes) |
+| `--statement S` | Override statement (for beliefs) |
+| `--content C` | Override content (for notes) |
+
+### suggestions dismiss
+
+Dismiss a suggestion with an optional reason.
+
+```bash
+kernle -s <stack> suggestions dismiss ID [--reason R]
+```
+
+### suggestions expire
+
+Expire stale pending suggestions older than a threshold.
+
+```bash
+kernle -s <stack> suggestions expire [--max-age-hours H]
+```
+
+| Option | Description |
+|--------|-------------|
+| `--max-age-hours H` | Age threshold in hours (default: 168 / 7 days) |
+
+### suggestions extract
+
+Extract new suggestions from unprocessed raw entries.
+
+```bash
+kernle -s <stack> suggestions extract [--limit L]
+```
+
+| Option | Description |
+|--------|-------------|
+| `-l, --limit L` | Maximum raw entries to process (default: 50) |
 
 ---
 
