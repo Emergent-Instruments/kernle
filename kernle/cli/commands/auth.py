@@ -393,6 +393,8 @@ def cmd_auth_keys(args):
             print("  Run `kernle auth login` to re-authenticate")
             sys.exit(1)
 
+        require_https_url(backend_url, source="credentials")
+
         return backend_url.rstrip("/"), api_key
 
     def mask_key(key: str) -> str:

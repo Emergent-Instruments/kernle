@@ -158,6 +158,104 @@ class TestLoginBlocksHttp:
         mock_httpx.post.assert_called_once()
 
 
+def _make_keys_args(keys_action="list"):
+    """Create a mock args object for the auth keys flow."""
+    args = MagicMock()
+    args.auth_action = "keys"
+    args.keys_action = keys_action
+    args.key_name = "test-key"
+    args.key_id = "key-123"
+    args.json = False
+    return args
+
+
+class TestAuthKeysBlocksHttp:
+    """Tests that auth key management blocks non-HTTPS URLs."""
+
+    @patch(
+        "kernle.cli.commands.auth.load_credentials",
+        return_value={"backend_url": "http://evil.com", "api_key": "secret"},
+    )
+    def test_keys_list_blocks_non_https(self, mock_creds):
+        """Keys list with http:// must exit before sending credentials."""
+        from kernle.cli.commands.auth import cmd_auth_keys
+
+        mock_httpx = MagicMock()
+        args = _make_keys_args("list")
+        with patch.dict("sys.modules", {"httpx": mock_httpx}):
+            with pytest.raises(SystemExit):
+                cmd_auth_keys(args)
+        # Verify no HTTP request was sent (exit before calling httpx)
+        mock_httpx.get.assert_not_called()
+        mock_httpx.post.assert_not_called()
+
+    @patch(
+        "kernle.cli.commands.auth.load_credentials",
+        return_value={"backend_url": "http://evil.com", "api_key": "secret"},
+    )
+    def test_keys_create_blocks_non_https(self, mock_creds):
+        """Keys create with http:// must exit before sending credentials."""
+        from kernle.cli.commands.auth import cmd_auth_keys
+
+        mock_httpx = MagicMock()
+        args = _make_keys_args("create")
+        with patch.dict("sys.modules", {"httpx": mock_httpx}):
+            with pytest.raises(SystemExit):
+                cmd_auth_keys(args)
+        mock_httpx.post.assert_not_called()
+
+    @patch(
+        "kernle.cli.commands.auth.load_credentials",
+        return_value={"backend_url": "http://evil.com", "api_key": "secret"},
+    )
+    def test_keys_revoke_blocks_non_https(self, mock_creds):
+        """Keys revoke with http:// must exit before sending credentials."""
+        from kernle.cli.commands.auth import cmd_auth_keys
+
+        mock_httpx = MagicMock()
+        args = _make_keys_args("revoke")
+        with patch.dict("sys.modules", {"httpx": mock_httpx}):
+            with pytest.raises(SystemExit):
+                cmd_auth_keys(args)
+        mock_httpx.delete.assert_not_called()
+
+    @patch(
+        "kernle.cli.commands.auth.load_credentials",
+        return_value={"backend_url": "http://evil.com", "api_key": "secret"},
+    )
+    def test_keys_cycle_blocks_non_https(self, mock_creds):
+        """Keys cycle with http:// must exit before sending credentials."""
+        from kernle.cli.commands.auth import cmd_auth_keys
+
+        mock_httpx = MagicMock()
+        args = _make_keys_args("cycle")
+        with patch.dict("sys.modules", {"httpx": mock_httpx}):
+            with pytest.raises(SystemExit):
+                cmd_auth_keys(args)
+        mock_httpx.post.assert_not_called()
+
+    @patch(
+        "kernle.cli.commands.auth.require_https_url",
+    )
+    @patch(
+        "kernle.cli.commands.auth.load_credentials",
+        return_value={"backend_url": "https://api.example.com", "api_key": "secret"},
+    )
+    def test_keys_calls_require_https(self, mock_creds, mock_require_https):
+        """Keys flow must call require_https_url with the backend URL."""
+        from kernle.cli.commands.auth import cmd_auth_keys
+
+        args = _make_keys_args("list")
+        # Will fail with connection error, but we just want to verify
+        # require_https_url was called before any HTTP request
+        try:
+            cmd_auth_keys(args)
+        except SystemExit:
+            pass  # expected — real httpx can't connect
+
+        mock_require_https.assert_called_once_with("https://api.example.com", source="credentials")
+
+
 class TestRegisterBlocksHttp:
     """Tests that the register flow blocks non-HTTPS URLs."""
 
