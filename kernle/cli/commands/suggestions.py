@@ -310,7 +310,7 @@ def cmd_suggestions(args, k: "Kernle"):
             print(f"Suggestion accepted ({status}).")
             print(f"Created {suggestion['memory_type']}: {memory_id[:8]}...")
         else:
-            print("Failed to accept suggestion.")
+            print("Suggestion not accepted (lint-rejected). Check pending suggestions.")
 
     elif args.suggestions_action == "dismiss":
         try:
