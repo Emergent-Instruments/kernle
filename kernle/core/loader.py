@@ -1,4 +1,8 @@
-"""Memory loading operations for Kernle."""
+"""Memory loading operations for Kernle.
+
+Delegates to stack.load() when available, falls back to individual
+queries for non-SQLite backends.
+"""
 
 import json
 import logging

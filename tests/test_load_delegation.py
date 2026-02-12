@@ -296,12 +296,10 @@ class TestRelationshipOutputCompat:
         )
         result = k.load(budget=50000)
         rels = result.get("relationships", [])
-        if rels:
-            last = rels[0].get("last_interaction")
-            if last is not None:
-                assert isinstance(
-                    last, str
-                ), f"last_interaction should be ISO string, got {type(last)}"
+        assert len(rels) >= 1, "Expected at least one relationship in load output"
+        last = rels[0].get("last_interaction")
+        assert last is not None, "last_interaction should not be None after relationship()"
+        assert isinstance(last, str), f"last_interaction should be ISO string, got {type(last)}"
 
     def test_relationship_notes_truncated(self, k):
         """Relationship notes must be truncated by max_item_chars."""
@@ -312,9 +310,9 @@ class TestRelationshipOutputCompat:
         )
         result = k.load(max_item_chars=50)
         rels = result.get("relationships", [])
-        for r in rels:
-            notes = r.get("notes")
-            if notes:
-                assert (
-                    len(notes) <= 70
-                ), f"Relationship notes should be truncated, got len={len(notes)}"
+        assert len(rels) >= 1, "Expected at least one relationship in load output"
+        notes = rels[0].get("notes")
+        assert notes is not None, "notes should not be None"
+        # _truncate_at_word_boundary guarantees output <= max_chars
+        assert len(notes) <= 50, f"Expected len <= 50, got {len(notes)}"
+        assert notes.endswith("..."), "Truncated notes should end with ellipsis"
