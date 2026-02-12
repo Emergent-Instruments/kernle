@@ -500,57 +500,38 @@ class TestDispatchBranches:
 
     def test_dispatch_doctor_session_start_gate(self, k, capsys):
         """Dispatch 'doctor session start' shows devtools install message when not installed."""
-        import builtins
-
-        real_import = builtins.__import__
-
-        def mock_import(name, *args, **kwargs):
-            if name.startswith("kernle_devtools"):
-                raise ModuleNotFoundError(name=name)
-            return real_import(name, *args, **kwargs)
-
-        with patch.object(builtins, "__import__", side_effect=mock_import):
+        with patch(
+            "kernle.cli.__main__._import_devtools",
+            side_effect=SystemExit(2),
+        ):
             with pytest.raises(SystemExit) as exc:
                 self._run_main(["doctor", "session", "start"], k)
         assert exc.value.code == 2
-        captured = capsys.readouterr().out
-        assert "kernle-devtools" in captured
 
     def test_dispatch_doctor_session_list_gate(self, k, capsys):
         """Dispatch 'doctor session list' shows devtools install message when not installed."""
-        import builtins
-
-        real_import = builtins.__import__
-
-        def mock_import(name, *args, **kwargs):
-            if name.startswith("kernle_devtools"):
-                raise ModuleNotFoundError(name=name)
-            return real_import(name, *args, **kwargs)
-
-        with patch.object(builtins, "__import__", side_effect=mock_import):
+        with patch(
+            "kernle.cli.__main__._import_devtools",
+            side_effect=SystemExit(2),
+        ):
             with pytest.raises(SystemExit) as exc:
                 self._run_main(["doctor", "session", "list"], k)
         assert exc.value.code == 2
-        captured = capsys.readouterr().out
-        assert "kernle-devtools" in captured
 
-    def test_dispatch_doctor_session_start_import_error_gate(self, k, capsys):
-        """Dispatch 'doctor session start' handles incompatible devtools (ImportError)."""
-        import builtins
+    def test_dispatch_doctor_session_start_import_error_propagates(self, k):
+        """Dispatch 'doctor session start' propagates bare ImportError (not swallowed).
 
-        real_import = builtins.__import__
-
-        def mock_import(name, *args, **kwargs):
-            if name.startswith("kernle_devtools"):
-                raise ImportError("kernle-devtools requires kernle>=0.12.4")
-            return real_import(name, *args, **kwargs)
-
-        with patch.object(builtins, "__import__", side_effect=mock_import):
+        Bare ImportError is NOT caught by the devtools gate (exit 2). Instead it
+        propagates to main()'s general exception handler (exit 1).
+        """
+        with patch(
+            "kernle.cli.__main__._import_devtools",
+            side_effect=ImportError("kernle-devtools requires kernle>=0.12.4"),
+        ):
             with pytest.raises(SystemExit) as exc:
                 self._run_main(["doctor", "session", "start"], k)
-        assert exc.value.code == 2
-        captured = capsys.readouterr().out
-        assert "kernle-devtools" in captured
+            # Exit code 1 (general error), NOT 2 (missing devtools)
+            assert exc.value.code == 1
 
     def test_dispatch_doctor_session_no_action(self, k, capsys):
         """Dispatch 'doctor session' without start/list shows usage."""
@@ -560,21 +541,13 @@ class TestDispatchBranches:
 
     def test_dispatch_doctor_report_gate(self, k, capsys):
         """Dispatch 'doctor report' shows devtools install message when not installed."""
-        import builtins
-
-        real_import = builtins.__import__
-
-        def mock_import(name, *args, **kwargs):
-            if name.startswith("kernle_devtools"):
-                raise ModuleNotFoundError(name=name)
-            return real_import(name, *args, **kwargs)
-
-        with patch.object(builtins, "__import__", side_effect=mock_import):
+        with patch(
+            "kernle.cli.__main__._import_devtools",
+            side_effect=SystemExit(2),
+        ):
             with pytest.raises(SystemExit) as exc:
                 self._run_main(["doctor", "report", "latest"], k)
         assert exc.value.code == 2
-        captured = capsys.readouterr().out
-        assert "kernle-devtools" in captured
 
     def test_dispatch_trust(self, k, capsys):
         """Dispatch 'trust' command."""

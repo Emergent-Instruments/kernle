@@ -13,6 +13,7 @@ Usage:
 """
 
 import argparse
+import importlib
 import logging
 import re
 import sys
@@ -88,6 +89,32 @@ def validate_input(value: str, field_name: str, max_length: int = 1000) -> str:
     sanitized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", value)
 
     return sanitized
+
+
+def _import_devtools(module_path: str, symbol: str):
+    """Import a symbol from kernle-devtools with narrow error handling.
+
+    Only catches the specific case where kernle_devtools is not installed.
+    All other import errors (internal bugs, missing deps) propagate.
+    """
+    try:
+        mod = importlib.import_module(module_path)
+    except ModuleNotFoundError as e:
+        if e.name and e.name.startswith("kernle_devtools"):
+            print("This feature requires kernle-devtools: " "pip install kernle-devtools")
+            sys.exit(2)
+        raise
+    except ImportError as e:
+        if type(e).__name__ == "DevtoolsVersionError" and (
+            getattr(type(e), "__module__", "") or ""
+        ).startswith("kernle_devtools"):
+            print(
+                f"Incompatible kernle-devtools version: {e}\n"
+                "Upgrade with: pip install --upgrade kernle-devtools"
+            )
+            sys.exit(2)
+        raise
+    return getattr(mod, symbol)
 
 
 def cmd_init(args, k: Kernle):
@@ -2235,59 +2262,24 @@ Beliefs already present in the agent's memory will be skipped.
             elif doctor_action == "session":
                 session_action = getattr(args, "session_action", None)
                 if session_action == "start":
-                    try:
-                        from kernle_devtools.admin_health.diagnostics import (
-                            cmd_doctor_session_start as _dt_session_start,
-                        )
-                    except (ModuleNotFoundError, ImportError) as e:
-                        if (
-                            isinstance(e, ModuleNotFoundError)
-                            and e.name
-                            and not e.name.startswith("kernle_devtools")
-                        ):
-                            raise
-                        print(
-                            "Diagnostic sessions require kernle-devtools: "
-                            "pip install kernle-devtools"
-                        )
-                        sys.exit(2)
+                    _dt_session_start = _import_devtools(
+                        "kernle_devtools.admin_health.diagnostics",
+                        "cmd_doctor_session_start",
+                    )
                     _dt_session_start(args, k)
                 elif session_action == "list":
-                    try:
-                        from kernle_devtools.admin_health.diagnostics import (
-                            cmd_doctor_session_list as _dt_session_list,
-                        )
-                    except (ModuleNotFoundError, ImportError) as e:
-                        if (
-                            isinstance(e, ModuleNotFoundError)
-                            and e.name
-                            and not e.name.startswith("kernle_devtools")
-                        ):
-                            raise
-                        print(
-                            "Diagnostic sessions require kernle-devtools: "
-                            "pip install kernle-devtools"
-                        )
-                        sys.exit(2)
+                    _dt_session_list = _import_devtools(
+                        "kernle_devtools.admin_health.diagnostics",
+                        "cmd_doctor_session_list",
+                    )
                     _dt_session_list(args, k)
                 else:
                     print("Usage: kernle doctor session {start|list}")
             elif doctor_action == "report":
-                try:
-                    from kernle_devtools.admin_health.diagnostics import (
-                        cmd_doctor_report as _dt_report,
-                    )
-                except (ModuleNotFoundError, ImportError) as e:
-                    if (
-                        isinstance(e, ModuleNotFoundError)
-                        and e.name
-                        and not e.name.startswith("kernle_devtools")
-                    ):
-                        raise
-                    print(
-                        "Diagnostic reports require kernle-devtools: " "pip install kernle-devtools"
-                    )
-                    sys.exit(2)
+                _dt_report = _import_devtools(
+                    "kernle_devtools.admin_health.diagnostics",
+                    "cmd_doctor_report",
+                )
                 _dt_report(args, k)
             else:
                 cmd_doctor(args, k)
