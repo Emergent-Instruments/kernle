@@ -820,6 +820,44 @@ class StackProtocol(Protocol):
         """Get any single memory by type and ID."""
         ...
 
+    # ---- Suggestion Lifecycle ----
+
+    def get_suggestion(self, suggestion_id: str) -> Optional[MemorySuggestion]:
+        """Retrieve a single suggestion by ID."""
+        ...
+
+    def get_suggestions(
+        self,
+        status: Optional[str] = None,
+        memory_type: Optional[str] = None,
+        limit: int = 100,
+        min_confidence: Optional[float] = None,
+        max_age_hours: Optional[float] = None,
+        source_raw_id: Optional[str] = None,
+    ) -> list[MemorySuggestion]:
+        """Retrieve suggestions with optional filters."""
+        ...
+
+    def accept_suggestion(
+        self,
+        suggestion_id: str,
+        modifications: Optional[dict[str, Any]] = None,
+    ) -> Optional[str]:
+        """Accept a pending suggestion and promote it to a structured memory.
+
+        Returns the ID of the created memory, or None if the suggestion
+        was not found or not pending.
+        """
+        ...
+
+    def dismiss_suggestion(
+        self,
+        suggestion_id: str,
+        reason: Optional[str] = None,
+    ) -> bool:
+        """Dismiss a pending suggestion (will not be promoted)."""
+        ...
+
     # ---- Search ----
 
     def search(
