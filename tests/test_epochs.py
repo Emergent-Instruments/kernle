@@ -4,9 +4,6 @@ Tests epoch CRUD operations at both storage and core API levels,
 including epoch_id propagation to memory types and epoch-filtered loading.
 """
 
-import tempfile
-from pathlib import Path
-
 import pytest
 
 from kernle import Kernle
@@ -14,12 +11,9 @@ from kernle.storage import Belief, Episode, Epoch, Note, SQLiteStorage
 
 
 @pytest.fixture
-def temp_db():
+def temp_db(tmp_path):
     """Create a temporary database path."""
-    path = Path(tempfile.mktemp(suffix=".db"))
-    yield path
-    if path.exists():
-        path.unlink()
+    return tmp_path / "test.db"
 
 
 @pytest.fixture

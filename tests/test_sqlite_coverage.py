@@ -11,21 +11,15 @@ Covers:
 - Access tracking: record_access
 """
 
-import tempfile
-from pathlib import Path
-
 import pytest
 
 from kernle.storage import Belief, Episode, SQLiteStorage
 
 
 @pytest.fixture
-def temp_db():
+def temp_db(tmp_path):
     """Create a temporary database path."""
-    path = Path(tempfile.mktemp(suffix=".db"))
-    yield path
-    if path.exists():
-        path.unlink()
+    return tmp_path / "test.db"
 
 
 @pytest.fixture

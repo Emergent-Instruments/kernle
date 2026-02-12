@@ -4,7 +4,6 @@ Tests that context and context_tags fields are properly saved and retrieved
 for all memory types, enabling project-specific memory isolation.
 """
 
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -23,12 +22,9 @@ from kernle.storage import (
 
 
 @pytest.fixture
-def temp_db():
+def temp_db(tmp_path):
     """Create a temporary database path."""
-    path = Path(tempfile.mktemp(suffix=".db"))
-    yield path
-    if path.exists():
-        path.unlink()
+    return tmp_path / "test.db"
 
 
 @pytest.fixture

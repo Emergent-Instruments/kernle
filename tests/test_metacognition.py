@@ -7,9 +7,6 @@ Tests the ability to have awareness of what we know and don't know:
 - Learning opportunity identification
 """
 
-import tempfile
-from pathlib import Path
-
 import pytest
 
 from kernle.core import Kernle
@@ -17,12 +14,9 @@ from kernle.storage import SQLiteStorage
 
 
 @pytest.fixture
-def temp_db():
+def temp_db(tmp_path):
     """Create a temporary database path."""
-    path = Path(tempfile.mktemp(suffix=".db"))
-    yield path
-    if path.exists():
-        path.unlink()
+    return tmp_path / "test.db"
 
 
 @pytest.fixture

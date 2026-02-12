@@ -18,9 +18,7 @@ Tests:
 """
 
 import logging
-import tempfile
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -43,12 +41,9 @@ from kernle.storage.sync_engine import MAX_SYNC_ARRAY_SIZE
 
 
 @pytest.fixture
-def temp_db():
+def temp_db(tmp_path):
     """Create a temporary database path."""
-    path = Path(tempfile.mktemp(suffix=".db"))
-    yield path
-    if path.exists():
-        path.unlink()
+    return tmp_path / "test.db"
 
 
 @pytest.fixture
