@@ -16,7 +16,9 @@ from kernle.storage.sqlite import SQLiteStorage
 @pytest.fixture
 def storage(tmp_path):
     db_path = tmp_path / "test_raw_aging.db"
-    return SQLiteStorage(stack_id="test-stack", db_path=db_path)
+    s = SQLiteStorage(stack_id="test-stack", db_path=db_path)
+    yield s
+    s.close()
 
 
 @pytest.fixture

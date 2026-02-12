@@ -17,7 +17,9 @@ class TestCLIIntegration:
     def temp_storage(self, tmp_path):
         """Create a temporary SQLite storage."""
         db_path = tmp_path / "test.db"
-        return SQLiteStorage(stack_id="test_integration", db_path=db_path)
+        storage = SQLiteStorage(stack_id="test_integration", db_path=db_path)
+        yield storage
+        storage.close()
 
     @pytest.fixture
     def temp_kernle(self, tmp_path):
@@ -26,12 +28,14 @@ class TestCLIIntegration:
         checkpoint_dir = tmp_path / "checkpoints"
         checkpoint_dir.mkdir()
         storage = SQLiteStorage(stack_id="test_integration", db_path=db_path)
-        return Kernle(
+        k = Kernle(
             stack_id="test_integration",
             storage=storage,
             checkpoint_dir=checkpoint_dir,
             strict=False,
         )
+        yield k
+        storage.close()
 
     def test_episode_command_persists(self, temp_kernle):
         """CLI episode command should persist to actual storage."""

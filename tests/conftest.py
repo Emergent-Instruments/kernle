@@ -6,7 +6,6 @@ Updated to work with the storage abstraction layer.
 
 import uuid
 from datetime import datetime, timezone
-from unittest.mock import Mock
 
 import pytest
 
@@ -38,6 +37,26 @@ def sqlite_storage(temp_db_path):
     )
     yield storage
     storage.close()
+
+
+@pytest.fixture
+def sqlite_storage_factory():
+    """Factory for SQLiteStorage with centralized teardown.
+
+    Useful in high-duplication test modules that need custom stack IDs
+    or DB filenames while keeping fixture cleanup consistent.
+    """
+    storages = []
+
+    def _create(*, stack_id: str, db_path):
+        storage = SQLiteStorage(stack_id=stack_id, db_path=db_path)
+        storages.append(storage)
+        return storage
+
+    yield _create
+
+    for storage in storages:
+        storage.close()
 
 
 @pytest.fixture
@@ -204,141 +223,3 @@ def populated_storage(
     storage.save_note(insight_note)
 
     return storage
-
-
-# Legacy fixtures for backwards compatibility with old test patterns
-# These mock the Supabase client interface
-
-
-@pytest.fixture
-def mock_supabase_client():
-    """Mock Supabase client that simulates database operations.
-
-    DEPRECATED: Use sqlite_storage fixture instead for new tests.
-    Kept for backwards compatibility with existing tests.
-    """
-    client = Mock()
-
-    # In-memory storage for different tables
-    storage = {
-        "values": [],
-        "beliefs": [],
-        "goals": [],
-        "episodes": [],
-        "drives": [],
-        "relationships": [],
-        "notes": [],
-    }
-
-    def create_table_mock(table_name: str):
-        """Create a mock table interface."""
-        table_mock = Mock()
-        table_data = storage[table_name]
-
-        def select_mock(fields="*", count=None):
-            result = Mock()
-            result.data = table_data.copy()
-            result.count = len(table_data) if count == "exact" else None
-
-            # Chain methods
-            def eq_mock(field, value):
-                filtered_data = [item for item in table_data if item.get(field) == value]
-                result.data = filtered_data
-                result.count = len(filtered_data) if count == "exact" else None
-                return result
-
-            def ilike_mock(field, value):
-                pattern = value.replace("%", "")
-                filtered_data = [
-                    item
-                    for item in table_data
-                    if pattern.lower() in str(item.get(field, "")).lower()
-                ]
-                result.data = filtered_data
-                return result
-
-            def gte_mock(field, value):
-                result.data = [item for item in result.data if item.get(field, "") >= value]
-                return result
-
-            def lte_mock(field, value):
-                result.data = [item for item in result.data if item.get(field, "") <= value]
-                return result
-
-            def order_mock(field, desc=False):
-                if result.data:
-                    reverse = desc
-                    try:
-                        result.data.sort(key=lambda x: x.get(field, ""), reverse=reverse)
-                    except (TypeError, KeyError):
-                        pass  # Skip sorting if comparison fails
-                return result
-
-            def limit_mock(count):
-                result.data = result.data[:count]
-                return result
-
-            def execute_mock():
-                return result
-
-            # Attach chaining methods
-            result.eq = eq_mock
-            result.ilike = ilike_mock
-            result.gte = gte_mock
-            result.lte = lte_mock
-            result.order = order_mock
-            result.limit = limit_mock
-            result.execute = execute_mock
-
-            return result
-
-        def insert_mock(data):
-            if isinstance(data, list):
-                for item in data:
-                    if "id" not in item:
-                        item["id"] = str(uuid.uuid4())
-                    item["created_at"] = datetime.now(timezone.utc).isoformat()
-                    table_data.append(item)
-            else:
-                if "id" not in data:
-                    data["id"] = str(uuid.uuid4())
-                data["created_at"] = datetime.now(timezone.utc).isoformat()
-                table_data.append(data)
-
-            result = Mock()
-            result.data = [data] if not isinstance(data, list) else data
-            result.execute = lambda: result
-            return result
-
-        def upsert_mock(data):
-            return insert_mock(data)
-
-        def update_mock(data):
-            # Returns an object that can be chained with .eq()
-            update_result = Mock()
-
-            def eq_update_mock(field, value):
-                for item in table_data:
-                    if item.get(field) == value:
-                        item.update(data)
-                        break
-
-                result = Mock()
-                result.data = [data]
-                result.execute = lambda: result
-                return result
-
-            update_result.eq = eq_update_mock
-            return update_result
-
-        table_mock.select = select_mock
-        table_mock.insert = insert_mock
-        table_mock.upsert = upsert_mock
-        table_mock.update = update_mock
-
-        return table_mock
-
-    # Set up table method
-    client.table = create_table_mock
-
-    return client, storage

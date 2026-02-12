@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "kernle"
-version = "0.13.0"
+version = "0.13.03"
 description = "Stratified memory for synthetic intelligences"
 readme = "README.md"
 license = "MIT"
@@ -119,9 +119,10 @@ ignore = ["E501"]
 branch = true
 
 [tool.coverage.report]
-fail_under = 73
+fail_under = 85
 
 [tool.pytest.ini_options]
+xfail_strict = true
 markers = [
     "stub: marks tests that verify stub behavior (will need replacement with integration tests)",
 ]

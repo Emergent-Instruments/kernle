@@ -33,7 +33,9 @@ def temp_db(tmp_path):
 @pytest.fixture
 def storage(temp_db):
     """Create a SQLiteStorage instance for testing."""
-    return SQLiteStorage(stack_id="test-agent", db_path=temp_db)
+    s = SQLiteStorage(stack_id="test-agent", db_path=temp_db)
+    yield s
+    s.close()
 
 
 class TestMetaMemoryFields:

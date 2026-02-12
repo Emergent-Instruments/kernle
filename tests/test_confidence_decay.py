@@ -40,18 +40,22 @@ def temp_checkpoint_dir(tmp_path):
 @pytest.fixture
 def storage(temp_db):
     """Create a SQLiteStorage instance for testing."""
-    return SQLiteStorage(stack_id="test-agent", db_path=temp_db)
+    s = SQLiteStorage(stack_id="test-agent", db_path=temp_db)
+    yield s
+    s.close()
 
 
 @pytest.fixture
 def kernle(temp_db, temp_checkpoint_dir):
     """Create a Kernle instance for testing."""
     storage = SQLiteStorage(stack_id="test-agent", db_path=temp_db)
-    return Kernle(
+    k = Kernle(
         stack_id="test-agent",
         storage=storage,
         checkpoint_dir=temp_checkpoint_dir,
     )
+    yield k
+    storage.close()
 
 
 class TestDecayConfig:

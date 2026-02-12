@@ -29,7 +29,9 @@ def temp_db():
 @pytest.fixture
 def storage(temp_db):
     """Create a SQLiteStorage instance for testing."""
-    return SQLiteStorage(stack_id="test_agent", db_path=temp_db)
+    s = SQLiteStorage(stack_id="test_agent", db_path=temp_db)
+    yield s
+    s.close()
 
 
 @pytest.fixture

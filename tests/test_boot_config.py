@@ -22,7 +22,9 @@ def tmp_db(tmp_path):
 @pytest.fixture
 def storage(tmp_db):
     """Create a SQLiteStorage instance with temp DB."""
-    return SQLiteStorage(stack_id="test-agent", db_path=tmp_db)
+    s = SQLiteStorage(stack_id="test-agent", db_path=tmp_db)
+    yield s
+    s.close()
 
 
 @pytest.fixture
@@ -359,7 +361,8 @@ class TestBootSchemaMigration:
         """boot_config table should exist after storage init."""
         import sqlite3
 
-        SQLiteStorage(stack_id="test", db_path=tmp_db)
+        storage = SQLiteStorage(stack_id="test", db_path=tmp_db)
+        storage.close()
         conn = sqlite3.connect(tmp_db)
         tables = conn.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='boot_config'"
@@ -394,7 +397,8 @@ class TestBootCLI:
         )
         k.boot_set("chat_id", "4")
         k.boot_set("gateway_ip", "192.168.50.11")
-        return k
+        yield k
+        storage.close()
 
     def _make_args(self, **kwargs):
         """Create a mock args namespace."""

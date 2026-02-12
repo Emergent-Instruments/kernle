@@ -10,7 +10,6 @@ import pytest
 
 from kernle import Kernle
 from kernle.cli.commands.auth import cmd_auth, cmd_auth_keys
-from kernle.storage import SQLiteStorage
 
 # ============================================================================
 # Fixtures
@@ -18,10 +17,8 @@ from kernle.storage import SQLiteStorage
 
 
 @pytest.fixture
-def storage(tmp_path):
-    s = SQLiteStorage(stack_id="test-auth", db_path=tmp_path / "auth.db")
-    yield s
-    s.close()
+def storage(tmp_path, sqlite_storage_factory):
+    return sqlite_storage_factory(stack_id="test-auth", db_path=tmp_path / "auth.db")
 
 
 @pytest.fixture

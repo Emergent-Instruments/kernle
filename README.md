@@ -99,6 +99,8 @@ uv run pytest tests/ -q
 cat dev/README.md
 ```
 
+Coverage policy is configured in `pyproject.toml` and enforced in both local `make test-cov` and CI coverage runs.
+
 ## Temporal Vision
 
 Kernle is cognitive infrastructure for beings with a life — not just a session. The design spans five temporal horizons:
@@ -122,7 +124,7 @@ kernle/
 │   ├── cli/          # CLI commands
 
 │   ├── features/     # Anxiety, emotions, forgetting
-│   ├── storage/      # SQLite + Postgres backends
+│   ├── storage/      # SQLite-first storage + stack interfaces
 │   └── mcp/          # MCP server for IDE integration
 └── tests/
 ```
@@ -131,9 +133,8 @@ The **hosted cloud API** (api.kernle.ai) is maintained separately.
 
 ## Status
 
-- **Tests:** 2971 passing
-- **Coverage:** 63%
-- **Cloud API:** [api.kernle.ai](https://api.kernle.ai) (Railway + Supabase)
+- **Coverage Gate:** branch coverage must remain at or above `85%`
+- **Ratcheting Policy:** coverage floor only moves upward; any decrease requires explicit maintainer approval
 - **Docs:** [docs.kernle.ai](https://docs.kernle.ai) (Mintlify)
 
 See [ROADMAP.md](ROADMAP.md) for development plans.

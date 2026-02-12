@@ -609,7 +609,6 @@ class TestSuggestionLifecycle:
         assert updated is not None
         assert updated.status == "dismissed"
 
-    @pytest.mark.xfail(reason="Phase 2a (#538) will add ValueError for unknown types")
     def test_accept_unknown_type_raises(self, stack):
         s = _make_suggestion(memory_type="widget", content={"foo": "bar"})
         stack.save_suggestion(s)

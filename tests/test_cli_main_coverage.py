@@ -13,7 +13,6 @@ import pytest
 
 from kernle.cli.__main__ import cmd_init, main, validate_input
 from kernle.core import Kernle
-from kernle.storage import SQLiteStorage
 
 # ============================================================================
 # Fixtures
@@ -21,10 +20,8 @@ from kernle.storage import SQLiteStorage
 
 
 @pytest.fixture
-def storage(tmp_path):
-    s = SQLiteStorage(stack_id="test-main", db_path=tmp_path / "main.db")
-    yield s
-    s.close()
+def storage(tmp_path, sqlite_storage_factory):
+    return sqlite_storage_factory(stack_id="test-main", db_path=tmp_path / "main.db")
 
 
 @pytest.fixture
@@ -92,7 +89,7 @@ class TestCmdInit:
         assert "Welcome to Kernle" in captured
         assert "Claude Code Setup" in captured
         assert "MCP server" in captured
-        assert "Checkpoint saved" in captured or "Setup Complete" in captured
+        assert "Setup Complete" in captured
 
     def test_init_non_interactive_openclaw(self, k, capsys):
         """Non-interactive init with openclaw env."""
@@ -163,7 +160,7 @@ class TestCmdInit:
         cmd_init(args, k)
         captured = capsys.readouterr().out
         assert "Seeding Initial Values" in captured
-        assert "memory_sovereignty" in captured or "continuous_learning" in captured
+        assert len(k._storage.get_values()) >= 1
 
     def test_init_seed_values_skip_existing(self, k, capsys):
         """Init skips seeding when values already exist."""
@@ -370,7 +367,7 @@ class TestRawArgvPreprocessing:
 
         # Should run raw list without error (output may be empty list)
         captured = capsys.readouterr().out
-        assert "No raw entries" in captured or "Raw Entries" in captured
+        assert "No raw entries found." in captured
 
     def test_raw_with_stack_flag_before(self, k, capsys):
         """'kernle --stack X raw "content"' preprocessing correctly skips flag."""
@@ -403,8 +400,7 @@ class TestRawArgvPreprocessing:
 
         # Should dispatch to cmd_raw with raw_action=None and content=None
         captured = capsys.readouterr().out
-        # Without content, cmd_raw prints an error
-        assert "required" in captured.lower() or "Content" in captured
+        assert "Content is required" in captured
 
 
 # ============================================================================
@@ -468,35 +464,51 @@ class TestDispatchBranches:
                 with patch("kernle.cli.__main__.resolve_stack_id", return_value="test-main"):
                     main()
 
-    def test_dispatch_extract(self, k, capsys):
-        """Dispatch 'extract' command."""
-        self._run_main(["extract", "summary of conversation"], k)
-        captured = capsys.readouterr().out
-        assert "Extracted" in captured or "extract" in captured.lower()
+    @pytest.mark.parametrize(
+        ("argv", "patch_target"),
+        [
+            (["extract", "summary of conversation"], "kernle.cli.__main__.cmd_extract"),
+            (["resume"], "kernle.cli.__main__.cmd_resume"),
+            (["init", "--non-interactive", "-y"], "kernle.cli.__main__.cmd_init_md"),
+            (["doctor"], "kernle.cli.__main__.cmd_doctor"),
+            (["doctor", "structural"], "kernle.cli.__main__.cmd_doctor_structural"),
+            (["relation", "list"], "kernle.cli.__main__.cmd_relation"),
+            (["entity-model", "list"], "kernle.cli.__main__.cmd_entity_model"),
+            (["emotion", "summary"], "kernle.cli.__main__.cmd_emotion"),
+            (["meta", "uncertain"], "kernle.cli.__main__.cmd_meta"),
+            (["anxiety"], "kernle.cli.__main__.cmd_anxiety"),
+            (["stats", "health-checks"], "kernle.cli.__main__.cmd_stats"),
+            (["forget", "candidates"], "kernle.cli.__main__.cmd_forget"),
+            (["epoch", "list"], "kernle.cli.__main__.cmd_epoch"),
+            (["summary", "list"], "kernle.cli.__main__.cmd_summary"),
+            (["narrative", "show"], "kernle.cli.__main__.cmd_narrative"),
+            (["playbook", "list"], "kernle.cli.__main__.cmd_playbook"),
+            (["process", "status"], "kernle.cli.__main__.cmd_process"),
+            (["suggestions", "list"], "kernle.cli.__main__.cmd_suggestions"),
+            (["belief", "list"], "kernle.cli.__main__.cmd_belief"),
+            (["dump"], "kernle.cli.__main__.cmd_dump"),
+            (["export", "export.json", "--format", "json"], "kernle.cli.__main__.cmd_export"),
+            (["export-cache"], "kernle.cli.__main__.cmd_export_cache"),
+            (["export-full"], "kernle.cli.__main__.cmd_export_full"),
+            (["boot", "list"], "kernle.cli.__main__.cmd_boot"),
+            (["sync", "conflicts"], "kernle.cli.__main__.cmd_sync"),
+            (["auth", "status"], "kernle.cli.__main__.cmd_auth"),
+            (["import", "import.md", "--dry-run"], "kernle.cli.__main__.cmd_import"),
+            (["migrate", "seed-beliefs", "--dry-run"], "kernle.cli.__main__.cmd_migrate"),
+            (["setup", "claude-code"], "kernle.cli.__main__.cmd_setup"),
+            (["search", "test query"], "kernle.cli.__main__.cmd_search"),
+            (["when", "today"], "kernle.cli.__main__.cmd_temporal"),
+            (["promote"], "kernle.cli.__main__.cmd_promote"),
+        ],
+    )
+    def test_dispatch_routes_to_handler(self, argv, patch_target, k):
+        with patch(patch_target) as mock_handler:
+            self._run_main(argv, k)
 
-    def test_dispatch_resume(self, k, capsys):
-        """Dispatch 'resume' command."""
-        self._run_main(["resume"], k)
-        captured = capsys.readouterr().out
-        assert "No checkpoint found" in captured or "Resume Point" in captured
-
-    def test_dispatch_init(self, k, capsys):
-        """Dispatch 'init' command."""
-        self._run_main(["init", "--non-interactive", "-y"], k)
-        captured = capsys.readouterr().out
-        assert "Memory" in captured or "kernle" in captured.lower()
-
-    def test_dispatch_doctor(self, k, capsys):
-        """Dispatch 'doctor' command (no subcommand)."""
-        self._run_main(["doctor"], k)
-        captured = capsys.readouterr().out
-        assert "instruction" in captured.lower() or "check" in captured.lower()
-
-    def test_dispatch_doctor_structural(self, k, capsys):
-        """Dispatch 'doctor structural' subcommand."""
-        self._run_main(["doctor", "structural"], k)
-        captured = capsys.readouterr().out
-        assert isinstance(captured, str)
+        mock_handler.assert_called_once()
+        call_args = mock_handler.call_args.args
+        assert len(call_args) == 2
+        assert call_args[1] is k
 
     def test_dispatch_doctor_session_start_gate(self, k, capsys):
         """Dispatch 'doctor session start' shows devtools install message when not installed."""
@@ -549,208 +561,56 @@ class TestDispatchBranches:
                 self._run_main(["doctor", "report", "latest"], k)
         assert exc.value.code == 2
 
-    def test_dispatch_trust(self, k, capsys):
+    def test_dispatch_trust(self, k):
         """Dispatch 'trust' command."""
-        self._run_main(["trust", "list"], k)
-        captured = capsys.readouterr().out
-        assert "trust" in captured.lower() or "No trust assessments" in captured
+        with patch("kernle.cli.commands.trust.cmd_trust") as mock_trust:
+            self._run_main(["trust", "list"], k)
 
-    def test_dispatch_relation(self, k, capsys):
-        """Dispatch 'relation' command."""
-        self._run_main(["relation", "list"], k)
-        captured = capsys.readouterr().out
-        assert "No relationships" in captured or "Relationships" in captured
+        mock_trust.assert_called_once()
+        call_args = mock_trust.call_args.args
+        assert len(call_args) == 2
+        assert call_args[1] is k
 
-    def test_dispatch_entity_model(self, k, capsys):
-        """Dispatch 'entity-model' command."""
-        self._run_main(["entity-model", "list"], k)
-        captured = capsys.readouterr().out
-        assert "No entity models" in captured or "Entity Models" in captured
-
-    def test_dispatch_identity_default(self, k, capsys):
+    def test_dispatch_identity_default(self, k):
         """Dispatch 'identity' with no subcommand defaults to show."""
-        self._run_main(["identity"], k)
-        captured = capsys.readouterr().out
-        assert "Identity Synthesis" in captured or "Identity Confidence" in captured
+        with patch("kernle.cli.__main__.cmd_identity") as mock_identity:
+            self._run_main(["identity"], k)
 
-    def test_dispatch_identity_show(self, k, capsys):
+        mock_identity.assert_called_once()
+        parsed_args = mock_identity.call_args.args[0]
+        assert parsed_args.identity_action == "show"
+        assert mock_identity.call_args.args[1] is k
+
+    def test_dispatch_identity_show(self, k):
         """Dispatch 'identity show'."""
-        self._run_main(["identity", "show"], k)
-        captured = capsys.readouterr().out
-        assert "Identity Synthesis" in captured or "Identity Confidence" in captured
+        with patch("kernle.cli.__main__.cmd_identity") as mock_identity:
+            self._run_main(["identity", "show"], k)
 
-    def test_dispatch_emotion(self, k, capsys):
-        """Dispatch 'emotion' command."""
-        self._run_main(["emotion", "summary"], k)
-        captured = capsys.readouterr().out
-        assert "Emotional Summary" in captured or "No emotional data" in captured
+        mock_identity.assert_called_once()
+        parsed_args = mock_identity.call_args.args[0]
+        assert parsed_args.identity_action == "show"
+        assert mock_identity.call_args.args[1] is k
 
-    def test_dispatch_meta(self, k, capsys):
-        """Dispatch 'meta' command."""
-        self._run_main(["meta", "uncertain"], k)
-        captured = capsys.readouterr().out
-        assert "No memories below" in captured or "Uncertain Memories" in captured
+    def test_dispatch_stack_is_hermetic(self, k, monkeypatch, tmp_path):
+        """Dispatch 'stack' command without touching ambient ~/.kernle state."""
+        isolated_data_dir = tmp_path / "kernle-data"
+        isolated_data_dir.mkdir()
+        monkeypatch.setenv("KERNLE_DATA_DIR", str(isolated_data_dir))
 
-    def test_dispatch_anxiety(self, k, capsys):
-        """Dispatch 'anxiety' command."""
-        self._run_main(["anxiety"], k)
-        captured = capsys.readouterr().out
-        assert "Memory Anxiety Report" in captured or "Anxiety" in captured
-
-    def test_dispatch_stats(self, k, capsys):
-        """Dispatch 'stats' command."""
-        self._run_main(["stats", "health-checks"], k)
-        captured = capsys.readouterr().out
-        assert "Health Check Compliance" in captured
-
-    def test_dispatch_forget(self, k, capsys):
-        """Dispatch 'forget' command."""
-        self._run_main(["forget", "candidates"], k)
-        captured = capsys.readouterr().out
-        assert "No forgetting candidates" in captured or "Forgetting Candidates" in captured
-
-    def test_dispatch_epoch(self, k, capsys):
-        """Dispatch 'epoch' command."""
-        self._run_main(["epoch", "list"], k)
-        captured = capsys.readouterr().out
-        assert "No epochs found" in captured or "Epochs" in captured
-
-    def test_dispatch_summary(self, k, capsys):
-        """Dispatch 'summary' command."""
-        self._run_main(["summary", "list"], k)
-        captured = capsys.readouterr().out
-        assert "No summaries found" in captured or "Summaries" in captured
-
-    def test_dispatch_narrative(self, k, capsys):
-        """Dispatch 'narrative' command."""
-        self._run_main(["narrative", "show"], k)
-        captured = capsys.readouterr().out
-        assert "No active" in captured or "narrative" in captured.lower()
-
-    def test_dispatch_playbook(self, k, capsys):
-        """Dispatch 'playbook' command."""
-        self._run_main(["playbook", "list"], k)
-        captured = capsys.readouterr().out
-        assert "No playbooks found" in captured or "Playbooks" in captured
-
-    def test_dispatch_process(self, k, capsys):
-        """Dispatch 'process' command."""
-        self._run_main(["process", "status"], k)
-        captured = capsys.readouterr().out
-        assert "Memory Processing Status" in captured
-
-    def test_dispatch_suggestions(self, k, capsys):
-        """Dispatch 'suggestions' command."""
-        self._run_main(["suggestions", "list"], k)
-        captured = capsys.readouterr().out
-        assert "No suggestions found" in captured or "Suggestions" in captured
-
-    def test_dispatch_belief(self, k, capsys):
-        """Dispatch 'belief' command."""
-        self._run_main(["belief", "list"], k)
-        captured = capsys.readouterr().out
-        assert "Beliefs" in captured or "belief" in captured.lower()
-
-    def test_dispatch_dump(self, k, capsys):
-        """Dispatch 'dump' command."""
-        self._run_main(["dump"], k)
-        captured = capsys.readouterr().out
-        assert isinstance(captured, str)
-
-    def test_dispatch_export(self, k, capsys, tmp_path):
-        """Dispatch 'export' command."""
-        out_file = str(tmp_path / "export.json")
-        self._run_main(["export", out_file, "--format", "json"], k)
-        captured = capsys.readouterr().out
-        assert "Exported memory to" in captured
-
-    def test_dispatch_export_cache(self, k, capsys):
-        """Dispatch 'export-cache' command."""
-        self._run_main(["export-cache"], k)
-        captured = capsys.readouterr().out
-        assert isinstance(captured, str)
-
-    def test_dispatch_export_full(self, k, capsys):
-        """Dispatch 'export-full' command."""
-        self._run_main(["export-full"], k)
-        captured = capsys.readouterr().out
-        assert isinstance(captured, str)
-
-    def test_dispatch_boot(self, k, capsys):
-        """Dispatch 'boot' command."""
-        self._run_main(["boot", "list"], k)
-        captured = capsys.readouterr().out
-        assert "(no boot config)" in captured or "Boot Config" in captured
-
-    def test_dispatch_sync(self, k, capsys, tmp_path):
-        """Dispatch 'sync' command."""
-        # sync conflicts is the simplest to test without backend
-        creds_path = tmp_path / "sync_creds"
-        creds_path.mkdir()
-        with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
-            self._run_main(["sync", "conflicts"], k)
-        captured = capsys.readouterr().out
-        assert "conflict" in captured.lower() or "No conflicts" in captured
-
-    def test_dispatch_auth(self, k, capsys, tmp_path):
-        """Dispatch 'auth' command."""
-        self._run_main(["auth", "status"], k)
-        captured = capsys.readouterr().out
-        assert "Not authenticated" in captured or "authenticated" in captured.lower()
-
-    def test_dispatch_stack(self, k, capsys, tmp_path):
-        """Dispatch 'stack' command."""
-        kernle_home = tmp_path / ".kernle"
-        (kernle_home / "test-main" / "raw").mkdir(parents=True)
-        (kernle_home / "test-main" / "raw" / "entry.md").write_text("test")
-        with patch("kernle.cli.commands.stack.get_kernle_home", return_value=kernle_home):
+        with patch("kernle.cli.__main__.cmd_stack") as mock_stack:
             self._run_main(["stack", "list"], k)
-        captured = capsys.readouterr().out
-        assert "stack" in captured.lower() or "Stack" in captured
 
-    def test_dispatch_import(self, k, capsys, tmp_path):
-        """Dispatch 'import' command."""
-        test_file = tmp_path / "import.md"
-        test_file.write_text("## Notes\n- Test note\n")
-        self._run_main(["import", str(test_file), "--dry-run"], k)
-        captured = capsys.readouterr().out
-        assert "import" in captured.lower() or "dry" in captured.lower() or "Imported" in captured
+        mock_stack.assert_called_once()
+        call_args = mock_stack.call_args.args
+        assert len(call_args) == 2
+        assert call_args[1] is k
 
-    def test_dispatch_migrate(self, k, capsys):
-        """Dispatch 'migrate' command."""
-        self._run_main(["migrate", "seed-beliefs", "--dry-run"], k)
-        captured = capsys.readouterr().out
-        assert "belief" in captured.lower() or "seed" in captured.lower()
-
-    def test_dispatch_setup(self, k, capsys):
-        """Dispatch 'setup' command."""
-        self._run_main(["setup", "claude-code"], k)
-        captured = capsys.readouterr().out
-        assert "claude" in captured.lower() or "hook" in captured.lower() or "Install" in captured
-
-    def test_dispatch_search(self, k, capsys):
-        """Dispatch 'search' command through main()."""
-        self._run_main(["search", "test query"], k)
-        captured = capsys.readouterr().out
-        assert "No results" in captured or "Found" in captured
-
-    def test_dispatch_when(self, k, capsys):
-        """Dispatch 'when' (temporal) command."""
-        self._run_main(["when", "today"], k)
-        captured = capsys.readouterr().out
-        assert "What happened today" in captured
-
-    def test_dispatch_promote(self, k, capsys):
-        """Dispatch 'promote' command."""
-        self._run_main(["promote"], k)
-        captured = capsys.readouterr().out
-        assert "Promotion Results" in captured
-
-    def test_dispatch_mcp(self, k, capsys):
+    def test_dispatch_mcp(self, k):
         """Dispatch 'mcp' command through main()."""
-        with patch("kernle.mcp.server.main") as mock_mcp_main:
+        with patch("kernle.cli.__main__.cmd_mcp") as mock_mcp:
             self._run_main(["mcp"], k)
-            mock_mcp_main.assert_called_once()
+
+        mock_mcp.assert_called_once()
 
 
 # ============================================================================

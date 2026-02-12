@@ -15,7 +15,9 @@ from kernle.storage.sqlite import SQLiteStorage
 def storage(tmp_path):
     """Create a fresh SQLiteStorage for testing."""
     db_path = tmp_path / "test.db"
-    return SQLiteStorage(stack_id="test-agent", db_path=db_path)
+    s = SQLiteStorage(stack_id="test-agent", db_path=db_path)
+    yield s
+    s.close()
 
 
 class TestCycleDetectionUnit:
