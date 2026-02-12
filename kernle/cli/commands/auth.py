@@ -10,8 +10,8 @@ from kernle.cli.commands.credentials import (
     get_credentials_path,
     load_credentials,
     prompt_backend_url,
+    require_https_url,
     save_credentials,
-    warn_non_https_url,
 )
 
 if TYPE_CHECKING:
@@ -49,7 +49,7 @@ def cmd_auth(args, k: "Kernle" = None):
 
         # SECURITY: Warn about non-HTTPS URLs (credentials sent in cleartext)
         url_source = "args" if args.backend_url else ("credentials" if existing else None)
-        warn_non_https_url(backend_url, url_source)
+        require_https_url(backend_url, url_source)
 
         print(f"Registering with {backend_url}...")
         print()
@@ -175,7 +175,7 @@ def cmd_auth(args, k: "Kernle" = None):
 
         # SECURITY: Warn about non-HTTPS URLs (credentials sent in cleartext)
         url_source = "args" if args.backend_url else ("credentials" if existing else None)
-        warn_non_https_url(backend_url, url_source)
+        require_https_url(backend_url, url_source)
 
         # Prompt for API key if not provided
         if not api_key:
@@ -392,6 +392,8 @@ def cmd_auth_keys(args):
             print("✗ Missing credentials")
             print("  Run `kernle auth login` to re-authenticate")
             sys.exit(1)
+
+        require_https_url(backend_url, source="credentials")
 
         return backend_url.rstrip("/"), api_key
 
