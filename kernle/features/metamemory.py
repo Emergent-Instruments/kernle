@@ -470,28 +470,25 @@ class MetaMemoryMixin:
         self: "Kernle",
         memory_type: str,
         memory_id: str,
+        *,
+        max_depth: int = 10,
     ) -> Dict[str, Any]:
-        """Propagate confidence changes to derived memories.
+        """Propagate confidence caps to derived memories via BFS.
 
-        **STATUS: STUB - Not yet implemented.**
-
-        This method is planned but not yet functional. It currently returns
-        the source memory's confidence but does not actually propagate changes
-        to derived memories. The `derived_from` field tracking is in place;
-        the propagation logic will be implemented in a future release.
-
-        When implemented, this will:
-        1. Find all memories where `derived_from` contains the source reference
-        2. Update their confidence based on the source's change
-        3. Cascade updates to further derivations
+        Walks the derivation graph starting from the source memory. Any
+        derived memory whose confidence exceeds the effective cap (the
+        minimum confidence along the path from the source) is capped to
+        that value. Traversal respects a visited set (cycle-safe) and
+        stops at *max_depth* levels.
 
         Args:
             memory_type: Type of source memory
             memory_id: ID of source memory
+            max_depth: Maximum derivation depth to traverse (default 10)
 
         Returns:
-            Result dict with source confidence info. Note: `updated` is always 0
-            until this feature is implemented.
+            Dict with ``source_confidence``, ``source_ref``, and ``updated``
+            count, or an ``error`` key if the source memory is not found.
         """
         record = self._storage.get_memory(memory_type, memory_id)
         if not record:
@@ -500,17 +497,39 @@ class MetaMemoryMixin:
         source_confidence = getattr(record, "confidence", 0.8)
         source_ref = f"{memory_type}:{memory_id}"
 
-        # TODO: Implement actual propagation
-        # - Query all memory tables for records where derived_from contains source_ref
-        # - Update confidence based on propagation rules (min? weighted average?)
-        # - Handle cascading updates
+        from collections import deque
+
+        queue: deque = deque()
+        queue.append((memory_type, memory_id, source_confidence, 0))
+        best_cap: Dict[tuple, float] = {(memory_type, memory_id): source_confidence}
         updated = 0
+
+        while queue:
+            cur_type, cur_id, cap, depth = queue.popleft()
+            if depth >= max_depth:
+                continue
+            derived = self._storage.get_memories_derived_from(cur_type, cur_id)
+            for d_type, d_id in derived:
+                d_record = self._storage.get_memory(d_type, d_id)
+                if not d_record:
+                    continue
+                d_conf = getattr(d_record, "confidence", 0.8)
+                effective = min(cap, d_conf)
+
+                prev = best_cap.get((d_type, d_id))
+                if prev is not None and prev <= effective:
+                    continue
+                best_cap[(d_type, d_id)] = effective
+
+                if d_conf > cap:
+                    self._storage.update_memory_meta(d_type, d_id, confidence=cap)
+                    updated += 1
+                queue.append((d_type, d_id, effective, depth + 1))
 
         return {
             "source_confidence": source_confidence,
             "source_ref": source_ref,
             "updated": updated,
-            "note": "Propagation not yet implemented - see roadmap",
         }
 
     def set_memory_source(
