@@ -4,9 +4,7 @@ Tests both the core BFS propagation in MetaMemoryMixin.propagate_confidence()
 and the CLI output formatting for the propagate action.
 """
 
-import tempfile
 from argparse import Namespace
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
@@ -19,36 +17,16 @@ from kernle.storage import Belief, Episode, SQLiteStorage
 
 
 @pytest.fixture
-def temp_db():
-    """Create a temporary database path."""
-    path = Path(tempfile.mktemp(suffix=".db"))
-    yield path
-    if path.exists():
-        path.unlink()
-
-
-@pytest.fixture
-def temp_checkpoint_dir(tmp_path):
-    """Temporary checkpoint directory."""
-    d = tmp_path / "checkpoints"
-    d.mkdir()
-    return d
-
-
-@pytest.fixture
-def storage(temp_db):
-    """Create a SQLiteStorage instance for testing."""
-    return SQLiteStorage(stack_id="test-agent", db_path=temp_db)
-
-
-@pytest.fixture
-def k(temp_db, temp_checkpoint_dir):
+def k(tmp_path):
     """Create a Kernle instance for testing."""
-    storage = SQLiteStorage(stack_id="test-agent", db_path=temp_db)
+    db_path = tmp_path / "test_confidence.db"
+    checkpoint_dir = tmp_path / "checkpoints"
+    checkpoint_dir.mkdir()
+    storage = SQLiteStorage(stack_id="test-agent", db_path=db_path)
     return Kernle(
         stack_id="test-agent",
         storage=storage,
-        checkpoint_dir=temp_checkpoint_dir,
+        checkpoint_dir=checkpoint_dir,
     )
 
 
