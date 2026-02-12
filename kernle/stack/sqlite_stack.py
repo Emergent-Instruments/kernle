@@ -812,6 +812,64 @@ class SQLiteStack(
                 created_at=datetime.now(timezone.utc),
             )
             memory_id = self.save_note(note)
+        elif memory_type == "goal":
+            goal = Goal(
+                id=str(uuid.uuid4()),
+                stack_id=self.stack_id,
+                title=content.get("title", ""),
+                description=content.get("description"),
+                goal_type=content.get("goal_type", "task"),
+                priority=content.get("priority", "medium"),
+                status=content.get("status", "active"),
+                derived_from=derived_from,
+                source_type="processing",
+                source_entity="kernle:suggestion-promotion",
+                created_at=datetime.now(timezone.utc),
+            )
+            memory_id = self.save_goal(goal)
+        elif memory_type == "value":
+            value = Value(
+                id=str(uuid.uuid4()),
+                stack_id=self.stack_id,
+                name=content.get("name", ""),
+                statement=content.get("statement", ""),
+                priority=content.get("priority", 50),
+                derived_from=derived_from,
+                source_type="processing",
+                source_entity="kernle:suggestion-promotion",
+                created_at=datetime.now(timezone.utc),
+            )
+            memory_id = self.save_value(value)
+        elif memory_type == "relationship":
+            relationship = Relationship(
+                id=str(uuid.uuid4()),
+                stack_id=self.stack_id,
+                entity_name=content.get("entity_name", ""),
+                entity_type=content.get("entity_type", "unknown"),
+                relationship_type=content.get("relationship_type", ""),
+                notes=content.get("notes"),
+                sentiment=content.get("sentiment", 0.0),
+                derived_from=derived_from,
+                source_type="processing",
+                source_entity="kernle:suggestion-promotion",
+                created_at=datetime.now(timezone.utc),
+            )
+            memory_id = self.save_relationship(relationship)
+        elif memory_type == "drive":
+            drive = Drive(
+                id=str(uuid.uuid4()),
+                stack_id=self.stack_id,
+                drive_type=content.get("drive_type", ""),
+                intensity=content.get("intensity", 0.5),
+                focus_areas=content.get("focus_areas"),
+                derived_from=derived_from,
+                source_type="processing",
+                source_entity="kernle:suggestion-promotion",
+                created_at=datetime.now(timezone.utc),
+            )
+            memory_id = self.save_drive(drive)
+        else:
+            raise ValueError(f"Unsupported suggestion type: {memory_type}")
 
         if memory_id:
             status = "modified" if modifications else "promoted"

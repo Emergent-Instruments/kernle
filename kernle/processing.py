@@ -1295,7 +1295,7 @@ class MemoryProcessor:
         Returns list of dicts like [{"type": "episode", "id": "suggestion-id"}]
         where id is the suggestion ID (not a memory ID).
         """
-        from kernle.types import MemorySuggestion
+        from kernle.types import SUGGESTION_MEMORY_TYPES, MemorySuggestion
 
         suggestions_created: List[Dict[str, str]] = []
         self._last_deduplicated = 0
@@ -1316,6 +1316,9 @@ class MemoryProcessor:
         memory_type = transition_to_type.get(transition)
         if memory_type is None:
             return suggestions_created
+        assert (
+            memory_type in SUGGESTION_MEMORY_TYPES
+        ), f"transition_to_type produced '{memory_type}' not in SUGGESTION_MEMORY_TYPES"
 
         for item in parsed:
             try:
