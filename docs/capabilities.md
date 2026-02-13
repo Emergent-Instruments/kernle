@@ -1,6 +1,6 @@
 # Kernle Capabilities & Architecture
 
-Kernle is stratified persistent memory infrastructure for synthetic intelligences. It provides cognitive continuity, emotional awareness, identity synthesis, and experience consolidation across sessions through a five-tier memory hierarchy with provenance tracking, trust governance, and multi-temporal processing.
+Kernle is stratified persistent memory infrastructure for synthetic intelligences. It provides cognitive continuity, emotional awareness, identity synthesis, and experience consolidation across sessions through a layered memory model with provenance tracking, trust governance, and multi-temporal processing.
 
 ---
 
@@ -11,6 +11,7 @@ All memory is organized into a layered type system with promotion paths between 
 | Type | Purpose | Key Fields |
 |------|---------|------------|
 | **RawEntry** | Unprocessed captures awaiting promotion | content, processed flag, source |
+| **Suggestion** | Candidate memories awaiting review | memory_type, content, confidence, source_raw_ids |
 | **Episode** | Concrete experiences with outcomes | objective, outcome, lessons, repeat/avoid patterns |
 | **Belief** | Convictions and world-model assertions | statement, confidence, type, foundational flag |
 | **Value** | Core principles and priorities | name, statement, priority |
@@ -18,6 +19,11 @@ All memory is organized into a layered type system with promotion paths between 
 | **Note** | Observations, decisions, warnings | content, type, speaker, reason |
 | **Drive** | Motivational forces with temporal decay | type, intensity, focus areas, decay hours |
 | **Relationship** | Social graph entries | entity name, trust level, interaction type |
+| **TrustAssessment** | Trust posture for entities | entity, trust_level, context |
+| **EntityModel** | Behavioral model for an observed entity | subject, confidence, observations |
+| **Epoch** | Long-form temporal layer for life phases | title, trigger_type, active |
+| **Summary** | Fractal summaries across horizons | summary_type, scope, themes |
+| **SelfNarrative** | Identity narrative snapshots | narrative_type, text, coherence score |
 | **Playbook** | Procedural memory (how-to) | situation, steps, domain, mastery score |
 
 Every memory record carries:
@@ -37,7 +43,7 @@ The central coordination hub. Binds stacks, plugins, models, and processing into
 
 - **Stack lifecycle** -- attach, detach, select active stack; multi-stack aliasing for gradual migration
 - **Plugin lifecycle** -- load, unload, discover; plugin context mediation with source attribution
-- **Memory writes** -- `episode()`, `belief()`, `value()`, `goal()`, `note()`, `drive()`, `relationship()`, `raw()`
+- **Memory writes** -- `episode()`, `belief()`, `value()`, `goal()`, `note()`, `drive()`, `relationship()`, `raw()`, `trust_set()`, suggestion promotion/rejection flow, summary/narrative writes
 - **Memory queries** -- `search()` (semantic + component re-ranking), `load()` (working memory assembly within token budget)
 - **Trust** -- `trust_set()`, `trust_get()`, `trust_list()`
 - **Memory governance** -- `forget()`, `recover()`, `protect()`, `verify()`, `weaken()`
@@ -182,13 +188,16 @@ Higher-order inference scaffolding:
 
 ### Memory Processor (`kernle/processing.py`)
 
-Orchestrates hierarchical memory promotion through model-driven transitions:
+Orchestrates model-driven memory transitions:
 
 ```
-RawEntry → Episode → Belief → Value/Goal
+RawEntry → Episode / Note
+Episode → Belief
+Belief → Value
+Episode → Goal / Relationship / Drive
 ```
 
-**Transitions**: raw→episode, episode→belief, belief→value, belief→goal
+**Transitions**: raw_to_episode, raw_to_note, episode_to_belief, episode_to_goal, episode_to_relationship, episode_to_drive, belief_to_value
 
 **Trigger evaluation**:
 - Quantity triggers (unprocessed count thresholds)
@@ -196,8 +205,8 @@ RawEntry → Episode → Belief → Value/Goal
 - Time-based triggers (age of oldest unprocessed source)
 
 **Quality gates**:
-- Confidence thresholds for beliefs
-- Evidence count/quality for values
+- Confidence thresholds for beliefs and identity-layer transitions
+- Evidence count/quality for values and goals
 - Source ID existence validation
 - Forbidden source filtering (provenance bypass list)
 
@@ -353,8 +362,8 @@ Plugins implement `PluginProtocol`:
 Safe mediated access for plugins:
 - Implicit source attribution on all memory writes
 - Plugin-scoped config and secret access
-- Read-only search/load operations
-- Active-stack guards return safe defaults when detached
+- Memory write and query access to active stack APIs
+- Search/load/query fallbacks return safe defaults when detached
 
 ---
 
@@ -398,33 +407,51 @@ Command-line interface organized into subcommands:
 
 | Command | Purpose |
 |---------|---------|
-| `init` | Initialize new memory stack |
-| `raw` | Capture unstructured memory |
+| `load` | Load working memory (session start) |
+| `checkpoint` | Save/load/clear checkpoints |
 | `episode` | Save episodic memory |
-| `belief`, `value`, `goal`, `note` | Save typed memory |
-| `process` | Run processing transitions |
-| `suggestions` | Review and accept/dismiss suggestions |
-| `anxiety` | Check psychological wellness signals |
-| `sync` | Remote synchronization |
-| `import` | Ingest external data (corpus) |
-| `seed` | Initialize with starter data |
+| `note` | Capture notes and annotations |
+| `extract` | Capture context for ingestion |
+| `search` | Semantic + filtered memory search |
+| `status` | Show memory overview |
+| `resume` | Resume session summary |
+| `doctor` | Run diagnostic and repair flows |
+| `relation` | Manage relationships |
+| `entity-model` | Manage entity model artifacts |
+| `drive` | Manage motivational drives |
+| `trust` | Set/get/compute trust |
+| `when` | Query memories by time period |
 | `identity` | View identity synthesis |
-| `narrative` | View self-narrative |
-| `playbook` | Manage procedural memory |
-| `model` | Configure inference model |
-| `stack` | Stack management |
-| `doctor` | Diagnostic and repair |
-| `audit` | Internal auditing |
-| `forget` | Soft-delete memory |
-| `relations` | Manage relationships |
-| `emotion` | Tag and query emotions |
-| `trust` | Trust management |
-| `stats` | Memory statistics |
-| `migrate` | Schema migrations |
-| `setup` | Integration setup (Claude Code, OpenClaw) |
-| `hook` | Hook configuration |
-| `auth` | Authentication setup |
-| `diagnostic` | System diagnostics |
+| `emotion` | Tag/query emotional state |
+| `meta` | Meta-memory operations and confidence |
+| `belief` | Manage beliefs and revisions |
+| `mcp` | Start MCP stdio server |
+| `model` | Bind/list/unbind inference model |
+| `seed` | Seed memory from repo/docs corpus |
+| `raw` | Capture, list, and process raw entries |
+| `suggestions` | Review and accept/dismiss suggestions |
+| `dump` | Dump all memory to stdout |
+| `export` | Export memory by type |
+| `export-cache` | Export embedding cache |
+| `export-full` | Export a complete context bundle |
+| `playbook` | Create/search/manage playbooks |
+| `anxiety` | Evaluate system anxiety state |
+| `audit` | Run audit and quality checks |
+| `stats` | Inspect memory telemetry |
+| `forget` | Forget/restore candidate management |
+| `epoch` | Manage epoch era layers |
+| `summary` | Create/list memory summaries |
+| `narrative` | Manage self-narrative identity |
+| `sync` | Push/pull remote sync |
+| `auth` | Manage credentials and auth lifecycle |
+| `stack` | List and delete local stacks |
+| `import` | Import memory from files |
+| `migrate` | Run migration helpers |
+| `boot` | Show/manage boot config |
+| `setup` | Install platform hooks |
+| `hook` | Run lifecycle hook integration points |
+| `promote` | Promote recurring patterns |
+| `process` | Execute processing transitions |
 
 ---
 
@@ -470,7 +497,7 @@ Memory consistency checks:
 | **Feature Mixins** | Composable behaviors via Python mixin classes; independently testable, optional at composition |
 | **Facade + Backends** | Kernle class routes to stack (strict) or raw storage (direct) for legacy compatibility |
 | **Repository Pattern** | Storage accessed via abstract interfaces enabling backend substitution |
-| **Transition State Machine** | raw → episode → belief → value/goal with gates and safety checks |
+| **Transition State Machine** | raw_to_episode/raw_to_note, episode_to_belief/goal/relationship/drive, belief_to_value with gates and safety checks |
 | **Plugin Discovery** | Entry point groups (`kernle_plugins`, `kernle_stacks`, `kernle_models`, `kernle_stack_components`) |
 | **Checkpoint-Restore** | Lightweight JSON checkpoints for resumable sessions and crash recovery |
 | **Component Hook System** | on_save/on_search/on_load/on_maintenance for cross-cutting concerns |

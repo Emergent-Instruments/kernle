@@ -453,6 +453,40 @@ class TestAnxietyComponent:
         assert "anxiety" in context
         assert "overall_score" in context["anxiety"]
 
+    def test_build_alerts_overall_and_dimension_thresholds(self):
+        c = AnxietyComponent()
+        report: Dict[str, Any] = {
+            "overall_score": 85,
+            "dimensions": {
+                "consolidation_debt": {"score": 70},
+                "memory_uncertainty": {"score": 95},
+            },
+        }
+        alerts = c._build_alerts(report)
+        assert len(alerts) == 3
+        assert alerts[0]["type"] == "overall_anxiety"
+        assert alerts[0]["severity"] == "high"
+        assert alerts[0]["value"] == 85
+
+        types = {a["type"] for a in alerts}
+        assert "dimension:consolidation_debt" in types
+        assert "dimension:memory_uncertainty" in types
+
+        assert any(
+            a["type"] == "dimension:consolidation_debt" and a["severity"] == "medium"
+            for a in alerts
+        )
+        assert any(
+            a["type"] == "dimension:memory_uncertainty" and a["severity"] == "high" for a in alerts
+        )
+
+    def test_build_alerts_no_alerts_below_threshold(self):
+        c = AnxietyComponent()
+        alerts = c._build_alerts(
+            {"overall_score": 69, "dimensions": {"identity_coherence": {"score": 1}}}
+        )
+        assert alerts == []
+
 
 # ============================================================================
 # MetaMemoryComponent Tests
@@ -571,6 +605,28 @@ class TestConsolidationComponent:
         assert len(patterns) >= 1
         assert patterns[0]["lesson"] == "always test first"
         assert len(patterns[0]["domains"]) >= 2
+
+    def test_build_alerts_thresholds(self):
+        c = ConsolidationComponent()
+        alerts = c._build_alerts(
+            episodes_count=10,
+            patterns=[{"lesson": "a"}, {"lesson": "b"}],
+            common_lessons=["x"] * 6,
+        )
+        assert len(alerts) == 3
+        alert_types = {alert["type"] for alert in alerts}
+        assert alert_types == {
+            "cross_domain_clustering",
+            "lesson_convergence",
+            "consolidation_volume",
+        }
+
+    def test_build_alerts_below_thresholds(self):
+        c = ConsolidationComponent()
+        alerts = c._build_alerts(
+            episodes_count=9, patterns=[{"lesson": "a"}], common_lessons=["x"] * 5
+        )
+        assert alerts == []
 
 
 # ============================================================================
