@@ -75,6 +75,3 @@ supabase/.env.*.local
 .kernle/
 
 local/
-
-# Audit artifacts
-audits/
