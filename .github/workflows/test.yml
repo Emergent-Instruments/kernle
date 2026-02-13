@@ -11,11 +11,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+          token: ${{ secrets.SUBMODULE_PAT || github.token }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Verify submodule checkout
+        run: |
+          test -f .gitmodules || (echo ".gitmodules missing" && exit 1)
+          git submodule status --recursive
 
       - name: Install dependencies
         run: |
@@ -30,6 +39,11 @@ jobs:
         run: |
           black --check .
 
+      - name: Validate audit roadmap and finding index
+        run: |
+          make lint-audit-roadmap
+          make lint-audit-index
+
   test:
     needs: lint
     runs-on: ubuntu-latest
@@ -40,6 +54,10 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+          token: ${{ secrets.SUBMODULE_PAT || github.token }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -55,11 +73,19 @@ jobs:
         run: |
           pytest tests/ -v --tb=short
 
+      - name: Verify submodule checkout
+        run: |
+          git submodule status --recursive
+
   coverage:
     needs: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+          token: ${{ secrets.SUBMODULE_PAT || github.token }}
 
       - name: Set up Python
         uses: actions/setup-python@v5

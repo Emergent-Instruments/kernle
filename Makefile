@@ -1,4 +1,4 @@
-.PHONY: help install dev test lint lint-audit-roadmap format clean build publish publish-test docs docs-deploy
+.PHONY: help install dev test lint lint-audit-roadmap lint-audit-index format clean build publish publish-test docs docs-deploy
 
 # Default target
 help:
@@ -11,6 +11,7 @@ help:
 	@echo "  make test         Run tests"
 	@echo "  make lint         Run linter (ruff)"
 	@echo "  make lint-audit-roadmap  Validate roadmap hardening constraints"
+	@echo "  make lint-audit-index     Validate findings index against pass findings"
 	@echo "  make format       Format code (black + ruff)"
 	@echo "  make clean        Remove build artifacts"
 	@echo ""
@@ -45,6 +46,9 @@ lint:
 
 lint-audit-roadmap:
 	python scripts/audit_roadmap_validate.py
+
+lint-audit-index:
+	python scripts/audit_findings_index_validate.py
 
 format:
 	black .
