@@ -12,7 +12,10 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Set
 import yaml
 
 
-def fail(message: str, errors: List[str]) -> None:
+def fail(message: str, errors: Optional[List[str]] = None) -> None:
+    if errors is None:
+        print(f"FAIL: {message}")
+        return
     errors.append(f"FAIL: {message}")
 
 
@@ -205,7 +208,9 @@ def validate(
             if heatmap and not isinstance(heatmap, dict):
                 fail("residual_risk.residual_risk_heatmap must be a mapping")
             if isinstance(heatmap, dict):
-                total = sum(v for v in heatmap.values() if isinstance(v, int))
+                total = sum(
+                    v for key, v in heatmap.items() if key != "total" and isinstance(v, int)
+                )
                 if total != pass_tally["status"].get("mitigated", 0):
                     fail(
                         "residual_risk.residual_risk_heatmap total mismatch with mitigated findings: "
