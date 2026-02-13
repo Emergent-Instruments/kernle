@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import pathlib
+import re
 import sys
 from collections import Counter
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Set
@@ -39,6 +40,12 @@ def parse_yaml(path: pathlib.Path, errors: List[str]) -> Mapping[str, Any]:
 
 def collect_pass_findings(pass_file: pathlib.Path, errors: List[str]) -> List[Dict[str, Any]]:
     data = parse_yaml(pass_file, errors)
+    return collect_pass_findings_from_data(pass_file, data, errors)
+
+
+def collect_pass_findings_from_data(
+    pass_file: pathlib.Path, data: Mapping[str, Any], errors: List[str]
+) -> List[Dict[str, Any]]:
     findings_block = data.get("audit", {}).get("findings")
     if findings_block is None:
         return []
@@ -59,6 +66,96 @@ def collect_pass_findings(pass_file: pathlib.Path, errors: List[str]) -> List[Di
             item["bucket"] = bucket_name
             findings.append(item)
     return findings
+
+
+def validate_pass_findings_shape(
+    pass_file: pathlib.Path, findings: List[Dict[str, Any]], errors: List[str]
+) -> None:
+    allowed_buckets = {"critical", "high", "medium", "low", "docs_only"}
+    allowed_statuses = {"resolved", "mitigated", "open"}
+    for item in findings:
+        item_id = item.get("id")
+        bucket = item.get("bucket")
+        status = item.get("status")
+        severity = item.get("severity")
+
+        if bucket not in allowed_buckets:
+            fail(f"{pass_file}: unexpected findings bucket '{bucket}'", errors)
+            continue
+        if severity != bucket:
+            fail(
+                f"{pass_file}: finding {item_id} severity '{severity}' does not match bucket '{bucket}'",
+                errors,
+            )
+        if status not in allowed_statuses:
+            fail(f"{pass_file}: finding {item_id} has invalid status '{status}'", errors)
+        if not item_id:
+            fail(f"{pass_file}: finding missing id")
+
+
+def validate_calls_graph(
+    pass_file: pathlib.Path, data: Mapping[str, Any], errors: List[str]
+) -> None:
+    """Ensure all call graph entries reference canonical function IDs declared in the pass."""
+    audit = data.get("audit", {})
+    if not isinstance(audit, dict):
+        return
+    calls_graph = audit.get("calls_graph", [])
+    if calls_graph is None:
+        return
+    if not isinstance(calls_graph, list):
+        fail(f"{pass_file}: calls_graph must be a list", errors)
+        return
+
+    function_ids = set()
+    for func in audit.get("functions", []) or []:
+        if isinstance(func, dict) and isinstance(func.get("id"), str):
+            function_ids.add(func["id"])
+
+    id_pattern = re.compile(r"^F-[A-Z0-9-]+(?:-[0-9]{3})?[a-z]?$")
+    for idx, edge in enumerate(calls_graph, 1):
+        if not isinstance(edge, dict):
+            fail(f"{pass_file}: calls_graph[{idx}] must be a mapping", errors)
+            continue
+        source = edge.get("from")
+        if not isinstance(source, str):
+            fail(f"{pass_file}: calls_graph[{idx}].from must be a string", errors)
+            continue
+        if not id_pattern.match(source):
+            fail(
+                f"{pass_file}: calls_graph[{idx}].from is not a canonical function ID ({source})",
+                errors,
+            )
+            continue
+        if source not in function_ids:
+            fail(
+                f"{pass_file}: calls_graph[{idx}].from references unknown function '{source}'",
+                errors,
+            )
+            continue
+
+        targets = edge.get("to", [])
+        if not isinstance(targets, list):
+            fail(f"{pass_file}: calls_graph[{idx}].to must be a list", errors)
+            continue
+        for target in targets:
+            if not isinstance(target, str):
+                fail(
+                    f"{pass_file}: calls_graph[{idx}].to contains non-string target {target!r}",
+                    errors,
+                )
+                continue
+            if not id_pattern.match(target):
+                fail(
+                    f"{pass_file}: calls_graph[{idx}] target '{target}' is not a canonical function ID",
+                    errors,
+                )
+                continue
+            if target not in function_ids:
+                fail(
+                    f"{pass_file}: calls_graph[{idx}] target '{target}' references unknown function",
+                    errors,
+                )
 
 
 def collect_index_findings(index_path: pathlib.Path, errors: List[str]) -> List[Dict[str, Any]]:
@@ -101,8 +198,20 @@ def validate(
     index_data = parse_yaml(index_path, errors)
 
     pass_findings: List[Dict[str, Any]] = []
+    seen_finding_ids: Set[str] = set()
     for pass_path in pass_paths:
-        pass_findings.extend(collect_pass_findings(pass_path, errors))
+        pass_data = parse_yaml(pass_path, errors)
+        findings = collect_pass_findings_from_data(pass_path, pass_data, errors)
+        validate_pass_findings_shape(pass_path, findings, errors)
+        validate_calls_graph(pass_path, pass_data, errors)
+        for finding in findings:
+            finding_id = finding.get("id")
+            if not finding_id:
+                continue
+            if finding_id in seen_finding_ids:
+                fail(f"duplicate finding ID across pass files: {finding_id}")
+            seen_finding_ids.add(finding_id)
+        pass_findings.extend(findings)
 
     index_findings = collect_index_findings(index_path, errors)
 
@@ -204,6 +313,21 @@ def validate(
         if not isinstance(residual, dict):
             fail("residual_risk must be a mapping")
         else:
+            backlog = residual.get("mitigation_backlog", [])
+            if backlog and not isinstance(backlog, list):
+                fail("residual_risk.mitigation_backlog must be a list")
+            elif isinstance(backlog, list):
+                for item in backlog:
+                    if not isinstance(item, dict):
+                        fail("residual_risk.mitigation_backlog entries must be mappings")
+                        continue
+                    backlog_id = item.get("id")
+                    if backlog_id is None:
+                        fail("residual_risk.mitigation_backlog entry missing id")
+                        continue
+                    if backlog_id not in index_tally["ids"]:
+                        fail(f"residual risk references finding id not in index: {backlog_id}")
+
             heatmap = residual.get("residual_risk_heatmap")
             if heatmap and not isinstance(heatmap, dict):
                 fail("residual_risk.residual_risk_heatmap must be a mapping")
