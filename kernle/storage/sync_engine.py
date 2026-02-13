@@ -812,6 +812,13 @@ class SyncEngine:
                 conflict = self._create_conflict(
                     table, cloud_record.id, local_record, cloud_record, "local_wins_arrays_merged"
                 )
+                with self._host._connect() as conn:
+                    self._mark_synced(conn, table, cloud_record.id)
+                    conn.execute(
+                        "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
+                        (table, cloud_record.id),
+                    )
+                    conn.commit()
                 self.save_sync_conflict(conflict)
                 return (0, conflict)
         elif cloud_time:
@@ -860,6 +867,10 @@ class SyncEngine:
             return f"{record.drive_type} (intensity: {record.intensity})"
         elif table == "relationships":
             return f"{record.entity_name} ({record.relationship_type})"
+        elif table == "playbooks":
+            if record.name:
+                return f"{record.name} :: {record.description[:60] + '...' if len(record.description) > 60 else record.description}"
+            return f"{table}:{record.id}"
         return f"{table}:{record.id}"
 
     def _record_to_dict(self, record: Any) -> Dict[str, Any]:
@@ -892,3 +903,5 @@ class SyncEngine:
             self._host.save_drive(record)
         elif table == "relationships":
             self._host.save_relationship(record)
+        elif table == "playbooks":
+            self._host.save_playbook(record)

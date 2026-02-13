@@ -79,7 +79,7 @@ class MemoryOps:
 
         with self._connect() as conn:
             row = conn.execute(
-                f"SELECT is_protected, strength FROM {table} WHERE id = ? AND stack_id = ?",
+                f"SELECT is_protected, strength, deleted FROM {table} WHERE id = ? AND stack_id = ? AND deleted = 0",
                 (memory_id, self.stack_id),
             ).fetchone()
 
@@ -97,7 +97,7 @@ class MemoryOps:
                 f"""UPDATE {table}
                    SET strength = 0.0,
                        local_updated_at = ?
-                   WHERE id = ? AND stack_id = ?""",
+                   WHERE id = ? AND stack_id = ? AND deleted = 0""",
                 (now, memory_id, self.stack_id),
             )
             if cursor.rowcount > 0:
@@ -131,12 +131,13 @@ class MemoryOps:
         table = MEMORY_TYPE_TABLE_MAP.get(memory_type)
         if not table:
             return False
+        self._validate_table_name(table)
 
         now = self._now()
 
         with self._connect() as conn:
             row = conn.execute(
-                f"SELECT strength FROM {table} WHERE id = ? AND stack_id = ?",
+                f"SELECT strength FROM {table} WHERE id = ? AND stack_id = ? AND deleted = 0",
                 (memory_id, self.stack_id),
             ).fetchone()
 
@@ -147,7 +148,7 @@ class MemoryOps:
                 f"""UPDATE {table}
                    SET strength = 0.2,
                        local_updated_at = ?
-                   WHERE id = ? AND stack_id = ?""",
+                   WHERE id = ? AND stack_id = ? AND deleted = 0""",
                 (now, memory_id, self.stack_id),
             )
             if cursor.rowcount > 0:
@@ -174,6 +175,7 @@ class MemoryOps:
         table = MEMORY_TYPE_TABLE_MAP.get(memory_type)
         if not table:
             return False
+        self._validate_table_name(table)
 
         now = self._now()
 
@@ -182,7 +184,7 @@ class MemoryOps:
                 f"""UPDATE {table}
                    SET is_protected = ?,
                        local_updated_at = ?
-                   WHERE id = ? AND stack_id = ?""",
+                   WHERE id = ? AND stack_id = ? AND deleted = 0""",
                 (1 if protected else 0, now, memory_id, self.stack_id),
             )
             if cursor.rowcount > 0:

@@ -1188,6 +1188,7 @@ class TestSyncFull:
         captured = capsys.readouterr().out
         assert "0 changes" in captured
         assert "1 conflicts during apply" in captured
+        assert "payload_sha256=" in captured
         assert k._storage._get_sync_meta("last_sync_time") != sentinel_cursor
         pull_conflicts = k._storage.get_sync_conflicts(limit=10)
         assert any(

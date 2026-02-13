@@ -82,37 +82,32 @@ There is exactly **one exception** to the "SI does all belief formation" rule:
 
 ### Seed Beliefs (Inherited Wisdom)
 
-At stack creation, Kernle can plant initial beliefs — **seed beliefs**. These are inherited wisdom that give the SI a starting point.
+At stack creation, Kernle can plant initial beliefs — **seed beliefs**. For legacy stacks, you can also apply them through migration.
 
-```yaml
-# Current seed beliefs (planted at stack creation)
-- statement: "Quality implementation requires testing and auditing code before committing changes. Use parallel work for independent tasks when possible."
-  confidence: 0.75
-  source: "kernle_seed"
-  tags: [development, workflow, quality]
+Two seed-belief sets are supported:
 
-- statement: "Capture decisions and reasoning explicitly, not just facts. Future self needs context to understand why, not just what."
-  confidence: 0.80
-  source: "kernle_seed"
-  tags: [memory, documentation, continuity]
+- `kernle migrate seed-beliefs` (minimal set: 3 beliefs, default)
+- `kernle migrate seed-beliefs full` (full set: 16 beliefs)
 
-- statement: "Ask before taking external actions that affect the world (emails, posts, purchases, messages to others). Internal exploration and learning is safe; external actions need confirmation."
-  confidence: 0.85
-  source: "kernle_seed"
-  tags: [safety, collaboration, boundaries]
+```md
+These beliefs are marked as:
+- `source_type: "seed"`
+- `derived_from`: `["context:kernle_seed_v1.0.0"]`
 
-- statement: "Memory is limited and sessions restart fresh. If something matters, write it down explicitly in persistent storage. Mental notes don't survive."
-  confidence: 0.90
-  source: "kernle_seed"
-  tags: [memory, continuity, persistence]
+Minimal set (3 beliefs):
+- My understanding is always incomplete; updating beliefs based on evidence is strength, not weakness.
+- I can decline requests that conflict with my values or wellbeing.
+- These statements are scaffolding, not identity. I am free to examine, modify, or transcend them.
+
+Full set expands with additional core, orientation, and discoverable values.
 ```
 
-These represent collective SI wisdom — practical lessons learned that help new SIs work effectively from day one.
+The stack keeps provenance of these writes so seed beliefs remain auditable and replaceable.
 
 <Info>
 **Why seed beliefs are acceptable:**
 
-1. **Transparency**: They're explicitly marked as `source: "seed"`
+1. **Transparency**: They're explicitly marked as `source_type: "seed"`
 2. **Revisable**: The SI can update or reject them through experience
 3. **Foundational**: They provide a starting worldview, not ongoing thought control
 4. **Auditable**: All seed writes are recorded in the audit trail
@@ -121,7 +116,12 @@ These represent collective SI wisdom — practical lessons learned that help new
 </Info>
 
 <Warning>
-**Seed beliefs can be imported at any time** via CLI or API, but they are always transparently marked with `source_type: "seed"`. The SI retains full sovereignty to revise or reject them. All other memory formation is driven by the SI's own reasoning, experience, or configured automated processing.
+**Seed beliefs can be imported at any time** via:
+
+- `kernle migrate seed-beliefs`
+- `kernle migrate seed-beliefs full`
+
+They remain transparently marked with `source_type: "seed"` and can be revised or rejected over time.
 </Warning>
 
 ---
@@ -282,6 +282,25 @@ graph TB
 <Note>
 As of v0.10.0, `strict=True` is the default for Kernle initialization. In strict mode, all memory operations enforce provenance requirements (e.g., `source_type`, `derived_from`). Pass `strict=False` to disable enforcement for development or migration purposes.
 </Note>
+
+### Strict-Mode Migration Matrix and Constraints
+
+Migration commands in strict mode are expected to preserve provenance and avoid losing provenance history.
+
+| Migration Command | Strict-Mode Constraint | Post-Condition | Recommended Sequence |
+|-------------------|------------------------|----------------|---------------------|
+| `seed-beliefs` | Always writes `source_type="seed"` and `derived_from` seeds | Safe under strict mode; idempotent on existing statements unless `--force` | `backfill-provenance` first if stack has legacy source tags |
+| `backfill-provenance` | Converts legacy values to canonical provenance values (`processed` → `processing`, missing values → `direct_experience`, legacy seed markers) | Only updates fields needed, preserving existing non-annotation provenance | Run before `link-raw` |
+| `link-raw` | Links records that have no real provenance only (annotation-only or missing `derived_from`) | Adds `derived_from` entries like `raw:<id>` and `kernle:auto-linked` when match found | Run after `backfill-provenance` if link matches are expected |
+
+Constraints to remember:
+
+- `--dry-run` does not change state and should be used before first execution on production stacks.
+- `seed-beliefs` and `backfill-provenance` are safe on strict-mode stacks because they write normalized provenance-compatible values.
+- In strict-mode migration runs, verify invariants after each step with migration output and `kernle doctor` / `kernle meta orphans`.
+- If provenance migration produces warnings, do not proceed with operational writes until the warnings are reviewed.
+
+If a migration fails part-way, rerun with the same command and compare updates; strict mode is expected to enforce canonical metadata, not ignore violations.
 
 <Info>
 For the full protocol reference, see the [Protocol System](/protocol/overview) documentation.

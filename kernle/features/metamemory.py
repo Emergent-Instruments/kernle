@@ -12,7 +12,30 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 if TYPE_CHECKING:
     from kernle.core import Kernle
 
+from kernle.types import VALID_SOURCE_TYPE_VALUES, SourceType
+
 logger = logging.getLogger(__name__)
+
+
+def _normalize_source_type(source_type):
+    """Return canonical source_type string or raise on invalid values."""
+    if isinstance(source_type, SourceType):
+        return source_type.value
+
+    if not isinstance(source_type, str):
+        raise ValueError("source_type must be a string or SourceType")
+
+    normalized = source_type.strip().lower()
+    if not normalized:
+        raise ValueError("source_type cannot be empty")
+
+    if normalized not in VALID_SOURCE_TYPE_VALUES:
+        raise ValueError(
+            f"Invalid source_type: '{source_type}'. "
+            f"Valid values: {sorted(VALID_SOURCE_TYPE_VALUES)}"
+        )
+
+    return normalized
 
 
 # Default decay constants
@@ -536,7 +559,7 @@ class MetaMemoryMixin:
         self: "Kernle",
         memory_type: str,
         memory_id: str,
-        source_type: str,
+        source_type: str | SourceType,
         source_episodes: Optional[List[str]] = None,
         derived_from: Optional[List[str]] = None,
     ) -> bool:
@@ -552,10 +575,12 @@ class MetaMemoryMixin:
         Returns:
             True if updated, False if memory not found
         """
+        source_type_value = _normalize_source_type(source_type)
+
         return self._storage.update_memory_meta(
             memory_type=memory_type,
             memory_id=memory_id,
-            source_type=source_type,
+            source_type=source_type_value,
             source_episodes=source_episodes,
             derived_from=derived_from,
         )

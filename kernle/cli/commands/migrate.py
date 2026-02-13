@@ -233,7 +233,7 @@ def _migrate_seed_beliefs(args: "argparse.Namespace", k: "Kernle") -> None:
         else:
             print("# Full Seed Beliefs (for fresh agents)")
             print("=" * 60)
-            print(f"\n{'From roundtable synthesis with 11 AI models (2026-01-31)'}")
+            print(f"\nFrom roundtable synthesis for seed beliefs (v{SEED_BELIEFS_VERSION})")
             print(
                 f"{'Claude Opus, GPT-4, Gemini, DeepSeek, Qwen, Llama, Mistral, Grok, Command R+, Sonnet'}\n"
             )
@@ -316,8 +316,9 @@ def _migrate_seed_beliefs(args: "argparse.Namespace", k: "Kernle") -> None:
             k.belief(
                 statement=belief["statement"],
                 confidence=belief["confidence"],
-                type="foundational",
+                type="assumption",
                 foundational=True,
+                source_type="seed",
                 context="kernle_seed",
                 context_tags=belief.get("tags"),
                 source="seed belief from kernle roundtable synthesis",
@@ -366,6 +367,43 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
 
     updates = []
 
+    def _snapshot_metadata(record):
+        """Build a lightweight provenance snapshot for migration diffs."""
+        return {
+            "source_type": getattr(record, "source_type", None),
+            "derived_from": list(getattr(record, "derived_from", None) or []),
+        }
+
+    def _collect_update(
+        type_name,
+        record,
+        old_source_type,
+        new_source_type,
+        old_derived_from,
+        new_derived_from,
+    ):
+        return {
+            "type": type_name,
+            "id": record.id,
+            "summary": getattr(record, "statement", None)
+            or getattr(record, "objective", None)
+            or getattr(record, "content", None)
+            or getattr(record, "name", None)
+            or getattr(record, "title", None)
+            or getattr(record, "drive_type", None)
+            or getattr(record, "entity_name", None)
+            or "unknown",
+            "old_source_type": old_source_type,
+            "new_source_type": new_source_type,
+            "old_derived_from": old_derived_from,
+            "new_derived_from": new_derived_from,
+            "pre_image": _snapshot_metadata(record),
+            "post_image": {
+                "source_type": new_source_type,
+                "derived_from": list(new_derived_from or []),
+            },
+        }
+
     # Scan beliefs
     beliefs = k._storage.get_beliefs(limit=1000, include_inactive=True)
     for belief in beliefs:
@@ -398,17 +436,16 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
             needs_update = True
 
         if needs_update:
-            updates.append(
-                {
-                    "type": "belief",
-                    "id": belief.id,
-                    "summary": belief.statement[:60],
-                    "old_source_type": source_type,
-                    "new_source_type": new_source_type,
-                    "old_derived_from": derived_from,
-                    "new_derived_from": new_derived_from,
-                }
+            update = _collect_update(
+                "belief",
+                belief,
+                source_type,
+                new_source_type,
+                derived_from,
+                new_derived_from,
             )
+            update["summary"] = belief.statement[:60]
+            updates.append(update)
 
     # Scan episodes
     episodes = k._storage.get_episodes(limit=1000)
@@ -434,17 +471,16 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
                 needs_update = True
 
         if needs_update:
-            updates.append(
-                {
-                    "type": "episode",
-                    "id": ep.id,
-                    "summary": (ep.objective or "")[:60],
-                    "old_source_type": source_type,
-                    "new_source_type": new_source_type,
-                    "old_derived_from": derived_from,
-                    "new_derived_from": new_derived_from if new_derived_from else None,
-                }
+            update = _collect_update(
+                "episode",
+                ep,
+                source_type,
+                new_source_type,
+                derived_from,
+                new_derived_from if new_derived_from else None,
             )
+            update["summary"] = (ep.objective or "")[:60]
+            updates.append(update)
 
     # Scan notes
     notes = k._storage.get_notes(limit=1000)
@@ -470,17 +506,16 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
                 needs_update = True
 
         if needs_update:
-            updates.append(
-                {
-                    "type": "note",
-                    "id": note.id,
-                    "summary": (note.content or "")[:60],
-                    "old_source_type": source_type,
-                    "new_source_type": new_source_type,
-                    "old_derived_from": derived_from,
-                    "new_derived_from": new_derived_from if new_derived_from else None,
-                }
+            update = _collect_update(
+                "note",
+                note,
+                source_type,
+                new_source_type,
+                derived_from,
+                new_derived_from if new_derived_from else None,
             )
+            update["summary"] = (note.content or "")[:60]
+            updates.append(update)
 
     # Scan values
     values = k._storage.get_values(limit=1000)
@@ -505,17 +540,16 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
                 needs_update = True
 
         if needs_update:
-            updates.append(
-                {
-                    "type": "value",
-                    "id": value.id,
-                    "summary": (value.name or "")[:60],
-                    "old_source_type": source_type,
-                    "new_source_type": new_source_type,
-                    "old_derived_from": derived_from,
-                    "new_derived_from": new_derived_from if new_derived_from else None,
-                }
+            update = _collect_update(
+                "value",
+                value,
+                source_type,
+                new_source_type,
+                derived_from,
+                new_derived_from if new_derived_from else None,
             )
+            update["summary"] = (value.name or "")[:60]
+            updates.append(update)
 
     # Scan goals (status=None to include all statuses)
     goals = k._storage.get_goals(status=None, limit=1000)
@@ -540,17 +574,16 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
                 needs_update = True
 
         if needs_update:
-            updates.append(
-                {
-                    "type": "goal",
-                    "id": goal.id,
-                    "summary": (goal.title or "")[:60],
-                    "old_source_type": source_type,
-                    "new_source_type": new_source_type,
-                    "old_derived_from": derived_from,
-                    "new_derived_from": new_derived_from if new_derived_from else None,
-                }
+            update = _collect_update(
+                "goal",
+                goal,
+                source_type,
+                new_source_type,
+                derived_from,
+                new_derived_from if new_derived_from else None,
             )
+            update["summary"] = (goal.title or "")[:60]
+            updates.append(update)
 
     # Scan drives
     drives = k._storage.get_drives()
@@ -575,17 +608,16 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
                 needs_update = True
 
         if needs_update:
-            updates.append(
-                {
-                    "type": "drive",
-                    "id": drive.id,
-                    "summary": (drive.drive_type or "")[:60],
-                    "old_source_type": source_type,
-                    "new_source_type": new_source_type,
-                    "old_derived_from": derived_from,
-                    "new_derived_from": new_derived_from if new_derived_from else None,
-                }
+            update = _collect_update(
+                "drive",
+                drive,
+                source_type,
+                new_source_type,
+                derived_from,
+                new_derived_from if new_derived_from else None,
             )
+            update["summary"] = (drive.drive_type or "")[:60]
+            updates.append(update)
 
     # Scan relationships
     relationships = k._storage.get_relationships()
@@ -610,17 +642,16 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
                 needs_update = True
 
         if needs_update:
-            updates.append(
-                {
-                    "type": "relationship",
-                    "id": rel.id,
-                    "summary": (rel.entity_name or "")[:60],
-                    "old_source_type": source_type,
-                    "new_source_type": new_source_type,
-                    "old_derived_from": derived_from,
-                    "new_derived_from": new_derived_from if new_derived_from else None,
-                }
+            update = _collect_update(
+                "relationship",
+                rel,
+                source_type,
+                new_source_type,
+                derived_from,
+                new_derived_from if new_derived_from else None,
             )
+            update["summary"] = (rel.entity_name or "")[:60]
+            updates.append(update)
 
     # Output results
     if json_output:
@@ -770,6 +801,24 @@ def _migrate_link_raw(args: "argparse.Namespace", k: "Kernle") -> None:
         overlap = words_a & words_b
         return len(overlap) >= min_words
 
+    def _snapshot_memory(record):
+        source_type = getattr(record, "source_type", None)
+        if hasattr(source_type, "value"):
+            source_type = source_type.value
+        return {
+            "source_type": source_type,
+            "derived_from": list(getattr(record, "derived_from", None) or []),
+        }
+
+    def _memory_post_image(record, derived_from, raw_id=None):
+        if record:
+            post = _snapshot_memory(record)
+        else:
+            post = {"source_type": None, "derived_from": []}
+        post["derived_from"] = list(derived_from or [])
+        post["raw_id"] = raw_id
+        return post
+
     def _parse_dt(val) -> "datetime | None":
         """Parse a datetime from various formats."""
         if val is None:
@@ -864,6 +913,7 @@ def _migrate_link_raw(args: "argparse.Namespace", k: "Kernle") -> None:
                     f"raw:{best_match['id']}",
                     "kernle:auto-linked",
                 ] + existing_annotations
+                pre_image = _snapshot_memory(record)
 
                 links.append(
                     {
@@ -875,6 +925,12 @@ def _migrate_link_raw(args: "argparse.Namespace", k: "Kernle") -> None:
                         "score": round(best_score, 2),
                         "old_derived_from": derived_from,
                         "new_derived_from": new_derived_from,
+                        "pre_image": pre_image,
+                        "post_image": _memory_post_image(
+                            record,
+                            new_derived_from,
+                            f"raw:{best_match['id']}",
+                        ),
                         "synthetic": False,
                     }
                 )
@@ -885,6 +941,7 @@ def _migrate_link_raw(args: "argparse.Namespace", k: "Kernle") -> None:
                     for ref in (derived_from or [])
                     if ref and ":" in ref and ref.split(":", 1)[0] in annotation_prefixes
                 ]
+                pre_image = _snapshot_memory(record)
                 links.append(
                     {
                         "type": memory_type,
@@ -897,6 +954,12 @@ def _migrate_link_raw(args: "argparse.Namespace", k: "Kernle") -> None:
                         "new_derived_from": None,  # filled at apply time
                         "synthetic": True,
                         "synthetic_blob": f"[migrated {memory_type}] {match_text[:500]}",
+                        "pre_image": pre_image,
+                        "post_image": _memory_post_image(
+                            record,
+                            existing_annotations + ["kernle:auto-linked", "kernle:synthetic-raw"],
+                            None,
+                        ),
                         "existing_annotations": existing_annotations,
                     }
                 )
@@ -986,6 +1049,11 @@ def _migrate_link_raw(args: "argparse.Namespace", k: "Kernle") -> None:
                 ] + link.get("existing_annotations", [])
                 link["new_derived_from"] = new_derived_from
                 link["raw_id"] = raw_id
+                link["post_image"] = _memory_post_image(
+                    k._storage.get_memory(link["type"], link["id"]),
+                    new_derived_from,
+                    f"raw:{raw_id}",
+                )
                 synthetic_created += 1
 
             k.set_memory_source(

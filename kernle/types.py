@@ -22,20 +22,34 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def parse_datetime(s: Optional[str]) -> Optional[datetime]:
+class ParseDatetimeError(ValueError):
+    """Structured parse failure for ISO datetime strings."""
+
+    def __init__(self, value: str, cause: Exception):
+        super().__init__(f"Invalid ISO datetime string: {value!r}")
+        self.value = value
+        self.cause = cause
+
+
+def parse_datetime(
+    s: Optional[str], *, strict: bool = False
+) -> Optional[datetime] | ParseDatetimeError:
     """Parse ISO datetime string."""
     if not s:
         return None
     try:
         return datetime.fromisoformat(s.replace("Z", "+00:00"))
-    except ValueError:
-        return None
+    except (TypeError, ValueError) as exc:
+        result = ParseDatetimeError(s, exc)
+        if strict:
+            raise result from exc
+        return result
 
 
 # === Enums ===
 
 
-class SourceType(Enum):
+class SourceType(str, Enum):
     """How a memory was created/acquired.
 
     This is the single authoritative taxonomy for source_type values.
@@ -55,6 +69,29 @@ class SourceType(Enum):
 # Canonical set of valid source_type string values, derived from the enum.
 # Use this for validation instead of maintaining separate lists.
 VALID_SOURCE_TYPE_VALUES = frozenset(st.value for st in SourceType)
+
+
+class MemoryType(str, Enum):
+    """Canonical memory record type values."""
+
+    EPISODE = "episode"
+    BELIEF = "belief"
+    VALUE = "value"
+    GOAL = "goal"
+    NOTE = "note"
+    DRIVE = "drive"
+    RELATIONSHIP = "relationship"
+    RAW = "raw"
+    PLAYBOOK = "playbook"
+    TRUST_ASSESSMENT = "trust_assessment"
+    ENTITY_MODEL = "entity_model"
+    EPOCH = "epoch"
+    SUMMARY = "summary"
+    SELF_NARRATIVE = "self_narrative"
+    SUGGESTION = "suggestion"
+
+
+VALID_MEMORY_TYPE_VALUES = frozenset(m.value for m in MemoryType)
 
 
 class SyncStatus(Enum):
@@ -204,7 +241,7 @@ class RawEntry:
     timestamp: Optional[datetime] = None  # Use captured_at instead
     tags: Optional[List[str]] = None  # Include in blob text instead
     confidence: float = 1.0  # Not meaningful for raw dumps
-    source_type: str = "direct_experience"  # Meta-memory concept, not for raw
+    source_type: SourceType = SourceType.DIRECT_EXPERIENCE  # Meta-memory concept, not for raw
 
     def __post_init__(self):
         """Handle backward compatibility for blob/captured_at."""
@@ -246,7 +283,7 @@ class Episode:
     deleted: bool = False
     # Meta-memory fields
     confidence: float = 0.8
-    source_type: str = "direct_experience"  # SourceType value
+    source_type: SourceType = SourceType.DIRECT_EXPERIENCE  # SourceType value
     source_entity: Optional[str] = None  # Who provided it (name, email, or ID; entity-neutral)
     source_episodes: Optional[List[str]] = None  # IDs of related episodes
     derived_from: Optional[List[str]] = None  # Memory IDs this was derived from
@@ -287,7 +324,7 @@ class Belief:
     version: int = 1
     deleted: bool = False
     # Meta-memory fields
-    source_type: str = "direct_experience"  # SourceType value
+    source_type: SourceType = SourceType.DIRECT_EXPERIENCE  # SourceType value
     source_entity: Optional[str] = None  # Who provided it (name, email, or ID; entity-neutral)
     source_episodes: Optional[List[str]] = None  # IDs of supporting episodes
     derived_from: Optional[List[str]] = None  # Memory IDs this was derived from
@@ -339,7 +376,7 @@ class Value:
     deleted: bool = False
     # Meta-memory fields
     confidence: float = 0.9  # Values tend to be high-confidence
-    source_type: str = "direct_experience"  # SourceType value
+    source_type: SourceType = SourceType.DIRECT_EXPERIENCE  # SourceType value
     source_entity: Optional[str] = None  # Who provided it (name, email, or ID; entity-neutral)
     source_episodes: Optional[List[str]] = None  # IDs of supporting episodes
     derived_from: Optional[List[str]] = None  # Memory IDs this was derived from
@@ -381,7 +418,7 @@ class Goal:
     deleted: bool = False
     # Meta-memory fields
     confidence: float = 0.8
-    source_type: str = "direct_experience"  # SourceType value
+    source_type: SourceType = SourceType.DIRECT_EXPERIENCE  # SourceType value
     source_entity: Optional[str] = None  # Who provided it (name, email, or ID; entity-neutral)
     source_episodes: Optional[List[str]] = None  # IDs of supporting episodes
     derived_from: Optional[List[str]] = None  # Memory IDs this was derived from
@@ -423,7 +460,7 @@ class Note:
     deleted: bool = False
     # Meta-memory fields
     confidence: float = 0.8
-    source_type: str = "direct_experience"  # SourceType value
+    source_type: SourceType = SourceType.DIRECT_EXPERIENCE  # SourceType value
     source_entity: Optional[str] = None  # Who provided it (name, email, or ID; entity-neutral)
     source_episodes: Optional[List[str]] = None  # IDs of supporting episodes
     derived_from: Optional[List[str]] = None  # Memory IDs this was derived from
@@ -466,7 +503,7 @@ class Drive:
     deleted: bool = False
     # Meta-memory fields
     confidence: float = 0.8
-    source_type: str = "direct_experience"  # SourceType value
+    source_type: SourceType = SourceType.DIRECT_EXPERIENCE  # SourceType value
     source_entity: Optional[str] = None  # Who provided it (name, email, or ID; entity-neutral)
     source_episodes: Optional[List[str]] = None  # IDs of supporting episodes
     derived_from: Optional[List[str]] = None  # Memory IDs this was derived from
@@ -510,7 +547,7 @@ class Relationship:
     deleted: bool = False
     # Meta-memory fields
     confidence: float = 0.8
-    source_type: str = "direct_experience"  # SourceType value
+    source_type: SourceType = SourceType.DIRECT_EXPERIENCE  # SourceType value
     source_entity: Optional[str] = None  # Who provided it (name, email, or ID; entity-neutral)
     source_episodes: Optional[List[str]] = None  # IDs of supporting episodes
     derived_from: Optional[List[str]] = None  # Memory IDs this was derived from
@@ -843,11 +880,31 @@ SUGGESTION_MEMORY_TYPES = frozenset(
 
 @dataclass
 class SearchResult:
-    """A search result with relevance score."""
+    """A search result with compatibility for both legacy protocol and stack shapes.
 
-    record: Any  # Episode, Note, Belief, Playbook, etc.
-    record_type: str
-    score: float
+    Historically this class had two different shapes in `kernle.types` and
+    `kernle.protocols`. Both are represented here to avoid silent shape drift.
+
+    Preferred shape:
+    - `record` + `record_type` for protocol-native callers.
+    - `memory_type` + `memory_id` + `content` for storage-native callers.
+    """
+
+    record: Any = None  # Legacy protocol shape.
+    record_type: str = ""
+    score: float = 0.0
+    memory_type: Optional[str] = None  # Storage-native shape.
+    memory_id: Optional[str] = None
+    content: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if not self.record_type and self.memory_type:
+            self.record_type = self.memory_type
+        if not self.memory_id and self.record is not None:
+            self.memory_id = getattr(self.record, "id", None)
+        if not self.memory_type:
+            self.memory_type = self.record_type
 
 
 # === Trust Constants ===

@@ -305,6 +305,68 @@ class TestCmdInit:
 # ============================================================================
 
 
+class TestCmdInitPostConditions:
+    """Focused tests for commands.init cmd_init post-condition checks."""
+
+    def _base_args(self, **overrides):
+        defaults = {
+            "style": "standard",
+            "output": None,
+            "print": False,
+            "force": False,
+            "no_per_message": False,
+            "non_interactive": True,
+            "seed_values": False,
+        }
+        defaults.update(overrides)
+        return argparse.Namespace(**defaults)
+
+    def test_cmd_init_returns_structured_success(self, k, tmp_path, monkeypatch):
+        """Init returns structured success information after file write."""
+        from kernle.cli.commands.init import cmd_init as cmd_init_file
+
+        monkeypatch.chdir(tmp_path)
+        args = self._base_args()
+
+        result = cmd_init_file(args, k)
+
+        assert isinstance(result, dict)
+        assert result["success"] is True
+        assert result["status"] == "success"
+        assert result["action"] == "create"
+        assert result["checks"]["file"]["exists"] is True
+        assert result["checks"]["file"]["post_has_section"] is True
+        assert result["checks"]["state"]["checkpoint"]["saved"] is True
+
+    def test_cmd_init_state_seed_values_checked(self, k, tmp_path, monkeypatch):
+        """Seed-value request enforces value-side post-conditions."""
+        from kernle.cli.commands.init import cmd_init as cmd_init_file
+
+        monkeypatch.chdir(tmp_path)
+        args = self._base_args(seed_values=True)
+
+        result = cmd_init_file(args, k)
+
+        assert result["success"] is True
+        state = result["checks"]["state"]
+        assert state["seed_values"]["requested"] is True
+        assert state["seed_values"]["required_present"] is True
+
+    def test_cmd_init_existing_instructions_returns_failure(self, k, tmp_path, monkeypatch):
+        """cmd_init returns structured non-success when instructions already exist."""
+        from kernle.cli.commands.init import cmd_init as cmd_init_file
+
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "CLAUDE.md").write_text("# Memory\n\n## Memory (Kernle)\n\nAlready configured.")
+
+        args = self._base_args()
+        result = cmd_init_file(args, k)
+
+        assert result["success"] is False
+        assert result["status"] == "already_present"
+        assert result["action"] == "skip"
+
+
 class TestCmdMcp:
     """Tests for the cmd_mcp function."""
 
@@ -499,6 +561,9 @@ class TestDispatchBranches:
             (["search", "test query"], "kernle.cli.__main__.cmd_search"),
             (["when", "today"], "kernle.cli.__main__.cmd_temporal"),
             (["promote"], "kernle.cli.__main__.cmd_promote"),
+            (["migrate", "backfill-provenance"], "kernle.cli.__main__.cmd_migrate"),
+            (["migrate", "backfill-provenance", "--json"], "kernle.cli.__main__.cmd_migrate"),
+            (["migrate", "link-raw", "--window", "15"], "kernle.cli.__main__.cmd_migrate"),
         ],
     )
     def test_dispatch_routes_to_handler(self, argv, patch_target, k):

@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import uuid
+from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -26,8 +27,11 @@ from kernle.entity import Entity
 from kernle.processing import (
     DEFAULT_LAYER_CONFIGS,
     IDENTITY_LAYER_TRANSITIONS,
+    NO_INFERENCE_MIN_CONFIDENCE,
+    NO_INFERENCE_MIN_EVIDENCE,
     NO_OVERRIDE_TRANSITIONS,
     OVERRIDE_TRANSITIONS,
+    VALID_TRANSITION_ORDER,
     VALID_TRANSITIONS,
     LayerConfig,
     MemoryProcessor,
@@ -37,7 +41,7 @@ from kernle.processing import (
 )
 from kernle.stack.sqlite_stack import SQLiteStack
 from kernle.storage.sqlite import SQLiteStorage
-from kernle.types import Episode, Note, RawEntry
+from kernle.types import Belief, Episode, Note, RawEntry
 
 # Relaxed promotion gates for tests that don't test gating behavior
 _NO_GATES = PromotionGateConfig(
@@ -103,6 +107,14 @@ class MockInference:
     @property
     def embedding_provider_id(self) -> str:
         return "mock"
+
+
+class MockInferenceWithModel(MockInference):
+    """Mock inference service that exposes a model_id."""
+
+    def __init__(self, model_id: str, response: str = "[]"):
+        super().__init__(response=response)
+        self.model_id = model_id
 
 
 def _save_raw(storage, blob="test raw content"):
@@ -243,6 +255,87 @@ class TestLayerConfig:
         )
         assert cfg.quantity_threshold == 5
         assert cfg.batch_size == 3
+
+
+class TestLayerConfigGating:
+    def test_process_blocks_when_model_id_mismatch(self):
+        mock_stack = _make_mock_stack()
+        mock_stack._backend.list_raw.return_value = [MagicMock(id="r-1", blob="raw", content=None)]
+        mock_stack.get_episodes.return_value = []
+        mock_stack.get_beliefs.return_value = []
+        inference = MockInferenceWithModel("actual-model", response="[]")
+        processor = MemoryProcessor(
+            stack=mock_stack,
+            inference=inference,
+            core_id="test",
+            configs={"raw_to_episode": LayerConfig(layer_transition="raw_to_episode")},
+        )
+        processor.update_config(
+            "raw_to_episode",
+            LayerConfig(layer_transition="raw_to_episode", model_id="expected-model"),
+        )
+
+        result = processor.process("raw_to_episode", force=True)[0]
+
+        assert result.skipped
+        assert not result.inference_blocked
+        assert "requires model 'expected-model'" in result.skip_reason
+        assert result.source_count == 1
+        assert inference.calls == []
+        mock_stack._backend.mark_raw_processed.assert_not_called()
+
+    def test_model_id_match_allows_processing(self):
+        mock_stack = _make_mock_stack()
+        mock_stack._backend.list_raw.return_value = [MagicMock(id="r-1", blob="raw", content=None)]
+        mock_stack.get_episodes.return_value = []
+        mock_stack.get_beliefs.return_value = []
+        inference = MockInferenceWithModel("expected-model", response="[]")
+        processor = MemoryProcessor(
+            stack=mock_stack,
+            inference=inference,
+            core_id="test",
+            configs={"raw_to_episode": LayerConfig(layer_transition="raw_to_episode")},
+        )
+        processor.update_config(
+            "raw_to_episode",
+            LayerConfig(layer_transition="raw_to_episode", model_id="expected-model"),
+        )
+
+        result = processor.process("raw_to_episode", force=True)[0]
+
+        assert not result.skipped
+        assert not result.inference_blocked
+        assert result.source_count == 1
+        assert inference.calls
+        mock_stack._backend.mark_raw_processed.assert_called_once()
+
+    def test_process_blocks_when_daily_session_cap_reached(self):
+        mock_stack = _make_mock_stack()
+        mock_stack._backend.list_raw.return_value = [MagicMock(id="r-1", blob="raw", content=None)]
+        mock_stack.get_episodes.return_value = []
+        mock_stack.get_beliefs.return_value = []
+        mock_stack.get_audit_log.return_value = [
+            {"created_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        ]
+
+        inference = MockInference(response="[]")
+        processor = MemoryProcessor(
+            stack=mock_stack,
+            inference=inference,
+            core_id="test",
+            configs={"raw_to_episode": LayerConfig(layer_transition="raw_to_episode")},
+        )
+        processor.update_config(
+            "raw_to_episode",
+            LayerConfig(layer_transition="raw_to_episode", max_sessions_per_day=1),
+        )
+
+        result = processor.process("raw_to_episode", force=True)[0]
+
+        assert result.skipped
+        assert result.source_count == 1
+        assert "max_sessions_per_day" in result.skip_reason
+        assert inference.calls == []
 
 
 # =============================================================================
@@ -1879,6 +1972,24 @@ class TestProcessFullFlow:
         assert len(results) == len(VALID_TRANSITIONS)
         assert all(r.skipped for r in results)
 
+    def test_process_none_transition_is_deterministic(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+
+        fake_process_layer = MagicMock(
+            side_effect=lambda t, config, auto_promote=False, batch_size=None: ProcessingResult(
+                layer_transition=t,
+                source_count=0,
+                skipped=True,
+            )
+        )
+        processor._process_layer = fake_process_layer
+
+        processor.process(force=True)
+
+        actual = [call.args[0] for call in fake_process_layer.mock_calls]
+        assert actual == list(VALID_TRANSITION_ORDER)
+
     def test_missing_config_transition_skipped(self):
         """A transition not in configs is skipped entirely."""
         mock_stack = _make_mock_stack()
@@ -2079,6 +2190,82 @@ class TestNoInferenceProcessMethod:
         # Skipped because no sources
         assert results[0].skipped
         assert results[0].skip_reason == "No unprocessed sources"
+
+    def test_no_inference_override_with_insufficient_evidence_is_blocked(self):
+        mock_stack = _make_mock_stack()
+        mock_stack._backend.get_episodes.return_value = [
+            MagicMock(processed=False, id="ep-1", objective="foo", outcome="bar")
+        ]
+        processor, inference = _make_no_inference_processor(mock_stack)
+
+        results = processor.process(
+            "episode_to_belief", force=True, allow_no_inference_override=True
+        )
+
+        assert len(results) == 1
+        assert results[0].inference_blocked
+        assert results[0].skipped
+        assert results[0].source_count == 1
+        assert (
+            f"requires at least {NO_INFERENCE_MIN_EVIDENCE} source memories"
+            in results[0].skip_reason
+        )
+        assert inference.calls == []
+
+    def test_no_inference_override_with_insufficient_confidence_is_blocked(self):
+        mock_stack = _make_mock_stack()
+        mock_stack._backend.get_episodes.return_value = [
+            MagicMock(
+                processed=False,
+                id="ep-1",
+                objective="foo",
+                outcome="bar",
+                confidence=0.50,
+            ),
+            MagicMock(processed=False, id="ep-2", objective="foo", outcome="bar", confidence=0.95),
+            MagicMock(processed=False, id="ep-3", objective="foo", outcome="bar", confidence=0.10),
+        ]
+        processor, inference = _make_no_inference_processor(mock_stack)
+
+        results = processor.process(
+            "episode_to_belief", force=True, allow_no_inference_override=True
+        )
+
+        assert len(results) == 1
+        assert results[0].inference_blocked
+        assert results[0].skipped
+        assert results[0].source_count == 3
+        assert f"minimum confidence {NO_INFERENCE_MIN_CONFIDENCE:.2f}" in results[0].skip_reason
+        assert "minimum observed is" in results[0].skip_reason
+        assert inference.calls == []
+
+    def test_no_inference_override_with_sufficient_thresholds_still_blocked(self):
+        mock_stack = _make_mock_stack()
+        mock_stack._backend.get_episodes.return_value = [
+            MagicMock(
+                processed=False,
+                id="ep-1",
+                objective="foo",
+                outcome="bar",
+                confidence=0.95,
+            ),
+            MagicMock(processed=False, id="ep-2", objective="foo", outcome="bar", confidence=0.96),
+            MagicMock(processed=False, id="ep-3", objective="foo", outcome="bar", confidence=0.99),
+        ]
+        processor, inference = _make_no_inference_processor(mock_stack)
+
+        results = processor.process(
+            "episode_to_belief", force=True, allow_no_inference_override=True
+        )
+
+        assert len(results) == 1
+        assert results[0].inference_blocked
+        assert results[0].skipped
+        assert results[0].source_count == 3
+        assert results[0].skip_reason == (
+            "Blocked: no inference available for identity-layer override transitions."
+        )
+        assert inference.calls == []
 
     def test_no_inference_override_still_blocks_values(self):
         """Even with override, belief_to_value is always blocked."""
@@ -2461,6 +2648,50 @@ class TestGateBlockedSourcesNotConsumed:
 
         # mark_episode_processed should NOT have been called
         mock_stack._backend.mark_episode_processed.assert_not_called()
+
+
+class TestBeliefToValuePromotionGates:
+    def test_belief_to_value_requires_missing_sources(self, stack):
+        """Promotion should fail if any source belief IDs cannot be resolved."""
+        valid_belief = Belief(
+            id="present-belief-id",
+            stack_id=STACK_ID,
+            statement="A valid source belief",
+            source_type="observation",
+            source_entity="test",
+            processed=False,
+            is_protected=True,
+        )
+        stack.save_belief(valid_belief)
+
+        response = json.dumps(
+            [
+                {
+                    "name": "Integrity value",
+                    "statement": "A value without a valid source",
+                    "value": "integrity",
+                    "source_belief_ids": ["missing-belief-id", "present-belief-id"],
+                }
+            ]
+        )
+        inference = MockInference(response)
+        processor = MemoryProcessor(
+            stack=stack,
+            inference=inference,
+            core_id="test",
+            auto_promote=True,
+            promotion_gates=PromotionGateConfig(
+                belief_min_evidence=0,
+                belief_min_confidence=0.0,
+                value_min_evidence=1,
+                value_requires_protection=True,
+            ),
+        )
+
+        results = processor.process("belief_to_value", force=True)
+        assert len(results) == 1
+        assert results[0].gate_blocked == 1
+        assert len(results[0].created) == 0
 
 
 # =============================================================================

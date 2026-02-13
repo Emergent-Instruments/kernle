@@ -128,6 +128,74 @@ class TestBindingRoundtrip:
         assert "plugin-a" in data["plugins"]
         assert "plugin-b" in data["plugins"]
 
+    def test_roundtrip_restores_stack_aliases(self, entity, stack, tmp_path):
+        entity.attach_stack(stack, alias="main")
+        entity.episode("Restore", "from binding")
+        path = entity.save_binding(path=tmp_path / "restore-stacks.json")
+
+        restored = Entity.from_binding(path)
+        assert restored.core_id == CORE_ID
+        assert "main" in restored.stacks
+        assert restored.active_stack is not None
+        assert restored.active_stack.stack_id == STACK_ID
+
+    def test_roundtrip_restores_plugins(self, entity, stack, tmp_path, monkeypatch):
+        entity.attach_stack(stack, alias="main")
+        path = entity.save_binding(path=tmp_path / "restore-plugins.json")
+
+        restored_binding = json.loads(path.read_text())
+        restored_binding["plugins"] = ["restored-plugin"]
+        path.write_text(json.dumps(restored_binding))
+
+        class _RestoredPlugin:
+            name = "restored-plugin"
+            version = "1.0.0"
+            protocol_version = 1
+            description = "Restored test plugin"
+
+            def __init__(self):
+                self.activated = False
+
+            def capabilities(self):
+                return ["testing"]
+
+            def activate(self, context):
+                self.activated = True
+                self.context = context
+
+            def deactivate(self):
+                self.activated = False
+
+            def health_check(self):
+                return PluginHealth(healthy=True, message="ok")
+
+            def on_load(self):
+                return None
+
+            def on_status(self):
+                return None
+
+            def register_cli(self, _subparsers):
+                return None
+
+            def register_tools(self):
+                return []
+
+        component = MagicMock()
+        component.name = "restored-plugin"
+
+        monkeypatch.setattr(
+            "kernle.discovery.discover_plugins",
+            lambda: [component],
+        )
+        monkeypatch.setattr(
+            "kernle.discovery.load_component",
+            lambda _comp: _RestoredPlugin,
+        )
+
+        restored = Entity.from_binding(path)
+        assert "restored-plugin" in restored.plugins
+
 
 # ============================================================================
 # 2. Binding File Format

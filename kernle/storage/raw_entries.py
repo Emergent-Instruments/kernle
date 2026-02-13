@@ -24,6 +24,7 @@ from typing import Any, Callable, Dict, List, Optional
 from .base import RawEntry, parse_datetime
 
 logger = logging.getLogger(__name__)
+_MARKABLE_RECORD_TABLES = frozenset({"episodes", "notes", "beliefs"})
 
 
 def _to_json(data: Any) -> Optional[str]:
@@ -569,6 +570,10 @@ def mark_processed(
 
     Works for episodes, notes, and beliefs tables.
     """
+    if table not in _MARKABLE_RECORD_TABLES:
+        logger.warning("Attempted mark_processed with non-whitelisted table: %s", table)
+        return False
+
     now = _utc_now()
     cursor = conn.execute(
         f"""

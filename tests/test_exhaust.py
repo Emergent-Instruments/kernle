@@ -205,6 +205,16 @@ class TestConvergenceDrivenIntensity:
         assert result.cycles_completed == 6
         assert result.total_promotions == 0
 
+    def test_non_positive_max_cycles_returns_immediately(self):
+        """Non-positive max_cycles exits early without indexing a cycle."""
+        k = _mock_kernle()
+        runner = ExhaustionRunner(k, max_cycles=0)
+        result = runner.run()
+        assert result.convergence_reason == "max_cycles_reached"
+        assert result.cycles_completed == 0
+        assert result.cycle_results == []
+        assert result.converged is False
+
 
 # =============================================================================
 # Convergence Logic Tests

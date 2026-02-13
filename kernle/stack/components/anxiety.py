@@ -40,6 +40,9 @@ class AnxietyComponent:
     inference_scope = "none"
     priority = 250
 
+    OVERALL_ALERT_SCORE = 70
+    DIMENSION_ALERT_SCORE = 70
+
     def __init__(self) -> None:
         self._stack_id: Optional[str] = None
         self._inference: Optional[InferenceService] = None
@@ -84,7 +87,9 @@ class AnxietyComponent:
         if self._storage is None:
             logger.debug("AnxietyComponent: no storage, skipping maintenance")
             return {"skipped": True, "reason": "no_storage"}
-        return self.get_anxiety_report()
+        report = self.get_anxiety_report()
+        report["alerts"] = self._build_alerts(report)
+        return report
 
     # ---- Core Logic ----
 
@@ -215,3 +220,33 @@ class AnxietyComponent:
             "dimensions": dimensions,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
+
+    def _build_alerts(self, report: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Create threshold alerts for anxiety levels."""
+        alerts: List[Dict[str, Any]] = []
+        overall_score = report.get("overall_score", 0)
+        if overall_score >= self.OVERALL_ALERT_SCORE:
+            severity = "critical" if overall_score >= 90 else "high"
+            alerts.append(
+                {
+                    "type": "overall_anxiety",
+                    "severity": severity,
+                    "message": f"Overall anxiety score is elevated: {overall_score}",
+                    "value": overall_score,
+                }
+            )
+
+        dimensions = report.get("dimensions", {})
+        for dim_name, data in dimensions.items():
+            score = int(data.get("score", 0))
+            if score >= self.DIMENSION_ALERT_SCORE:
+                alerts.append(
+                    {
+                        "type": f"dimension:{dim_name}",
+                        "severity": "medium" if score < 90 else "high",
+                        "message": f"Dimension '{dim_name}' breached threshold.",
+                        "value": score,
+                    }
+                )
+
+        return alerts

@@ -884,6 +884,10 @@ TOOLS = [
                     "items": {"type": "string"},
                     "description": "File extensions to include (e.g., ['py', 'js']). Default: common code extensions",
                 },
+                "seed_root": {
+                    "type": "string",
+                    "description": "Absolute root used to resolve and validate relative paths.",
+                },
                 "exclude": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -900,7 +904,7 @@ TOOLS = [
                     "default": False,
                 },
             },
-            "required": ["path"],
+            "required": ["path", "seed_root"],
         },
     ),
     Tool(
@@ -918,6 +922,10 @@ TOOLS = [
                     "items": {"type": "string"},
                     "description": "File extensions to include (e.g., ['md', 'rst']). Default: md, txt, rst",
                 },
+                "seed_root": {
+                    "type": "string",
+                    "description": "Absolute root used to resolve and validate relative paths.",
+                },
                 "max_chunk_size": {
                     "type": "integer",
                     "description": "Maximum chunk size in characters (default: 2000)",
@@ -929,7 +937,7 @@ TOOLS = [
                     "default": False,
                 },
             },
-            "required": ["path"],
+            "required": ["path", "seed_root"],
         },
     ),
     Tool(

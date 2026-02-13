@@ -334,6 +334,83 @@ def cmd_sync(args, k: "Kernle"):
         except Exception:
             return json.dumps(str(value))
 
+    def _operation_payload_hash(operation):
+        """Build stable hash for operation payload for conflict comparison."""
+        return hashlib.sha256(
+            _serialize_json((operation or {}).get("data")).encode("utf-8")
+        ).hexdigest()
+
+    def _build_conflict_envelope(operation, error=None, resolution="unknown", stage="sync"):
+        """Build a normalized conflict envelope for pull/push diagnostics."""
+        operation = operation or {}
+        table = str(operation.get("table") or operation.get("table_name") or "unknown")
+        record_id = str(operation.get("record_id") or operation.get("id") or "unknown")
+        op_name = str(operation.get("operation") or "unknown")
+        payload = operation.get("data")
+        return {
+            "id": str(uuid4()),
+            "stage": stage,
+            "operation_identity": _operation_identity(table, record_id),
+            "operation": op_name,
+            "table": table,
+            "record_id": record_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "resolution": resolution,
+            "error": error or "unknown error",
+            "payload_hash": _operation_payload_hash(operation),
+            "payload_snapshot": _serialize_json(payload),
+        }
+
+    def _normalize_push_conflict(conflict, operations):
+        """Normalize backend-sourced conflict entries into stable envelopes."""
+        if not isinstance(conflict, dict):
+            conflict = {"error": str(conflict)}
+        table = str(conflict.get("table") or conflict.get("table_name") or "unknown")
+        record_id = str(conflict.get("record_id") or "unknown")
+        operation_name = str(conflict.get("operation") or "unknown")
+        error = str(
+            conflict.get("error")
+            or conflict.get("message")
+            or conflict.get("reason")
+            or "version conflict"
+        )
+
+        matched = None
+        if operations:
+            for candidate in operations:
+                if not isinstance(candidate, dict):
+                    continue
+                if str(candidate.get("record_id") or "") != record_id:
+                    continue
+                if table != "unknown" and str(candidate.get("table") or "unknown") != table:
+                    continue
+                if (
+                    operation_name != "unknown"
+                    and str(candidate.get("operation") or "unknown") != operation_name
+                ):
+                    continue
+                matched = candidate
+                break
+            if matched is None and table == "unknown":
+                for candidate in operations:
+                    if str(candidate.get("record_id") or "") == record_id:
+                        matched = candidate
+                        break
+
+        if not matched:
+            matched = {"table": table, "record_id": record_id, "operation": operation_name}
+
+        envelope = _build_conflict_envelope(
+            matched,
+            error=error,
+            resolution="backend_rejected",
+            stage="push",
+        )
+        envelope["backend_payload"] = {
+            "raw": {k: v for k, v in conflict.items() if k != "raw"},
+        }
+        return envelope
+
     def _pull_poison_key(op):
         """Build a stable key for a failed pull operation."""
         table = str(op.get("table") or "")
@@ -362,19 +439,22 @@ def cmd_sync(args, k: "Kernle"):
         """Persist quarantined pull operations."""
         k._storage._set_sync_meta(PULL_POISON_META_KEY, _serialize_json(records or {}))
 
-    def _save_pull_apply_conflict(op, error):
+    def _save_pull_apply_conflict(op, error, envelope=None):
         """Persist a failed pull apply as conflict history for observability."""
         from kernle.types import SyncConflict
 
         table = str(op.get("table") or "unknown")
         record_id = str(op.get("record_id") or f"unknown-{uuid4()}")
+        envelope = envelope or _build_conflict_envelope(
+            op, error=error, resolution="pull_apply_failed", stage="pull_apply"
+        )
         summary = f"pull apply failed: {error}"[:200]
         conflict = SyncConflict(
             id=str(uuid4()),
             table=table,
             record_id=record_id,
-            local_version={},
-            cloud_version={"operation": op},
+            local_version={"payload": op},
+            cloud_version={"operation": op, "conflict_envelope": envelope},
             resolution="pull_apply_failed",
             resolved_at=datetime.now(timezone.utc),
             local_summary="apply failed",
@@ -386,6 +466,45 @@ def cmd_sync(args, k: "Kernle"):
             logger.debug(
                 "Failed to persist pull apply conflict for %s:%s: %s", table, record_id, exc
             )
+
+    def _save_push_apply_conflict(envelope):
+        """Persist a backend-rejected push conflict for auditability."""
+        from kernle.types import SyncConflict
+
+        table = str(envelope.get("table") or "unknown")
+        record_id = str(envelope.get("record_id") or f"unknown-{uuid4()}")
+        operation = str(envelope.get("operation") or "unknown")
+        error = str(envelope.get("error") or "backend rejected")
+
+        conflict = SyncConflict(
+            id=str(uuid4()),
+            table=table,
+            record_id=record_id,
+            local_version={
+                "operation": {
+                    "table": table,
+                    "record_id": envelope.get("record_id"),
+                    "operation": operation,
+                },
+                "payload_hash": envelope.get("payload_hash"),
+                "payload_snapshot": envelope.get("payload_snapshot"),
+                "operation_identity": envelope.get("operation_identity"),
+                "timestamp": envelope.get("timestamp"),
+            },
+            cloud_version={
+                "backend_payload": envelope.get("backend_payload"),
+                "error": error,
+            },
+            resolution="backend_rejected",
+            resolved_at=datetime.now(timezone.utc),
+            local_summary=f"{table}:{record_id} {operation}",
+            cloud_summary=error,
+        )
+
+        try:
+            k._storage.save_sync_conflict(conflict)
+        except Exception as exc:
+            logger.debug("Failed to persist push conflict for %s:%s: %s", table, record_id, exc)
 
     def _apply_single_pull_operation(op):
         """Apply a single pulled operation; return (applied, error_message)."""
@@ -508,6 +627,12 @@ def cmd_sync(args, k: "Kernle"):
                     "key": key,
                     "operation": op,
                     "error": (error or "unknown error")[:500],
+                    "envelope": _build_conflict_envelope(
+                        op,
+                        error=error,
+                        resolution="pull_apply_failed",
+                        stage="pull_apply",
+                    ),
                 }
             )
 
@@ -521,6 +646,9 @@ def cmd_sync(args, k: "Kernle"):
             op = failed["operation"]
             key = failed["key"]
             error = failed["error"]
+            envelope = failed.get("envelope") or _build_conflict_envelope(
+                op, error=error, resolution="pull_apply_failed", stage="pull_apply"
+            )
             digest = _serialize_json(op)
 
             existing = poison_records.get(key)
@@ -538,10 +666,11 @@ def cmd_sync(args, k: "Kernle"):
                 "last_error": error,
                 "payload_digest": digest,
                 "operation_payload": op,
+                "conflict_envelope": envelope,
             }
 
             if existing is None or payload_changed:
-                _save_pull_apply_conflict(op, error)
+                _save_pull_apply_conflict(op, error, envelope=envelope)
                 newly_poisoned += 1
 
         return newly_poisoned
@@ -676,10 +805,17 @@ def cmd_sync(args, k: "Kernle"):
             if response.status_code == 200:
                 result = response.json()
                 conflicts = result.get("conflicts", [])
+                normalized_conflicts = [
+                    _normalize_push_conflict(conflict, operations) for conflict in conflicts
+                ]
                 acknowledged_changes = _resolve_acked_changes(
                     result, operations, op_identity_to_change
                 )
                 synced = len(acknowledged_changes)
+
+                if conflicts:
+                    for envelope in normalized_conflicts:
+                        _save_push_apply_conflict(envelope)
 
                 # Clear synced items from local queue
                 with k._storage._connect() as conn:
@@ -692,18 +828,26 @@ def cmd_sync(args, k: "Kernle"):
                 if args.json:
                     result["local_project"] = local_project
                     result["namespaced_id"] = get_namespaced_stack_id()
+                    result["conflicts"] = normalized_conflicts
                     print(json.dumps(result, indent=2, default=str))
                 else:
                     namespaced = get_namespaced_stack_id()
                     print(f"✓ Pushed {synced} changes")
                     if user_id:
                         print(f"  Synced as: {namespaced}")
-                    if conflicts:
-                        print(f"⚠️  {len(conflicts)} conflicts:")
-                        for c in conflicts[:5]:
-                            print(
-                                f"   - {c.get('record_id', 'unknown')}: {c.get('error', 'unknown error')}"
+                if conflicts:
+                    print(f"⚠️  {len(conflicts)} conflicts:")
+                    for c in normalized_conflicts[:5]:
+                        print(
+                            "   - {table}:{record_id} {op}: {error} "
+                            "(payload_sha256={hash_prefix}...)".format(
+                                table=c.get("table", "unknown"),
+                                record_id=c.get("record_id", "unknown"),
+                                op=c.get("operation", "unknown"),
+                                error=c.get("error", "unknown error"),
+                                hash_prefix=str(c.get("payload_hash", ""))[:16],
                             )
+                        )
             elif response.status_code == 401:
                 print("✗ Authentication failed")
                 print("  Run `kernle auth login` to re-authenticate")
@@ -785,14 +929,25 @@ def cmd_sync(args, k: "Kernle"):
                     return
 
                 if args.json:
+                    serialized_failed_ops = []
+                    for failed in failed_ops:
+                        serialized_failed_ops.append(
+                            {
+                                "operation": failed.get("operation", {}),
+                                "error": failed.get("error"),
+                                "envelope": failed.get("envelope"),
+                            }
+                        )
                     print(
                         json.dumps(
                             {
                                 "pulled": applied,
                                 "conflicts": conflicts,
+                                "conflict_envelopes": [f.get("envelope") for f in failed_ops],
                                 "has_more": has_more,
                                 "poisoned_new": newly_poisoned,
                                 "poisoned_pending": poison_pending,
+                                "failed_operations": serialized_failed_ops,
                                 "local_project": local_project,
                                 "namespaced_id": get_namespaced_stack_id(),
                             },
@@ -805,6 +960,21 @@ def cmd_sync(args, k: "Kernle"):
                         print(f"  From: {get_namespaced_stack_id()}")
                     if conflicts > 0:
                         print(f"⚠️  {conflicts} conflicts during apply")
+                        for failed in failed_ops[:5]:
+                            envelope = failed.get("envelope") or {}
+                            hash_value = envelope.get("payload_hash", "")
+                            print(
+                                "  - {table}:{record_id} {op}: {error} "
+                                "(payload_sha256={hash_prefix}...)".format(
+                                    table=failed.get("operation", {}).get("table", "unknown"),
+                                    record_id=failed.get("operation", {}).get(
+                                        "record_id", "unknown"
+                                    ),
+                                    op=failed.get("operation", {}).get("operation", "unknown"),
+                                    error=failed.get("error", "unknown error"),
+                                    hash_prefix=str(hash_value)[:16],
+                                )
+                            )
                     if poison_pending > 0:
                         print(f"⚠️  {poison_pending} pull operations quarantined for retry")
                     if has_more:
@@ -847,6 +1017,10 @@ def cmd_sync(args, k: "Kernle"):
         print("Step 1: Pulling remote changes...")
         pulled = 0
         pull_conflicts = 0
+        pulled_failed_ops = []
+        pull_has_more = False
+        pull_conflict_envelopes = []
+        pull_newly_poisoned = 0
         try:
             response = httpx.post(
                 f"{backend_url.rstrip('/')}/sync/pull",
@@ -861,29 +1035,49 @@ def cmd_sync(args, k: "Kernle"):
             if response.status_code == 200:
                 result = response.json()
                 pulled_ops = result.get("operations", [])
+                pull_has_more = result.get("has_more", False)
+
                 poison_records = _load_pull_poison_records()
                 _, recovered_from_poison = _retry_poisoned_pull_operations(poison_records)
+                pulled_now = 0
+                failed_ops = []
+                newly_poisoned = 0
+
                 if pulled_ops:
                     pulled_now, failed_ops, applied_keys = _apply_pull_operations(pulled_ops)
                     for key in applied_keys:
                         poison_records.pop(key, None)
-                    _quarantine_failed_pull_operations(failed_ops, poison_records)
-                    pulled = pulled_now + recovered_from_poison
-                    pull_conflicts = len(failed_ops)
+                    newly_poisoned = _quarantine_failed_pull_operations(failed_ops, poison_records)
                     k._storage._set_sync_meta("last_sync_time", k._storage._now())
-                else:
-                    pulled = recovered_from_poison
-                    pull_conflicts = 0
+
+                pulled = pulled_now + recovered_from_poison
+                pull_conflicts = len(failed_ops)
+                pulled_failed_ops = failed_ops
+                pull_conflict_envelopes = [f.get("envelope") for f in failed_ops]
+                pull_newly_poisoned = newly_poisoned
                 _save_pull_poison_records(poison_records)
-                print(f"  ✓ Pulled {pulled} changes")
-                if pull_conflicts > 0:
-                    print(f"  ⚠️  {pull_conflicts} conflicts during apply")
-                if len(poison_records) > 0:
-                    print(f"  ⚠️  {len(poison_records)} pull operations quarantined for retry")
             else:
                 print(f"  ⚠️  Pull returned status {response.status_code}")
         except Exception as e:
             print(f"  ⚠️  Pull failed: {e}")
+
+        print(f"  ✓ Pulled {pulled} changes")
+        if pull_conflicts > 0:
+            print(f"  ⚠️  {pull_conflicts} conflicts during apply")
+            for failed in pulled_failed_ops[:5]:
+                envelope = failed.get("envelope") or {}
+                print(
+                    "  - {table}:{record_id} {op}: {error} "
+                    "(payload_sha256={hash_prefix}...)".format(
+                        table=failed.get("operation", {}).get("table", "unknown"),
+                        record_id=failed.get("operation", {}).get("record_id", "unknown"),
+                        op=failed.get("operation", {}).get("operation", "unknown"),
+                        error=failed.get("error", "unknown error"),
+                        hash_prefix=str(envelope.get("payload_hash", ""))[:16],
+                    )
+                )
+        if pull_has_more:
+            print("  ℹ️  More changes available - run `kernle sync pull` again")
 
         # Step 2: Push local changes
         print("Step 2: Pushing local changes...")
@@ -891,49 +1085,77 @@ def cmd_sync(args, k: "Kernle"):
 
         if not queued_changes:
             print("  ✓ No pending changes to push")
-        else:
-            operations, skipped_orphans, op_identity_to_change = _build_push_operations(
-                queued_changes
+            print(
+                f"  {pull_conflict_envelopes and '✅ Pull complete with conflicts' or '✅ Full sync complete'}"
+            )
+            print()
+            print("✓ Full sync complete")
+            remaining = k._storage.get_pending_sync_count()
+            if remaining > 0:
+                print(f"ℹ️  {remaining} operations still pending")
+            return
+
+        operations, skipped_orphans, op_identity_to_change = _build_push_operations(queued_changes)
+
+        if skipped_orphans > 0:
+            print(f"  ⚠️  Skipped {skipped_orphans} orphaned entries (source records deleted)")
+
+        try:
+            response = httpx.post(
+                f"{backend_url.rstrip('/')}/sync/push",
+                headers=get_headers(),
+                json={
+                    "stack_id": local_project,  # Local name only, backend namespaces
+                    "operations": operations,
+                },
+                timeout=30.0,
             )
 
-            if skipped_orphans > 0:
-                print(f"  ⚠️  Skipped {skipped_orphans} orphaned entries (source records deleted)")
-
-            try:
-                response = httpx.post(
-                    f"{backend_url.rstrip('/')}/sync/push",
-                    headers=get_headers(),
-                    json={
-                        "stack_id": local_project,  # Local name only, backend namespaces
-                        "operations": operations,
-                    },
-                    timeout=30.0,
+            if response.status_code == 200:
+                result = response.json()
+                conflicts = result.get("conflicts", [])
+                normalized_conflicts = [
+                    _normalize_push_conflict(conflict, operations) for conflict in conflicts
+                ]
+                acknowledged_changes = _resolve_acked_changes(
+                    result, operations, op_identity_to_change
                 )
-
-                if response.status_code == 200:
-                    result = response.json()
-                    acknowledged_changes = _resolve_acked_changes(
-                        result, operations, op_identity_to_change
-                    )
-                    synced = len(acknowledged_changes)
-
-                    # Clear synced items
-                    with k._storage._connect() as conn:
-                        for change in acknowledged_changes:
-                            k._storage._clear_queued_change(conn, change.id)
-                            k._storage._mark_synced(conn, change.table_name, change.record_id)
-                        conn.commit()
-
-                    print(f"  ✓ Pushed {synced} changes")
-                else:
-                    print(f"  ⚠️  Push returned status {response.status_code}")
-            except Exception as e:
-                print(f"  ⚠️  Push failed: {e}")
-
-        print()
-        print("✓ Full sync complete")
+                synced = len(acknowledged_changes)
+                if conflicts:
+                    for envelope in normalized_conflicts:
+                        _save_push_apply_conflict(envelope)
+                # Clear synced items from local queue
+                with k._storage._connect() as conn:
+                    for change in acknowledged_changes:
+                        k._storage._clear_queued_change(conn, change.id)
+                        k._storage._mark_synced(conn, change.table_name, change.record_id)
+                    conn.commit()
+                print(f"  ✓ Pushed {synced} changes")
+                if normalized_conflicts:
+                    print(f"  ⚠️  {len(normalized_conflicts)} conflicts:")
+                    for c in normalized_conflicts[:5]:
+                        print(
+                            "   - {table}:{record_id} {op}: {error} "
+                            "(payload_sha256={hash_prefix}...)".format(
+                                table=c.get("table", "unknown"),
+                                record_id=c.get("record_id", "unknown"),
+                                op=c.get("operation", "unknown"),
+                                error=c.get("error", "unknown error"),
+                                hash_prefix=str(c.get("payload_hash", ""))[:16],
+                            )
+                        )
+            else:
+                print(f"  ⚠️  Push returned status {response.status_code}")
+        except Exception as e:
+            print(f"  ⚠️  Push failed: {e}")
 
         # Show final status
+        print()
+        print("✓ Full sync complete")
+        print(f"  pulled conflict envelopes: {len(pull_conflict_envelopes)}")
+        if pull_newly_poisoned > 0:
+            print(f"  ⚠️  {pull_newly_poisoned} pull conflicts were quarantined")
+
         remaining = k._storage.get_pending_sync_count()
         if remaining > 0:
             print(f"ℹ️  {remaining} operations still pending")

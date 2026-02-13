@@ -23,6 +23,13 @@ def k(tmp_path):
     return Kernle(stack_id="test-corpus", storage=storage)
 
 
+@pytest.fixture(autouse=True)
+def _mcp_seed_root_for_tests(monkeypatch, tmp_path):
+    seed_root = tmp_path / "mcp-seed-root"
+    seed_root.mkdir()
+    monkeypatch.setenv("KERNLE_MCP_SEED_ROOT", str(seed_root))
+
+
 @pytest.fixture
 def sample_repo(tmp_path):
     """Create a sample repository structure for testing."""

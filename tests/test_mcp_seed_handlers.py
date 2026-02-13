@@ -17,6 +17,11 @@ from kernle.mcp.handlers.seed import (
 
 
 class TestSeedValidators:
+    @pytest.fixture(autouse=True)
+    def _seed_root(self, monkeypatch, tmp_path):
+        monkeypatch.setenv("KERNLE_MCP_SEED_ROOT", str(tmp_path / "seed-root"))
+        (tmp_path / "seed-root").mkdir(exist_ok=True)
+
     def test_sanitize_string_list(self):
         assert _sanitize_string_list(None) is None
         assert _sanitize_string_list("py, js") == ["py", "js"]
@@ -50,6 +55,12 @@ class TestSeedValidators:
         assert result["extensions"] == ["md", "txt"]
         assert result["max_chunk_size"] == 2000
         assert result["dry_run"] is False
+
+    def test_validate_repo_requires_seed_root(self, monkeypatch):
+        monkeypatch.delenv("KERNLE_MCP_SEED_ROOT", raising=False)
+
+        with pytest.raises(ValueError, match="required"):
+            validate_memory_seed_repo({"path": "repo"})
 
     def test_validate_status_returns_empty_dict(self):
         assert validate_memory_seed_status({"ignored": True}) == {}

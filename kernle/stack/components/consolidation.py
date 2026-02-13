@@ -38,6 +38,10 @@ class ConsolidationComponent:
     inference_scope = "capable"
     priority = 200
 
+    CROSS_DOMAIN_ALERT_THRESHOLD = 2
+    LESSON_ALERT_THRESHOLD = 6
+    CONSOLIDATED_VOLUME_ALERT_THRESHOLD = 10
+
     def __init__(self) -> None:
         self._stack_id: Optional[str] = None
         self._inference: Optional[InferenceService] = None
@@ -103,6 +107,9 @@ class ConsolidationComponent:
         patterns = self._detect_cross_domain_patterns(episodes)
         if patterns:
             result["cross_domain_patterns"] = len(patterns)
+        result["alerts"] = self._build_alerts(
+            episodes_count=len(episodes), patterns=patterns, common_lessons=common
+        )
 
         # Try inference-based synthesis
         synthesized = self._synthesize_via_inference(episodes)
@@ -115,6 +122,48 @@ class ConsolidationComponent:
             result["inference_available"] = self._inference is not None
 
         return result
+
+    def _build_alerts(
+        self,
+        episodes_count: int,
+        patterns: List[Dict[str, Any]],
+        common_lessons: List[str],
+    ) -> List[Dict[str, Any]]:
+        """Build maintenance alerts from consolidation heuristics."""
+        alerts: List[Dict[str, Any]] = []
+
+        pattern_count = len(patterns or [])
+        if pattern_count >= self.CROSS_DOMAIN_ALERT_THRESHOLD:
+            alerts.append(
+                {
+                    "type": "cross_domain_clustering",
+                    "severity": "medium",
+                    "message": "High cross-domain consolidation clustering detected.",
+                    "value": pattern_count,
+                }
+            )
+
+        if len(common_lessons) >= self.LESSON_ALERT_THRESHOLD:
+            alerts.append(
+                {
+                    "type": "lesson_convergence",
+                    "severity": "low",
+                    "message": "High number of recurring lessons detected in recent episodes.",
+                    "value": len(common_lessons),
+                }
+            )
+
+        if episodes_count >= self.CONSOLIDATED_VOLUME_ALERT_THRESHOLD:
+            alerts.append(
+                {
+                    "type": "consolidation_volume",
+                    "severity": "medium",
+                    "message": "Large episode volume processed during consolidation maintenance.",
+                    "value": episodes_count,
+                }
+            )
+
+        return alerts
 
     # ---- Core Logic ----
 

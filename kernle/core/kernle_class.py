@@ -219,6 +219,23 @@ class Kernle(
                 self._stack.on_attach(self.stack_id)
         return self._stack
 
+    def process(
+        self,
+        transition: Optional[str] = None,
+        force: bool = False,
+        allow_no_inference_override: bool = False,
+        auto_promote: bool = False,
+        batch_size: Optional[int] = None,
+    ):
+        """Delegate memory processing to :class:`Entity` for deterministic behavior."""
+        return self.entity.process(
+            transition=transition,
+            force=force,
+            allow_no_inference_override=allow_no_inference_override,
+            auto_promote=auto_promote,
+            batch_size=batch_size,
+        )
+
     @property
     def client(self):
         """Backwards-compatible access to Supabase client.

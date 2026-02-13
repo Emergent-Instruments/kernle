@@ -6,6 +6,8 @@ Detects potential episodes, beliefs, and notes using regex patterns.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import re
 import uuid
@@ -106,16 +108,40 @@ class SuggestionComponent:
 
         raw_entries = self._storage.list_raw(processed=False, limit=50)
         total_suggestions = 0
+        deduplicated = 0
 
         for entry in raw_entries:
+            seen_signatures = self._get_existing_suggestion_signatures(entry.id)
+            created_refs: List[str] = []
+
             suggestions = self._extract_suggestions(entry)
             for suggestion in suggestions:
+                signature = self._suggestion_signature(entry.id, suggestion)
+                if signature in seen_signatures:
+                    deduplicated += 1
+                    continue
+
                 self._storage.save_suggestion(suggestion)
+                seen_signatures.add(signature)
+                created_refs.append(f"{suggestion.memory_type}:{suggestion.id}")
                 total_suggestions += 1
+
+            try:
+                self._storage.mark_raw_processed(
+                    raw_id=entry.id,
+                    processed_into=created_refs,
+                )
+            except Exception as e:
+                logger.debug(
+                    "SuggestionComponent: failed to mark raw entry %s processed: %s",
+                    entry.id,
+                    e,
+                )
 
         result: Dict[str, Any] = {
             "raw_entries_processed": len(raw_entries),
             "suggestions_extracted": total_suggestions,
+            "deduplicated_suggestions": deduplicated,
         }
 
         if self._inference is None and total_suggestions == 0:
@@ -125,6 +151,43 @@ class SuggestionComponent:
             result["inference_available"] = self._inference is not None
 
         return result
+
+    def _get_existing_suggestion_signatures(self, raw_id: str) -> set:
+        """Build dedupe signatures for suggestions already created from raw_id."""
+        signatures: set[str] = set()
+        if self._storage is None:
+            return signatures
+
+        try:
+            existing = self._storage.get_suggestions(source_raw_id=raw_id, limit=200)
+        except Exception as e:
+            logger.debug(
+                "SuggestionComponent: could not fetch existing suggestions for %s: %s", raw_id, e
+            )
+            return signatures
+
+        for suggestion in existing:
+            try:
+                signatures.add(self._suggestion_signature(raw_id, suggestion))
+            except Exception:
+                continue
+        return signatures
+
+    def _suggestion_signature(self, raw_entry_id: str, suggestion: Any) -> str:
+        """Create a deterministic dedupe signature for a suggestion."""
+        content = getattr(suggestion, "content", {}) or {}
+        confidence = getattr(suggestion, "confidence", 0.0) or 0.0
+        memory_type = getattr(suggestion, "memory_type", "")
+        signature_payload = json.dumps(
+            {
+                "raw_id": raw_entry_id,
+                "memory_type": memory_type,
+                "confidence_bucket": round(float(confidence), 3),
+                "content": content,
+            },
+            sort_keys=True,
+        )
+        return hashlib.sha256(signature_payload.encode("utf-8")).hexdigest()
 
     # ---- Core Logic ----
 
