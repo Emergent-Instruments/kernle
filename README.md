@@ -101,6 +101,39 @@ cat dev/README.md
 
 Coverage policy is configured in `pyproject.toml` and enforced in both local `make test-cov` and CI coverage runs.
 
+### Audit tracking submodule (private)
+
+The full audit corpus is kept in a private submodule: `audits/` (repo `emergent-instruments/kernle-audits`).
+
+```bash
+# Initialize / refresh submodules on a fresh clone
+git submodule update --init --recursive
+
+# Update local submodule pointer to latest commit in audits/main
+git submodule update --remote audits
+```
+
+To edit audits:
+
+```bash
+# Work inside the private repo
+cd audits
+git pull
+git status
+
+# Make edits, commit, and push in the private repo
+git add .
+git commit -m "Update audit pass findings"
+git push
+
+# Return to main repo and record the new pointer
+cd ..
+git add audits
+git commit -m "chore: bump audits submodule pointer"
+```
+
+CI checks out submodules during test/release jobs. If private access fails in CI, set `SUBMODULE_PAT` in repository secrets with read access to `kernle-audits`.
+
 ## Temporal Vision
 
 Kernle is cognitive infrastructure for beings with a life — not just a session. The design spans five temporal horizons:
