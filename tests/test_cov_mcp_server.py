@@ -14,6 +14,8 @@ from mcp.types import TextContent
 
 from kernle.mcp.server import (
     _plugin_handlers,
+    _plugin_schema_validators,
+    _plugin_schemas,
     _plugin_tools,
     call_tool,
     get_kernle,
@@ -90,6 +92,8 @@ class TestCallToolPluginHandler:
     async def test_plugin_handler_returns_string(self, monkeypatch):
         """Plugin handler returning a string is passed through directly."""
         # Register a fake plugin handler
+        _plugin_schemas.clear()
+        _plugin_schema_validators.clear()
         _plugin_handlers["fake_plugin.do_thing"] = lambda args: f"result: {args['x']}"
         # Also register in _plugin_tools so validate_tool_input doesn't reject it
         _plugin_tools["fake_plugin.do_thing"] = MagicMock()
@@ -105,10 +109,14 @@ class TestCallToolPluginHandler:
         finally:
             _plugin_handlers.pop("fake_plugin.do_thing", None)
             _plugin_tools.pop("fake_plugin.do_thing", None)
+            _plugin_schemas.pop("fake_plugin.do_thing", None)
+            _plugin_schema_validators.pop("fake_plugin.do_thing", None)
 
     @pytest.mark.asyncio
     async def test_plugin_handler_returns_dict(self, monkeypatch):
         """Plugin handler returning a dict is JSON-serialized."""
+        _plugin_schemas.clear()
+        _plugin_schema_validators.clear()
         _plugin_handlers["fake_plugin.info"] = lambda args: {"status": "ok", "count": 3}
         _plugin_tools["fake_plugin.info"] = MagicMock()
 
@@ -124,6 +132,8 @@ class TestCallToolPluginHandler:
         finally:
             _plugin_handlers.pop("fake_plugin.info", None)
             _plugin_tools.pop("fake_plugin.info", None)
+            _plugin_schemas.pop("fake_plugin.info", None)
+            _plugin_schema_validators.pop("fake_plugin.info", None)
 
     @pytest.mark.asyncio
     async def test_unknown_tool_after_validation_returns_not_available(self, monkeypatch):
@@ -139,6 +149,33 @@ class TestCallToolPluginHandler:
         result = await call_tool("nonexistent_tool_xyz", {})
         assert len(result) == 1
         assert "not available" in result[0].text
+
+    @pytest.mark.asyncio
+    async def test_plugin_schema_validation_failure_returns_invalid_input(self, monkeypatch):
+        """Schema/type failures for plugin tool args should be rejected at MCP boundary."""
+        import kernle.mcp.server as srv
+        from kernle.protocols import ToolDefinition
+
+        td = ToolDefinition(
+            name="sum",
+            description="Adds values",
+            input_schema={
+                "type": "object",
+                "properties": {"count": {"type": "integer"}},
+                "required": ["count"],
+            },
+            handler=lambda args: str(args["count"]),
+        )
+
+        srv.register_plugin_tools("validator", [td])
+        monkeypatch.setattr("kernle.mcp.server.get_kernle", lambda: MagicMock())
+
+        try:
+            result = await call_tool("validator.sum", {"count": "2"})
+            assert len(result) == 1
+            assert "Invalid input" in result[0].text
+        finally:
+            srv.unregister_plugin_tools("validator")
 
 
 class TestMain:

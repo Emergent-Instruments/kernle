@@ -40,6 +40,20 @@ describe("register", () => {
     expect(mockApi.getConfig).toHaveBeenCalled();
   });
 
+  it("rejects invalid kernleBin config", () => {
+    mockApi.getConfig.mockReturnValue({ stackId: "test", kernleBin: "kernle --debug" });
+
+    expect(() => register(mockApi as any)).toThrow("Invalid plugin config");
+    expect(mockApi.on).not.toHaveBeenCalled();
+  });
+
+  it("rejects out-of-range timeout config", () => {
+    mockApi.getConfig.mockReturnValue({ stackId: "test", timeout: 0 });
+
+    expect(() => register(mockApi as any)).toThrow("Invalid plugin config");
+    expect(mockApi.on).not.toHaveBeenCalled();
+  });
+
   describe("tool_result_persist handler", () => {
     it("trims large kernle output", () => {
       register(mockApi as any);

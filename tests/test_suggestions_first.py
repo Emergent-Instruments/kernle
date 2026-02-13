@@ -604,7 +604,7 @@ class TestWriteSuggestions:
         processor._write_suggestions("episode_to_belief", parsed, [])
 
         saved = mock_stack.save_suggestion.call_args[0][0]
-        assert saved.source_raw_ids == ["ep-1", "ep-2"]
+        assert saved.source_raw_ids == ["episode:ep-1", "episode:ep-2"]
 
     def test_suggestion_extracts_belief_source_ids(self):
         mock_stack = _make_mock_stack()
@@ -620,7 +620,7 @@ class TestWriteSuggestions:
         processor._write_suggestions("belief_to_value", parsed, [])
 
         saved = mock_stack.save_suggestion.call_args[0][0]
-        assert saved.source_raw_ids == ["b-1"]
+        assert saved.source_raw_ids == ["belief:b-1"]
 
     def test_multiple_suggestions(self):
         mock_stack = _make_mock_stack()
@@ -676,31 +676,31 @@ class TestExtractSourceIds:
         mock_stack = _make_mock_stack()
         processor, _ = _make_processor(mock_stack)
         item = {"source_episode_ids": ["ep-1"]}
-        assert processor._extract_source_ids("episode_to_belief", item) == ["ep-1"]
+        assert processor._extract_source_ids("episode_to_belief", item) == ["episode:ep-1"]
 
     def test_episode_to_goal(self):
         mock_stack = _make_mock_stack()
         processor, _ = _make_processor(mock_stack)
         item = {"source_episode_ids": ["ep-2"]}
-        assert processor._extract_source_ids("episode_to_goal", item) == ["ep-2"]
+        assert processor._extract_source_ids("episode_to_goal", item) == ["episode:ep-2"]
 
     def test_episode_to_relationship(self):
         mock_stack = _make_mock_stack()
         processor, _ = _make_processor(mock_stack)
         item = {"source_episode_ids": ["ep-3"]}
-        assert processor._extract_source_ids("episode_to_relationship", item) == ["ep-3"]
+        assert processor._extract_source_ids("episode_to_relationship", item) == ["episode:ep-3"]
 
     def test_episode_to_drive(self):
         mock_stack = _make_mock_stack()
         processor, _ = _make_processor(mock_stack)
         item = {"source_episode_ids": ["ep-4"]}
-        assert processor._extract_source_ids("episode_to_drive", item) == ["ep-4"]
+        assert processor._extract_source_ids("episode_to_drive", item) == ["episode:ep-4"]
 
     def test_belief_to_value(self):
         mock_stack = _make_mock_stack()
         processor, _ = _make_processor(mock_stack)
         item = {"source_belief_ids": ["b-1"]}
-        assert processor._extract_source_ids("belief_to_value", item) == ["b-1"]
+        assert processor._extract_source_ids("belief_to_value", item) == ["belief:b-1"]
 
     def test_missing_ids_returns_empty(self):
         mock_stack = _make_mock_stack()

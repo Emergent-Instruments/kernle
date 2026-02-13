@@ -528,7 +528,6 @@ class TestGetMemoryLineageWithDecay:
 class TestComputePriorityScoreWithDecay:
     """Test that compute_priority_score uses decayed confidence."""
 
-    @pytest.mark.skip(reason="compute_priority_score kernle_instance param not yet implemented")
     def test_priority_uses_decayed_confidence(self, kernle, storage):
         """Priority score should use decayed confidence when kernle instance provided."""
         now = datetime.now(timezone.utc)
@@ -586,8 +585,8 @@ class TestComputePriorityScoreWithDecay:
         # Both beliefs should be loaded
         belief_ids = [b["id"] for b in result.get("beliefs", [])]
 
-        # Fresh belief should be present
-        assert "b-fresh-high" in belief_ids or len(result.get("beliefs", [])) > 0
+        assert "b-fresh-high" in belief_ids
+        assert "b-old-high" in belief_ids
 
 
 class TestEdgeCases:

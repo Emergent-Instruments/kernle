@@ -440,6 +440,9 @@ class TestMCPStatusIntegration:
     @pytest.mark.asyncio
     async def test_status_returns_counts(self, setup_kernle_for_mcp):
         """Test that memory_status returns actual counts."""
+        k = setup_kernle_for_mcp
+
+        before = k.status()
 
         # Create some data
         await call_tool(
@@ -448,14 +451,18 @@ class TestMCPStatusIntegration:
         )
         await call_tool(
             "memory_belief",
-            {"content": "Status works", "confidence": 0.8},
+            {"statement": "Status works", "confidence": 0.8},
         )
+        after = k.status()
+
+        assert after["episodes"] >= before["episodes"] + 1
+        assert after["beliefs"] >= before["beliefs"] + 1
 
         # Get status
         result = await call_tool("memory_status", {})
         assert len(result) == 1
 
-        # Should show counts
-        text = result[0].text.lower()
-        # Either shows as numbers or mentions the types
-        assert any(x in text for x in ["episode", "belief", "1", "2"])
+        text = result[0].text
+        assert "Memory Status (test-mcp-integration)" in text
+        assert f"Beliefs:    {after['beliefs']}" in text
+        assert f"Episodes:   {after['episodes']}" in text

@@ -228,11 +228,12 @@ class OpenAIModel:
 
         if message.tool_calls:
             for tc in message.tool_calls:
+                parsed_input = self._parse_tool_call_input(tc.function.arguments)
                 tool_calls.append(
                     {
                         "id": tc.id,
                         "name": tc.function.name,
-                        "input": json.loads(tc.function.arguments),
+                        "input": parsed_input,
                     }
                 )
 
@@ -250,3 +251,25 @@ class OpenAIModel:
             stop_reason=choice.finish_reason,
             model_id=response.model,
         )
+
+    def _parse_tool_call_input(self, arguments: Any) -> dict[str, Any]:
+        """Best-effort parse for tool-call arguments.
+
+        Some model responses contain malformed JSON or non-object JSON values.
+        We return a dict in all cases so downstream tool handlers can continue.
+        """
+        if isinstance(arguments, dict):
+            return arguments
+
+        if not isinstance(arguments, str):
+            return {"_raw": str(arguments), "_parse_error": "arguments_not_string"}
+
+        try:
+            parsed = json.loads(arguments)
+        except json.JSONDecodeError:
+            return {"_raw": arguments, "_parse_error": "invalid_json"}
+
+        if isinstance(parsed, dict):
+            return parsed
+
+        return {"_value": parsed, "_parse_error": "arguments_not_object"}

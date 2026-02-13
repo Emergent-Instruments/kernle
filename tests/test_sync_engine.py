@@ -28,6 +28,7 @@ from kernle.storage import (
     Drive,
     Episode,
     Goal,
+    MemorySuggestion,
     Note,
     Playbook,
     QueuedChange,
@@ -128,6 +129,53 @@ class TestSyncQueueBasics:
         changes = storage.get_queued_changes()
         assert len(changes) > 0
         assert changes[0].queued_at is not None
+
+    def test_memory_suggestions_are_local_only_not_queued(self, storage):
+        """Suggestion lifecycle changes should not enqueue cloud sync operations."""
+        initial_pending = storage.get_pending_sync_count()
+        suggestion = MemorySuggestion(
+            id="s-local-1",
+            stack_id="test-agent",
+            memory_type="note",
+            content={"content": "Local-only suggestion"},
+            confidence=0.8,
+            source_raw_ids=["raw-1"],
+            status="pending",
+            created_at=datetime.now(timezone.utc),
+        )
+
+        storage.save_suggestion(suggestion)
+        assert storage.get_pending_sync_count() == initial_pending
+
+        assert storage.update_suggestion_status(
+            suggestion_id="s-local-1",
+            status="dismissed",
+            resolution_reason="Reviewed locally",
+        )
+        assert storage.get_pending_sync_count() == initial_pending
+
+        assert storage.delete_suggestion("s-local-1")
+        assert storage.get_pending_sync_count() == initial_pending
+
+        changes = storage.get_queued_changes(limit=50)
+        assert not any(c.table_name == "memory_suggestions" for c in changes)
+
+    def test_queue_sync_operation_rejects_local_only_tables(self, storage):
+        """Direct queue API should no-op for local-only tables."""
+        initial_pending = storage.get_pending_sync_count()
+
+        queue_id = storage.queue_sync_operation(
+            "upsert",
+            "memory_suggestions",
+            "manual-local-only",
+        )
+
+        assert queue_id == 0
+        assert storage.get_pending_sync_count() == initial_pending
+        assert not any(
+            c.table_name == "memory_suggestions" and c.record_id == "manual-local-only"
+            for c in storage.get_queued_changes(limit=50)
+        )
 
 
 class TestConnectivity:
@@ -627,8 +675,10 @@ class TestSyncEdgeCases:
         # Sync should handle this gracefully
         result = storage_with_cloud.sync()
 
-        # Should not fail
-        assert result.success or len(result.errors) == 0
+        assert result.success is True
+        assert result.errors == []
+        assert result.pushed == 1
+        mock_cloud_storage.save_note.assert_called_once()
 
     def test_sync_empty_queue(self, storage_with_cloud, mock_cloud_storage):
         """Sync with empty queue should succeed."""
@@ -657,10 +707,9 @@ class TestSyncEdgeCases:
 
         result = storage_with_cloud.sync()
 
-        # Should have pushed one successfully
-        assert result.pushed >= 1
-        # Should have recorded the error
-        assert len(result.errors) >= 1
+        assert result.pushed == 1
+        assert len(result.errors) == 1
+        assert "Failed to push notes:n1" in result.errors[0]
 
 
 class TestSyncHooks:
@@ -708,10 +757,9 @@ class TestSyncHooks:
         mock_cloud_storage.get_relationships.return_value = []
 
         k = Kernle(stack_id="test-agent", storage=storage_with_cloud, strict=False)
-        memory = k.load(sync=True)
+        k.load(sync=True)
 
-        # Should have attempted to pull from cloud
-        assert mock_cloud_storage.get_episodes.called or "checkpoint" in memory
+        mock_cloud_storage.get_episodes.assert_called_once_with(limit=1000, since=None)
 
     def test_checkpoint_with_sync_true_attempts_push(self, storage_with_cloud, mock_cloud_storage):
         """Checkpoint with sync=True should attempt to push changes."""
@@ -1536,6 +1584,49 @@ class TestSyncPushPhaseEdgeCases:
         # The ghost record should be cleared from queue (not stuck forever)
         changes = storage_with_cloud.get_queued_changes()
         assert not any(c.record_id == "ghost-record" for c in changes)
+
+    def test_local_only_memory_suggestion_queue_entry_is_not_silently_cleared(
+        self, storage_with_cloud, mock_cloud_storage
+    ):
+        """Legacy queued suggestion ops should stay queued with explicit failure metadata."""
+        mock_cloud_storage.get_stats.return_value = {"episodes": 0}
+
+        # Simulate a pre-guard/legacy queue row that already exists in sync_queue.
+        with storage_with_cloud._connect() as conn:
+            now = storage_with_cloud._now()
+            conn.execute(
+                """INSERT INTO sync_queue
+                   (table_name, record_id, operation, data, local_updated_at, synced, payload, queued_at)
+                   VALUES (?, ?, ?, ?, ?, 0, ?, ?)""",
+                ("memory_suggestions", "legacy-suggestion-op", "upsert", None, now, None, now),
+            )
+
+        pre_sync = storage_with_cloud.get_queued_changes(limit=10)
+        assert any(
+            c.table_name == "memory_suggestions" and c.record_id == "legacy-suggestion-op"
+            for c in pre_sync
+        )
+
+        storage_with_cloud._last_connectivity_check = None
+        result = storage_with_cloud.sync()
+
+        post_sync = storage_with_cloud.get_queued_changes(limit=10)
+        queued_change = next(
+            (
+                c
+                for c in post_sync
+                if c.table_name == "memory_suggestions" and c.record_id == "legacy-suggestion-op"
+            ),
+            None,
+        )
+        assert queued_change is not None
+        assert queued_change.retry_count == 1
+        assert queued_change.last_error is not None
+        assert "local-only" in queued_change.last_error
+        assert any(
+            "local-only table memory_suggestions:legacy-suggestion-op" in error
+            for error in result.errors
+        )
 
     def test_failed_records_count_logged(self, storage_with_cloud, mock_cloud_storage, caplog):
         """When there are failed records, info log is emitted."""

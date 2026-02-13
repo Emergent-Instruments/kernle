@@ -178,6 +178,22 @@ class TestAuthStatus:
         # Full key should NOT appear
         assert "test-long-key-for-masking-display" not in captured
 
+    def test_status_masks_short_api_keys_too(self, k, capsys, tmp_path):
+        """Even short keys must never be shown in full."""
+        creds = {
+            "user_id": "u-mask-short",
+            "api_key": "shortkey",
+            "backend_url": "https://api.test.com",
+        }
+        (tmp_path / "credentials.json").write_text(json.dumps(creds))
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(tmp_path)}):
+            cmd_auth(_args(auth_action="status"), k)
+
+        captured = capsys.readouterr().out
+        assert "shortkey" not in captured
+        assert "..." in captured
+
 
 # ============================================================================
 # auth register
@@ -224,6 +240,37 @@ class TestAuthRegister:
         assert saved["user_id"] == "new-user-1"
         assert saved["api_key"] == "test-secret"
         assert saved["backend_url"] == "https://api.test.com"
+
+    def test_register_masks_secret_in_output(self, k, capsys, tmp_path):
+        """Registration output should always mask secret values."""
+        reg_resp = _make_response(
+            201,
+            json_data={
+                "user_id": "new-user-mask",
+                "secret": "shortsecret",
+                "access_token": "jwt-new",
+                "expires_in": 604800,
+            },
+        )
+        mock_httpx = MagicMock()
+        mock_httpx.post.return_value = reg_resp
+        mock_httpx.ConnectError = ConnectionError
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(tmp_path)}):
+            with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                cmd_auth(
+                    _args(
+                        auth_action="register",
+                        backend_url="https://api.test.com",
+                        email="mask@example.com",
+                    ),
+                    k,
+                )
+
+        captured = capsys.readouterr().out
+        assert "shortsecret" not in captured
+        assert "Secret:" in captured
+        assert "..." in captured
 
     def test_register_success_json(self, k, capsys, tmp_path):
         """Register --json returns structured output."""
@@ -793,7 +840,7 @@ class TestAuthKeysCreate:
         assert "SAVE THIS KEY" in captured
 
     def test_keys_create_json(self, capsys, tmp_path):
-        """Create --json returns raw response."""
+        """Create --json returns only allowlisted fields."""
         creds = {"backend_url": "https://api.test.com", "api_key": "fake-master"}
         (tmp_path / "credentials.json").write_text(json.dumps(creds))
 
@@ -803,6 +850,9 @@ class TestAuthKeysCreate:
                 "id": "k-new",
                 "key": "fake-newkey",
                 "name": "Test",
+                "access_token": "should-not-leak",
+                "secret": "should-not-leak",
+                "refresh_token": "should-not-leak",
             },
         )
         mock_httpx = MagicMock()
@@ -816,7 +866,10 @@ class TestAuthKeysCreate:
                 )
 
         output = json.loads(capsys.readouterr().out)
-        assert output["key"] == "fake-newkey"
+        assert output == {"id": "k-new", "name": "Test", "key": "fake-newkey"}
+        assert "access_token" not in output
+        assert "secret" not in output
+        assert "refresh_token" not in output
 
     def test_keys_create_rate_limited(self, tmp_path):
         """429 rate limit exits."""
@@ -1024,13 +1077,19 @@ class TestAuthKeysCycle:
         assert "SAVE THIS NEW KEY" in captured
 
     def test_keys_cycle_json(self, capsys, tmp_path):
-        """Cycle --json returns raw response."""
+        """Cycle --json returns only allowlisted fields."""
         creds = {"backend_url": "https://api.test.com", "api_key": "fake-master"}
         (tmp_path / "credentials.json").write_text(json.dumps(creds))
 
         resp = _make_response(
             201,
-            json_data={"id": "new-id", "key": "fake-new-cycled", "name": "Key"},
+            json_data={
+                "key_id": "new-id",
+                "api_key": "fake-new-cycled",
+                "name": "Key",
+                "jwt": "should-not-leak",
+                "secret": "should-not-leak",
+            },
         )
         mock_httpx = MagicMock()
         mock_httpx.post.return_value = resp
@@ -1049,7 +1108,14 @@ class TestAuthKeysCycle:
                 )
 
         output = json.loads(capsys.readouterr().out)
-        assert output["key"] == "fake-new-cycled"
+        assert output == {
+            "id": "new-id",
+            "name": "Key",
+            "key": "fake-new-cycled",
+            "old_key_id": "old-id",
+        }
+        assert "jwt" not in output
+        assert "secret" not in output
 
     def test_keys_cycle_not_found(self, tmp_path):
         """404 when key not found."""

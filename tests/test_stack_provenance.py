@@ -1317,6 +1317,21 @@ class TestKernleStrictMode:
                 outcome="Should fail",
             )
 
+    def test_strict_maintenance_blocks_episode_with_emotion(self, strict_kernle):
+        """episode_with_emotion must use strict write path and honor maintenance mode."""
+        stack = strict_kernle.stack
+        stack.on_attach("strict_agent")
+        stack.enter_maintenance()
+
+        with pytest.raises(MaintenanceModeError):
+            strict_kernle.episode_with_emotion(
+                objective="Test emotional",
+                outcome="Should fail",
+                valence=0.5,
+                arousal=0.4,
+                auto_detect=False,
+            )
+
     def test_strict_maintenance_blocks_belief(self, strict_kernle):
         stack = strict_kernle.stack
         stack.on_attach("strict_agent")

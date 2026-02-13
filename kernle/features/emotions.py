@@ -388,6 +388,11 @@ class EmotionsMixin:
             elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
                 source_type = "inference"
 
+        # Keep explicit lineage and include source marker as annotation metadata.
+        derived_from_value = list(derived_from) if derived_from else []
+        if source:
+            derived_from_value.append(f"context:{source}")
+
         episode = Episode(
             id=episode_id,
             stack_id=self.stack_id,
@@ -403,15 +408,13 @@ class EmotionsMixin:
             confidence=0.8,
             source_type=source_type,
             source_episodes=derived_from,  # Link to source memories
-            derived_from=(
-                [f"context:{source}"] if source else (derived_from if derived_from else None)
-            ),
+            derived_from=derived_from_value if derived_from_value else None,
             # Context/scope fields
             context=context,
             context_tags=context_tags,
         )
 
-        self._storage.save_episode(episode)
+        self._write_backend.save_episode(episode)
         return episode_id
 
     def get_mood_relevant_memories(

@@ -66,6 +66,34 @@ NOTE_PATTERNS = [
 ]
 
 
+def _normalize_suggestion_provenance_refs(source_refs: Optional[List[str]]) -> List[str]:
+    """Normalize suggestion source refs to typed provenance refs.
+
+    Backward compatibility:
+    - Plain IDs are treated as raw IDs -> "raw:<id>"
+    - Typed refs ("episode:<id>", "belief:<id>", etc.) are preserved
+    """
+    normalized: List[str] = []
+    seen = set()
+    for ref in source_refs or []:
+        if not isinstance(ref, str):
+            continue
+        ref = ref.strip()
+        if not ref:
+            continue
+        if ":" not in ref:
+            ref = f"raw:{ref}"
+        ref_type, ref_id = ref.split(":", 1)
+        if not ref_type or not ref_id:
+            continue
+        canonical = f"{ref_type}:{ref_id}"
+        if canonical in seen:
+            continue
+        seen.add(canonical)
+        normalized.append(canonical)
+    return normalized
+
+
 class SuggestionsMixin:
     """Mixin providing memory suggestion capabilities.
 
@@ -525,8 +553,8 @@ class SuggestionsMixin:
         memory_id = None
         memory_type = suggestion.memory_type
 
-        # Build provenance: derived_from the source raw entries with raw: prefix
-        derived_from = [f"raw:{rid}" for rid in (suggestion.source_raw_ids or [])]
+        # Preserve typed provenance when suggestions come from non-raw transitions.
+        derived_from = _normalize_suggestion_provenance_refs(suggestion.source_raw_ids)
 
         if memory_type == "episode":
             memory_id = self.episode(
@@ -598,10 +626,13 @@ class SuggestionsMixin:
                 promoted_to=f"{memory_type}:{memory_id}",
             )
 
-            # Mark source raw entries as processed
-            for raw_id in suggestion.source_raw_ids:
+            # Mark only true raw refs as processed.
+            for raw_ref in derived_from:
+                ref_type, ref_id = raw_ref.split(":", 1)
+                if ref_type != "raw":
+                    continue
                 self._storage.mark_raw_processed(
-                    raw_id=raw_id,
+                    raw_id=ref_id,
                     processed_into=[f"{memory_type}:{memory_id}"],
                 )
 
