@@ -5,7 +5,7 @@ description: "Complete reference for all Kernle memory types"
 
 # Memory Types
 
-Kernle supports sixteen distinct memory types, each serving a specific purpose in the memory hierarchy.
+Kernle uses fourteen canonical memory record types, plus diagnostic artifacts used by health checks.
 
 ## Raw Entries
 
@@ -255,8 +255,8 @@ Relationships track your connections with others.
 
 **Usage**:
 ```bash
-kernle relationship "Alice" --trust 0.9 --notes "Senior engineer, great mentor"
-kernle relationship "DevOps Team" --type organization --notes "Owns infrastructure"
+kernle relation add "Alice" --trust 0.9 --notes "Senior engineer, great mentor"
+kernle relation add "DevOps Team" --type organization --notes "Owns infrastructure"
 ```
 
 ---
@@ -302,6 +302,33 @@ kernle playbook find "deploying new feature"
 
 # Record usage
 kernle playbook record <id> --success
+```
+
+---
+
+## Suggestions
+
+**Purpose**: Candidate memory extractions from raw entries awaiting human review.
+
+Suggestions are auto-generated from raw signals and promoted to concrete memory records when approved.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | TEXT | Suggestion identifier |
+| `memory_type` | TEXT | Target type (`episode`, `belief`, `note`, `goal`, `relationship`, `value`, `drive`) |
+| `content` | JSON | Structured payload for the target record |
+| `confidence` | FLOAT | System confidence score (0.0 to 1.0) |
+| `source_raw_ids` | JSON | Origin raw entry IDs |
+| `status` | TEXT | `pending`, `promoted`, `modified`, `rejected`, `dismissed`, `expired` |
+| `promoted_to` | TEXT | Optional `type:id` for accepted suggestion |
+| `created_at` | DATETIME | Time created |
+
+**Usage**:
+
+```bash
+kernle raw "I learned that restarting services before deploy reduced incidents"
+kernle suggestions list --pending
+kernle suggestions accept abc123 --objective "..." --outcome "..."
 ```
 
 ---

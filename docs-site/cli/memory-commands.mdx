@@ -319,23 +319,56 @@ kernle -s my-project drive satisfy curiosity --amount 0.2
 
 ---
 
-## relationship
+## relation
 
-Track relationships with other entities.
+Manage relationships with other entities.
+
+### Add Relationship
 
 ```bash
-kernle -s <stack> relationship NAME [--trust T] [--type TYPE] [--notes NOTES]
+kernle -s <stack> relation add NAME [--type TYPE] [--trust T] [--notes NOTES] [--derived-from ID...]
 ```
 
 | Option | Description |
 |--------|-------------|
-| `--trust T` | Trust level (-1.0 to 1.0) |
-| `--type TYPE` | `si`, `person`, or `organization` |
+| `-t, --type TYPE` | `person`, `si`, `organization`, `system` |
+| `--trust T` | Trust level (0.0 to 1.0) |
 | `--notes NOTES` | Relationship observations |
+| `--derived-from ID` | Source memory ID (repeatable) |
 
 ```bash
-kernle -s my-project relationship "Alice" --trust 0.9 --notes "Great debugging partner"
-kernle -s my-project relationship "DevOps" --type organization --notes "Manages infrastructure"
+kernle -s my-project relation add "Alice" --trust 0.9 --notes "Great debugging partner"
+kernle -s my-project relation add "DevOps Team" --type organization --notes "Owns infrastructure"
+```
+
+### List Relationships
+
+```bash
+kernle -s <stack> relation list
+```
+
+### Show Relationship
+
+```bash
+kernle -s <stack> relation show NAME
+```
+
+### Update Relationship
+
+```bash
+kernle -s <stack> relation update NAME [--type TYPE] [--trust T] [--notes NOTES] [--derived-from ID...]
+```
+
+### Log Interaction
+
+```bash
+kernle -s <stack> relation log NAME --interaction INTERACTION
+```
+
+### Relationship History
+
+```bash
+kernle -s <stack> relation history NAME [--type TYPE] [--limit LIMIT]
 ```
 
 ---

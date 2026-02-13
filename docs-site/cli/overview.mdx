@@ -5,7 +5,7 @@ description: "Complete reference for the Kernle command-line interface"
 
 # CLI Overview
 
-The Kernle CLI provides 28+ commands for managing SI memory.
+The Kernle CLI provides 32+ commands for managing SI memory.
 
 ## Global Options
 
@@ -23,15 +23,17 @@ If no stack ID is provided, Kernle will try to resolve one automatically from en
 
 <CardGroup cols={2}>
   <Card title="Memory Commands" icon="brain" href="/cli/memory-commands">
-    episode, note, raw, belief, value, goal, drive, relationship, playbook
+    episode, note, raw, belief, value, goal, drive, relation, playbook
   </Card>
   <Card title="Utility Commands" icon="wrench" href="/cli/utility-commands">
-    load, checkpoint, search, status, anxiety, identity, promote, process, model, export, export-full
+    load, checkpoint, search, status, anxiety, identity, trust, emotion, promote, process, model, export, export-full
   </Card>
   <Card title="MCP Server" icon="plug" href="/integration/mcp">
     mcp - Start MCP server for tool integration
   </Card>
 </CardGroup>
+
+Additional top-level commands include `auth`, `boot`, `doctor`, `audit`, `export-cache`, `import`, `seed`, `stack`, `migrate`, `entity-model`, `setup`, `hook`, `relation`, `meta`, `narrative`, and `epoch`.
 
 ## Command Quick Reference
 
@@ -55,7 +57,7 @@ If no stack ID is provided, Kernle will try to resolve one automatically from en
 | `value` | Define core values |
 | `goal` | Set active goals |
 | `drive` | Manage intrinsic motivations |
-| `relationship` | Track relationships |
+| `relation` | Track relationships |
 | `playbook` | Procedural memory |
 
 ### Search & Analysis
