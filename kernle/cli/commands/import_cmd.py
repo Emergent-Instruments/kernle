@@ -12,10 +12,294 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from kernle.dedup import load_raw_content_hashes, strip_corpus_header
+from kernle.processing import compute_content_hash
+
 if TYPE_CHECKING:
     import argparse
 
     from kernle import Kernle
+
+
+_DUPLICATE_SCAN_LIMIT = 100_000
+_IMPORT_FINGERPRINT_SCHEME = "context:import-fingerprint:v1"
+
+
+def _normalize_text(value: Any) -> str:
+    """Normalize text for deterministic hashing."""
+    if value is None:
+        return ""
+    return str(value).strip().lower()
+
+
+def _normalize_list(value: Any) -> List[str]:
+    """Normalize list-like values for deterministic comparisons."""
+    if not value:
+        return []
+    if isinstance(value, list):
+        items = [str(item).strip().lower() for item in value]
+    else:
+        items = [str(value).strip().lower()]
+    return sorted([item for item in items if item])
+
+
+def _fingerprint_ref_prefix() -> str:
+    return f"{_IMPORT_FINGERPRINT_SCHEME}:"
+
+
+def _normalize_derived_from(derived_from: Optional[List[str]]) -> List[str]:
+    """Normalize derived_from refs for stable storage and dedupe."""
+    if not derived_from:
+        return []
+
+    cleaned: List[str] = []
+    for ref in derived_from:
+        if not isinstance(ref, str):
+            continue
+        ref = ref.strip()
+        if not ref:
+            continue
+        if ref not in cleaned:
+            cleaned.append(ref)
+    return cleaned
+
+
+def _build_import_fingerprint(item: Dict[str, Any]) -> Optional[str]:
+    """Build a stable fingerprint for imported import payloads."""
+    item_type = item.get("type")
+    if not item_type:
+        return None
+
+    payload: Dict[str, Any] = {"type": item_type}
+    if item_type == "episode":
+        objective = _normalize_text(item.get("objective"))
+        outcome = _normalize_text(item.get("outcome", item.get("objective")))
+        lessons = _normalize_list(item.get("lesson") or item.get("lessons"))
+        payload.update({"objective": objective, "outcome": outcome, "lessons": lessons})
+    elif item_type == "note":
+        content = _normalize_text(item.get("content"))
+        note_type = _normalize_text(item.get("note_type") or item.get("type"))
+        speaker = _normalize_text(item.get("speaker"))
+        payload.update(
+            {
+                "content": content,
+                "note_type": note_type,
+                "speaker": speaker,
+            }
+        )
+    elif item_type == "belief":
+        statement = _normalize_text(item.get("statement"))
+        payload.update({"statement": statement})
+    elif item_type == "value":
+        name = _normalize_text(item.get("name"))
+        description = _normalize_text(item.get("description"))
+        payload.update({"name": name, "description": description})
+    elif item_type == "goal":
+        title = _normalize_text(item.get("title"))
+        description = _normalize_text(item.get("description", item.get("title")))
+        status = _normalize_text(item.get("status"))
+        payload.update(
+            {
+                "title": title,
+                "description": description,
+                "status": status,
+            }
+        )
+    elif item_type == "raw":
+        payload.update({"content": _normalize_text(item.get("content"))})
+    elif item_type == "drive":
+        drive_type = _normalize_text(item.get("drive_type"))
+        intensity = item.get("intensity")
+        focus = _normalize_list(item.get("focus_areas"))
+        payload.update({"drive_type": drive_type, "intensity": intensity, "focus_areas": focus})
+    elif item_type == "relationship":
+        entity_name = _normalize_text(item.get("entity_name"))
+        entity_type = _normalize_text(item.get("entity_type"))
+        relationship_type = _normalize_text(item.get("relationship_type"))
+        sentiment = item.get("sentiment")
+        payload.update(
+            {
+                "entity_name": entity_name,
+                "entity_type": entity_type,
+                "relationship_type": relationship_type,
+                "sentiment": sentiment,
+            }
+        )
+    else:
+        return None
+
+    if all(v in (None, "", [], {}) for v in payload.values()):
+        return None
+
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return f"{_fingerprint_ref_prefix()}{compute_content_hash(canonical)}"
+
+
+def _extract_import_fingerprints(derived_from: Optional[List[str]]) -> List[str]:
+    """Return all import fingerprint refs from a derived_from list."""
+    prefix = _fingerprint_ref_prefix()
+    result = []
+    for ref in derived_from or []:
+        if not isinstance(ref, str):
+            continue
+        if ref.startswith(prefix):
+            result.append(ref)
+    return result
+
+
+def _build_import_fingerprint_index(k: "Kernle") -> Dict[str, set]:
+    """Build a cache of existing import fingerprints for quick duplicate checks."""
+    index: Dict[str, set] = {
+        "episode": set(),
+        "note": set(),
+        "belief": set(),
+        "value": set(),
+        "goal": set(),
+        "raw": set(),
+        "drive": set(),
+        "relationship": set(),
+    }
+
+    for belief in k._storage.get_beliefs(limit=_DUPLICATE_SCAN_LIMIT):
+        index["belief"].update(_extract_import_fingerprints(getattr(belief, "derived_from", None)))
+    for value in k._storage.get_values(limit=_DUPLICATE_SCAN_LIMIT):
+        index["value"].update(_extract_import_fingerprints(getattr(value, "derived_from", None)))
+    for goal in k._storage.get_goals(status=None, limit=_DUPLICATE_SCAN_LIMIT):
+        index["goal"].update(_extract_import_fingerprints(getattr(goal, "derived_from", None)))
+    for episode in k._storage.get_episodes(limit=_DUPLICATE_SCAN_LIMIT):
+        index["episode"].update(
+            _extract_import_fingerprints(getattr(episode, "derived_from", None))
+        )
+    for note in k._storage.get_notes(limit=_DUPLICATE_SCAN_LIMIT):
+        index["note"].update(_extract_import_fingerprints(getattr(note, "derived_from", None)))
+    for drive in k._storage.get_drives():
+        index["drive"].update(_extract_import_fingerprints(getattr(drive, "derived_from", None)))
+    for relationship in k._storage.get_relationships():
+        index["relationship"].update(
+            _extract_import_fingerprints(getattr(relationship, "derived_from", None))
+        )
+
+    raw_hashes = load_raw_content_hashes(k._storage, limit=_DUPLICATE_SCAN_LIMIT)
+    index["raw"].update(raw_hashes.hashes)
+
+    return index
+
+
+def _seen_signature_buckets() -> Dict[str, set]:
+    return {
+        key: set()
+        for key in ("episode", "note", "belief", "value", "goal", "raw", "drive", "relationship")
+    }
+
+
+def _item_signature(item: Dict[str, Any]) -> Optional[str]:
+    if item.get("type") == "raw":
+        content = strip_corpus_header(item.get("content", ""))
+        content = _normalize_text(content)
+        return compute_content_hash(content) if content else None
+    return _build_import_fingerprint(item)
+
+
+def _register_seen_signature(item: Dict[str, Any], seen: Dict[str, set]) -> None:
+    signature = _item_signature(item)
+    if not signature:
+        return
+    item_type = item.get("type")
+    if item_type in seen:
+        seen[item_type].add(signature)
+
+
+def _merge_derived_from(
+    derived_from: Optional[List[str]],
+    item: Dict[str, Any],
+) -> Optional[List[str]]:
+    """Merge CLI-provided derived_from with import fingerprint references."""
+    signatures = _normalize_derived_from(derived_from)
+    fingerprint = _item_signature(item)
+    if not fingerprint:
+        return signatures or None
+    if fingerprint not in signatures:
+        signatures.append(fingerprint)
+    return signatures or None
+
+
+def _check_duplicate(
+    item: Dict[str, Any],
+    k: "Kernle",
+    *,
+    seen_signatures: Optional[Dict[str, set]] = None,
+    existing_fingerprints: Optional[Dict[str, set]] = None,
+) -> bool:
+    """Check if an item already exists.
+
+    We first use import fingerprints when available, then fall back to legacy
+    heuristics for records that predate fingerprint tracking.
+    """
+    item_type = item.get("type")
+    if not item_type:
+        return False
+
+    signature = _item_signature(item)
+    has_existing_fingerprints = existing_fingerprints is not None
+    seen_signatures = seen_signatures or {}
+    existing_fingerprints = existing_fingerprints or {}
+
+    if item_type in ("episode", "note", "belief", "value", "goal", "raw", "drive", "relationship"):
+        if signature:
+            if signature in seen_signatures.get(item_type, set()):
+                return True
+            if signature in existing_fingerprints.get(item_type, set()):
+                return True
+
+        # Fallback legacy duplicate checks for non-fingerprint entries.
+        if item_type == "belief":
+            statement = item.get("statement", "")
+            if k._storage.find_belief(statement):
+                return True
+        elif item_type == "value":
+            name = item.get("name", "")
+            existing = k._storage.get_values(limit=_DUPLICATE_SCAN_LIMIT)
+            if any(v.name == name for v in existing):
+                return True
+        elif item_type == "goal":
+            desc = item.get("description", "")
+            title = item.get("title", "")
+            existing = k._storage.get_goals(status=None, limit=_DUPLICATE_SCAN_LIMIT)
+            if any(g.title == title or g.description == desc for g in existing):
+                return True
+        elif item_type == "episode":
+            objective = item.get("objective", "")
+            existing = k._storage.get_episodes(limit=_DUPLICATE_SCAN_LIMIT)
+            if any(getattr(ep, "objective", None) == objective for ep in existing):
+                return True
+        elif item_type == "note":
+            content = item.get("content", "")
+            existing = k._storage.get_notes(limit=_DUPLICATE_SCAN_LIMIT)
+            if any(getattr(n, "content", None) == content for n in existing):
+                return True
+        elif item_type == "raw":
+            content = item.get("content", "")
+            if not content:
+                return False
+            h = _item_signature({"type": "raw", "content": content})
+            if not h:
+                return False
+            if h in existing_fingerprints.get("raw", set()):
+                return True
+            if not has_existing_fingerprints:
+                raw_hashes = load_raw_content_hashes(k._storage, limit=_DUPLICATE_SCAN_LIMIT)
+                if h in raw_hashes.hashes:
+                    return True
+        elif item_type == "drive":
+            drive_type = item.get("drive_type", "")
+            if k._storage.get_drive(drive_type):
+                return True
+        elif item_type == "relationship":
+            entity_name = item.get("entity_name", "")
+            if k._storage.get_relationship(entity_name):
+                return True
+
+    return False
 
 
 def cmd_import(args: "argparse.Namespace", k: "Kernle") -> None:
@@ -185,168 +469,263 @@ def _import_json(
     imported: Dict[str, int] = {}
     skipped: Dict[str, int] = {}
     errors: List[str] = []
+    existing_fingerprints = _build_import_fingerprint_index(k) if skip_duplicates else None
+    seen_signatures = _seen_signature_buckets()
 
     # Values
     for item in data.get("values", []):
+        import_item = {
+            "type": "value",
+            "name": item.get("name", ""),
+            "description": item.get("statement", item.get("description", "")),
+            "priority": item.get("priority", 50),
+        }
+        import_derived_from = _merge_derived_from(derived_from, import_item)
         try:
-            if skip_duplicates:
-                existing = k._storage.get_values(limit=100)
-                if any(v.name == item.get("name") for v in existing):
-                    skipped["value"] = skipped.get("value", 0) + 1
-                    continue
+            if skip_duplicates and _check_duplicate(
+                import_item,
+                k,
+                seen_signatures=seen_signatures,
+                existing_fingerprints=existing_fingerprints,
+            ):
+                skipped["value"] = skipped.get("value", 0) + 1
+                continue
 
             k.value(
-                name=item.get("name", ""),
-                description=item.get("statement", item.get("description", "")),
-                priority=item.get("priority", 50),
-                derived_from=derived_from,
+                name=import_item["name"],
+                description=import_item["description"],
+                priority=import_item["priority"],
+                derived_from=import_derived_from,
             )
             imported["value"] = imported.get("value", 0) + 1
+            if skip_duplicates:
+                _register_seen_signature(import_item, seen_signatures)
         except Exception as e:
             errors.append(f"value: {str(e)[:50]}")
 
     # Beliefs
     for item in data.get("beliefs", []):
+        import_item = {
+            "type": "belief",
+            "statement": item.get("statement", ""),
+            "belief_type": item.get("type", "fact"),
+            "confidence": item.get("confidence", 0.8),
+        }
+        import_derived_from = _merge_derived_from(derived_from, import_item)
         try:
-            statement = item.get("statement", "")
-            if skip_duplicates and k._storage.find_belief(statement):
+            if skip_duplicates and _check_duplicate(
+                import_item,
+                k,
+                seen_signatures=seen_signatures,
+                existing_fingerprints=existing_fingerprints,
+            ):
                 skipped["belief"] = skipped.get("belief", 0) + 1
                 continue
 
             k.belief(
-                statement=statement,
-                type=item.get("type", "fact"),
-                confidence=item.get("confidence", 0.8),
-                derived_from=derived_from,
+                statement=import_item["statement"],
+                type=import_item["belief_type"],
+                confidence=import_item["confidence"],
+                derived_from=import_derived_from,
             )
             imported["belief"] = imported.get("belief", 0) + 1
+            if skip_duplicates:
+                _register_seen_signature(import_item, seen_signatures)
         except Exception as e:
             errors.append(f"belief: {str(e)[:50]}")
 
     # Goals
     for item in data.get("goals", []):
+        title = item.get("title", "")
+        description = item.get("description", title)
+        import_item = {
+            "type": "goal",
+            "title": title,
+            "description": description,
+            "priority": item.get("priority", "medium"),
+            "status": item.get("status", "active"),
+        }
+        import_derived_from = _merge_derived_from(derived_from, import_item)
         try:
-            title = item.get("title", "")
-            description = item.get("description", title)
             if skip_duplicates:
-                existing = k._storage.get_goals(status=None, limit=100)
-                if any(g.title == title or g.description == description for g in existing):
+                if _check_duplicate(
+                    import_item,
+                    k,
+                    seen_signatures=seen_signatures,
+                    existing_fingerprints=existing_fingerprints,
+                ):
                     skipped["goal"] = skipped.get("goal", 0) + 1
                     continue
 
             k.goal(
-                description=description,
-                title=title,
-                priority=item.get("priority", "medium"),
-                status=item.get("status", "active"),
-                derived_from=derived_from,
+                description=import_item["description"],
+                title=import_item["title"],
+                priority=import_item["priority"],
+                status=import_item["status"],
+                derived_from=import_derived_from,
             )
             imported["goal"] = imported.get("goal", 0) + 1
+            if skip_duplicates:
+                _register_seen_signature(import_item, seen_signatures)
         except Exception as e:
             errors.append(f"goal: {str(e)[:50]}")
 
     # Episodes
     for item in data.get("episodes", []):
+        import_item = {
+            "type": "episode",
+            "objective": item.get("objective", ""),
+            "outcome": item.get("outcome", item.get("objective", "")),
+            "lessons": item.get("lessons"),
+            "tags": item.get("tags"),
+        }
+        import_derived_from = _merge_derived_from(derived_from, import_item)
         try:
-            objective = item.get("objective", "")
-            outcome = item.get("outcome", objective)
-            if skip_duplicates:
-                results = k.search(objective, limit=5, record_types=["episode"])
-                if any(
-                    hasattr(r.record, "objective") and r.record.objective == objective
-                    for r in results
-                ):
-                    skipped["episode"] = skipped.get("episode", 0) + 1
-                    continue
+            if skip_duplicates and _check_duplicate(
+                import_item,
+                k,
+                seen_signatures=seen_signatures,
+                existing_fingerprints=existing_fingerprints,
+            ):
+                skipped["episode"] = skipped.get("episode", 0) + 1
+                continue
 
             k.episode(
-                objective=objective,
-                outcome=outcome,
-                lessons=item.get("lessons"),
-                tags=item.get("tags"),
-                derived_from=derived_from,
+                objective=import_item["objective"],
+                outcome=import_item["outcome"],
+                lessons=import_item["lessons"],
+                tags=import_item["tags"],
+                derived_from=import_derived_from,
             )
             imported["episode"] = imported.get("episode", 0) + 1
+            if skip_duplicates:
+                _register_seen_signature(import_item, seen_signatures)
         except Exception as e:
             errors.append(f"episode: {str(e)[:50]}")
 
     # Notes
     for item in data.get("notes", []):
+        note_type = item.get("type", "note")
+        import_item = {
+            "type": "note",
+            "content": item.get("content", ""),
+            "note_type": note_type,
+            "speaker": item.get("speaker"),
+            "reason": item.get("reason"),
+            "tags": item.get("tags"),
+        }
+        import_derived_from = _merge_derived_from(derived_from, import_item)
         try:
-            content = item.get("content", "")
-            if skip_duplicates:
-                results = k.search(content[:100], limit=5, record_types=["note"])
-                if any(
-                    hasattr(r.record, "content") and r.record.content == content for r in results
-                ):
-                    skipped["note"] = skipped.get("note", 0) + 1
-                    continue
+            if skip_duplicates and _check_duplicate(
+                import_item,
+                k,
+                seen_signatures=seen_signatures,
+                existing_fingerprints=existing_fingerprints,
+            ):
+                skipped["note"] = skipped.get("note", 0) + 1
+                continue
 
             k.note(
-                content=content,
-                type=item.get("type", "note"),
-                speaker=item.get("speaker"),
-                reason=item.get("reason"),
-                tags=item.get("tags"),
-                derived_from=derived_from,
+                content=import_item["content"],
+                type=import_item["note_type"],
+                speaker=import_item["speaker"],
+                reason=import_item["reason"],
+                tags=import_item["tags"],
+                derived_from=import_derived_from,
             )
             imported["note"] = imported.get("note", 0) + 1
+            if skip_duplicates:
+                _register_seen_signature(import_item, seen_signatures)
         except Exception as e:
             errors.append(f"note: {str(e)[:50]}")
 
     # Drives
     for item in data.get("drives", []):
+        import_item = {
+            "type": "drive",
+            "drive_type": item.get("drive_type", ""),
+            "intensity": item.get("intensity", 0.5),
+            "focus_areas": item.get("focus_areas"),
+        }
+        import_derived_from = _merge_derived_from(derived_from, import_item)
         try:
-            drive_type = item.get("drive_type", "")
-            if skip_duplicates:
-                existing = k._storage.get_drive(drive_type)
-                if existing:
-                    skipped["drive"] = skipped.get("drive", 0) + 1
-                    continue
+            if skip_duplicates and _check_duplicate(
+                import_item,
+                k,
+                seen_signatures=seen_signatures,
+                existing_fingerprints=existing_fingerprints,
+            ):
+                skipped["drive"] = skipped.get("drive", 0) + 1
+                continue
 
             k.drive(
-                drive_type=drive_type,
-                intensity=item.get("intensity", 0.5),
-                focus=item.get("focus_areas"),
+                drive_type=import_item["drive_type"],
+                intensity=import_item["intensity"],
+                focus_areas=import_item["focus_areas"],
+                derived_from=import_derived_from,
             )
             imported["drive"] = imported.get("drive", 0) + 1
+            if skip_duplicates:
+                _register_seen_signature(import_item, seen_signatures)
         except Exception as e:
             errors.append(f"drive: {str(e)[:50]}")
 
     # Relationships
     for item in data.get("relationships", []):
+        import_item = {
+            "type": "relationship",
+            "entity_name": item.get("entity_name", ""),
+            "entity_type": item.get("entity_type", "unknown"),
+            "relationship_type": item.get("relationship_type", "knows"),
+            "sentiment": item.get("sentiment", 0.0),
+            "notes": item.get("notes"),
+        }
+        import_derived_from = _merge_derived_from(derived_from, import_item)
         try:
-            entity_name = item.get("entity_name", "")
-            if skip_duplicates:
-                existing = k._storage.get_relationship(entity_name)
-                if existing:
-                    skipped["relationship"] = skipped.get("relationship", 0) + 1
-                    continue
+            if skip_duplicates and _check_duplicate(
+                import_item,
+                k,
+                seen_signatures=seen_signatures,
+                existing_fingerprints=existing_fingerprints,
+            ):
+                skipped["relationship"] = skipped.get("relationship", 0) + 1
+                continue
 
             k.relationship(
-                entity_name=entity_name,
-                entity_type=item.get("entity_type", "unknown"),
-                relationship_type=item.get("relationship_type", "knows"),
-                sentiment=item.get("sentiment", 0.0),
-                notes=item.get("notes"),
-                derived_from=derived_from,
+                entity_name=import_item["entity_name"],
+                entity_type=import_item["entity_type"],
+                relationship_type=import_item["relationship_type"],
+                sentiment=import_item["sentiment"],
+                notes=import_item["notes"],
+                derived_from=import_derived_from,
             )
             imported["relationship"] = imported.get("relationship", 0) + 1
+            if skip_duplicates:
+                _register_seen_signature(import_item, seen_signatures)
         except Exception as e:
             errors.append(f"relationship: {str(e)[:50]}")
 
     # Raw entries
     for item in data.get("raw_entries", []):
+        import_item = {
+            "type": "raw",
+            "content": item.get("content", ""),
+            "source": item.get("source", "import"),
+        }
         try:
-            content = item.get("content", "")
-            if skip_duplicates:
-                existing = k._storage.list_raw(limit=100)
-                if any(r.content == content for r in existing):
-                    skipped["raw"] = skipped.get("raw", 0) + 1
-                    continue
+            if skip_duplicates and _check_duplicate(
+                import_item,
+                k,
+                seen_signatures=seen_signatures,
+                existing_fingerprints=existing_fingerprints,
+            ):
+                skipped["raw"] = skipped.get("raw", 0) + 1
+                continue
 
-            k.raw(blob=content, source=item.get("source", "import"))
+            k.raw(blob=import_item["content"], source=import_item["source"])
             imported["raw"] = imported.get("raw", 0) + 1
+            if skip_duplicates:
+                _register_seen_signature(import_item, seen_signatures)
         except Exception as e:
             errors.append(f"raw: {str(e)[:50]}")
 
@@ -536,8 +915,6 @@ def _import_pdf(
 
     # Chunk the extracted text using corpus chunking logic
     from kernle.corpus import chunk_generic
-    from kernle.dedup import load_raw_content_hashes
-    from kernle.processing import compute_content_hash
 
     chunks = chunk_generic(text, str(file_path), max_chunk_size)
 
@@ -997,17 +1374,26 @@ def _batch_import(
     success = 0
     skipped = 0
     errors = []
+    seen_signatures = _seen_signature_buckets()
+    existing_fingerprints = _build_import_fingerprint_index(k) if skip_duplicates else None
 
     for item in items:
         try:
             # Check for duplicates if requested
             if skip_duplicates:
-                is_dup = _check_duplicate(item, k)
+                is_dup = _check_duplicate(
+                    item,
+                    k,
+                    seen_signatures=seen_signatures,
+                    existing_fingerprints=existing_fingerprints,
+                )
                 if is_dup:
                     skipped += 1
                     continue
 
             _import_item(item, k, derived_from)
+            if skip_duplicates:
+                _register_seen_signature(item, seen_signatures)
             success += 1
         except Exception as e:
             errors.append(f"{item['type']}: {str(e)[:50]}")
@@ -1023,45 +1409,6 @@ def _batch_import(
             print(f"  ... and {len(errors) - 5} more")
 
 
-def _check_duplicate(item: Dict[str, Any], k: "Kernle") -> bool:
-    """Check if an item already exists."""
-    t = item["type"]
-
-    if t == "belief":
-        statement = item.get("statement", "")
-        if k._storage.find_belief(statement):
-            return True
-    elif t == "value":
-        name = item.get("name", "")
-        existing = k._storage.get_values(limit=100)
-        if any(v.name == name for v in existing):
-            return True
-    elif t == "goal":
-        desc = item.get("description", "")
-        existing = k._storage.get_goals(status=None, limit=100)
-        if any(g.description == desc for g in existing):
-            return True
-    elif t == "episode":
-        objective = item.get("objective", "")
-        results = k.search(objective, limit=5, record_types=["episode"])
-        for r in results:
-            if hasattr(r.record, "objective") and r.record.objective == objective:
-                return True
-    elif t == "note":
-        content = item.get("content", "")
-        results = k.search(content[:100], limit=5, record_types=["note"])
-        for r in results:
-            if hasattr(r.record, "content") and r.record.content == content:
-                return True
-    elif t == "raw":
-        content = item.get("content", "")
-        existing = k._storage.list_raw(limit=100)
-        if any(r.content == content for r in existing):
-            return True
-
-    return False
-
-
 def _import_item(
     item: Dict[str, Any],
     k: "Kernle",
@@ -1069,6 +1416,7 @@ def _import_item(
 ) -> None:
     """Import a single item into Kernle."""
     t = item["type"]
+    merged_derived_from = _merge_derived_from(derived_from, item)
 
     if t == "episode":
         lessons = [item["lesson"]] if item.get("lesson") else item.get("lessons")
@@ -1077,7 +1425,7 @@ def _import_item(
             outcome=item.get("outcome", item["objective"]),
             lessons=lessons,
             tags=item.get("tags"),
-            derived_from=derived_from,
+            derived_from=merged_derived_from,
         )
     elif t == "note":
         k.note(
@@ -1086,29 +1434,30 @@ def _import_item(
             speaker=item.get("speaker"),
             reason=item.get("reason"),
             tags=item.get("tags"),
-            derived_from=derived_from,
+            derived_from=merged_derived_from,
         )
     elif t == "belief":
         k.belief(
             statement=item["statement"],
             confidence=item.get("confidence", 0.7),
             type=item.get("belief_type", "fact"),
-            derived_from=derived_from,
+            derived_from=merged_derived_from,
         )
     elif t == "value":
         k.value(
             name=item["name"],
             description=item.get("description", item["name"]),
             priority=item.get("priority", 50),
-            derived_from=derived_from,
+            derived_from=merged_derived_from,
         )
     elif t == "goal":
+        goal_title = item.get("title") or item.get("description") or ""
         k.goal(
             description=item.get("description", item.get("title", "")),
-            title=item.get("title"),
+            title=goal_title,
             status=item.get("status", "active"),
             priority=item.get("priority", "medium"),
-            derived_from=derived_from,
+            derived_from=merged_derived_from,
         )
     elif t == "raw":
         k.raw(blob=item["content"], source=item.get("source", "import"))

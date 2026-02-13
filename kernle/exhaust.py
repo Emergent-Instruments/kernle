@@ -116,6 +116,10 @@ class ExhaustionRunner:
             result.convergence_reason = "dry_run"
             return result
 
+        if self._max_cycles <= 0:
+            result.convergence_reason = "max_cycles_reached"
+            return result
+
         total_cycle = 0
         any_inference_blocked = False
 

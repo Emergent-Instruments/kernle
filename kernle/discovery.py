@@ -42,15 +42,33 @@ class DiscoveredComponent:
 
 def _get_entry_points(group: str) -> list[importlib.metadata.EntryPoint]:
     """Get entry points for a group, compatible with Python 3.10+."""
-    return list(importlib.metadata.entry_points(group=group))
+    try:
+        return list(importlib.metadata.entry_points(group=group))
+    except Exception as exc:
+        logger.warning("Failed to read entry points for group '%s': %s", group, exc)
+        return []
 
 
 def _entry_point_to_component(ep: importlib.metadata.EntryPoint, group: str) -> DiscoveredComponent:
     """Convert an EntryPoint to a DiscoveredComponent."""
-    # ep.value is "module:attr"
-    parts = ep.value.split(":")
-    module = parts[0]
-    attr = parts[1] if len(parts) > 1 else ""
+    value = (ep.value or "").strip()
+    raw_module = getattr(ep, "module", "") or ""
+    raw_attr = getattr(ep, "attr", "") or ""
+
+    module = raw_module.strip() if isinstance(raw_module, str) else ""
+    attr = raw_attr.strip() if isinstance(raw_attr, str) else ""
+
+    if not module or not attr:
+        parts = value.split(":", 1)
+        if not module:
+            module = parts[0].strip() if parts else ""
+        if not attr and len(parts) > 1:
+            attr = parts[1].strip()
+
+    # Defensive parse: some entry point metadata can be normalized with
+    # optional bracketed suffixes (e.g. "module:Class [extra]").
+    if " [" in attr and attr.endswith("]"):
+        attr = attr.split(" [", 1)[0].strip()
 
     dist_name = None
     dist_version = None
@@ -135,8 +153,32 @@ def load_component(component: DiscoveredComponent) -> Any:
         ImportError: If the module cannot be imported.
         AttributeError: If the attribute doesn't exist in the module.
     """
-    eps = _get_entry_points(component.group)
-    for ep in eps:
-        if ep.name == component.name:
-            return ep.load()
-    raise ImportError(f"Entry point '{component.name}' not found in group '{component.group}'")
+    eps = [ep for ep in _get_entry_points(component.group) if ep.name == component.name]
+    if component.dist_name:
+        dist_eps = [ep for ep in eps if ep.dist is not None and ep.dist.name == component.dist_name]
+        if dist_eps:
+            eps = dist_eps
+
+    if component.module and component.attr and len(eps) > 1:
+        qual_eps = [
+            ep
+            for ep in eps
+            if (getattr(ep, "module", "") or "") == component.module
+            and (getattr(ep, "attr", "") or "") == component.attr
+        ]
+        if qual_eps:
+            eps = qual_eps
+
+    if not eps:
+        raise ImportError(f"Entry point '{component.name}' not found in group '{component.group}'")
+    if len(eps) > 1:
+        raise ImportError(
+            f"Ambiguous entry point '{component.name}' in group '{component.group}': "
+            f"{len(eps)} matches found"
+        )
+    try:
+        return eps[0].load()
+    except Exception as exc:
+        raise ImportError(
+            f"Failed to load entry point '{component.name}' from '{component.qualname}': {exc}"
+        ) from exc

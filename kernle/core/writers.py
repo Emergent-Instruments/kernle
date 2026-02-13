@@ -7,12 +7,101 @@ from typing import Any, Dict, List, Optional
 
 from kernle.logging_config import log_save
 from kernle.storage import Belief, Drive, Episode, Goal, Note, Relationship, Value
+from kernle.types import VALID_SOURCE_TYPE_VALUES, SourceType
 
 logger = logging.getLogger(__name__)
 
 
 class WritersMixin:
     """Memory write operations for Kernle."""
+
+    _VALID_BELIEF_TYPES = frozenset(
+        {
+            "assumption",
+            "causal",
+            "constraint",
+            "evaluative",
+            "fact",
+            "factual",
+            "hypothesis",
+            "learned",
+            "model",
+            "opinion",
+            "observation",
+            "pattern",
+            "preference",
+            "principle",
+            "procedural",
+            "rule",
+            "strategy",
+        }
+    )
+
+    _VALID_NOTE_TYPES = frozenset(
+        {
+            "diagnostic",
+            "decision",
+            "fact",
+            "insight",
+            "note",
+            "observation",
+            "procedure",
+            "quote",
+            "reference",
+        }
+    )
+
+    @staticmethod
+    def _normalize_source_type(source_type: Optional[str]) -> SourceType:
+        """Return a canonical ``SourceType`` and reject invalid values."""
+        if source_type is None:
+            return SourceType.DIRECT_EXPERIENCE
+        if isinstance(source_type, SourceType):
+            return source_type
+        if not isinstance(source_type, str):
+            raise ValueError("source_type must be a string or SourceType")
+
+        normalized = source_type.strip().lower()
+        if normalized in VALID_SOURCE_TYPE_VALUES:
+            return SourceType(normalized)
+        raise ValueError(
+            f"Invalid source_type: '{source_type}'. "
+            f"Valid values: {sorted(VALID_SOURCE_TYPE_VALUES)}"
+        )
+
+    @classmethod
+    def _normalize_belief_type(cls, belief_type: Optional[str]) -> str:
+        """Return a canonical belief type and reject invalid values."""
+        if belief_type is None:
+            return "fact"
+
+        if not isinstance(belief_type, str):
+            raise ValueError("belief_type must be a string")
+
+        normalized = belief_type.strip().lower()
+        if normalized in cls._VALID_BELIEF_TYPES:
+            return normalized
+
+        raise ValueError(
+            "Invalid belief type. Must be one of: " + ", ".join(sorted(cls._VALID_BELIEF_TYPES))
+        )
+
+    @classmethod
+    def _normalize_note_type(cls, note_type: Optional[str]) -> str:
+        """Return a canonical note type and reject invalid values."""
+        if note_type is None:
+            return "note"
+
+        if not isinstance(note_type, str):
+            raise ValueError("note_type must be a string")
+
+        normalized = note_type.strip().lower()
+        if normalized in cls._VALID_NOTE_TYPES:
+            return normalized
+
+        raise ValueError(
+            "Invalid note type. Must be one of: " + ", ".join(sorted(cls._VALID_NOTE_TYPES))
+        )
 
     # =========================================================================
     # EPISODES
@@ -72,13 +161,13 @@ class WritersMixin:
 
         # Determine source_type from explicit param or source context
         if source_type is None:
-            source_type_val = "direct_experience"
+            source_type_val = SourceType.DIRECT_EXPERIENCE
             if source:
                 source_lower = source.lower()
                 if any(x in source_lower for x in ["told", "said", "heard", "learned from"]):
-                    source_type_val = "external"
+                    source_type_val = SourceType.EXTERNAL
                 elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
-                    source_type_val = "inference"
+                    source_type_val = SourceType.INFERENCE
         else:
             source_type_val = source_type
 
@@ -99,7 +188,7 @@ class WritersMixin:
             tags=tags or ["manual"],
             created_at=datetime.now(timezone.utc),
             confidence=0.8,
-            source_type=source_type_val,
+            source_type=self._normalize_source_type(source_type_val),
             source_episodes=None,  # Reserved for supporting evidence (episode IDs)
             derived_from=derived_from_value if derived_from_value else None,
             # Context/scope fields
@@ -200,9 +289,7 @@ class WritersMixin:
         """
         # Validate inputs
         content = self._validate_string_input(content, "content", 2000)
-
-        if type not in ("note", "decision", "insight", "quote"):
-            raise ValueError("Invalid note type. Must be one of: note, decision, insight, quote")
+        type = self._normalize_note_type(type)
 
         if speaker:
             speaker = self._validate_string_input(speaker, "speaker", 200)
@@ -228,15 +315,15 @@ class WritersMixin:
 
         # Determine source_type from explicit param or source context
         if source_type is None:
-            source_type_val = "direct_experience"
+            source_type_val = SourceType.DIRECT_EXPERIENCE
             if source:
                 source_lower = source.lower()
                 if any(x in source_lower for x in ["told", "said", "heard", "learned from"]):
-                    source_type_val = "external"
+                    source_type_val = SourceType.EXTERNAL
                 elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
-                    source_type_val = "inference"
+                    source_type_val = SourceType.INFERENCE
                 elif type == "quote":
-                    source_type_val = "external"
+                    source_type_val = SourceType.EXTERNAL
         else:
             source_type_val = source_type
 
@@ -254,7 +341,7 @@ class WritersMixin:
             reason=reason,
             tags=tags or [],
             created_at=datetime.now(timezone.utc),
-            source_type=source_type_val,
+            source_type=self._normalize_source_type(source_type_val),
             source_episodes=None,  # Reserved for supporting evidence (episode IDs)
             derived_from=derived_from_value if derived_from_value else None,
             is_protected=protect,
@@ -567,7 +654,7 @@ class WritersMixin:
                 tags=ep_data.get("tags", ["batch"]),
                 created_at=datetime.now(timezone.utc),
                 confidence=ep_data.get("confidence", 0.8),
-                source_type=ep_data.get("source_type", "direct_experience"),
+                source_type=self._normalize_source_type(ep_data.get("source_type")),
             )
             episode_objects.append(episode)
 
@@ -603,15 +690,18 @@ class WritersMixin:
         belief_objects = []
         for b_data in beliefs:
             statement = self._validate_string_input(b_data.get("statement", ""), "statement", 1000)
+            belief_type = self._normalize_belief_type(
+                b_data.get("type", b_data.get("belief_type", "fact"))
+            )
 
             belief = Belief(
                 id=b_data.get("id", str(uuid.uuid4())),
                 stack_id=self.stack_id,
                 statement=statement,
-                belief_type=b_data.get("type", "fact"),
+                belief_type=belief_type,
                 confidence=b_data.get("confidence", 0.8),
                 created_at=datetime.now(timezone.utc),
-                source_type=b_data.get("source_type", "direct_experience"),
+                source_type=self._normalize_source_type(b_data.get("source_type")),
             )
             belief_objects.append(belief)
 
@@ -649,17 +739,20 @@ class WritersMixin:
         note_objects = []
         for n_data in notes:
             content = self._validate_string_input(n_data.get("content", ""), "content", 2000)
+            note_type = self._normalize_note_type(
+                n_data.get("type", n_data.get("note_type", "note"))
+            )
 
             note = Note(
                 id=n_data.get("id", str(uuid.uuid4())),
                 stack_id=self.stack_id,
                 content=content,
-                note_type=n_data.get("type", "note"),
+                note_type=note_type,
                 speaker=n_data.get("speaker"),
                 reason=n_data.get("reason"),
                 tags=n_data.get("tags", []),
                 created_at=datetime.now(timezone.utc),
-                source_type=n_data.get("source_type", "direct_experience"),
+                source_type=self._normalize_source_type(n_data.get("source_type")),
             )
             note_objects.append(note)
 
@@ -700,17 +793,17 @@ class WritersMixin:
 
         # Determine source_type from explicit param or source context
         if source_type is None:
-            source_type_val = "direct_experience"
+            source_type_val = SourceType.DIRECT_EXPERIENCE
             if source:
                 source_lower = source.lower()
                 if any(x in source_lower for x in ["told", "said", "heard", "learned from"]):
-                    source_type_val = "external"
+                    source_type_val = SourceType.EXTERNAL
                 elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
-                    source_type_val = "inference"
+                    source_type_val = SourceType.INFERENCE
                 elif "consolidat" in source_lower or "promot" in source_lower:
-                    source_type_val = "consolidation"
+                    source_type_val = SourceType.CONSOLIDATION
                 elif "seed" in source_lower:
-                    source_type_val = "seed"
+                    source_type_val = SourceType.SEED
         else:
             source_type_val = source_type
 
@@ -724,10 +817,10 @@ class WritersMixin:
             id=belief_id,
             stack_id=self.stack_id,
             statement=statement,
-            belief_type=type,
+            belief_type=self._normalize_belief_type(type),
             confidence=confidence,
             created_at=datetime.now(timezone.utc),
-            source_type=source_type_val,
+            source_type=self._normalize_source_type(source_type_val),
             derived_from=derived_from_value,
             context=context,
             context_tags=context_tags,
@@ -762,17 +855,17 @@ class WritersMixin:
 
         # Determine source_type from explicit param or source context
         if source_type is None:
-            source_type_val = "direct_experience"
+            source_type_val = SourceType.DIRECT_EXPERIENCE
             if source:
                 source_lower = source.lower()
                 if any(x in source_lower for x in ["told", "said", "heard", "learned from"]):
-                    source_type_val = "external"
+                    source_type_val = SourceType.EXTERNAL
                 elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
-                    source_type_val = "inference"
+                    source_type_val = SourceType.INFERENCE
                 elif "consolidat" in source_lower or "promot" in source_lower:
-                    source_type_val = "consolidation"
+                    source_type_val = SourceType.CONSOLIDATION
                 elif "seed" in source_lower:
-                    source_type_val = "seed"
+                    source_type_val = SourceType.SEED
         else:
             source_type_val = source_type
 
@@ -789,7 +882,7 @@ class WritersMixin:
             statement=statement,
             priority=priority,
             created_at=datetime.now(timezone.utc),
-            source_type=source_type_val,
+            source_type=self._normalize_source_type(source_type_val),
             derived_from=derived_from_value if derived_from_value else None,
             context=context,
             context_tags=context_tags,
@@ -831,17 +924,17 @@ class WritersMixin:
 
         # Determine source_type from explicit param or source context
         if source_type is None:
-            source_type_val = "direct_experience"
+            source_type_val = SourceType.DIRECT_EXPERIENCE
             if source:
                 source_lower = source.lower()
                 if any(x in source_lower for x in ["told", "said", "heard", "learned from"]):
-                    source_type_val = "external"
+                    source_type_val = SourceType.EXTERNAL
                 elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
-                    source_type_val = "inference"
+                    source_type_val = SourceType.INFERENCE
                 elif "consolidat" in source_lower or "promot" in source_lower:
-                    source_type_val = "consolidation"
+                    source_type_val = SourceType.CONSOLIDATION
                 elif "seed" in source_lower:
-                    source_type_val = "seed"
+                    source_type_val = SourceType.SEED
         else:
             source_type_val = source_type
 
@@ -861,7 +954,7 @@ class WritersMixin:
             status="active",
             created_at=datetime.now(timezone.utc),
             is_protected=is_protected,
-            source_type=source_type_val,
+            source_type=self._normalize_source_type(source_type_val),
             derived_from=derived_from_value if derived_from_value else None,
             context=context,
             context_tags=context_tags,
@@ -948,17 +1041,17 @@ class WritersMixin:
 
         # Determine source_type from explicit param or source context
         if source_type is None:
-            source_type_val = "direct_experience"
+            source_type_val = SourceType.DIRECT_EXPERIENCE
             if source:
                 source_lower = source.lower()
                 if any(x in source_lower for x in ["told", "said", "heard", "learned from"]):
-                    source_type_val = "external"
+                    source_type_val = SourceType.EXTERNAL
                 elif any(x in source_lower for x in ["infer", "deduce", "conclude"]):
-                    source_type_val = "inference"
+                    source_type_val = SourceType.INFERENCE
                 elif "consolidat" in source_lower or "promot" in source_lower:
-                    source_type_val = "consolidation"
+                    source_type_val = SourceType.CONSOLIDATION
                 elif "seed" in source_lower:
-                    source_type_val = "seed"
+                    source_type_val = SourceType.SEED
         else:
             source_type_val = source_type
 
@@ -983,7 +1076,7 @@ class WritersMixin:
                 existing.context = context
             if context_tags is not None:
                 existing.context_tags = context_tags
-            existing.source_type = source_type_val
+            existing.source_type = self._normalize_source_type(source_type_val)
             if derived_from_value:
                 existing.derived_from = derived_from_value
             self._write_backend.save_drive(existing)
@@ -998,7 +1091,7 @@ class WritersMixin:
                 focus_areas=focus_areas or [],
                 created_at=now,
                 updated_at=now,
-                source_type=source_type_val,
+                source_type=self._normalize_source_type(source_type_val),
                 derived_from=derived_from_value if derived_from_value else None,
                 context=context,
                 context_tags=context_tags,

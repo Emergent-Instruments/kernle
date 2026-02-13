@@ -7,6 +7,7 @@ Tests local-first SQLite storage with:
 - Embedding management
 """
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -130,6 +131,92 @@ class TestNotes:
         assert len(notes) == 1
         assert notes[0].content == "This is a test note"
         assert notes[0].note_type == "observation"
+
+
+class TestEmbeddingCacheResilience:
+    def test_save_embedding_failure_cleans_stale_cache(self, storage):
+        """Transient embedding writes should remove stale vector cache entries."""
+        record_id = "ep-cache-stale"
+        vec_id = f"{storage.stack_id}:episodes:{record_id}"
+        stale_hash = "0000stale"
+
+        conn = sqlite3.connect(storage.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS vec_embeddings (id TEXT PRIMARY KEY, embedding BLOB)"
+            )
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS embedding_meta (
+                    id TEXT PRIMARY KEY,
+                    table_name TEXT,
+                    record_id TEXT,
+                    content_hash TEXT,
+                    created_at TEXT
+                )
+                """)
+            conn.execute(
+                "INSERT INTO vec_embeddings (id, embedding) VALUES (?, X'00')",
+                (vec_id,),
+            )
+            conn.execute(
+                "INSERT INTO embedding_meta (id, table_name, record_id, content_hash, created_at) "
+                "VALUES (?, 'episodes', ?, ?, '2000-01-01T00:00:00+00:00')",
+                (vec_id, record_id, stale_hash),
+            )
+            conn.commit()
+            original_has_vec = storage._has_vec
+            storage._has_vec = True
+
+            write_calls = {"metadata_injected_failure": False}
+
+            class _FlakyConnection:
+                def __init__(self, inner):
+                    self.inner = inner
+
+                def execute(self, sql, *args):
+                    if (
+                        isinstance(sql, str)
+                        and "INSERT OR REPLACE INTO embedding_meta" in sql
+                        and not write_calls["metadata_injected_failure"]
+                    ):
+                        write_calls["metadata_injected_failure"] = True
+                        raise sqlite3.OperationalError("transient metadata write failure")
+                    return self.inner.execute(sql, *args)
+
+                def commit(self):
+                    self.inner.commit()
+
+            flaky_conn = _FlakyConnection(conn)
+            original_embed_text = storage._embed_text
+            storage._embed_text = (
+                lambda text, context: [0.0] * storage._embedder.dimension  # noqa: ARG005
+            )
+            try:
+                storage._save_embedding(
+                    conn=flaky_conn,
+                    table="episodes",
+                    record_id=record_id,
+                    content="Episode search content",
+                )
+            finally:
+                storage._has_vec = original_has_vec
+                storage._embed_text = original_embed_text
+
+            before_content_hash = storage._content_hash("Episode search content")
+            assert before_content_hash != stale_hash
+
+            assert (
+                conn.execute("SELECT id FROM vec_embeddings WHERE id = ?", (vec_id,)).fetchone()
+                is None
+            )
+            assert (
+                conn.execute("SELECT id FROM embedding_meta WHERE id = ?", (vec_id,)).fetchone()
+                is None
+            )
+            assert write_calls["metadata_injected_failure"] is True
+        finally:
+            conn.close()
 
 
 class TestBeliefs:

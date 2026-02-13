@@ -1,10 +1,11 @@
 """Tests for kernle.entity.Entity — CoreProtocol implementation."""
 
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
-from kernle.entity import Entity, _PluginContextImpl
+from kernle.entity import Entity, _generate_id, _PluginContextImpl
 from kernle.protocols import (
     Binding,
     NoActiveStackError,
@@ -24,6 +25,34 @@ from kernle.types import (
     TrustAssessment,
     Value,
 )
+
+
+class TestGenerateIdDeterministicOrdering:
+    def test_generate_id_is_deterministic_for_fixed_timestamp(self, monkeypatch):
+        fixed_time = datetime(2025, 2, 13, 12, 0, tzinfo=timezone.utc)
+        fixed_ms = int(fixed_time.timestamp() * 1000)
+        monkeypatch.setattr("kernle.entity._ID_LAST_TIMESTAMP_MS", fixed_ms)
+        monkeypatch.setattr("kernle.entity._ID_SEQUENCE", -1)
+
+        with patch("kernle.entity.datetime") as mock_datetime:
+            mock_datetime.now.return_value = fixed_time
+            first = _generate_id()
+            second = _generate_id()
+            third = _generate_id()
+
+        assert first.split("-")[0] == f"{fixed_ms:013d}"
+        assert first.split("-")[2] == "000000"
+        assert second.split("-")[2] == "000001"
+        assert third.split("-")[2] == "000002"
+        assert first < second < third
+
+        monkeypatch.setattr("kernle.entity._ID_SEQUENCE", -1)
+        with patch("kernle.entity.datetime") as mock_datetime:
+            mock_datetime.now.return_value = fixed_time
+            replay = _generate_id()
+
+        assert replay == first
+
 
 # ---- Fixtures ----
 
@@ -115,6 +144,14 @@ class TestEntityProperties:
 
     def test_plugins_initially_empty(self, entity):
         assert entity.plugins == {}
+
+
+class TestGenerateIdSequenceOrdering:
+    def test_generate_id_is_ordered_and_unique(self):
+        ids = [_generate_id() for _ in range(512)]
+
+        assert ids == sorted(ids), "Generated IDs should be monotonically ordered"
+        assert len(set(ids)) == len(ids), "Generated IDs should be unique"
 
 
 # ---- Stack Management ----
@@ -633,6 +670,13 @@ class TestCheckpoint:
         files = list(cp_dir.glob("*.json"))
         assert len(files) == 1
 
+    def test_checkpoint_ids_are_unique(self, entity, stack):
+        entity.attach_stack(stack)
+        first = entity.checkpoint("first")
+        second = entity.checkpoint("second")
+        assert first != second
+        assert first.startswith("test-core_")
+
 
 # ---- Sync ----
 
@@ -721,6 +765,48 @@ class TestPluginProtocolVersion:
         # logger.warning doesn't trigger pytest.warns, so just verify it loads
         entity.load_plugin(plugin)
         assert "old-plugin" in entity.plugins
+
+
+class TestProcessConfigHandling:
+    def test_process_uses_defaults_when_settings_invalid(self, entity, stack, monkeypatch):
+        entity.attach_stack(stack)
+        stack.get_stack_setting.side_effect = RuntimeError("setting parse failure")
+        stack.get_processing_config.return_value = []
+
+        class _FakeProcessor:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def update_config(self, layer_transition, config):
+                pass
+
+            def process(self, *args, **kwargs):
+                return []
+
+        monkeypatch.setattr("kernle.processing.MemoryProcessor", _FakeProcessor)
+
+        results = entity.process()
+        assert results == []
+
+    def test_process_raises_on_invalid_settings_with_strict_mode(self, entity, stack, monkeypatch):
+        entity.attach_stack(stack)
+        stack.get_stack_setting.side_effect = RuntimeError("setting parse failure")
+        stack.get_processing_config.return_value = []
+
+        class _FakeProcessor:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def update_config(self, layer_transition, config):
+                pass
+
+            def process(self, *args, **kwargs):
+                return []
+
+        monkeypatch.setattr("kernle.processing.MemoryProcessor", _FakeProcessor)
+
+        with pytest.raises(RuntimeError, match="setting parse failure"):
+            entity.process(strict=True)
 
 
 # ---- Binding Metadata ----

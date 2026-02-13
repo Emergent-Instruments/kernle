@@ -92,20 +92,21 @@ def truncate_at_word_boundary(text: str, max_chars: int) -> str:
 def _get_memory_hint_text(memory_type: str, record: Any) -> str:
     """Get the primary text content of a memory record for echo hints."""
     if memory_type == "value":
-        return f"{record.name}: {record.statement}"
+        return f"{getattr(record, 'name', '')}: {getattr(record, 'statement', '')}".strip(": ")
     elif memory_type == "belief":
-        return record.statement
+        return str(getattr(record, "statement", ""))
     elif memory_type == "goal":
-        return f"{record.title} {record.description or ''}"
+        return f"{getattr(record, 'title', '')} {getattr(record, 'description', '')}".strip()
     elif memory_type == "drive":
-        return f"{record.drive_type}: {' '.join(record.focus_areas or [])}"
+        focus_areas = getattr(record, "focus_areas", None) or []
+        return f"{getattr(record, 'drive_type', '')}: {' '.join(focus_areas)}".strip(": ")
     elif memory_type == "episode":
-        return f"{record.objective} {record.outcome}"
+        return f"{getattr(record, 'objective', '')} {getattr(record, 'outcome', '')}".strip()
     elif memory_type == "note":
-        return record.content
+        return str(getattr(record, "content", ""))
     elif memory_type == "relationship":
-        return f"{record.entity_name}: {record.notes or ''}"
-    return str(record)
+        return f"{getattr(record, 'entity_name', '')}: {getattr(record, 'notes', '')}".strip(": ")
+    return str(getattr(record, "__dict__", record))
 
 
 def _truncate_to_words(text: str, max_words: int = 8) -> str:
@@ -144,8 +145,9 @@ def _build_memory_echoes(
     of what else exists in memory.
 
     Args:
-        excluded: Excluded candidate list [(priority, type, record), ...],
-                  sorted by priority descending
+        excluded: Excluded candidate list. Supported formats:
+            - (priority, memory_type, record)
+            - {"memory_type": ..., "memory_id": ..., "record": ..., "priority": ...}
         max_echoes: Maximum number of echo entries (default: 20)
 
     Returns:
@@ -158,21 +160,49 @@ def _build_memory_echoes(
             "topic_clusters": [],
         }
 
+    def _as_entry(item: Any):
+        if isinstance(item, dict):
+            memory_type = item.get("memory_type") or item.get("type")
+            record = item.get("record")
+            priority = item.get("priority", 0.0)
+            if record is None and "memory_id" in item:
+                fallback_id = item.get("memory_id")
+                record = type("_EchoRecord", (), {"id": fallback_id})()
+            return priority, str(memory_type or "unknown"), record
+
+        if isinstance(item, (tuple, list)):
+            if len(item) >= 3:
+                return item[0], str(item[1] or "unknown"), item[2]
+            if len(item) == 2:
+                return 0.0, str(item[0] or "unknown"), item[1]
+
+        return 0.0, "unknown", item
+
+    def _record_id(record: Any) -> str:
+        if hasattr(record, "id"):
+            return getattr(record, "id")
+        return ""
+
     echoes = []
-    for priority, memory_type, record in excluded[:max_echoes]:
-        hint_text = _get_memory_hint_text(memory_type, record)
-        hint = _truncate_to_words(hint_text, max_words=8)
+    normalized_excluded = [_as_entry(entry) for entry in excluded]
+
+    for priority, memory_type, record in normalized_excluded[:max_echoes]:
+        if record is None:
+            hint = f"{memory_type} excluded from load."
+        else:
+            hint_text = _get_memory_hint_text(memory_type, record)
+            hint = _truncate_to_words(hint_text, max_words=8)
         echoes.append(
             {
                 "type": memory_type,
-                "id": record.id,
+                "id": _record_id(record),
                 "hint": hint,
-                "salience": round(priority, 3),
+                "salience": round(float(priority), 3),
             }
         )
 
     all_dates = []
-    for _, memory_type, record in excluded:
+    for _, _, record in normalized_excluded:
         created = _get_record_created_at(record)
         if created:
             all_dates.append(created)
@@ -190,7 +220,7 @@ def _build_memory_echoes(
         )
 
     tag_counts: Dict[str, int] = {}
-    for _, memory_type, record in excluded:
+    for _, memory_type, record in normalized_excluded:
         for tag in _get_record_tags(memory_type, record):
             tag_lower = tag.lower()
             tag_counts[tag_lower] = tag_counts.get(tag_lower, 0) + 1

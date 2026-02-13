@@ -80,8 +80,25 @@ class TestLoadPluginRegistersTools:
         # Plugin was still activated and registered
         plugin.activate.assert_called_once()
         assert "test-plugin" in entity.plugins
+        health = entity.plugin_health("test-plugin")
+        assert health is not None
+        assert health.healthy is False
+        assert "tool registration failed" in health.message
         # But no tools were registered
         assert "test-plugin" not in entity._plugin_tools
+
+    def test_load_plugin_tool_registration_fail_fast_raises(self, entity):
+        """Fail-fast plugin registration should rollback plugin load and raise."""
+        plugin = _make_mock_plugin()
+        plugin.register_tools.side_effect = RuntimeError("tool registration boom")
+
+        with pytest.raises(RuntimeError, match="tool registration failed"):
+            entity.load_plugin(plugin, fail_fast=True)
+
+        assert "test-plugin" not in entity.plugins
+        assert entity.plugin_health("test-plugin") is None
+        assert "test-plugin" not in entity._plugin_tools
+        plugin.deactivate.assert_called_once()
 
 
 # ---- Tool Cleanup on Unload ----
@@ -161,6 +178,25 @@ class TestLoadPluginCLIRegistration:
         assert "test-plugin" in entity.plugins
         # Tools were still registered
         assert "test-plugin" in entity._plugin_tools
+        health = entity.plugin_health("test-plugin")
+        assert health is not None
+        assert health.healthy is False
+        assert "CLI registration failed" in health.message
+
+    def test_load_plugin_cli_registration_fail_fast_raises(self, entity):
+        """Fail-fast CLI registration should rollback plugin load and raise."""
+        tools = [_make_tool()]
+        plugin = _make_mock_plugin(tools=tools)
+        plugin.register_cli.side_effect = RuntimeError("cli boom")
+        subparsers = MagicMock()
+
+        with pytest.raises(RuntimeError, match="CLI registration failed"):
+            entity.load_plugin(plugin, subparsers=subparsers, fail_fast=True)
+
+        assert "test-plugin" not in entity.plugins
+        assert entity.plugin_health("test-plugin") is None
+        assert "test-plugin" not in entity._plugin_tools
+        plugin.deactivate.assert_called_once()
 
 
 # ---- Full Lifecycle ----
@@ -442,6 +478,49 @@ class TestMCPPluginTools:
 
             assert "myplugin.info" in _plugin_tools
             assert "myplugin.info" not in _plugin_handlers
+        finally:
+            _plugin_tools.clear()
+            _plugin_handlers.clear()
+            _plugin_schemas.clear()
+            _plugin_schema_validators.clear()
+
+    def test_validate_tool_input_rejects_plugin_without_schema(self):
+        from kernle.mcp.server import (
+            _plugin_handlers,
+            _plugin_schema_validators,
+            _plugin_schemas,
+            _plugin_tools,
+            register_plugin_tools,
+            validate_tool_input,
+        )
+
+        _plugin_tools.clear()
+        _plugin_handlers.clear()
+        _plugin_schemas.clear()
+        _plugin_schema_validators.clear()
+
+        try:
+            td = ToolDefinition(
+                name="schemaless",
+                description="Intentionally missing schema",
+                input_schema={},
+                handler=lambda args: args,
+            )
+            with pytest.raises(ValueError, match="must provide an input schema"):
+                register_plugin_tools("myplugin", [td])
+
+            # simulate metadata drift after successful registration
+            td = ToolDefinition(
+                name="schemaless",
+                description="Schema can be removed later",
+                input_schema={"type": "object", "properties": {}},
+                handler=lambda args: args,
+            )
+            register_plugin_tools("myplugin", [td])
+            _plugin_schemas.pop("myplugin.schemaless", None)
+
+            with pytest.raises(ValueError, match="metadata missing"):
+                validate_tool_input("myplugin.schemaless", {"foo": "bar"})
         finally:
             _plugin_tools.clear()
             _plugin_handlers.clear()

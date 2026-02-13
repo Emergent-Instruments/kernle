@@ -315,7 +315,7 @@ class TestImportJson:
         assert "error" in out.lower() or "Imported 0" in out
 
     def test_import_drives_errors_caught(self, k, tmp_path, capsys):
-        """Drive import uses focus= instead of focus_areas= — errors are caught."""
+        """Drive import uses focus_areas argument and succeeds."""
         f = self._write_json(
             tmp_path,
             {
@@ -326,8 +326,10 @@ class TestImportJson:
         )
         _import_json(f, k, dry_run=False, skip_duplicates=False)
         out = capsys.readouterr().out
-        # focus= is not a valid kwarg for k.drive() — error caught
-        assert "error" in out.lower() or "Imported 0" in out
+        assert "Imported 1" in out
+        drive = k._storage.get_drive("curiosity")
+        assert drive is not None
+        assert drive.intensity == 0.8
 
     def test_import_drives_without_focus(self, k, tmp_path, capsys):
         """Drives without focus_areas should import (no bad kwarg)."""
@@ -1108,21 +1110,16 @@ class TestCheckDuplicate:
         assert _check_duplicate(item, k) is False
 
     def test_episode_duplicate_search_error(self, k):
-        """Episode duplicate check uses record_types= which is not a valid
-        k.search() kwarg — the TypeError propagates (not caught by _check_duplicate)."""
+        """Episode duplicates are detected via episode lookup."""
         k.episode(objective="Fix auth bug", outcome="Fixed")
         item = {"type": "episode", "objective": "Fix auth bug"}
-        # _check_duplicate calls k.search(..., record_types=["episode"])
-        # which raises TypeError since Kernle.search() has no record_types= parameter
-        with pytest.raises(TypeError, match="record_types"):
-            _check_duplicate(item, k)
+        assert _check_duplicate(item, k) is True
 
     def test_note_duplicate_search_error(self, k):
-        """Note duplicate check uses record_types= which is not a valid kwarg."""
+        """Note duplicates are detected via content lookup."""
         k.note("Existing note content", type="note")
         item = {"type": "note", "content": "Existing note content"}
-        with pytest.raises(TypeError, match="record_types"):
-            _check_duplicate(item, k)
+        assert _check_duplicate(item, k) is True
 
     def test_raw_duplicate(self, k):
         k.raw(blob="Existing raw", source="test")
@@ -1855,6 +1852,12 @@ class TestMigrateBackfillProvenance:
         data = json.loads(out)
         assert data["dry_run"] is True
         assert "total_updates" in data
+        if data["total_updates"]:
+            update = data["updates"][0]
+            assert "pre_image" in update
+            assert "post_image" in update
+            assert "source_type" in update["pre_image"]
+            assert "source_type" in update["post_image"]
 
     def test_json_output_apply(self, k, capsys):
         """JSON output mode with actual apply."""
@@ -1864,6 +1867,12 @@ class TestMigrateBackfillProvenance:
         out = capsys.readouterr().out
         data = json.loads(out)
         assert "total_updates" in data
+        if data["total_updates"]:
+            update = data["updates"][0]
+            assert "pre_image" in update
+            assert "post_image" in update
+            assert "derived_from" in update["pre_image"]
+            assert "derived_from" in update["post_image"]
 
     def test_seed_beliefs_identified(self, k, capsys):
         """Seed beliefs should be identified and marked."""

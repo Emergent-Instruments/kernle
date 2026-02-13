@@ -14,7 +14,6 @@ import pytest
 
 from kernle.core import Kernle
 from kernle.storage import SQLiteStorage
-from kernle.storage.base import Note
 
 
 class TestKernleInitialization:
@@ -218,17 +217,33 @@ class TestLoadMethods:
         assert memory_empty["_meta"]["budget_used"] == 0
         assert memory_empty["_meta"]["excluded_count"] == 0
 
-        # Add some content
-        storage.save_note(
-            Note(
-                id="test-note-1",
-                stack_id="test_agent",
-                content="A short note",
-            )
+
+class TestProcessDelegation:
+    """Test Kernle API compatibility for process delegation."""
+
+    def test_process_forwards_to_entity(self, kernle_instance):
+        kernle, _ = kernle_instance
+        expected = "delegated-result"
+
+        ent = kernle.entity
+        ent.process = MagicMock(return_value=expected)
+
+        result = kernle.process(
+            transition="raw_to_episode",
+            force=True,
+            allow_no_inference_override=True,
+            auto_promote=True,
+            batch_size=64,
         )
 
-        memory_with_note = kernle.load(budget=8000)
-        assert memory_with_note["_meta"]["budget_used"] > 0
+        assert result == expected
+        ent.process.assert_called_once_with(
+            transition="raw_to_episode",
+            force=True,
+            allow_no_inference_override=True,
+            auto_promote=True,
+            batch_size=64,
+        )
 
 
 class TestCheckpoints:

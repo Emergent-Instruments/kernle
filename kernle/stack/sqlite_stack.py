@@ -300,11 +300,60 @@ class SQLiteStack(
 
     def register_plugin(self, plugin_name: str) -> None:
         """Register a plugin name as trusted for provenance bypass."""
+        was_registered = plugin_name in self._registered_plugins
         self._registered_plugins.add(plugin_name)
+        self.log_audit(
+            "provenance_policy",
+            plugin_name,
+            "register_plugin",
+            actor=self._attached_core_id or "system",
+            details={
+                "plugin": plugin_name,
+                "already_registered": was_registered,
+                "stack_id": self.stack_id,
+            },
+        )
+        if not was_registered:
+            logger.info(
+                "provenance policy update: plugin=%s action=register actor=%s at=%s",
+                plugin_name,
+                self._attached_core_id or "system",
+                datetime.now(timezone.utc).isoformat(),
+            )
 
     def unregister_plugin(self, plugin_name: str) -> None:
         """Remove a plugin from the trusted set."""
+        was_registered = plugin_name in self._registered_plugins
         self._registered_plugins.discard(plugin_name)
+        self.log_audit(
+            "provenance_policy",
+            plugin_name,
+            "unregister_plugin",
+            actor=self._attached_core_id or "system",
+            details={
+                "plugin": plugin_name,
+                "was_registered": was_registered,
+                "stack_id": self.stack_id,
+            },
+        )
+        if was_registered:
+            logger.info(
+                "provenance policy update: plugin=%s action=unregister actor=%s at=%s",
+                plugin_name,
+                self._attached_core_id or "system",
+                datetime.now(timezone.utc).isoformat(),
+            )
+
+    def _set_inference_for_components(self, inference: Optional[InferenceService]) -> None:
+        for component in self._components.values():
+            try:
+                component.set_inference(inference)
+            except Exception as exc:
+                logger.warning(
+                    "Error while propagating inference to component %s: %s",
+                    component.name,
+                    exc,
+                )
 
     def maintenance(self) -> Dict[str, Any]:
         """Run maintenance on all components."""
@@ -514,7 +563,10 @@ class SQLiteStack(
         """
         if include_forgotten:
             return memories
-        min_strength = STRENGTH_FORGOTTEN if include_weak else STRENGTH_WEAK
+        if include_weak:
+            min_strength = STRENGTH_DORMANT
+        else:
+            min_strength = STRENGTH_WEAK
         return [m for m in memories if getattr(m, "strength", 1.0) >= min_strength]
 
     # ---- State Management ----
@@ -1094,7 +1146,10 @@ class SQLiteStack(
         return notes
 
     def get_drives(self, *, include_expired: bool = False) -> List[Drive]:
-        return self._backend.get_drives()
+        drives = self._backend.get_drives()
+        if include_expired:
+            return drives
+        return [drive for drive in drives if getattr(drive, "strength", 0.0) > STRENGTH_DORMANT]
 
     def get_relationships(
         self,
@@ -1326,7 +1381,9 @@ class SQLiteStack(
         budget_exhausted = False
         for priority, memory_type, record in candidates:
             if budget_exhausted:
-                excluded.append((priority, memory_type, record))
+                excluded.append(
+                    {"memory_type": memory_type, "memory_id": getattr(record, "id", None)}
+                )
                 continue
             text = self._record_to_text(memory_type, record)
             text = _truncate_at_word_boundary(text, max_item_chars)
@@ -1341,7 +1398,9 @@ class SQLiteStack(
                     selected[key].append(record)
                 remaining -= tokens
             else:
-                excluded.append((priority, memory_type, record))
+                excluded.append(
+                    {"memory_type": memory_type, "memory_id": getattr(record, "id", None)}
+                )
             if remaining <= 0:
                 budget_exhausted = True
 
@@ -1803,8 +1862,7 @@ class SQLiteStack(
     ) -> None:
         self._attached_core_id = core_id
         self._inference = inference
-        for component in self._components.values():
-            component.set_inference(inference)
+        self._set_inference_for_components(inference)
         # Transition to ACTIVE on first attach (provenance enforcement begins)
         if self._state == StackState.INITIALIZING:
             self._state = StackState.ACTIVE
@@ -1813,16 +1871,14 @@ class SQLiteStack(
     def on_detach(self, core_id: str) -> None:
         self._attached_core_id = None
         self._inference = None
-        for component in self._components.values():
-            component.set_inference(None)
+        self._set_inference_for_components(None)
 
     def on_model_changed(
         self,
         inference: Optional[InferenceService],
     ) -> None:
         self._inference = inference
-        for component in self._components.values():
-            component.set_inference(inference)
+        self._set_inference_for_components(inference)
 
     # ---- Lint Helpers ----
 

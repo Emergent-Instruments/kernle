@@ -13,9 +13,9 @@ Tests cover:
 
 import json
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -292,6 +292,22 @@ class TestDrives:
         drives = stack.get_drives()
         assert any(dr.id == d.id for dr in drives)
 
+    def test_get_drives_exclude_expired_by_default(self, stack, stack_id):
+        active_drive = _make_drive(stack_id, drive_type="curiosity", strength=0.6)
+        expired_drive = _make_drive(stack_id, drive_type="growth", strength=0.1)
+
+        stack.save_drive(active_drive)
+        stack.save_drive(expired_drive)
+
+        active_drives = stack.get_drives()
+        assert any(d.id == active_drive.id for d in active_drives)
+        assert not any(d.id == expired_drive.id for d in active_drives)
+
+        all_drives = stack.get_drives(include_expired=True)
+        all_ids = {d.id for d in all_drives}
+        assert active_drive.id in all_ids
+        assert expired_drive.id in all_ids
+
 
 # ===========================================================================
 # Write + Read: Relationships
@@ -471,6 +487,70 @@ class TestLoad:
         assert "Strong belief" in belief_statements
         assert "Weak belief" not in belief_statements
 
+    def test_filter_by_strength_respects_weak_and_forgotten_gates(self, stack):
+        episodes = [
+            _make_episode("test-stack", objective="Strong", strength=1.0),
+            _make_episode("test-stack", objective="Weak", strength=0.4),
+            _make_episode("test-stack", objective="Dormant", strength=0.1),
+        ]
+
+        faded = SQLiteStack._filter_by_strength(
+            episodes,
+            include_forgotten=False,
+            include_weak=False,
+        )
+        faded_ids = {e.objective for e in faded}
+        assert "Strong" in faded_ids
+        assert "Weak" not in faded_ids
+        assert "Dormant" not in faded_ids
+
+        weak_included = SQLiteStack._filter_by_strength(
+            episodes,
+            include_forgotten=False,
+            include_weak=True,
+        )
+        weak_included_ids = {e.objective for e in weak_included}
+        assert "Strong" in weak_included_ids
+        assert "Weak" in weak_included_ids
+        assert "Dormant" not in weak_included_ids
+
+        all_included = SQLiteStack._filter_by_strength(
+            episodes,
+            include_forgotten=True,
+            include_weak=False,
+        )
+        all_included_ids = {e.objective for e in all_included}
+        assert "Dormant" in all_included_ids
+
+    def test_load_meta_sanitizes_excluded_candidates(self, stack, stack_id):
+        payload = "x" * 5000
+        stack.save_episode(
+            _make_episode(
+                stack_id,
+                objective=payload,
+                outcome=payload,
+                strength=1.0,
+            )
+        )
+        stack.save_episode(
+            _make_episode(
+                stack_id,
+                objective=payload,
+                outcome=payload,
+                strength=1.0,
+            )
+        )
+
+        result = stack.load(token_budget=100)
+        excluded = result.get("_meta", {}).get("_excluded_candidates", [])
+
+        assert excluded, "expected some excluded candidates when budget is constrained"
+        for entry in excluded:
+            assert isinstance(entry, dict)
+            assert set(entry.keys()) == {"memory_type", "memory_id"}
+            assert isinstance(entry["memory_id"], str)
+            assert entry["memory_type"] == "episode"
+
 
 # Minimum token budget for test reference
 MIN_TOKEN_BUDGET = 100
@@ -544,6 +624,42 @@ class TestCompositionHooks:
         stack.on_model_changed(None)
         assert stack._inference is None
 
+    def test_hook_inference_propagation_isolated_from_failures(self, stack):
+        good_component = MagicMock(spec=StackComponentProtocol)
+        good_component.name = "good"
+        good_component.set_inference = MagicMock()
+        good_component.required = False
+
+        bad_component = MagicMock(spec=StackComponentProtocol)
+        bad_component.name = "bad"
+        bad_component.required = False
+        call_count = {"count": 0}
+
+        def _fail_after_attach(_inference):
+            call_count["count"] += 1
+            raise RuntimeError("boom")
+
+        bad_component.set_inference = MagicMock(side_effect=_fail_after_attach)
+
+        stack.add_component(good_component)
+        stack.add_component(bad_component)
+
+        mock_inference = MagicMock(spec=InferenceService)
+        stack.on_attach("core-300", inference=mock_inference)
+
+        good_component.set_inference.assert_called_with(mock_inference)
+        bad_component.set_inference.assert_called_with(mock_inference)
+
+        stack.on_model_changed(mock_inference)
+        good_component.set_inference.assert_called_with(mock_inference)
+        assert bad_component.set_inference.call_count >= 2
+
+        # Should still continue and clear inference on all components.
+        stack.on_detach("core-300")
+        assert stack._inference is None
+        good_component.set_inference.assert_called_with(None)
+        bad_component.set_inference.assert_called_with(None)
+
     def test_hooks_propagate_to_components(self, stack):
         component = MagicMock(spec=StackComponentProtocol)
         component.name = "test-comp"
@@ -559,6 +675,30 @@ class TestCompositionHooks:
 
         stack.on_detach("core-200")
         component.set_inference.assert_called_with(None)
+
+    def test_on_attach_inference_isolation_is_fully_enforced(self, stack):
+        good_component = MagicMock(spec=StackComponentProtocol)
+        good_component.name = "good"
+        good_component.required = False
+        good_component.set_inference = MagicMock()
+
+        bad_component = MagicMock(spec=StackComponentProtocol)
+        bad_component.name = "bad"
+        bad_component.required = False
+        bad_component.set_inference = MagicMock(side_effect=RuntimeError("boom"))
+
+        stack.add_component(good_component)
+        stack.add_component(bad_component)
+
+        mock_inference = MagicMock(spec=InferenceService)
+
+        # One bad component should not abort stack-wide attach.
+        stack.on_attach("core-400", inference=mock_inference)
+
+        assert stack._attached_core_id == "core-400"
+        assert stack._inference is mock_inference
+        good_component.set_inference.assert_called_with(mock_inference)
+        assert bad_component.set_inference.call_count == 1
 
 
 # ===========================================================================
@@ -640,6 +780,97 @@ class TestComponentRegistry:
         components = stack.components
         components["injected"] = MagicMock()
         assert "injected" not in stack.components
+
+
+class TestStackProvenancePolicy:
+    def test_register_plugin_logs_mutation(self, stack):
+        expected_details = {
+            "plugin": "plugin-x",
+            "already_registered": False,
+            "stack_id": "test-stack",
+        }
+        with patch.object(stack._backend, "log_audit", wraps=stack._backend.log_audit) as mock_log:
+            stack.register_plugin("plugin-x")
+            mock_log.assert_called_once_with(
+                "provenance_policy",
+                "plugin-x",
+                "register_plugin",
+                "system",
+                expected_details,
+            )
+
+    def test_unregister_plugin_logs_mutation(self, stack):
+        stack.register_plugin("plugin-x")
+        expected_details = {
+            "plugin": "plugin-x",
+            "was_registered": True,
+            "stack_id": "test-stack",
+        }
+        with patch.object(stack._backend, "log_audit", wraps=stack._backend.log_audit) as mock_log:
+            stack.unregister_plugin("plugin-x")
+            mock_log.assert_called_with(
+                "provenance_policy",
+                "plugin-x",
+                "unregister_plugin",
+                "system",
+                expected_details,
+            )
+
+    def test_unregister_nonexistent_plugin_still_records_audit(self, stack):
+        expected_details = {
+            "plugin": "missing-plugin",
+            "was_registered": False,
+            "stack_id": "test-stack",
+        }
+        with patch.object(stack._backend, "log_audit", wraps=stack._backend.log_audit) as mock_log:
+            stack.unregister_plugin("missing-plugin")
+            mock_log.assert_called_once_with(
+                "provenance_policy",
+                "missing-plugin",
+                "unregister_plugin",
+                "system",
+                expected_details,
+            )
+
+
+class TestEmbeddingRetryBehavior:
+    def test_transient_embedding_failure_falls_back_and_retries(self, tmp_db, stack_id):
+        class _TransientEmbedder:
+            def __init__(self):
+                self.dimension = 16
+                self.calls = 0
+                self.fail_next = True
+
+            def embed(self, text):
+                self.calls += 1
+                if self.fail_next:
+                    raise RuntimeError("temporary outage")
+                return [0.1] * self.dimension
+
+        embedder = _TransientEmbedder()
+        stack = SQLiteStack(
+            stack_id=stack_id,
+            db_path=tmp_db,
+            components=[],
+            enforce_provenance=False,
+            embedder=embedder,
+        )
+
+        # First call should fall back after failure.
+        first = stack._backend._embed_text("hello", context="vector-save:test")
+        assert first is not None
+        assert embedder.calls == 1
+        assert isinstance(stack._backend._embedder, type(stack._backend._embedder_fallback))
+
+        # Advance probe window to force retry attempt.
+        stack._backend._embedder_retry_at = datetime.now(timezone.utc)
+        embedder.fail_next = False
+        stack._backend._embedder_retry_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+
+        second = stack._backend._embed_text("hello", context="vector-save:test")
+        assert second is not None
+        assert embedder.calls == 2
+        assert stack._backend._embedder is embedder
 
 
 # ===========================================================================

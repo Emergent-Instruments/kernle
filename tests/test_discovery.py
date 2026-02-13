@@ -7,6 +7,7 @@ import pytest
 
 from kernle.discovery import (
     DiscoveredComponent,
+    _entry_point_to_component,
     discover_all,
     discover_models,
     discover_plugins,
@@ -157,6 +158,32 @@ class TestDiscoverStackComponents:
         assert result[0].attr == "SalienceForgetting"
 
 
+class TestEntryPointParsing:
+    def test_entry_point_to_component_prefers_module_attr(self):
+        ep = MagicMock(spec=importlib.metadata.EntryPoint)
+        ep.name = "manual"
+        ep.value = "old.module:OldThing"
+        ep.group = ENTRY_POINT_GROUP_PLUGINS
+        ep.module = "actual.module"
+        ep.attr = "ActualThing"
+        ep.dist = None
+
+        result = _entry_point_to_component(ep, ENTRY_POINT_GROUP_PLUGINS)
+
+        assert result.module == "actual.module"
+        assert result.attr == "ActualThing"
+
+    def test_entry_point_to_component_trims_bracket_suffix(self):
+        ep = _make_entry_point(
+            "manual",
+            "pkg.module:MyThing [extra]",
+            ENTRY_POINT_GROUP_PLUGINS,
+        )
+        result = _entry_point_to_component(ep, ENTRY_POINT_GROUP_PLUGINS)
+        assert result.module == "pkg.module"
+        assert result.attr == "MyThing"
+
+
 class TestDiscoverAll:
     @patch("kernle.discovery._get_entry_points")
     def test_returns_all_groups(self, mock_eps):
@@ -186,6 +213,29 @@ class TestDiscoverAll:
         assert len(result[ENTRY_POINT_GROUP_MODELS]) == 2
         assert len(result[ENTRY_POINT_GROUP_STACKS]) == 0
         assert len(result[ENTRY_POINT_GROUP_STACK_COMPONENTS]) == 0
+
+    @patch("kernle.discovery.importlib.metadata.entry_points")
+    def test_discover_plugins_handles_entrypoint_metadata_errors(self, mock_entry_points):
+        mock_entry_points.side_effect = RuntimeError("metadata unavailable")
+        assert discover_plugins() == []
+
+
+class TestLoadComponentFailure:
+    @patch("kernle.discovery._get_entry_points")
+    def test_load_component_wraps_load_failure(self, mock_eps):
+        ep = _make_entry_point("broken", "pkg:Broken", ENTRY_POINT_GROUP_PLUGINS)
+        ep.load.side_effect = ModuleNotFoundError("missing dependency")
+        mock_eps.return_value = [ep]
+
+        comp = DiscoveredComponent(
+            name="broken",
+            group=ENTRY_POINT_GROUP_PLUGINS,
+            module="pkg",
+            attr="Broken",
+        )
+
+        with pytest.raises(ImportError, match="Failed to load entry point 'broken'"):
+            load_component(comp)
 
 
 class TestLoadComponent:
@@ -217,6 +267,48 @@ class TestLoadComponent:
         )
         with pytest.raises(ImportError, match="Entry point 'nonexistent' not found"):
             load_component(comp)
+
+    @patch("kernle.discovery._get_entry_points")
+    def test_load_ambiguous_raises(self, mock_eps):
+        ep_a = _make_entry_point(
+            "analytics", "analytics:AnalyticsPlugin", ENTRY_POINT_GROUP_PLUGINS, "pkg-a"
+        )
+        ep_b = _make_entry_point(
+            "analytics", "analytics_v2:AnalyticsPlugin", ENTRY_POINT_GROUP_PLUGINS, "pkg-b"
+        )
+        mock_eps.return_value = [ep_a, ep_b]
+
+        comp = DiscoveredComponent(
+            name="analytics",
+            group=ENTRY_POINT_GROUP_PLUGINS,
+            module="analytics",
+            attr="AnalyticsPlugin",
+        )
+
+        with pytest.raises(ImportError, match="Ambiguous entry point 'analytics' in group"):
+            load_component(comp)
+
+    @patch("kernle.discovery._get_entry_points")
+    def test_load_resolves_matching_distribution(self, mock_eps):
+        ep_a = _make_entry_point(
+            "analytics", "analytics:AnalyticsPlugin", ENTRY_POINT_GROUP_PLUGINS, "pkg-a"
+        )
+        ep_b = _make_entry_point(
+            "analytics", "analytics_v2:AnalyticsPlugin", ENTRY_POINT_GROUP_PLUGINS, "pkg-b"
+        )
+        ep_b.load.return_value = "loaded_from_pkg_b"
+        mock_eps.return_value = [ep_a, ep_b]
+
+        comp = DiscoveredComponent(
+            name="analytics",
+            group=ENTRY_POINT_GROUP_PLUGINS,
+            module="analytics",
+            attr="AnalyticsPlugin",
+            dist_name="pkg-b",
+        )
+
+        assert load_component(comp) == "loaded_from_pkg_b"
+        ep_b.load.assert_called_once()
 
 
 class TestEntryPointNoDist:

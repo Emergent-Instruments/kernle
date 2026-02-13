@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import threading
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,12 +51,59 @@ from kernle.utils import get_kernle_home
 logger = logging.getLogger(__name__)
 
 
+_ID_LOCK = threading.Lock()
+_ID_SEQUENCE = 0
+_ID_LAST_TIMESTAMP_MS = 0
+_ID_NAMESPACE_UUID = uuid.UUID("2f6dce7e-c8f5-4f6e-9f2e-9b6f3d8c0c3a")
+_ID_NAMESPACE = _ID_NAMESPACE_UUID.hex[:12]
+_ID_SEQUENCE_MAX = 1_000_000
+
+
+def _env_truthy(value: Optional[str]) -> bool:
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on", "y"}
+
+
+def _extract_stack_id(value: Any) -> Optional[str]:
+    """Extract a stack id from a binding stack spec.
+
+    Supports current (`str`) and legacy (`{"stack_id": str`) forms.
+    """
+    if isinstance(value, str):
+        value = value.strip()
+        return value or None
+    if isinstance(value, dict):
+        stack_id = value.get("stack_id")
+        if isinstance(stack_id, str):
+            stack_id = stack_id.strip()
+            return stack_id or None
+    return None
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
 def _generate_id() -> str:
-    return str(uuid.uuid4())
+    global _ID_SEQUENCE, _ID_LAST_TIMESTAMP_MS
+    with _ID_LOCK:
+        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        if now_ms < _ID_LAST_TIMESTAMP_MS:
+            now_ms = _ID_LAST_TIMESTAMP_MS
+
+        if now_ms == _ID_LAST_TIMESTAMP_MS:
+            _ID_SEQUENCE = (_ID_SEQUENCE + 1) % _ID_SEQUENCE_MAX
+        else:
+            _ID_LAST_TIMESTAMP_MS = now_ms
+            _ID_SEQUENCE = 0
+
+        digest = uuid.uuid5(
+            _ID_NAMESPACE_UUID,
+            f"{_ID_NAMESPACE}-{now_ms:013d}-{_ID_SEQUENCE:06d}",
+        ).hex[:12]
+
+        return f"{now_ms:013d}-{_ID_NAMESPACE}-{_ID_SEQUENCE:06d}-{digest}"
 
 
 class _PluginContextImpl:
@@ -340,6 +389,7 @@ class Entity:
         self,
         core_id: str,
         data_dir: Optional[Path] = None,
+        plugin_fail_fast: Optional[bool] = None,
     ) -> None:
         self._core_id = core_id
         self._data_dir = data_dir or get_kernle_home()
@@ -349,8 +399,14 @@ class Entity:
         self._plugins: dict[str, PluginProtocol] = {}
         self._plugin_contexts: dict[str, _PluginContextImpl] = {}
         self._plugin_tools: dict[str, list[ToolDefinition]] = {}
+        self._plugin_health: dict[str, PluginHealth] = {}
         self._plugin_configs: dict[str, dict[str, Any]] = {}
         self._plugin_secrets: dict[str, dict[str, str]] = {}
+        self._plugin_fail_fast = (
+            bool(plugin_fail_fast)
+            if plugin_fail_fast is not None
+            else _env_truthy(os.getenv("KERNLE_PLUGIN_FAIL_FAST"))
+        )
         self._restored_binding: Optional[Binding] = None
 
     # ---- Core Properties ----
@@ -435,7 +491,16 @@ class Entity:
 
     # ---- Plugin Management ----
 
-    def load_plugin(self, plugin: PluginProtocol, *, subparsers: Any = None) -> None:
+    def plugin_health(self, name: str) -> Optional[PluginHealth]:
+        return self._plugin_health.get(name)
+
+    def load_plugin(
+        self,
+        plugin: PluginProtocol,
+        *,
+        subparsers: Any = None,
+        fail_fast: Optional[bool] = None,
+    ) -> None:
         from kernle.protocols import PROTOCOL_VERSION
 
         plugin_pv = getattr(plugin, "protocol_version", None)
@@ -451,26 +516,73 @@ class Entity:
                 plugin_pv,
                 PROTOCOL_VERSION,
             )
+        plugin_name = plugin.name
+        fail_fast = self._plugin_fail_fast if fail_fast is None else fail_fast
+        if plugin_name in self._plugins and self._plugin_health.get(plugin_name):
+            # Keep the latest health state only from a prior load cycle.
+            self._plugin_health.pop(plugin_name, None)
+
         context = _PluginContextImpl(self, plugin.name)
         plugin.activate(context)
         self._plugins[plugin.name] = plugin
         self._plugin_contexts[plugin.name] = context
+        self._plugin_health[plugin.name] = PluginHealth(healthy=True, message="plugin loaded")
+
+        def _rollback_loaded_plugin() -> None:
+            self._plugins.pop(plugin.name, None)
+            self._plugin_contexts.pop(plugin.name, None)
+            self._plugin_tools.pop(plugin.name, None)
+            self._plugin_health.pop(plugin.name, None)
+            if self.active_stack and hasattr(self.active_stack, "unregister_plugin"):
+                try:
+                    self.active_stack.unregister_plugin(plugin.name)
+                except Exception:
+                    logger.debug(
+                        "Plugin '%s' unregister during rollback failed", plugin.name, exc_info=True
+                    )
+            try:
+                plugin.deactivate()
+            except Exception:
+                logger.debug(
+                    "Plugin '%s' deactivation failed during rollback",
+                    plugin.name,
+                    exc_info=True,
+                )
+
         # Register plugin with active stack for provenance bypass trust
         if self.active_stack and hasattr(self.active_stack, "register_plugin"):
             self.active_stack.register_plugin(plugin.name)
+
         # Register tools
         try:
             tools = plugin.register_tools()
             if tools:
                 self._plugin_tools[plugin.name] = tools
         except Exception as e:
-            logger.warning("Plugin '%s' tool registration failed: %s", plugin.name, e)
+            message = f"Plugin '{plugin_name}' tool registration failed: {e}"
+            logger.warning(message)
+            self._plugin_health[plugin_name] = PluginHealth(
+                healthy=False,
+                message=message,
+            )
+            if fail_fast:
+                _rollback_loaded_plugin()
+                raise RuntimeError(message) from e
+
         # Register CLI commands if subparsers provided
         if subparsers is not None:
             try:
                 plugin.register_cli(subparsers)
             except Exception as e:
-                logger.warning("Plugin '%s' CLI registration failed: %s", plugin.name, e)
+                message = f"Plugin '{plugin_name}' CLI registration failed: {e}"
+                logger.warning(message)
+                self._plugin_health[plugin_name] = PluginHealth(
+                    healthy=False,
+                    message=message,
+                )
+                if fail_fast:
+                    _rollback_loaded_plugin()
+                    raise RuntimeError(message) from e
 
     def unload_plugin(self, name: str) -> None:
         plugin = self._plugins.pop(name, None)
@@ -478,6 +590,7 @@ class Entity:
             plugin.deactivate()
         self._plugin_contexts.pop(name, None)
         self._plugin_tools.pop(name, None)
+        self._plugin_health.pop(name, None)
         # Unregister plugin from active stack
         if self.active_stack and hasattr(self.active_stack, "unregister_plugin"):
             self.active_stack.unregister_plugin(name)
@@ -801,7 +914,11 @@ class Entity:
             }
         for name, plugin in self._plugins.items():
             try:
-                health = plugin.health_check()
+                stored_health = self._plugin_health.get(name)
+                if stored_health is not None and not stored_health.healthy:
+                    health = stored_health
+                else:
+                    health = plugin.health_check()
             except Exception:
                 health = PluginHealth(healthy=False, message="health_check failed")
             result["plugins"][name] = {
@@ -1010,6 +1127,7 @@ class Entity:
         transition: Optional[str] = None,
         *,
         force: bool = False,
+        strict: bool = False,
         allow_no_inference_override: bool = False,
         auto_promote: bool = False,
         batch_size: Optional[int] = None,
@@ -1029,6 +1147,7 @@ class Entity:
         Args:
             transition: Specific layer transition to process (None = check all)
             force: Process even if triggers aren't met
+            strict: Raise on configuration load/parse errors instead of using defaults.
             allow_no_inference_override: Allow identity-layer writes without
                 inference (except values). Only effective with force=True.
             auto_promote: If True, directly write memories. If False (default),
@@ -1062,8 +1181,14 @@ class Entity:
             vrp = stack.get_stack_setting("promotion_gate_value_requires_protection")
             if vrp is not None:
                 promotion_gates.value_requires_protection = vrp == "true"
-        except Exception:
-            pass  # Use defaults if settings loading fails
+        except Exception as exc:
+            if strict:
+                raise
+            logger.warning(
+                "Using default promotion gates due to stack setting parse failure on %s: %s",
+                stack.stack_id,
+                exc,
+            )
 
         processor = MemoryProcessor(
             stack=stack,
@@ -1091,8 +1216,14 @@ class Entity:
                     max_sessions_per_day=cfg_dict.get("max_sessions_per_day") or 10,
                 )
                 processor.update_config(lc.layer_transition, lc)
-        except Exception:
-            pass  # Use defaults if config loading fails
+        except Exception as exc:
+            if strict:
+                raise
+            logger.warning(
+                "Using default processing config due to stack config parse failure on %s: %s",
+                stack.stack_id,
+                exc,
+            )
 
         return processor.process(
             transition,
@@ -1112,8 +1243,9 @@ class Entity:
         self._require_active_stack()
         checkpoint_dir = self._data_dir / "checkpoints"
         checkpoint_dir.mkdir(parents=True, exist_ok=True)
-        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        cp_id = f"{self._core_id}_{ts}"
+        ts = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+        suffix = uuid.uuid4().hex[:8]
+        cp_id = f"{self._core_id}_{ts}_{suffix}"
         cp_path = checkpoint_dir / f"{cp_id}.json"
         binding = self.get_binding()
         data = {
@@ -1165,7 +1297,11 @@ class Entity:
 
     @classmethod
     def from_binding(cls, binding: Binding | Path) -> Entity:
+        binding_path = None
+        data_dir = None
+
         if isinstance(binding, Path):
+            binding_path = binding
             data = json.loads(binding.read_text())
             binding = Binding(
                 core_id=data["core_id"],
@@ -1174,17 +1310,99 @@ class Entity:
                 active_stack_alias=data.get("active_stack_alias"),
                 plugins=data.get("plugins", []),
             )
-        entity = cls(core_id=binding.core_id)
+            if binding_path.name.endswith(".json") and binding_path.parent.name == "bindings":
+                data_dir = binding_path.parent.parent
+
+        entity = cls(core_id=binding.core_id, data_dir=data_dir)
         entity._restored_binding = binding
 
-        # Attempt plugin discovery for binding plugins
-        if binding.plugins:
-            from kernle.discovery import discover_plugins
+        # Rehydrate stack instances from saved aliases → stack IDs.
+        for alias, stack_spec in (binding.stacks or {}).items():
+            stack_id = _extract_stack_id(stack_spec)
+            if not alias or not stack_id:
+                logger.warning(
+                    "Ignoring invalid binding stack alias='%s' spec='%s'", alias, stack_spec
+                )
+                continue
+            try:
+                from kernle.stack import SQLiteStack
 
-            discovered_names = {dc.name for dc in discover_plugins()}
-            for pname in binding.plugins:
-                if pname not in discovered_names:
-                    logger.warning("Plugin '%s' from binding not found", pname)
+                stack = SQLiteStack(stack_id=stack_id, enforce_provenance=False)
+            except Exception as exc:
+                logger.warning(
+                    "Failed to instantiate stack '%s' for binding (stack_id=%s): %s",
+                    alias,
+                    stack_id,
+                    exc,
+                )
+                continue
+            try:
+                entity.attach_stack(stack, alias=alias, set_active=False)
+            except Exception as exc:
+                logger.warning("Failed to attach stack '%s' from binding: %s", alias, exc)
+
+        if binding.active_stack_alias is not None:
+            if binding.active_stack_alias in entity._stacks:
+                try:
+                    entity.set_active_stack(binding.active_stack_alias)
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to restore active stack '%s': %s",
+                        binding.active_stack_alias,
+                        exc,
+                    )
+            else:
+                logger.warning(
+                    "Binding active stack '%s' is missing after restore",
+                    binding.active_stack_alias,
+                )
+
+        # Restore plugins after stacks so plugin context is available.
+        if binding.plugins:
+            from kernle.discovery import discover_plugins, load_component
+
+            discovered = {dc.name: dc for dc in discover_plugins()}
+            for plugin_name in binding.plugins:
+                discovered_plugin = discovered.get(plugin_name)
+                if discovered_plugin is None:
+                    logger.warning("Plugin '%s' from binding not found", plugin_name)
+                    continue
+                try:
+                    plugin_cls = load_component(discovered_plugin)
+                    entity.load_plugin(plugin_cls())
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to restore plugin '%s' from binding: %s",
+                        plugin_name,
+                        exc,
+                    )
+
+        # Restore model if the binding has sufficient metadata.
+        if isinstance(binding.model_config, dict):
+            provider = binding.model_config.get("provider")
+            model_id = binding.model_config.get("model_id")
+            if isinstance(provider, str) and isinstance(model_id, str) and provider and model_id:
+                provider_key = provider.strip().lower()
+                try:
+                    if provider_key in {"claude", "anthropic"}:
+                        from kernle.models.anthropic import AnthropicModel
+
+                        entity.set_model(AnthropicModel(model_id=model_id))
+                    elif provider_key == "openai":
+                        from kernle.models.openai import OpenAIModel
+
+                        entity.set_model(OpenAIModel(model_id=model_id))
+                    elif provider_key == "ollama":
+                        from kernle.models.ollama import OllamaModel
+
+                        entity.set_model(OllamaModel(model_id=model_id))
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to restore model provider='%s' model_id='%s': %s",
+                        provider_key,
+                        model_id,
+                        exc,
+                    )
 
         return entity
 

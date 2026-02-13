@@ -1,4 +1,4 @@
-.PHONY: help install dev test lint format clean build publish publish-test docs docs-deploy
+.PHONY: help install dev test lint lint-audit-roadmap format clean build publish publish-test docs docs-deploy
 
 # Default target
 help:
@@ -10,6 +10,7 @@ help:
 	@echo "  make dev          Install with dev dependencies"
 	@echo "  make test         Run tests"
 	@echo "  make lint         Run linter (ruff)"
+	@echo "  make lint-audit-roadmap  Validate roadmap hardening constraints"
 	@echo "  make format       Format code (black + ruff)"
 	@echo "  make clean        Remove build artifacts"
 	@echo ""
@@ -41,6 +42,9 @@ test-cov:
 
 lint:
 	ruff check .
+
+lint-audit-roadmap:
+	python scripts/audit_roadmap_validate.py
 
 format:
 	black .

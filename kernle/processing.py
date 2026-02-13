@@ -77,6 +77,35 @@ def _extract_content_text(transition: str, item: dict) -> str:
     return ""
 
 
+def _parse_created_at(value: Any) -> Optional[datetime]:
+    """Parse audit log created_at values into aware UTC datetimes."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, (int, float)):
+        return datetime.fromtimestamp(value, tz=timezone.utc)
+
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
+def _as_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _extract_derived_from(transition: str, item: dict) -> List[str]:
     """Extract the derived_from list from a parsed item."""
     if transition in ("raw_to_episode", "raw_to_note"):
@@ -192,6 +221,8 @@ DEFAULT_LAYER_CONFIGS: Dict[str, LayerConfig] = {
 }
 
 # All valid layer transitions
+# Deterministic execution order when iterating all transitions.
+VALID_TRANSITION_ORDER = tuple(DEFAULT_LAYER_CONFIGS.keys())
 VALID_TRANSITIONS = set(DEFAULT_LAYER_CONFIGS.keys())
 
 
@@ -656,7 +687,7 @@ class MemoryProcessor:
         results = []
         promote = auto_promote if auto_promote is not None else self._auto_promote
 
-        transitions = [transition] if transition else list(VALID_TRANSITIONS)
+        transitions = [transition] if transition else list(VALID_TRANSITION_ORDER)
 
         for t in transitions:
             config = self._configs.get(t)
@@ -739,6 +770,115 @@ class MemoryProcessor:
 
         return None
 
+    def _get_inference_model_id(self) -> Optional[str]:
+        model_id = getattr(self._inference, "model_id", None)
+        if not isinstance(model_id, str):
+            return None
+        value = model_id.strip()
+        return value or None
+
+    def _model_id_mismatch_reason(self, transition: str, model_id: Optional[str]) -> Optional[str]:
+        if model_id is None:
+            return None
+
+        configured = str(model_id).strip()
+        if not configured:
+            return None
+
+        current_model_id = self._get_inference_model_id()
+        if current_model_id is None:
+            return (
+                f"Blocked: processing '{transition}' requires model '{configured}', "
+                "but no model is bound."
+            )
+
+        if current_model_id != configured:
+            return (
+                f"Blocked: processing '{transition}' requires model '{configured}', "
+                f"current model is '{current_model_id}'."
+            )
+
+        return None
+
+    def _sessions_processed_today(self, transition: str) -> int:
+        """Count today's processing sessions for this transition."""
+        try:
+            audit_entries = self._stack.get_audit_log(
+                memory_type="processing",
+                memory_id=transition,
+                operation="process",
+                limit=10_000,
+            )
+        except Exception as exc:
+            logger.debug("Unable to read processing audit log for %s: %s", transition, exc)
+            return 0
+
+        if not isinstance(audit_entries, list):
+            return 0
+
+        today = datetime.now(timezone.utc).date()
+        count = 0
+        for entry in audit_entries:
+            if not isinstance(entry, dict):
+                continue
+            created = _parse_created_at(entry.get("created_at"))
+            if created is not None and created.date() == today:
+                count += 1
+        return count
+
+    def _daily_session_cap_reason(
+        self,
+        transition: str,
+        max_sessions_per_day: Optional[int],
+    ) -> Optional[str]:
+        if max_sessions_per_day is None:
+            return None
+
+        try:
+            max_sessions = int(max_sessions_per_day)
+        except (TypeError, ValueError):
+            return None
+
+        if max_sessions <= 0:
+            return (
+                f"Blocked: processing '{transition}' has max_sessions_per_day={max_sessions}. "
+                "Set to a positive value to enable processing."
+            )
+
+        sessions_today = self._sessions_processed_today(transition)
+        if sessions_today >= max_sessions:
+            return (
+                f"Blocked: max_sessions_per_day reached for '{transition}' "
+                f"({sessions_today}/{max_sessions} for today)."
+            )
+        return None
+
+    def _no_inference_override_reason(self, transition: str, sources: list) -> Optional[str]:
+        if transition not in OVERRIDE_TRANSITIONS:
+            return None
+
+        if len(sources) < NO_INFERENCE_MIN_EVIDENCE:
+            return (
+                f"Blocked: no-inference override requires at least "
+                f"{NO_INFERENCE_MIN_EVIDENCE} source memories for {transition}."
+            )
+
+        min_confidence = None
+        for source in sources:
+            confidence = _as_float(getattr(source, "confidence", None), default=1.0)
+            if min_confidence is None or confidence < min_confidence:
+                min_confidence = confidence
+
+        if min_confidence is None or min_confidence < NO_INFERENCE_MIN_CONFIDENCE:
+            current = 0.0 if min_confidence is None else min_confidence
+            return (
+                f"Blocked: no-inference override for {transition} requires minimum "
+                f"confidence {NO_INFERENCE_MIN_CONFIDENCE:.2f}; minimum observed is "
+                f"{current:.2f}."
+            )
+
+        return None
+
     def _check_promotion_gate(self, transition: str, item: dict) -> PromotionGateResult:
         """Check if a parsed item meets promotion gate criteria.
 
@@ -780,17 +920,27 @@ class MemoryProcessor:
                     f"(need >= {gates.value_min_evidence})"
                 )
             # Protection flag check — verify source beliefs are protected
-            if gates.value_requires_protection and evidence:
+            if evidence:
+                missing = []
                 unprotected = []
                 for bid in evidence:
                     belief = self._stack.get_memory("belief", bid)
+                    if belief is None:
+                        missing.append(bid)
+                        continue
                     if belief and not getattr(belief, "is_protected", False):
                         unprotected.append(bid)
-                if unprotected:
+                if missing:
                     failures.append(
-                        f"unprotected source beliefs: {', '.join(unprotected[:3])}... "
-                        f"(value promotion requires protected beliefs)"
+                        f"missing source beliefs: {', '.join(missing[:3])}"
+                        + ("..." if len(missing) > 3 else "")
                     )
+                if gates.value_requires_protection:
+                    if unprotected:
+                        failures.append(
+                            f"unprotected source beliefs: {', '.join(unprotected[:3])}... "
+                            f"(value promotion requires protected beliefs)"
+                        )
 
         return PromotionGateResult(
             passed=len(failures) == 0,
@@ -827,7 +977,49 @@ class MemoryProcessor:
                 skip_reason="No unprocessed sources",
             )
 
+        model_mismatch = self._model_id_mismatch_reason(transition, config.model_id)
+        if model_mismatch is not None:
+            return ProcessingResult(
+                layer_transition=transition,
+                source_count=len(sources),
+                skipped=True,
+                skip_reason=model_mismatch,
+            )
+
+        session_limit_reason = self._daily_session_cap_reason(
+            transition,
+            config.max_sessions_per_day,
+        )
+        if session_limit_reason is not None:
+            return ProcessingResult(
+                layer_transition=transition,
+                source_count=len(sources),
+                skipped=True,
+                skip_reason=session_limit_reason,
+            )
+
         # 2. Load context (existing memories for dedup)
+        if not self._inference_available and transition in OVERRIDE_TRANSITIONS:
+            override_reason = self._no_inference_override_reason(transition, sources)
+            if override_reason is not None:
+                return ProcessingResult(
+                    layer_transition=transition,
+                    source_count=len(sources),
+                    skipped=True,
+                    skip_reason=override_reason,
+                    inference_blocked=True,
+                )
+
+            return ProcessingResult(
+                layer_transition=transition,
+                source_count=len(sources),
+                skipped=True,
+                skip_reason=(
+                    "Blocked: no inference available for identity-layer override transitions."
+                ),
+                inference_blocked=True,
+            )
+
         context = self._gather_context(transition)
 
         # 3. Build prompt

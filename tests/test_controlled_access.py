@@ -241,6 +241,43 @@ class TestAuditInExistingMethods:
         log = storage.get_audit_log(memory_id=eid, operation="forget")
         assert len(log) == 0
 
+    def test_forget_deleted_memory_noop(self, storage):
+        eid = _save_ep(storage)
+        with storage._connect() as conn:
+            conn.execute(
+                "UPDATE episodes SET deleted = 1 WHERE id = ? AND stack_id = ?", (eid, STACK_ID)
+            )
+            conn.commit()
+
+        assert not storage.forget_memory("episode", eid, "should be ignored")
+        log = storage.get_audit_log(memory_id=eid, operation="forget")
+        assert len(log) == 0
+
+    def test_recover_deleted_memory_noop(self, storage):
+        eid = _save_ep(storage)
+        storage.forget_memory("episode", eid, "forgot")
+        with storage._connect() as conn:
+            conn.execute(
+                "UPDATE episodes SET deleted = 1 WHERE id = ? AND stack_id = ?", (eid, STACK_ID)
+            )
+            conn.commit()
+
+        assert not storage.recover_memory("episode", eid)
+        log = storage.get_audit_log(memory_id=eid, operation="recover")
+        assert len(log) == 0
+
+    def test_protect_deleted_memory_noop(self, storage):
+        eid = _save_ep(storage)
+        with storage._connect() as conn:
+            conn.execute(
+                "UPDATE episodes SET deleted = 1 WHERE id = ? AND stack_id = ?", (eid, STACK_ID)
+            )
+            conn.commit()
+
+        assert not storage.protect_memory("episode", eid, True)
+        log = storage.get_audit_log(memory_id=eid, operation="protect")
+        assert len(log) == 0
+
 
 # ==============================================================================
 # SQLiteStack routing

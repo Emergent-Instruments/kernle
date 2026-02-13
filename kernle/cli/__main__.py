@@ -2153,11 +2153,11 @@ Beliefs already present in the agent's memory will be skipped.
     }
     argv = sys.argv[1:]  # Skip program name
 
-    # Find position of "raw" in argv (accounting for -a/--agent which takes a value)
+    # Find position of "raw" in argv (accounting for --stack/-s which takes a value)
     i = 0
     while i < len(argv):
         arg = argv[i]
-        if arg in ("-a", "--stack"):
+        if arg in ("-s", "--stack"):
             i += 2  # Skip flag and its value
             continue
         if arg == "raw":

@@ -84,22 +84,36 @@ def register_plugin_tools(plugin_name: str, tools: list) -> None:
     """
     for td in tools:
         namespaced = f"{plugin_name}.{td.name}"
-        schema = td.input_schema if isinstance(td.input_schema, dict) else {}
-        schema_type = schema.get("type", "object")
+        schema = td.input_schema
+        if not isinstance(schema, dict):
+            raise ValueError(f"Plugin tool '{namespaced}' must provide an input schema dictionary.")
+
+        schema_type = schema.get("type")
+        if not schema_type:
+            raise ValueError(f"Plugin tool '{namespaced}' must provide an input schema.")
         if schema_type != "object":
             raise ValueError(
                 f"Plugin tool '{namespaced}' must use an object input schema, got: {schema_type}"
             )
 
-        validator = None
         if _HAS_JSONSCHEMA:
             try:
                 Draft7Validator.check_schema(schema)
-                validator = Draft7Validator(schema)
             except SchemaError as e:
                 raise ValueError(
                     f"Plugin tool '{namespaced}' has invalid schema: {e.message}"
                 ) from e
+
+        properties = schema.get("properties")
+        if properties is not None and not isinstance(properties, dict):
+            raise ValueError(f"Plugin tool '{namespaced}' schema 'properties' must be an object.")
+        required = schema.get("required")
+        if required is not None and not isinstance(required, list):
+            raise ValueError(f"Plugin tool '{namespaced}' schema 'required' must be an array.")
+
+        validator = None
+        if _HAS_JSONSCHEMA:
+            validator = Draft7Validator(schema)
 
         _plugin_tools[namespaced] = Tool(
             name=namespaced,
@@ -193,8 +207,11 @@ def _validate_plugin_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[st
         )
 
     schema = _plugin_schemas.get(name)
-    if not schema:
-        return dict(arguments)
+    if not isinstance(schema, dict):
+        raise ValueError(
+            f"Plugin tool metadata missing for '{name}'. "
+            "Registration must include a JSON schema before invocation."
+        )
 
     if _HAS_JSONSCHEMA:
         validator = _plugin_schema_validators.get(name)

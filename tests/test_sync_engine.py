@@ -1728,7 +1728,7 @@ class TestMergeGenericEdgeCases:
 
 
 class TestGetRecordSummary:
-    """Test _get_record_summary for all 7 table types + unknown fallback."""
+    """Test _get_record_summary for all table types + unknown fallback."""
 
     def test_episode_summary(self, storage):
         engine = storage._sync_engine
@@ -1796,6 +1796,22 @@ class TestGetRecordSummary:
         summary = engine._get_record_summary("relationships", r)
         assert summary == "Alice (mentor)"
 
+    def test_playbook_summary(self, storage):
+        engine = storage._sync_engine
+        p = Playbook(
+            id="1",
+            stack_id="t",
+            name="Deployment Playbook",
+            description="A long description that should be summarized for conflict output.",
+            trigger_conditions=["x"],
+            steps=[{"action": "a"}],
+            failure_modes=["f"],
+        )
+        assert (
+            engine._get_record_summary("playbooks", p)
+            == "Deployment Playbook :: A long description that should be summarized for conflict ou..."
+        )
+
     def test_unknown_table_fallback(self, storage):
         engine = storage._sync_engine
         ep = Episode(id="ep-id", stack_id="t", objective="O", outcome="Out")
@@ -1845,7 +1861,7 @@ class TestRecordToDict:
 
 
 class TestSaveFromCloud:
-    """Test _save_from_cloud dispatches to all 7 table types."""
+    """Test _save_from_cloud dispatches for each table type."""
 
     def test_save_episode_from_cloud(self, storage):
         engine = storage._sync_engine
@@ -1898,6 +1914,22 @@ class TestSaveFromCloud:
         )
         engine._save_from_cloud("relationships", r)
         assert storage.get_relationship("Alice") is not None
+
+    def test_save_playbook_from_cloud(self, storage):
+        engine = storage._sync_engine
+        p = Playbook(
+            id="p1",
+            stack_id="test-agent",
+            name="PB",
+            description="From cloud",
+            trigger_conditions=["t"],
+            steps=[{"action": "a"}],
+            failure_modes=["f"],
+        )
+        engine._save_from_cloud("playbooks", p)
+        pb = storage.get_playbook("p1")
+        assert pb is not None
+        assert pb.name == "PB"
 
 
 class TestIsOnlineEdgeCases:
@@ -2385,6 +2417,64 @@ class TestPullMergesConflictForAllTypes:
         ]
         result = storage_with_cloud._sync_engine.pull_changes()
         assert result.pulled == 1
+
+    def test_pull_playbook_conflict_local_wins_merges_and_persists(
+        self,
+        storage_with_cloud,
+        mock_cloud_storage,
+    ):
+        """Local playbook remains authoritative when newer but still merges cloud arrays."""
+        self._setup_cloud_defaults(mock_cloud_storage)
+        older = datetime.now(timezone.utc) - timedelta(hours=2)
+        newer = datetime.now(timezone.utc) - timedelta(hours=1)
+        storage_with_cloud.save_playbook(
+            Playbook(
+                id="cp-conflict",
+                stack_id="test-agent",
+                name="Local playbook",
+                description="local",
+                trigger_conditions=["local"],
+                steps=[{"action": "a"}],
+                failure_modes=["local-fail"],
+                source_episodes=["local-episode"],
+                tags=["local-tag"],
+                cloud_synced_at=older,
+                local_updated_at=newer,
+            )
+        )
+        with storage_with_cloud._get_conn() as conn:
+            conn.execute("DELETE FROM sync_queue")
+            conn.commit()
+
+        mock_cloud_storage.list_playbooks.return_value = [
+            Playbook(
+                id="cp-conflict",
+                stack_id="test-agent",
+                name="Cloud playbook",
+                description="cloud",
+                trigger_conditions=["cloud"],
+                steps=[{"action": "a"}],
+                failure_modes=["cloud-fail"],
+                source_episodes=["cloud-episode"],
+                tags=["cloud-tag"],
+                cloud_synced_at=older,
+                local_updated_at=older,
+            )
+        ]
+
+        result = storage_with_cloud._sync_engine.pull_changes()
+        assert result.pulled == 0
+        merged = storage_with_cloud.get_playbook("cp-conflict")
+        assert merged is not None
+        assert set(merged.trigger_conditions) == {"local", "cloud"}
+        assert set(merged.tags) == {"local-tag", "cloud-tag"}
+
+        with storage_with_cloud._get_conn() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM sync_queue WHERE table_name = ? AND record_id = ?",
+                ("playbooks", "cp-conflict"),
+            ).fetchone()
+            assert row is None
 
 
 class TestMergeArrayFieldsMissingAttribute:

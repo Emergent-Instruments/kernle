@@ -761,6 +761,15 @@ class TestMarkProcessed:
         assert result is False
         conn.close()
 
+    def test_mark_processed_rejects_invalid_table(self):
+        conn = _make_conn()
+        queue_fn = MagicMock()
+        result = mark_processed(conn, "s", "episodes;DROP TABLE", "e1", queue_fn)
+
+        assert result is False
+        queue_fn.assert_not_called()
+        conn.close()
+
 
 class TestProcessingConfig:
     """Tests for get/set_processing_config()."""

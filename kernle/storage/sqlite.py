@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from kernle.types import VALID_SOURCE_TYPE_VALUES, SourceType
 from kernle.utils import get_kernle_home
 
 from .base import (
@@ -170,6 +171,28 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+
+def _normalize_source_type(source_type: Any):
+    """Normalize source_type for metadata writes."""
+    if isinstance(source_type, SourceType):
+        return source_type.value
+
+    if not isinstance(source_type, str):
+        raise ValueError("source_type must be a string or SourceType")
+
+    normalized = source_type.strip().lower()
+    if not normalized:
+        raise ValueError("source_type cannot be empty")
+
+    if normalized not in VALID_SOURCE_TYPE_VALUES:
+        raise ValueError(
+            f"Invalid source_type: '{source_type}'. "
+            f"Valid values: {sorted(VALID_SOURCE_TYPE_VALUES)}"
+        )
+
+    return normalized
+
+
 # Tables that are intentionally local-only and should never be enqueued for cloud sync.
 LOCAL_ONLY_SYNC_TABLES = frozenset({"memory_suggestions"})
 
@@ -192,6 +215,8 @@ class SQLiteStorage:
     CONNECTIVITY_TIMEOUT = 5.0
     # Cloud search timeout (seconds)
     CLOUD_SEARCH_TIMEOUT = 3.0
+    # Retry window for transient embedding backend failures (seconds)
+    EMBEDDER_RETRY_SECONDS = 60
 
     def __init__(
         self,
@@ -242,7 +267,10 @@ class SQLiteStorage:
         self._has_vec = self._check_sqlite_vec()
 
         # Initialize embedder
-        self._embedder = embedder or (HashEmbedder() if not embedder else embedder)
+        self._preferred_embedder = embedder or HashEmbedder()
+        self._embedder = self._preferred_embedder
+        self._embedder_fallback = self._make_fallback_embedder(self._preferred_embedder)
+        self._embedder_retry_at: Optional[datetime] = None
 
         # Initialize flat file directories for all memory layers
         self._agent_dir = self.db_path.parent / stack_id
@@ -265,6 +293,61 @@ class SQLiteStorage:
 
         if not self._has_vec:
             logger.info("sqlite-vec not available, semantic search will use text matching")
+
+    @staticmethod
+    def _make_fallback_embedder(embedder: EmbeddingProvider) -> Optional[EmbeddingProvider]:
+        if isinstance(embedder, HashEmbedder):
+            return None
+        return HashEmbedder(dim=embedder.dimension)
+
+    def _maybe_restore_preferred_embedder(self) -> None:
+        if self._embedder_fallback is None:
+            return
+        if self._embedder is not self._embedder_fallback:
+            return
+        if self._embedder_retry_at is None:
+            return
+        if datetime.now(timezone.utc) < self._embedder_retry_at:
+            return
+
+        self._embedder = self._preferred_embedder
+        logger.info(
+            "Attempting to restore preferred embedding provider at %s",
+            datetime.now(timezone.utc).isoformat(),
+        )
+
+    def _embed_text(self, text: str, *, context: str) -> Optional[list[float]]:
+        self._maybe_restore_preferred_embedder()
+
+        try:
+            return self._embedder.embed(text)
+        except Exception as exc:
+            if isinstance(self._embedder, HashEmbedder):
+                logger.warning("Hash embedder failed for %s: %s", context, exc)
+                return None
+
+            if self._embedder_fallback is None:
+                logger.warning(
+                    "Embedding provider failed for %s and no fallback is configured: %s",
+                    context,
+                    exc,
+                )
+                return None
+
+            logger.warning(
+                "Preferred embedding provider failed for %s; falling back to hash embeddings until retry: %s",
+                context,
+                exc,
+            )
+            self._embedder_retry_at = datetime.now(timezone.utc) + timedelta(
+                seconds=self.EMBEDDER_RETRY_SECONDS
+            )
+            self._embedder = self._embedder_fallback
+            try:
+                return self._embedder_fallback.embed(text)
+            except Exception as fallback_exc:
+                logger.warning("Fallback embedding failed for %s: %s", context, fallback_exc)
+                return None
 
     def _init_flat_files(self) -> None:
         """Initialize flat files from existing database data."""
@@ -607,11 +690,13 @@ class SQLiteStorage:
         if existing and existing["content_hash"] == content_hash:
             return  # Already up to date
 
-        # Generate embedding
-        try:
-            embedding = self._embedder.embed(content)
-            packed = pack_embedding(embedding)
+        embedding = self._embed_text(content, context=f"vector-save:{table}:{record_id}")
+        if not embedding:
+            return
 
+        packed = pack_embedding(embedding)
+
+        try:
             # Upsert into vector table
             conn.execute(
                 "INSERT OR REPLACE INTO vec_embeddings (id, embedding) VALUES (?, ?)",
@@ -627,6 +712,18 @@ class SQLiteStorage:
             )
         except Exception as e:
             logger.warning(f"Failed to save embedding for {vec_id}: {e}")
+            # Ensure stale embedding state never persists if writes partially fail.
+            # This prevents old vectors/metadata from being used after transient
+            # provider or storage failures.
+            try:
+                conn.execute("DELETE FROM vec_embeddings WHERE id = ?", (vec_id,))
+                conn.execute("DELETE FROM embedding_meta WHERE id = ?", (vec_id,))
+            except Exception as cleanup_error:
+                logger.debug(
+                    "Failed to clean stale embedding cache entry for %s: %s",
+                    vec_id,
+                    cleanup_error,
+                )
 
     def _get_searchable_content(self, record_type: str, record: Any) -> str:
         """Get searchable text content from a record."""
@@ -3036,7 +3133,9 @@ class SQLiteStorage:
         """Search playbooks by name, description, or triggers using semantic search."""
         if self._has_vec:
             # Use vector search
-            embedding = self._embedder.embed(query)
+            embedding = self._embed_text(query, context="playbook-search")
+            if not embedding:
+                return []
             packed = pack_embedding(embedding)
 
             # Support both new format (stack_id:playbooks:id) and legacy (playbooks:id)
@@ -3663,7 +3762,9 @@ class SQLiteStorage:
         results = []
 
         # Embed query
-        query_embedding = self._embedder.embed(query)
+        query_embedding = self._embed_text(query, context="vector-search")
+        if not query_embedding:
+            return self._text_search(query, limit, types)
         query_packed = pack_embedding(query_embedding)
 
         # Map types to table names
@@ -4204,6 +4305,7 @@ class SQLiteStorage:
             updates.append("confidence = ?")
             params.append(confidence)
         if source_type is not None:
+            source_type = _normalize_source_type(source_type)
             updates.append("source_type = ?")
             params.append(source_type)
         if source_episodes is not None:

@@ -5,6 +5,28 @@ All notable changes to Kernle will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.05] - 2026-02-13
+
+### Fixed
+
+- **Audit findings follow-up complete (`#638`)**:
+  - Closed remaining logic-audit sub-issues `#666`–`#676` and finalized parent tracking for `v0.13.05`.
+  - Added/verified fixes across CLI init/post-condition checks, discovery metadata isolation, strict-mode migration docs, processing gate enforcement, and protocol contract validation.
+  - Documented closure evidence and updated issue tracking so audit status is complete in `emergent-instruments/kernle`.
+- **Strict-mode migration guidance documented**:
+  - Added a strict-mode migration matrix and constraints to `docs-site/architecture.mdx` with per-command post-conditions.
+- **Error resilience and validation hardening**:
+  - Hardened protocol/runtime boundaries around processing configuration, metadata parsing, discovery entry-points, and CLI initialization verification.
+- **Test coverage expansion**:
+  - Added/updated contract-focused and behavior-focused tests for critical paths in CLI, discovery, processing, types, and entity ID generation.
+
+### Notes
+
+- **Tracking follow-up**:
+  - `#661` re-opened as a focused follow-up to add alert-threshold coverage for:
+    - `ConsolidationComponent._build_alerts()`
+    - `AnxietyComponent._build_alerts()`
+
 ## [0.10.0] - 2026-02-07
 
 ### Added

@@ -46,6 +46,7 @@ from typing import (
     Any,
     Callable,
     Iterator,
+    Literal,
     Optional,
     Protocol,
     runtime_checkable,
@@ -58,15 +59,61 @@ from kernle.types import (
     Epoch,
     Goal,
     MemorySuggestion,
+    MemoryType,
     Note,
     Playbook,
     RawEntry,
     Relationship,
+    SearchResult,
     SelfNarrative,
     Summary,
     TrustAssessment,
     Value,
 )
+
+BeliefType = Literal[
+    "fact",
+    "observation",
+    "factual",
+    "causal",
+    "evaluative",
+    "procedural",
+    "opinion",
+    "principle",
+    "model",
+    "strategy",
+    "rule",
+    "preference",
+    "constraint",
+    "learned",
+]
+
+NoteType = Literal[
+    "note",
+    "decision",
+    "insight",
+    "quote",
+    "observation",
+    "reference",
+    "procedure",
+    "diagnostic",
+]
+
+InferenceScope = Literal["none", "fast", "capable", "embedding"]
+
+ProcessingTransition = Literal[
+    "raw_to_episode",
+    "raw_to_note",
+    "episode_to_belief",
+    "episode_to_goal",
+    "episode_to_relationship",
+    "belief_to_value",
+    "episode_to_drive",
+]
+
+GoalType = Literal["task", "aspiration", "commitment", "exploration"]
+DriveType = Literal["existence", "growth", "curiosity", "connection", "reproduction"]
+
 
 # =============================================================================
 # PROTOCOL VERSION
@@ -153,35 +200,7 @@ class StackState(str, Enum):
     MAINTENANCE = "maintenance"  # Only controlled admin operations
 
 
-class MemoryType(str, Enum):
-    """All memory record types in the system."""
-
-    EPISODE = "episode"
-    BELIEF = "belief"
-    VALUE = "value"
-    GOAL = "goal"
-    NOTE = "note"
-    DRIVE = "drive"
-    RELATIONSHIP = "relationship"
-    RAW = "raw"
-    PLAYBOOK = "playbook"
-    TRUST_ASSESSMENT = "trust_assessment"
-    ENTITY_MODEL = "entity_model"
-    EPOCH = "epoch"
-    SUMMARY = "summary"
-    SELF_NARRATIVE = "self_narrative"
-    SUGGESTION = "suggestion"
-
-
-@dataclass
-class SearchResult:
-    """A search result from any stack."""
-
-    memory_type: str
-    memory_id: str
-    content: str
-    score: float
-    metadata: dict[str, Any] = field(default_factory=dict)
+ProtocolSearchResult = SearchResult
 
 
 @dataclass
@@ -192,6 +211,13 @@ class SyncResult:
     pulled: int = 0
     conflicts: int = 0
     errors: list[str] = field(default_factory=list)
+
+    @property
+    def conflict_count(self) -> int:
+        """Number of conflicts encountered."""
+        if isinstance(self.conflicts, int):
+            return self.conflicts
+        return len(self.conflicts)
 
 
 @dataclass
@@ -469,7 +495,7 @@ class StackComponentProtocol(Protocol):
         ...
 
     @property
-    def inference_scope(self) -> str:
+    def inference_scope(self) -> InferenceScope:
         """Hint about what kind of inference this component needs.
 
         Values:
@@ -548,7 +574,7 @@ class StackComponentProtocol(Protocol):
     # The stack calls these at appropriate moments. Components
     # implement the ones they care about. Default: no-op.
 
-    def on_save(self, memory_type: str, memory_id: str, memory: Any) -> Optional[dict]:
+    def on_save(self, memory_type: MemoryType, memory_id: str, memory: Any) -> Optional[dict]:
         """Called after a memory is saved.
 
         Return a dict of metadata fields to persist on the memory
@@ -767,7 +793,7 @@ class StackProtocol(Protocol):
         self,
         *,
         limit: int = 50,
-        belief_type: Optional[str] = None,
+        belief_type: Optional[BeliefType] = None,
         min_confidence: Optional[float] = None,
         context: Optional[str] = None,
         include_forgotten: bool = False,
@@ -794,7 +820,7 @@ class StackProtocol(Protocol):
         self,
         *,
         limit: int = 50,
-        note_type: Optional[str] = None,
+        note_type: Optional[NoteType] = None,
         context: Optional[str] = None,
         include_forgotten: bool = False,
     ) -> list[Note]: ...
@@ -816,7 +842,7 @@ class StackProtocol(Protocol):
         tags: Optional[list[str]] = None,
     ) -> list[RawEntry]: ...
 
-    def get_memory(self, memory_type: str, memory_id: str) -> Optional[Any]:
+    def get_memory(self, memory_type: MemoryType, memory_id: str) -> Optional[Any]:
         """Get any single memory by type and ID."""
         ...
 
@@ -829,7 +855,7 @@ class StackProtocol(Protocol):
     def get_suggestions(
         self,
         status: Optional[str] = None,
-        memory_type: Optional[str] = None,
+        memory_type: Optional[MemoryType] = None,
         limit: int = 100,
         min_confidence: Optional[float] = None,
         max_age_hours: Optional[float] = None,
@@ -888,13 +914,13 @@ class StackProtocol(Protocol):
 
     # ---- Meta-Memory ----
 
-    def record_access(self, memory_type: str, memory_id: str) -> bool:
+    def record_access(self, memory_type: MemoryType, memory_id: str) -> bool:
         """Record that a memory was accessed (strengthens salience)."""
         ...
 
     def update_memory_meta(
         self,
-        memory_type: str,
+        memory_type: MemoryType,
         memory_id: str,
         *,
         confidence: Optional[float] = None,
@@ -905,20 +931,20 @@ class StackProtocol(Protocol):
 
     def forget_memory(
         self,
-        memory_type: str,
+        memory_type: MemoryType,
         memory_id: str,
         reason: str,
     ) -> bool:
         """Soft-delete a memory (can be recovered)."""
         ...
 
-    def recover_memory(self, memory_type: str, memory_id: str) -> bool:
+    def recover_memory(self, memory_type: MemoryType, memory_id: str) -> bool:
         """Recover a forgotten memory."""
         ...
 
     def protect_memory(
         self,
-        memory_type: str,
+        memory_type: MemoryType,
         memory_id: str,
         protected: bool = True,
     ) -> bool:
@@ -927,7 +953,7 @@ class StackProtocol(Protocol):
 
     def weaken_memory(
         self,
-        memory_type: str,
+        memory_type: MemoryType,
         memory_id: str,
         amount: float,
     ) -> bool:
@@ -936,7 +962,7 @@ class StackProtocol(Protocol):
 
     def verify_memory(
         self,
-        memory_type: str,
+        memory_type: MemoryType,
         memory_id: str,
     ) -> bool:
         """Verify a memory: boost strength and increment verification count."""
@@ -944,7 +970,7 @@ class StackProtocol(Protocol):
 
     def log_audit(
         self,
-        memory_type: str,
+        memory_type: MemoryType,
         memory_id: str,
         operation: str,
         *,
@@ -957,7 +983,7 @@ class StackProtocol(Protocol):
     def get_audit_log(
         self,
         *,
-        memory_type: Optional[str] = None,
+        memory_type: Optional[MemoryType] = None,
         memory_id: Optional[str] = None,
         operation: Optional[str] = None,
         limit: int = 50,
@@ -1175,7 +1201,7 @@ class PluginContext(Protocol):
         self,
         statement: str,
         *,
-        belief_type: str = "fact",
+        belief_type: BeliefType = "fact",
         confidence: float = 0.8,
         derived_from: Optional[list[str]] = None,
         context: Optional[str] = None,
@@ -1200,7 +1226,7 @@ class PluginContext(Protocol):
         title: str,
         *,
         description: Optional[str] = None,
-        goal_type: str = "task",
+        goal_type: GoalType = "task",
         priority: str = "medium",
         derived_from: Optional[list[str]] = None,
         context: Optional[str] = None,
@@ -1212,7 +1238,7 @@ class PluginContext(Protocol):
         self,
         content: str,
         *,
-        note_type: str = "note",
+        note_type: NoteType = "note",
         tags: Optional[list[str]] = None,
         derived_from: Optional[list[str]] = None,
         context: Optional[str] = None,
@@ -1623,7 +1649,7 @@ class CoreProtocol(Protocol):
         self,
         statement: str,
         *,
-        type: str = "fact",
+        type: BeliefType = "fact",
         confidence: float = 0.8,
         foundational: bool = False,
         context: Optional[str] = None,
@@ -1651,7 +1677,7 @@ class CoreProtocol(Protocol):
         title: str,
         *,
         description: Optional[str] = None,
-        goal_type: str = "task",
+        goal_type: GoalType = "task",
         priority: str = "medium",
         derived_from: Optional[list[str]] = None,
         source: Optional[str] = None,
@@ -1663,7 +1689,7 @@ class CoreProtocol(Protocol):
         self,
         content: str,
         *,
-        type: str = "note",
+        type: NoteType = "note",
         speaker: Optional[str] = None,
         reason: Optional[str] = None,
         tags: Optional[list[str]] = None,
@@ -1676,7 +1702,7 @@ class CoreProtocol(Protocol):
 
     def drive(
         self,
-        drive_type: str,
+        drive_type: DriveType,
         *,
         intensity: float = 0.5,
         focus_areas: Optional[list[str]] = None,
@@ -1767,7 +1793,7 @@ class CoreProtocol(Protocol):
 
     def weaken(
         self,
-        memory_type: str,
+        memory_type: MemoryType,
         memory_id: str,
         amount: float,
         *,
@@ -1778,7 +1804,7 @@ class CoreProtocol(Protocol):
 
     def forget(
         self,
-        memory_type: str,
+        memory_type: MemoryType,
         memory_id: str,
         reason: str,
     ) -> bool:
@@ -1787,7 +1813,7 @@ class CoreProtocol(Protocol):
 
     def recover(
         self,
-        memory_type: str,
+        memory_type: MemoryType,
         memory_id: str,
     ) -> bool:
         """Recover a forgotten memory (restore strength to 0.2)."""
@@ -1795,7 +1821,7 @@ class CoreProtocol(Protocol):
 
     def verify(
         self,
-        memory_type: str,
+        memory_type: MemoryType,
         memory_id: str,
         *,
         evidence: Optional[str] = None,
@@ -1805,7 +1831,7 @@ class CoreProtocol(Protocol):
 
     def protect(
         self,
-        memory_type: str,
+        memory_type: MemoryType,
         memory_id: str,
         protected: bool = True,
     ) -> bool:
@@ -1814,7 +1840,7 @@ class CoreProtocol(Protocol):
 
     def process(
         self,
-        transition: Optional[str] = None,
+        transition: Optional[ProcessingTransition] = None,
         *,
         force: bool = False,
         allow_no_inference_override: bool = False,
