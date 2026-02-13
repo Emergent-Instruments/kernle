@@ -1699,7 +1699,7 @@ class TestMergeGenericEdgeCases:
         assert conflict is None
         assert len(save_called) == 1
 
-    def test_neither_has_time_returns_zero(self, storage_with_cloud, mock_cloud_storage):
+    def test_neither_has_time_returns_zero(self, storage_with_cloud):
         """When neither cloud nor local has time, returns (0, None)."""
         engine = storage_with_cloud._sync_engine
 
@@ -1725,6 +1725,68 @@ class TestMergeGenericEdgeCases:
         assert count == 0
         assert conflict is None
         assert save_called == []  # save_fn should NOT be called
+
+    def test_equal_timestamp_and_matching_snapshot_deduplicates(self, storage):
+        """When timestamps and payloads match, no merge/callback is performed."""
+        engine = storage._sync_engine
+
+        shared_time = datetime.now(timezone.utc)
+        local = Note(
+            id="equal-eq",
+            stack_id="test-agent",
+            content="same-content",
+            tags=["sync"],
+            local_updated_at=shared_time,
+        )
+        cloud = Note(
+            id="equal-eq",
+            stack_id="test-agent",
+            content="same-content",
+            tags=["sync"],
+            local_updated_at=shared_time,
+            cloud_synced_at=shared_time,
+        )
+        save_called = []
+        count, conflict = engine._merge_generic(
+            "notes", cloud, local, lambda: save_called.append(True)
+        )
+        assert count == 0
+        assert conflict is None
+        assert save_called == []
+
+    def test_equal_timestamp_records_tie_decision_and_metadata(self, storage):
+        """Equal timestamps use deterministic policy and store conflict metadata."""
+        engine = storage._sync_engine
+
+        shared_time = datetime.now(timezone.utc)
+        local = Note(
+            id="equal-tie",
+            stack_id="test-agent",
+            content="local",
+            tags=["local"],
+            local_updated_at=shared_time,
+        )
+        cloud = Note(
+            id="equal-tie",
+            stack_id="test-agent",
+            content="cloud",
+            tags=["cloud"],
+            local_updated_at=shared_time,
+            cloud_synced_at=shared_time,
+        )
+        save_called = []
+        count, conflict = engine._merge_generic(
+            "notes", cloud, local, lambda: save_called.append(True)
+        )
+        assert count == 0
+        assert conflict is not None
+        assert conflict.table == "notes"
+        assert conflict.record_id == "equal-tie"
+        assert conflict.source == "sync_engine"
+        assert conflict.policy_decision in {"local_wins_tie_hash", "cloud_wins_tie_hash"}
+        assert conflict.resolution in {"local_wins_arrays_merged", "cloud_wins_arrays_merged"}
+        assert conflict.diff_hash
+        assert len(save_called) in {0, 1}
 
 
 class TestGetRecordSummary:

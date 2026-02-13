@@ -17,6 +17,9 @@ from kernle.types import VALID_SUGGESTION_STATUSES
 
 
 def validate_memory_sync(arguments: Dict[str, Any]) -> Dict[str, Any]:
+    if arguments:
+        unexpected = ", ".join(sorted(arguments.keys()))
+        raise ValueError(f"memory_sync accepts no arguments; unexpected: {unexpected}")
     return {}
 
 

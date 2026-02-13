@@ -665,6 +665,7 @@ TOOLS = [
         inputSchema={
             "type": "object",
             "properties": {},
+            "additionalProperties": False,
         },
     ),
     Tool(

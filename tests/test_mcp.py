@@ -1625,6 +1625,8 @@ class TestToolDefinitionsComplete:
                     tool.inputSchema.get("type") == "object"
                 ), f"{tool.name} should have object schema"
                 assert "properties" in tool.inputSchema, f"{tool.name} missing properties"
+                if tool.name == "memory_sync":
+                    assert tool.inputSchema.get("additionalProperties") is False
 
 
 class TestMCPProvenanceParams:
@@ -1954,6 +1956,16 @@ class TestSuggestionTools:
         assert "err4" not in text
         assert "err5" not in text
 
+    @pytest.mark.asyncio
+    async def test_sync_rejects_unexpected_arguments(self, patched_suggestion_kernle):
+        """memory_sync should reject extra arguments explicitly."""
+        result = await call_tool("memory_sync", {"force": True})
+
+        assert len(result) == 1
+        assert "Invalid input" in result[0].text
+        assert "unexpected" in result[0].text.lower()
+        patched_suggestion_kernle.sync.assert_not_called()
+
 
 class TestSyncValidators:
     """Direct tests for sync.py validator functions."""
@@ -1963,7 +1975,8 @@ class TestSyncValidators:
         from kernle.mcp.handlers.sync import validate_memory_sync
 
         assert validate_memory_sync({}) == {}
-        assert validate_memory_sync({"extra": "ignored"}) == {}
+        with pytest.raises(ValueError, match="memory_sync accepts no arguments"):
+            validate_memory_sync({"extra": "ignored"})
 
     # -- validate_suggestion_extract --
 
