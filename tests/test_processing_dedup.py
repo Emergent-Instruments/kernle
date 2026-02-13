@@ -1615,3 +1615,114 @@ class TestStaleDedupMetricInSuggestionsMode:
             f"Expected deduplicated=0 in suggestions mode, "
             f"got {results3[0].deduplicated} (stale value leaked)"
         )
+
+
+# =============================================================================
+# Issue #635: suggestion dedup/idempotency for partial-failure retries
+# =============================================================================
+
+
+class TestSuggestionDedupIdempotency:
+    def test_write_suggestions_skips_existing_pending_duplicates(self):
+        mock_stack = _make_mock_stack()
+        processor, _ = _make_processor(mock_stack)
+
+        existing = MagicMock()
+        existing.content = {
+            "objective": "already captured",
+            "outcome": "keep once",
+            "source_raw_ids": ["r-1"],
+            "confidence": 0.7,
+        }
+        existing.source_raw_ids = ["r-1"]
+        mock_stack.get_suggestions.return_value = [existing]
+        mock_stack.save_suggestion.return_value = "s-new"
+
+        parsed = [
+            {
+                "objective": "already captured",
+                "outcome": "keep once",
+                "source_raw_ids": ["r-1"],
+                "confidence": 0.9,  # Different confidence should still dedup
+            },
+            {
+                "objective": "new insight",
+                "outcome": "create this one",
+                "source_raw_ids": ["r-2"],
+            },
+        ]
+
+        created = processor._write_suggestions("raw_to_episode", parsed, [])
+        assert created == [{"type": "episode", "id": "s-new"}]
+        assert mock_stack.save_suggestion.call_count == 1
+        assert processor._last_deduplicated == 1
+
+    def test_reprocess_after_partial_failure_does_not_duplicate_pending(self, stack, monkeypatch):
+        """When a batch partially fails, retry should only create missing suggestions."""
+        raw_ids = []
+        for i in range(2):
+            rid = stack.save_raw(
+                RawEntry(
+                    id=str(uuid.uuid4()),
+                    stack_id=STACK_ID,
+                    blob=f"Retry raw {i}",
+                    source="test",
+                )
+            )
+            raw_ids.append(rid)
+
+        response = json.dumps(
+            [
+                {
+                    "objective": "first suggestion",
+                    "outcome": "failed first pass",
+                    "source_raw_ids": raw_ids,
+                },
+                {
+                    "objective": "second suggestion",
+                    "outcome": "already saved on first pass",
+                    "source_raw_ids": raw_ids,
+                },
+            ]
+        )
+        inference = MockInference(response)
+        processor = MemoryProcessor(stack=stack, inference=inference, core_id="test")
+
+        original_save = stack.save_suggestion
+        fail_state = {"raised": False}
+
+        def flaky_save(suggestion):
+            if (
+                suggestion.content.get("objective") == "first suggestion"
+                and not fail_state["raised"]
+            ):
+                fail_state["raised"] = True
+                raise RuntimeError("simulated partial failure")
+            return original_save(suggestion)
+
+        monkeypatch.setattr(stack, "save_suggestion", flaky_save)
+
+        # First pass: one create + one write error, so sources remain unprocessed.
+        results1 = processor.process("raw_to_episode", force=True, auto_promote=False)
+        assert len(results1) == 1
+        assert len(results1[0].suggestions) == 1
+        assert any("Suggestion write failed for raw_to_episode" in e for e in results1[0].errors)
+
+        pending_after_first = stack.get_suggestions(
+            status="pending", memory_type="episode", limit=10
+        )
+        assert len(pending_after_first) == 1
+
+        # Second pass retries same parsed output: dedup should skip existing pending
+        # and create only the previously failed suggestion.
+        results2 = processor.process("raw_to_episode", force=True, auto_promote=False)
+        assert len(results2) == 1
+        assert len(results2[0].suggestions) == 1
+        assert results2[0].deduplicated == 1
+
+        pending_after_second = stack.get_suggestions(
+            status="pending", memory_type="episode", limit=10
+        )
+        assert len(pending_after_second) == 2
+        objectives = sorted(s.content.get("objective") for s in pending_after_second)
+        assert objectives == ["first suggestion", "second suggestion"]

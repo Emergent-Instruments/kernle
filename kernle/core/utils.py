@@ -214,7 +214,11 @@ def _get_record_attr(record: Any, attr: str, default: Any = None) -> Any:
     return default
 
 
-def compute_priority_score(memory_type: str, record: Any) -> float:
+def compute_priority_score(
+    memory_type: str,
+    record: Any,
+    kernle_instance: Optional[Any] = None,
+) -> float:
     """Compute priority score for a memory record.
 
     The score combines three weighted factors:
@@ -228,6 +232,7 @@ def compute_priority_score(memory_type: str, record: Any) -> float:
     Args:
         memory_type: Type of memory (value, belief, etc.)
         record: The memory record (dataclass or dict)
+        kernle_instance: Optional Kernle instance to compute decayed confidence
 
     Returns:
         Priority score (0.0-1.0)
@@ -240,7 +245,17 @@ def compute_priority_score(memory_type: str, record: Any) -> float:
         priority = _get_record_attr(record, "priority", 50)
         type_factor = priority / 100.0
     elif memory_type == "belief":
-        type_factor = _get_record_attr(record, "confidence", 0.8)
+        confidence = _get_record_attr(record, "confidence", 0.8)
+        if kernle_instance is not None:
+            decay_fn = getattr(kernle_instance, "get_confidence_with_decay", None)
+            if callable(decay_fn):
+                try:
+                    decayed = decay_fn(record, "belief")
+                    if isinstance(decayed, (int, float)):
+                        confidence = decayed
+                except Exception:
+                    logger.debug("Failed to compute decayed confidence for belief priority")
+        type_factor = confidence
     elif memory_type == "drive":
         type_factor = _get_record_attr(record, "intensity", 0.5)
     elif memory_type in ("goal", "episode", "note"):

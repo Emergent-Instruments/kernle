@@ -874,6 +874,7 @@ class MemoryProcessor:
             # Default: create suggestions for review
             suggestions = self._write_suggestions(transition, parsed, sources)
             result.suggestions = suggestions
+        result.errors.extend(getattr(self, "_last_write_errors", []))
         result.deduplicated = getattr(self, "_last_deduplicated", 0)
         result.gate_blocked = getattr(self, "_last_gate_blocked", 0)
         result.gate_details = getattr(self, "_last_gate_details", [])
@@ -885,7 +886,8 @@ class MemoryProcessor:
         # produced, so the system advances to the next batch.
         created_or_suggested = result.created or result.suggestions
         all_gate_blocked = result.gate_blocked > 0 and not created_or_suggested
-        if not all_gate_blocked:
+        had_write_errors = bool(getattr(self, "_last_write_errors", []))
+        if not all_gate_blocked and not had_write_errors:
             self._mark_processed(transition, sources, created_or_suggested or [])
 
         # 9. Log audit
@@ -1117,6 +1119,64 @@ class MemoryProcessor:
 
         return None
 
+    def _suggestion_fingerprint(self, memory_type: str, item: dict, source_ids: List[str]) -> str:
+        """Build a stable fingerprint for suggestion deduplication.
+
+        Confidence and source-ID order are ignored so retries that produce
+        equivalent suggestions map to the same fingerprint.
+        """
+        if not isinstance(item, dict):
+            return ""
+
+        canonical_content: Dict[str, Any] = {}
+        for key, value in item.items():
+            if key in {"confidence", "source_raw_ids", "source_episode_ids", "source_belief_ids"}:
+                continue
+            canonical_content[key] = value
+
+        payload = {
+            "memory_type": memory_type,
+            "content": canonical_content,
+            "source_ids": sorted(set(source_ids)),
+        }
+        encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+        return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+    def _load_pending_suggestion_fingerprints(self, memory_type: str) -> set[str]:
+        """Load fingerprints for existing pending suggestions of a memory type."""
+        try:
+            pending = self._stack.get_suggestions(
+                status="pending",
+                memory_type=memory_type,
+                limit=10000,
+            )
+        except Exception as e:
+            logger.debug("Failed to load pending suggestions for dedup: %s", e)
+            return set()
+
+        if not isinstance(pending, list):
+            return set()
+
+        fingerprints: set[str] = set()
+        for suggestion in pending:
+            if isinstance(suggestion, dict):
+                content = suggestion.get("content")
+                source_ids = suggestion.get("source_raw_ids", [])
+            else:
+                content = getattr(suggestion, "content", None)
+                source_ids = getattr(suggestion, "source_raw_ids", [])
+
+            if not isinstance(content, dict):
+                continue
+            if not isinstance(source_ids, list):
+                source_ids = []
+
+            fp = self._suggestion_fingerprint(memory_type, content, source_ids)
+            if fp:
+                fingerprints.add(fp)
+
+        return fingerprints
+
     # ---- Memory Writing ----
 
     def _write_memories(
@@ -1144,6 +1204,7 @@ class MemoryProcessor:
         self._last_deduplicated = 0
         self._last_gate_blocked = 0
         self._last_gate_details: List[str] = []
+        self._last_write_errors: List[str] = []
         now = datetime.now(timezone.utc)
 
         for item in parsed:
@@ -1305,6 +1366,7 @@ class MemoryProcessor:
 
             except Exception as e:
                 logger.error("Failed to write %s memory: %s", transition, e)
+                self._last_write_errors.append(f"Write failed for {transition}: {e}")
 
         return created
 
@@ -1322,6 +1384,7 @@ class MemoryProcessor:
         self._last_deduplicated = 0
         self._last_gate_blocked = 0
         self._last_gate_details: List[str] = []
+        self._last_write_errors: List[str] = []
         now = datetime.now(timezone.utc)
 
         # Map transitions to their target memory type
@@ -1340,6 +1403,7 @@ class MemoryProcessor:
         assert (
             memory_type in SUGGESTION_MEMORY_TYPES
         ), f"transition_to_type produced '{memory_type}' not in SUGGESTION_MEMORY_TYPES"
+        seen_fingerprints = self._load_pending_suggestion_fingerprints(memory_type)
 
         for item in parsed:
             try:
@@ -1357,6 +1421,14 @@ class MemoryProcessor:
 
                 # Extract source IDs for provenance
                 source_ids = self._extract_source_ids(transition, item)
+                fingerprint = self._suggestion_fingerprint(memory_type, item, source_ids)
+                if fingerprint and fingerprint in seen_fingerprints:
+                    self._last_deduplicated += 1
+                    logger.info(
+                        "Dedup: skipping %s suggestion — matching pending suggestion already exists",
+                        transition,
+                    )
+                    continue
 
                 suggestion = MemorySuggestion(
                     id=str(uuid.uuid4()),
@@ -1370,9 +1442,12 @@ class MemoryProcessor:
                 )
                 sid = self._stack.save_suggestion(suggestion)
                 suggestions_created.append({"type": memory_type, "id": sid})
+                if fingerprint:
+                    seen_fingerprints.add(fingerprint)
 
             except Exception as e:
                 logger.error("Failed to create %s suggestion: %s", transition, e)
+                self._last_write_errors.append(f"Suggestion write failed for {transition}: {e}")
 
         return suggestions_created
 
@@ -1386,9 +1461,9 @@ class MemoryProcessor:
             "episode_to_relationship",
             "episode_to_drive",
         ):
-            return item.get("source_episode_ids", [])
+            return [f"episode:{eid}" for eid in item.get("source_episode_ids", [])]
         if transition == "belief_to_value":
-            return item.get("source_belief_ids", [])
+            return [f"belief:{bid}" for bid in item.get("source_belief_ids", [])]
         return []
 
     # ---- Mark Processed ----

@@ -193,6 +193,8 @@ class TestMCPPluginTools:
     def test_register_plugin_tools_adds_to_registry(self):
         from kernle.mcp.server import (
             _plugin_handlers,
+            _plugin_schema_validators,
+            _plugin_schemas,
             _plugin_tools,
             register_plugin_tools,
         )
@@ -200,6 +202,8 @@ class TestMCPPluginTools:
         # Clean state
         _plugin_tools.clear()
         _plugin_handlers.clear()
+        _plugin_schemas.clear()
+        _plugin_schema_validators.clear()
 
         try:
             td = ToolDefinition(
@@ -214,13 +218,18 @@ class TestMCPPluginTools:
             assert _plugin_tools["myplugin.greet"].name == "myplugin.greet"
             assert "[myplugin]" in _plugin_tools["myplugin.greet"].description
             assert "myplugin.greet" in _plugin_handlers
+            assert "myplugin.greet" in _plugin_schemas
         finally:
             _plugin_tools.clear()
             _plugin_handlers.clear()
+            _plugin_schemas.clear()
+            _plugin_schema_validators.clear()
 
     def test_unregister_plugin_tools_removes_from_registry(self):
         from kernle.mcp.server import (
             _plugin_handlers,
+            _plugin_schema_validators,
+            _plugin_schemas,
             _plugin_tools,
             register_plugin_tools,
             unregister_plugin_tools,
@@ -228,6 +237,8 @@ class TestMCPPluginTools:
 
         _plugin_tools.clear()
         _plugin_handlers.clear()
+        _plugin_schemas.clear()
+        _plugin_schema_validators.clear()
 
         try:
             td = ToolDefinition(
@@ -242,13 +253,18 @@ class TestMCPPluginTools:
             unregister_plugin_tools("myplugin")
             assert "myplugin.greet" not in _plugin_tools
             assert "myplugin.greet" not in _plugin_handlers
+            assert "myplugin.greet" not in _plugin_schemas
         finally:
             _plugin_tools.clear()
             _plugin_handlers.clear()
+            _plugin_schemas.clear()
+            _plugin_schema_validators.clear()
 
     def test_unregister_only_removes_target_plugin(self):
         from kernle.mcp.server import (
             _plugin_handlers,
+            _plugin_schema_validators,
+            _plugin_schemas,
             _plugin_tools,
             register_plugin_tools,
             unregister_plugin_tools,
@@ -256,6 +272,8 @@ class TestMCPPluginTools:
 
         _plugin_tools.clear()
         _plugin_handlers.clear()
+        _plugin_schemas.clear()
+        _plugin_schema_validators.clear()
 
         try:
             td_a = ToolDefinition(
@@ -279,11 +297,15 @@ class TestMCPPluginTools:
         finally:
             _plugin_tools.clear()
             _plugin_handlers.clear()
+            _plugin_schemas.clear()
+            _plugin_schema_validators.clear()
 
     def test_validate_tool_input_passes_plugin_tools(self):
         """Plugin tools must pass through validate_tool_input without raising."""
         from kernle.mcp.server import (
             _plugin_handlers,
+            _plugin_schema_validators,
+            _plugin_schemas,
             _plugin_tools,
             register_plugin_tools,
             validate_tool_input,
@@ -291,6 +313,8 @@ class TestMCPPluginTools:
 
         _plugin_tools.clear()
         _plugin_handlers.clear()
+        _plugin_schemas.clear()
+        _plugin_schema_validators.clear()
 
         try:
             td = ToolDefinition(
@@ -307,6 +331,8 @@ class TestMCPPluginTools:
         finally:
             _plugin_tools.clear()
             _plugin_handlers.clear()
+            _plugin_schemas.clear()
+            _plugin_schema_validators.clear()
 
     def test_validate_tool_input_rejects_unknown_tools(self):
         """Unknown tools should still raise ValueError."""
@@ -315,15 +341,95 @@ class TestMCPPluginTools:
         with pytest.raises(ValueError, match="Unknown tool"):
             validate_tool_input("totally_unknown_tool", {})
 
+    def test_validate_tool_input_rejects_non_object_arguments(self):
+        from kernle.mcp.server import validate_tool_input
+
+        with pytest.raises(ValueError, match="arguments must be an object"):
+            validate_tool_input("memory_load", "not-a-dict")  # type: ignore[arg-type]
+
+    def test_validate_tool_input_enforces_plugin_schema(self):
+        from kernle.mcp.server import (
+            _plugin_handlers,
+            _plugin_schema_validators,
+            _plugin_schemas,
+            _plugin_tools,
+            register_plugin_tools,
+            validate_tool_input,
+        )
+
+        _plugin_tools.clear()
+        _plugin_handlers.clear()
+        _plugin_schemas.clear()
+        _plugin_schema_validators.clear()
+
+        try:
+            td = ToolDefinition(
+                name="strict",
+                description="Strict schema",
+                input_schema={
+                    "type": "object",
+                    "properties": {"count": {"type": "integer"}},
+                    "required": ["count"],
+                    "additionalProperties": False,
+                },
+                handler=lambda args: args,
+            )
+            register_plugin_tools("myplugin", [td])
+
+            with pytest.raises(ValueError, match="Schema validation failed|invalid type"):
+                validate_tool_input("myplugin.strict", {"count": "2"})
+        finally:
+            _plugin_tools.clear()
+            _plugin_handlers.clear()
+            _plugin_schemas.clear()
+            _plugin_schema_validators.clear()
+
+    def test_validate_tool_input_enforces_plugin_payload_size_limit(self):
+        from kernle.mcp.server import (
+            _plugin_handlers,
+            _plugin_schema_validators,
+            _plugin_schemas,
+            _plugin_tools,
+            register_plugin_tools,
+            validate_tool_input,
+        )
+
+        _plugin_tools.clear()
+        _plugin_handlers.clear()
+        _plugin_schemas.clear()
+        _plugin_schema_validators.clear()
+
+        try:
+            td = ToolDefinition(
+                name="big",
+                description="Large payload tool",
+                input_schema={"type": "object", "properties": {"blob": {"type": "string"}}},
+                handler=lambda args: args,
+            )
+            register_plugin_tools("myplugin", [td])
+
+            too_large = {"blob": "x" * 70000}
+            with pytest.raises(ValueError, match="payload too large"):
+                validate_tool_input("myplugin.big", too_large)
+        finally:
+            _plugin_tools.clear()
+            _plugin_handlers.clear()
+            _plugin_schemas.clear()
+            _plugin_schema_validators.clear()
+
     def test_tool_without_handler_not_in_handlers(self):
         from kernle.mcp.server import (
             _plugin_handlers,
+            _plugin_schema_validators,
+            _plugin_schemas,
             _plugin_tools,
             register_plugin_tools,
         )
 
         _plugin_tools.clear()
         _plugin_handlers.clear()
+        _plugin_schemas.clear()
+        _plugin_schema_validators.clear()
 
         try:
             td = ToolDefinition(
@@ -339,3 +445,5 @@ class TestMCPPluginTools:
         finally:
             _plugin_tools.clear()
             _plugin_handlers.clear()
+            _plugin_schemas.clear()
+            _plugin_schema_validators.clear()

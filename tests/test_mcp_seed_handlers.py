@@ -26,7 +26,7 @@ class TestSeedValidators:
     def test_validate_repo_defaults_for_invalid_types(self):
         result = validate_memory_seed_repo(
             {
-                "path": "/tmp/repo",
+                "path": "repo",
                 "extensions": ["py", "ts"],
                 "exclude": "node_modules,.git",
                 "max_chunk_size": "invalid",
@@ -41,7 +41,7 @@ class TestSeedValidators:
     def test_validate_docs_defaults_for_invalid_types(self):
         result = validate_memory_seed_docs(
             {
-                "path": "/tmp/docs",
+                "path": "docs",
                 "extensions": "md,txt",
                 "max_chunk_size": "invalid",
                 "dry_run": "nope",
@@ -57,6 +57,47 @@ class TestSeedValidators:
     def test_validate_repo_requires_path(self):
         with pytest.raises(ValueError, match="path must be a string"):
             validate_memory_seed_repo({})
+
+    def test_validate_repo_rejects_outside_safe_root(self, monkeypatch, tmp_path):
+        safe_root = tmp_path / "safe"
+        safe_root.mkdir()
+        outside = tmp_path / "outside"
+
+        monkeypatch.setenv("KERNLE_MCP_SEED_ROOT", str(safe_root))
+
+        with pytest.raises(ValueError, match="outside allowed seed root"):
+            validate_memory_seed_repo({"path": str(outside)})
+
+    def test_validate_repo_client_opt_out_does_not_bypass_safe_root(self, monkeypatch, tmp_path):
+        safe_root = tmp_path / "safe"
+        safe_root.mkdir()
+        outside = tmp_path / "outside"
+
+        monkeypatch.setenv("KERNLE_MCP_SEED_ROOT", str(safe_root))
+
+        with pytest.raises(ValueError, match="outside allowed seed root"):
+            validate_memory_seed_repo({"path": str(outside), "allow_outside_root": True})
+
+    def test_validate_docs_client_opt_out_does_not_bypass_safe_root(self, monkeypatch, tmp_path):
+        safe_root = tmp_path / "safe"
+        safe_root.mkdir()
+        outside = tmp_path / "outside-docs"
+
+        monkeypatch.setenv("KERNLE_MCP_SEED_ROOT", str(safe_root))
+
+        with pytest.raises(ValueError, match="outside allowed seed root"):
+            validate_memory_seed_docs({"path": str(outside), "allow_outside_root": True})
+
+    def test_validate_docs_env_opt_out_allows_outside_safe_root(self, monkeypatch, tmp_path):
+        safe_root = tmp_path / "safe"
+        safe_root.mkdir()
+        outside = tmp_path / "outside-docs"
+
+        monkeypatch.setenv("KERNLE_MCP_SEED_ROOT", str(safe_root))
+        monkeypatch.setenv("KERNLE_MCP_ALLOW_UNSAFE_SEED_PATHS", "1")
+
+        result = validate_memory_seed_docs({"path": str(outside)})
+        assert result["path"] == str(outside.resolve())
 
 
 class TestSeedHandlers:

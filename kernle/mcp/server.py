@@ -33,6 +33,17 @@ from kernle.mcp.tool_definitions import TOOLS, VALID_SOURCE_TYPES  # noqa: F401 
 
 logger = logging.getLogger(__name__)
 
+# Optional dependency: prefer full JSON Schema validation when available.
+try:
+    from jsonschema import Draft7Validator
+    from jsonschema.exceptions import SchemaError
+
+    _HAS_JSONSCHEMA = True
+except Exception:
+    Draft7Validator = None  # type: ignore[assignment]
+    SchemaError = Exception  # type: ignore[assignment]
+    _HAS_JSONSCHEMA = False
+
 # Initialize MCP server
 mcp = Server("kernle")
 
@@ -43,6 +54,10 @@ _mcp_stack_id: str = "default"
 # Registry for plugin tools (populated via register_plugin_tools)
 _plugin_tools: Dict[str, Tool] = {}  # namespaced_name -> Tool
 _plugin_handlers: Dict[str, Any] = {}  # namespaced_name -> handler callable
+_plugin_schemas: Dict[str, Dict[str, Any]] = {}  # namespaced_name -> schema dict
+_plugin_schema_validators: Dict[str, Any] = {}  # namespaced_name -> compiled validator
+
+_PLUGIN_TOOL_MAX_ARGUMENT_BYTES = 64 * 1024
 
 
 def set_stack_id(stack_id: str) -> None:
@@ -69,11 +84,32 @@ def register_plugin_tools(plugin_name: str, tools: list) -> None:
     """
     for td in tools:
         namespaced = f"{plugin_name}.{td.name}"
+        schema = td.input_schema if isinstance(td.input_schema, dict) else {}
+        schema_type = schema.get("type", "object")
+        if schema_type != "object":
+            raise ValueError(
+                f"Plugin tool '{namespaced}' must use an object input schema, got: {schema_type}"
+            )
+
+        validator = None
+        if _HAS_JSONSCHEMA:
+            try:
+                Draft7Validator.check_schema(schema)
+                validator = Draft7Validator(schema)
+            except SchemaError as e:
+                raise ValueError(
+                    f"Plugin tool '{namespaced}' has invalid schema: {e.message}"
+                ) from e
+
         _plugin_tools[namespaced] = Tool(
             name=namespaced,
             description=f"[{plugin_name}] {td.description}",
-            inputSchema=td.input_schema,
+            inputSchema=schema,
         )
+        _plugin_schemas[namespaced] = schema
+        if validator is not None:
+            _plugin_schema_validators[namespaced] = validator
+
         if td.handler is not None:
             _plugin_handlers[namespaced] = td.handler
 
@@ -85,6 +121,8 @@ def unregister_plugin_tools(plugin_name: str) -> None:
     for name in to_remove:
         _plugin_tools.pop(name, None)
         _plugin_handlers.pop(name, None)
+        _plugin_schemas.pop(name, None)
+        _plugin_schema_validators.pop(name, None)
 
 
 # =============================================================================
@@ -92,16 +130,102 @@ def unregister_plugin_tools(plugin_name: str) -> None:
 # =============================================================================
 
 
+def _json_type_matches(value: Any, type_name: str) -> bool:
+    if type_name == "object":
+        return isinstance(value, dict)
+    if type_name == "array":
+        return isinstance(value, list)
+    if type_name == "string":
+        return isinstance(value, str)
+    if type_name == "integer":
+        return isinstance(value, int) and not isinstance(value, bool)
+    if type_name == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if type_name == "boolean":
+        return isinstance(value, bool)
+    if type_name == "null":
+        return value is None
+    return True
+
+
+def _validate_fallback_schema(arguments: Dict[str, Any], schema: Dict[str, Any]) -> None:
+    """Minimal schema checks when jsonschema isn't available."""
+    required = schema.get("required", [])
+    for key in required:
+        if key not in arguments:
+            raise ValueError(f"Missing required property: {key}")
+
+    properties = schema.get("properties", {})
+    additional = schema.get("additionalProperties", True)
+    if additional is False:
+        allowed_keys = set(properties.keys())
+        extras = [key for key in arguments if key not in allowed_keys]
+        if extras:
+            raise ValueError(f"Unexpected properties: {', '.join(sorted(extras))}")
+
+    for key, value in arguments.items():
+        prop_schema = properties.get(key)
+        if not isinstance(prop_schema, dict):
+            continue
+
+        prop_type = prop_schema.get("type")
+        if isinstance(prop_type, list):
+            if not any(_json_type_matches(value, candidate) for candidate in prop_type):
+                raise ValueError(f"Property '{key}' has invalid type")
+        elif isinstance(prop_type, str) and not _json_type_matches(value, prop_type):
+            raise ValueError(f"Property '{key}' has invalid type (expected {prop_type})")
+
+        enum_values = prop_schema.get("enum")
+        if enum_values is not None and value not in enum_values:
+            raise ValueError(f"Property '{key}' must be one of {enum_values}")
+
+
+def _validate_plugin_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    try:
+        payload = json.dumps(arguments, default=str, separators=(",", ":"))
+    except (TypeError, ValueError) as e:
+        raise ValueError(f"arguments are not JSON-serializable: {e}") from e
+
+    payload_size = len(payload.encode("utf-8"))
+    if payload_size > _PLUGIN_TOOL_MAX_ARGUMENT_BYTES:
+        raise ValueError(
+            f"arguments payload too large ({payload_size} bytes, max {_PLUGIN_TOOL_MAX_ARGUMENT_BYTES})"
+        )
+
+    schema = _plugin_schemas.get(name)
+    if not schema:
+        return dict(arguments)
+
+    if _HAS_JSONSCHEMA:
+        validator = _plugin_schema_validators.get(name)
+        if validator is None:
+            validator = Draft7Validator(schema)
+            _plugin_schema_validators[name] = validator
+
+        errors = sorted(validator.iter_errors(arguments), key=lambda err: list(err.path))
+        if errors:
+            first = errors[0]
+            path = ".".join(str(part) for part in first.path) or "(root)"
+            raise ValueError(f"Schema validation failed at {path}: {first.message}")
+    else:
+        _validate_fallback_schema(arguments, schema)
+
+    return dict(arguments)
+
+
 def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     """Validate and sanitize MCP tool inputs."""
     try:
+        if not isinstance(arguments, dict):
+            raise ValueError(f"arguments must be an object, got {type(arguments).__name__}")
+
         validator = VALIDATORS.get(name)
         if validator is not None:
             return validator(arguments)
 
-        # Plugin tools bypass built-in validation; plugins own their schemas
+        # Plugin tools are validated against registered schemas.
         if name in _plugin_handlers:
-            return dict(arguments)
+            return _validate_plugin_tool_input(name, arguments)
 
         raise ValueError(f"Unknown tool: {name}")
 
@@ -131,11 +255,12 @@ def handle_tool_error(e: Exception, tool_name: str, arguments: Dict[str, Any]) -
 
     else:
         # Unknown error - log full details but return generic message
+        argument_keys = list(arguments.keys()) if isinstance(arguments, dict) else []
         logger.error(
             f"Internal error in tool {tool_name}",
             extra={
                 "tool_name": tool_name,
-                "arguments_keys": list(arguments.keys()) if arguments else [],
+                "arguments_keys": argument_keys,
                 "error_type": type(e).__name__,
                 "error_message": str(e),
             },

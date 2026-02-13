@@ -95,6 +95,50 @@ class TestOpenAIModel:
         assert result.usage == {"input_tokens": 11, "output_tokens": 7}
         assert result.stop_reason == "stop"
 
+    def test_generate_handles_malformed_tool_call_arguments(self):
+        tool_call = SimpleNamespace(
+            id="tool-1",
+            function=SimpleNamespace(name="lookup_user", arguments='{"user_id": 42'),
+        )
+        client = MagicMock()
+        client.chat.completions.create.return_value = _response(
+            content="done", tool_calls=[tool_call]
+        )
+
+        with _install_fake_openai(client):
+            model = OpenAIModel(api_key="test-key")
+            result = model.generate([ModelMessage(role="user", content="hello")])
+
+        assert result.tool_calls == [
+            {
+                "id": "tool-1",
+                "name": "lookup_user",
+                "input": {"_raw": '{"user_id": 42', "_parse_error": "invalid_json"},
+            }
+        ]
+
+    def test_generate_handles_non_object_tool_call_arguments(self):
+        tool_call = SimpleNamespace(
+            id="tool-1",
+            function=SimpleNamespace(name="lookup_user", arguments='["a", "b"]'),
+        )
+        client = MagicMock()
+        client.chat.completions.create.return_value = _response(
+            content="done", tool_calls=[tool_call]
+        )
+
+        with _install_fake_openai(client):
+            model = OpenAIModel(api_key="test-key")
+            result = model.generate([ModelMessage(role="user", content="hello")])
+
+        assert result.tool_calls == [
+            {
+                "id": "tool-1",
+                "name": "lookup_user",
+                "input": {"_value": ["a", "b"], "_parse_error": "arguments_not_object"},
+            }
+        ]
+
     def test_generate_wraps_openai_errors(self):
         client = MagicMock()
         client.chat.completions.create.side_effect = RuntimeError("API down")

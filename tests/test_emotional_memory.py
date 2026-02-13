@@ -252,6 +252,7 @@ class TestEmotionDetection:
             stack_id="test_agent",
             storage=storage,
             checkpoint_dir=temp_checkpoint_dir,
+            strict=False,
         )
         return k
 
@@ -343,6 +344,7 @@ class TestMoodCongruentRetrieval:
             stack_id="test_agent",
             storage=storage,
             checkpoint_dir=temp_checkpoint_dir,
+            strict=False,
         )
         return k, storage
 
@@ -418,6 +420,7 @@ class TestEmotionalSummary:
             stack_id="test_agent",
             storage=storage,
             checkpoint_dir=temp_checkpoint_dir,
+            strict=False,
         )
         return k
 
@@ -457,6 +460,7 @@ class TestEpisodeWithEmotion:
             stack_id="test_agent",
             storage=storage,
             checkpoint_dir=temp_checkpoint_dir,
+            strict=False,
         )
         return k, storage
 

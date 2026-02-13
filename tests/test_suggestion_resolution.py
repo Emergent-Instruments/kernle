@@ -312,6 +312,39 @@ class TestStackAcceptSuggestion:
         assert len(notes) == 1
         assert notes[0].content == "Important observation"
 
+    def test_accept_preserves_typed_episode_provenance_and_skips_raw_mark(self, tmp_path):
+        from kernle.stack.sqlite_stack import SQLiteStack
+
+        stack = SQLiteStack(
+            stack_id="test-stack",
+            db_path=tmp_path / "test.db",
+            components=[],
+            enforce_provenance=False,
+        )
+
+        raw_id = _make_raw(stack._backend)
+        sid = _make_suggestion(
+            stack._backend,
+            memory_type="belief",
+            content={
+                "statement": "Typed provenance should survive promotion",
+                "belief_type": "factual",
+                "confidence": 0.8,
+            },
+            source_raw_ids=[f"episode:{raw_id}"],
+        )
+
+        memory_id = stack.accept_suggestion(sid)
+        assert memory_id is not None
+
+        beliefs = stack._backend.get_beliefs(limit=10)
+        assert len(beliefs) == 1
+        assert beliefs[0].derived_from == [f"episode:{raw_id}"]
+
+        raw_entry = stack._backend.get_raw(raw_id)
+        assert raw_entry is not None
+        assert raw_entry.processed is False
+
     def test_accept_with_modifications(self, tmp_path):
         from kernle.stack.sqlite_stack import SQLiteStack
 

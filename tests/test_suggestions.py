@@ -611,6 +611,43 @@ class TestPromotionWorkflow:
         assert k.promote_suggestion("any-id") == "delegated-id"
         k._stack.accept_suggestion.assert_called_once_with("any-id", None)
 
+    def test_promote_preserves_typed_episode_provenance_and_skips_raw_mark(self, tmp_path):
+        """Typed refs should stay typed and must not mark matching raw IDs processed."""
+        from kernle.storage import SQLiteStorage
+
+        storage = SQLiteStorage("test-agent", db_path=tmp_path / "test.db")
+        k = Kernle("test-agent", storage=storage, strict=False)
+
+        raw_id = storage.save_raw("raw content", source="test")
+        suggestion = MemorySuggestion(
+            id="sug-typed-episode-ref",
+            stack_id="test-agent",
+            memory_type="belief",
+            content={
+                "statement": "Belief from an episode source",
+                "belief_type": "fact",
+                "confidence": 0.8,
+            },
+            confidence=0.8,
+            source_raw_ids=[f"episode:{raw_id}"],
+            status="pending",
+            created_at=datetime.now(timezone.utc),
+        )
+        storage.save_suggestion(suggestion)
+
+        memory_id = k.promote_suggestion(suggestion.id)
+        assert memory_id is not None
+
+        belief = next((b for b in storage.get_beliefs(limit=100) if b.id == memory_id), None)
+        assert belief is not None
+        assert belief.derived_from == [f"episode:{raw_id}"]
+
+        raw_entry = storage.get_raw(raw_id)
+        assert raw_entry is not None
+        assert raw_entry.processed is False
+
+        storage.close()
+
 
 class TestHelperMethods:
     """Test helper extraction methods."""

@@ -371,35 +371,35 @@ class TestMCPSeedValidators:
     def test_repo_string_extensions_coerced_to_list(self):
         from kernle.mcp.handlers.seed import validate_memory_seed_repo
 
-        result = validate_memory_seed_repo({"path": "/tmp/repo", "extensions": "py,js,ts"})
+        result = validate_memory_seed_repo({"path": "repo", "extensions": "py,js,ts"})
         assert result["extensions"] == ["py", "js", "ts"]
 
     def test_repo_string_exclude_coerced_to_list(self):
         from kernle.mcp.handlers.seed import validate_memory_seed_repo
 
-        result = validate_memory_seed_repo({"path": "/tmp/repo", "exclude": "*.test.*"})
+        result = validate_memory_seed_repo({"path": "repo", "exclude": "*.test.*"})
         assert result["exclude"] == ["*.test.*"]
 
     def test_docs_string_extensions_coerced_to_list(self):
         from kernle.mcp.handlers.seed import validate_memory_seed_docs
 
-        result = validate_memory_seed_docs({"path": "/tmp/docs", "extensions": "md,txt"})
+        result = validate_memory_seed_docs({"path": "docs", "extensions": "md,txt"})
         assert result["extensions"] == ["md", "txt"]
 
     def test_repo_list_extensions_pass_through(self):
         from kernle.mcp.handlers.seed import validate_memory_seed_repo
 
-        result = validate_memory_seed_repo({"path": "/tmp/repo", "extensions": ["py", "js"]})
+        result = validate_memory_seed_repo({"path": "repo", "extensions": ["py", "js"]})
         assert result["extensions"] == ["py", "js"]
 
     def test_repo_none_extensions_stays_none(self):
         from kernle.mcp.handlers.seed import validate_memory_seed_repo
 
-        result = validate_memory_seed_repo({"path": "/tmp/repo"})
+        result = validate_memory_seed_repo({"path": "repo"})
         assert result["extensions"] is None
 
     def test_repo_invalid_extensions_type_returns_none(self):
         from kernle.mcp.handlers.seed import validate_memory_seed_repo
 
-        result = validate_memory_seed_repo({"path": "/tmp/repo", "extensions": 42})
+        result = validate_memory_seed_repo({"path": "repo", "extensions": 42})
         assert result["extensions"] is None

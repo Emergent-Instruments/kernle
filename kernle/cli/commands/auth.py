@@ -3,7 +3,7 @@
 import json
 import logging
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from kernle.cli.commands.credentials import (
     clear_credentials,
@@ -18,6 +18,67 @@ if TYPE_CHECKING:
     from kernle import Kernle
 
 logger = logging.getLogger(__name__)
+
+
+def _mask_secret(secret: str, prefix: int = 4, suffix: int = 4) -> str:
+    """Mask a secret for safe display (never returns the full secret)."""
+    if not secret:
+        return ""
+
+    if len(secret) <= prefix + suffix:
+        if len(secret) <= 2:
+            return "*" * len(secret)
+        visible = max(1, len(secret) // 3)
+        return f"{secret[:visible]}...{secret[-visible:]}"
+
+    return f"{secret[:prefix]}...{secret[-suffix:]}"
+
+
+def _sanitize_key_json_result(
+    result: Dict[str, Any],
+    *,
+    fallback_id: Optional[str] = None,
+    old_key_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Sanitize key create/cycle JSON output with a strict allowlist."""
+    if not isinstance(result, dict):
+        return {}
+
+    sanitized: Dict[str, Any] = {}
+
+    key_id = result.get("id") or result.get("key_id") or fallback_id
+    if isinstance(key_id, str) and key_id:
+        sanitized["id"] = key_id
+
+    name = result.get("name")
+    if isinstance(name, str):
+        sanitized["name"] = name
+
+    # The generated key must be returned once; normalize key/api_key to one field.
+    raw_key = result.get("key") or result.get("api_key")
+    if isinstance(raw_key, str) and raw_key:
+        sanitized["key"] = raw_key
+
+    key_prefix = result.get("key_prefix")
+    if isinstance(key_prefix, str):
+        sanitized["key_prefix"] = key_prefix
+
+    created_at = result.get("created_at")
+    if isinstance(created_at, str):
+        sanitized["created_at"] = created_at
+
+    expires_at = result.get("expires_at")
+    if isinstance(expires_at, str):
+        sanitized["expires_at"] = expires_at
+
+    is_active = result.get("is_active")
+    if isinstance(is_active, bool):
+        sanitized["is_active"] = is_active
+
+    if isinstance(old_key_id, str) and old_key_id:
+        sanitized["old_key_id"] = old_key_id
+
+    return sanitized
 
 
 def cmd_auth(args, k: "Kernle" = None):
@@ -129,11 +190,7 @@ def cmd_auth(args, k: "Kernle" = None):
                     print()
                     print(f"  User ID:     {user_id}")
                     print(f"  Stack ID:    {stack_id}")
-                    print(
-                        f"  Secret:      {secret[:20]}..."
-                        if len(secret) > 20
-                        else f"  Secret:      {secret}"
-                    )
+                    print(f"  Secret:      {_mask_secret(secret)}")
                     print(f"  Backend:     {backend_url}")
                     print()
                     print(f"Credentials saved to {get_credentials_path()}")
@@ -326,8 +383,7 @@ def cmd_auth(args, k: "Kernle" = None):
             if backend_url:
                 print(f"  Backend:     {backend_url}")
             if api_key:
-                masked_key = api_key[:12] + "..." + api_key[-4:] if len(api_key) > 20 else api_key
-                print(f"  API Key:     {masked_key}")
+                print(f"  API Key:     {_mask_secret(api_key)}")
 
             if token:
                 if token_valid:
@@ -496,7 +552,9 @@ def cmd_auth_keys(args):
                 key_name = result.get("name") or name or "(unnamed)"
 
                 if args.json:
-                    print(json.dumps(result, indent=2))
+                    print(
+                        json.dumps(_sanitize_key_json_result(result, fallback_id=key_id), indent=2)
+                    )
                 else:
                     print("✓ API key created")
                     print()
@@ -633,7 +691,16 @@ def cmd_auth_keys(args):
                 key_name = result.get("name") or "(unnamed)"
 
                 if args.json:
-                    print(json.dumps(result, indent=2))
+                    print(
+                        json.dumps(
+                            _sanitize_key_json_result(
+                                result,
+                                fallback_id=new_key_id,
+                                old_key_id=key_id,
+                            ),
+                            indent=2,
+                        )
+                    )
                 else:
                     print("✓ API key cycled")
                     print()

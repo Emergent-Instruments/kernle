@@ -170,6 +170,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Tables that are intentionally local-only and should never be enqueued for cloud sync.
+LOCAL_ONLY_SYNC_TABLES = frozenset({"memory_suggestions"})
+
 
 # NOTE: SCHEMA_VERSION, ALLOWED_TABLES, validate_table_name, SCHEMA, and VECTOR_SCHEMA
 # have been moved to storage/schema.py and are imported at the top of this file.
@@ -557,6 +560,9 @@ class SQLiteStorage:
         The `payload` column is the canonical source; `data` is kept for
         backward compatibility.
         """
+        if table in LOCAL_ONLY_SYNC_TABLES:
+            return
+
         now = self._now()
 
         # Normalize: use whichever is provided, store in both columns

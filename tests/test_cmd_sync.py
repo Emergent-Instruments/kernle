@@ -481,6 +481,61 @@ class TestSyncPush:
         ops = sent_json.get("operations", [])
         assert len(ops) == 1
 
+    def test_push_acknowledges_by_identity_not_position(self, k, tmp_path):
+        """Clears acknowledged queue entries by identity, not positional count."""
+        from kernle.storage import Note
+
+        k._storage.save_note(Note(id="n-ack-1", stack_id="test-sync", content="first"))
+        k._storage.save_note(Note(id="n-ack-2", stack_id="test-sync", content="second"))
+
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok"}
+        creds_path = tmp_path / "push_ack_identity"
+        creds_path.mkdir()
+        (creds_path / "credentials.json").write_text(json.dumps(creds))
+
+        push_resp = _make_response(
+            200,
+            json_data={
+                "synced": 1,
+                "conflicts": [
+                    {"table": "notes", "record_id": "n-ack-1", "error": "version mismatch"}
+                ],
+            },
+        )
+        mock_httpx = _mock_httpx_module(post_response=push_resp)
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="push"), k)
+
+        remaining = k._storage.get_queued_changes(limit=10)
+        assert len(remaining) == 1
+        assert remaining[0].record_id == "n-ack-1"
+
+    def test_push_success_does_not_update_last_sync_time(self, k, tmp_path):
+        """Push success must not mutate sync cursor metadata."""
+        from kernle.storage import Note
+
+        sentinel_cursor = "2025-01-01T00:00:00+00:00"
+        k._storage._set_sync_meta("last_sync_time", sentinel_cursor)
+        k._storage.save_note(Note(id="n-cursor", stack_id="test-sync", content="cursor test"))
+
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok"}
+        creds_path = tmp_path / "push_no_cursor"
+        creds_path.mkdir()
+        (creds_path / "credentials.json").write_text(json.dumps(creds))
+
+        push_resp = _make_response(200, json_data={"synced": 1, "conflicts": []})
+        mock_httpx = _mock_httpx_module(post_response=push_resp)
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="push"), k)
+
+        assert k._storage._get_sync_meta("last_sync_time") == sentinel_cursor
+
 
 # ============================================================================
 # sync pull
@@ -718,6 +773,107 @@ class TestSyncPull:
         call_args = mock_httpx.post.call_args
         sent_json = call_args[1]["json"] if "json" in call_args[1] else call_args[0][1]
         assert "since" not in sent_json
+
+    def test_pull_unhandled_ops_are_quarantined_and_cursor_advances(self, k, capsys, tmp_path):
+        """Unhandled/failed pull ops are quarantined so cursor can still advance."""
+        sentinel_cursor = "2025-01-01T00:00:00+00:00"
+        k._storage._set_sync_meta("last_sync_time", sentinel_cursor)
+
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok"}
+        creds_path = tmp_path / "pull_unhandled"
+        creds_path.mkdir()
+        (creds_path / "credentials.json").write_text(json.dumps(creds))
+
+        ops = [
+            {
+                "table": "notes",
+                "record_id": "note-ok",
+                "operation": "upsert",
+                "data": {"content": "Remote good note", "note_type": "insight"},
+            },
+            {
+                "table": "unknown_table",
+                "record_id": "bad-op",
+                "operation": "upsert",
+                "data": {"foo": "bar"},
+            },
+        ]
+        pull_resp = _make_response(200, json_data={"operations": ops, "has_more": False})
+        mock_httpx = _mock_httpx_module(post_response=pull_resp)
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="pull"), k)
+
+        captured = capsys.readouterr().out
+        assert "Pulled 1 changes" in captured
+        assert "1 conflicts during apply" in captured
+        assert k._storage._get_sync_meta("last_sync_time") != sentinel_cursor
+
+        notes = k._storage.get_notes(limit=20)
+        assert any(n.id == "note-ok" for n in notes)
+
+        pull_conflicts = k._storage.get_sync_conflicts(limit=10)
+        assert any(
+            c.record_id == "bad-op" and c.resolution == "pull_apply_failed" for c in pull_conflicts
+        )
+
+    def test_pull_retries_quarantined_ops_on_next_run(self, k, capsys, tmp_path):
+        """Previously failed pull ops are retried from quarantine on later pulls."""
+        sentinel_cursor = "2025-01-01T00:00:00+00:00"
+        k._storage._set_sync_meta("last_sync_time", sentinel_cursor)
+
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok"}
+        creds_path = tmp_path / "pull_retry_poison"
+        creds_path.mkdir()
+        (creds_path / "credentials.json").write_text(json.dumps(creds))
+
+        first_pull = _make_response(
+            200,
+            json_data={
+                "operations": [
+                    {
+                        "table": "notes",
+                        "record_id": "note-retry-1",
+                        "operation": "upsert",
+                        "data": {"content": "Recovered on retry", "note_type": "insight"},
+                    }
+                ],
+                "has_more": False,
+            },
+        )
+        second_pull = _make_response(200, json_data={"operations": [], "has_more": False})
+
+        original_save_note = k._storage.save_note
+        calls = {"count": 0}
+
+        def flaky_save(note):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise RuntimeError("transient write failure")
+            return original_save_note(note)
+
+        with patch.object(k._storage, "save_note", side_effect=flaky_save):
+            with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+                with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                    with patch.dict(
+                        "sys.modules", {"httpx": _mock_httpx_module(post_response=first_pull)}
+                    ):
+                        cmd_sync(_args(sync_action="pull"), k)
+
+            with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+                with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                    with patch.dict(
+                        "sys.modules", {"httpx": _mock_httpx_module(post_response=second_pull)}
+                    ):
+                        cmd_sync(_args(sync_action="pull"), k)
+
+        captured = capsys.readouterr().out
+        assert "Pulled 0 changes" in captured
+        assert "Pulled 1 changes" in captured
+        notes = k._storage.get_notes(limit=20)
+        assert any(n.id == "note-retry-1" for n in notes)
 
 
 # ============================================================================
@@ -957,3 +1113,84 @@ class TestSyncFull:
         assert ops[0]["operation"] == "update"
         assert ops[0]["record_id"] == "ep-full-push"
         assert "data" in ops[0], "Non-delete operation must include record data"
+
+    def test_full_sync_applies_pulled_ops_and_advances_cursor(self, k, capsys, tmp_path):
+        """Full sync applies pull operations locally and advances cursor on full success."""
+        sentinel_cursor = "2025-01-01T00:00:00+00:00"
+        k._storage._set_sync_meta("last_sync_time", sentinel_cursor)
+
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok"}
+        creds_path = tmp_path / "full_apply_pull"
+        creds_path.mkdir()
+        (creds_path / "credentials.json").write_text(json.dumps(creds))
+
+        pull_resp = _make_response(
+            200,
+            json_data={
+                "operations": [
+                    {
+                        "table": "notes",
+                        "record_id": "full-note-1",
+                        "operation": "upsert",
+                        "data": {"content": "Pulled in full sync", "note_type": "note"},
+                    }
+                ],
+                "has_more": False,
+            },
+        )
+        mock_httpx = _mock_httpx_module(post_response=pull_resp)
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="full"), k)
+
+        captured = capsys.readouterr().out
+        assert "Pulled 1 changes" in captured
+        assert k._storage._get_sync_meta("last_sync_time") != sentinel_cursor
+
+        notes = k._storage.get_notes(limit=20)
+        assert any(n.id == "full-note-1" for n in notes)
+
+    def test_full_sync_pull_apply_failure_is_quarantined_and_cursor_advances(
+        self, k, capsys, tmp_path
+    ):
+        """Full sync quarantines failed pull ops and still advances cursor."""
+        sentinel_cursor = "2025-01-01T00:00:00+00:00"
+        k._storage._set_sync_meta("last_sync_time", sentinel_cursor)
+
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok"}
+        creds_path = tmp_path / "full_pull_fail"
+        creds_path.mkdir()
+        (creds_path / "credentials.json").write_text(json.dumps(creds))
+
+        pull_resp = _make_response(
+            200,
+            json_data={
+                "operations": [
+                    {
+                        "table": "unknown_table",
+                        "record_id": "not-applied",
+                        "operation": "upsert",
+                        "data": {"foo": "bar"},
+                    }
+                ],
+                "has_more": False,
+            },
+        )
+        mock_httpx = _mock_httpx_module(post_response=pull_resp)
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="full"), k)
+
+        captured = capsys.readouterr().out
+        assert "0 changes" in captured
+        assert "1 conflicts during apply" in captured
+        assert k._storage._get_sync_meta("last_sync_time") != sentinel_cursor
+        pull_conflicts = k._storage.get_sync_conflicts(limit=10)
+        assert any(
+            c.record_id == "not-applied" and c.resolution == "pull_apply_failed"
+            for c in pull_conflicts
+        )

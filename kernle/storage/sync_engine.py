@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 # Maximum size for merged arrays during sync to prevent resource exhaustion
 MAX_SYNC_ARRAY_SIZE = 500
 
+# Tables that are intentionally kept local and are not pushed to cloud storage.
+LOCAL_ONLY_SYNC_TABLES = frozenset({"memory_suggestions"})
+
 # Array fields that should be merged (set union) during sync rather than overwritten
 SYNC_ARRAY_FIELDS: Dict[str, List[str]] = {
     "episodes": [
@@ -101,6 +104,9 @@ class SyncEngine:
         self, operation: str, table: str, record_id: str, data: Optional[Dict[str, Any]] = None
     ) -> int:
         """Queue a sync operation for later synchronization."""
+        if table in LOCAL_ONLY_SYNC_TABLES:
+            return 0
+
         now = self._host._now()
         data_json = self._host._to_json(data) if data else None
 
@@ -504,6 +510,18 @@ class SyncEngine:
         with self._host._connect() as conn:
             for change in queued:
                 try:
+                    if change.table_name in LOCAL_ONLY_SYNC_TABLES:
+                        retry_count = self._record_sync_failure(
+                            conn,
+                            change.id,
+                            f"Table {change.table_name} is local-only and cannot be pushed to cloud",
+                        )
+                        result.errors.append(
+                            f"Skipped push for local-only table {change.table_name}:{change.record_id} "
+                            f"(retry {retry_count}/5)"
+                        )
+                        continue
+
                     record = self._get_record_for_push(change.table_name, change.record_id)
 
                     if record is None:

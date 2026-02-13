@@ -1,10 +1,11 @@
-import { exec } from "node:child_process";
+import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 const DEFAULT_TIMEOUT = 5000;
 const MAX_BUFFER = 1024 * 1024; // 1MB
+const KERNLE_BIN_PATTERN = /^[A-Za-z0-9._/@:+\\-]+$/;
 
 export interface BridgeOptions {
   kernleBin?: string;
@@ -21,26 +22,30 @@ export class KernleBridge {
   private timeout: number;
 
   constructor(options: BridgeOptions = {}) {
-    this.bin = options.kernleBin ?? "kernle";
-    this.timeout = options.timeout ?? DEFAULT_TIMEOUT;
+    this.bin = this.validateKernleBin(options.kernleBin ?? "kernle");
+    this.timeout = this.validateTimeout(options.timeout ?? DEFAULT_TIMEOUT);
   }
 
   /**
    * Load memory for a stack. Returns the formatted memory output or null on failure.
    */
   async load(stackId: string, budget?: number): Promise<string | null> {
-    const budgetArg = budget ? ` --budget ${budget}` : "";
-    return this.exec(`-s ${this.escape(stackId)} load${budgetArg}`);
+    const args = ["-s", stackId, "load"];
+    if (budget !== undefined) {
+      args.push("--budget", String(budget));
+    }
+    return this.exec(args);
   }
 
   /**
    * Save a checkpoint. Returns true on success.
    */
   async checkpoint(stackId: string, summary: string, context?: string): Promise<boolean> {
-    const contextArg = context ? ` --context ${this.escape(context)}` : "";
-    const result = await this.exec(
-      `-s ${this.escape(stackId)} checkpoint save ${this.escape(summary)}${contextArg}`
-    );
+    const args = ["-s", stackId, "checkpoint", "save", summary];
+    if (context !== undefined) {
+      args.push("--context", context);
+    }
+    const result = await this.exec(args);
     return result !== null;
   }
 
@@ -48,9 +53,7 @@ export class KernleBridge {
    * Save a raw entry. Returns true on success.
    */
   async raw(stackId: string, content: string): Promise<boolean> {
-    const result = await this.exec(
-      `-s ${this.escape(stackId)} raw ${this.escape(content)}`
-    );
+    const result = await this.exec(["-s", stackId, "raw", content]);
     return result !== null;
   }
 
@@ -58,19 +61,19 @@ export class KernleBridge {
    * Search memory. Returns search results or null on failure.
    */
   async search(stackId: string, query: string): Promise<string | null> {
-    return this.exec(`-s ${this.escape(stackId)} search ${this.escape(query)}`);
+    return this.exec(["-s", stackId, "search", query]);
   }
 
   /**
    * Get stack status. Returns status output or null on failure.
    */
   async status(stackId: string): Promise<string | null> {
-    return this.exec(`-s ${this.escape(stackId)} status`);
+    return this.exec(["-s", stackId, "status"]);
   }
 
-  private async exec(args: string): Promise<string | null> {
+  private async exec(args: string[]): Promise<string | null> {
     try {
-      const { stdout } = await execAsync(`${this.bin} ${args}`, {
+      const { stdout } = await execFileAsync(this.bin, args, {
         timeout: this.timeout,
         maxBuffer: MAX_BUFFER,
       });
@@ -91,9 +94,20 @@ export class KernleBridge {
     }
   }
 
-  /** Shell-escape a string argument. */
-  private escape(value: string): string {
-    // Wrap in single quotes, escaping any existing single quotes
-    return `'${value.replace(/'/g, "'\\''")}'`;
+  private validateKernleBin(bin: string): string {
+    if (!bin || !bin.trim()) {
+      throw new Error("Invalid kernleBin: expected a non-empty executable path");
+    }
+    if (!KERNLE_BIN_PATTERN.test(bin)) {
+      throw new Error("Invalid kernleBin: only executable paths are allowed");
+    }
+    return bin;
+  }
+
+  private validateTimeout(timeout: number): number {
+    if (!Number.isInteger(timeout) || timeout <= 0) {
+      throw new Error("Invalid timeout: expected a positive integer");
+    }
+    return timeout;
   }
 }

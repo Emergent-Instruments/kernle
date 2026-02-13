@@ -3,6 +3,7 @@ import { createBeforeAgentStart } from "./hooks/before-agent-start.js";
 import { createAgentEnd } from "./hooks/agent-end.js";
 import { createBeforeToolCall } from "./hooks/before-tool-call.js";
 import { resolveStackId } from "./stack-id.js";
+import { validatePluginConfig } from "./config.js";
 
 const TRANSCRIPT_TRIM_LIMIT = 2000;
 
@@ -16,7 +17,7 @@ const TRANSCRIPT_TRIM_LIMIT = 2000;
  * - tool_result_persist: Trim large kernle output in transcript
  */
 export function register(api: PluginApi): void {
-  const config: PluginConfig = api.getConfig();
+  const config: PluginConfig = validatePluginConfig(api.getConfig());
 
   // 1. Memory loading at session start
   api.on("before_agent_start", createBeforeAgentStart(config));

@@ -1753,6 +1753,80 @@ class TestProcessLayer:
             },
         )
 
+    def test_auto_promote_write_failure_keeps_sources_unprocessed_and_reports_error(self):
+        mock_stack = _make_mock_stack()
+        raw = MagicMock()
+        raw.id = "r-1"
+        raw.blob = "stuff"
+        raw.content = None
+        mock_stack._backend.list_raw.return_value = [raw]
+        mock_stack.get_episodes.return_value = []
+        mock_stack.save_episode.side_effect = RuntimeError("db write failed")
+
+        response = json.dumps(
+            [
+                {
+                    "objective": "thing",
+                    "outcome": "done",
+                    "source_raw_ids": ["r-1"],
+                }
+            ]
+        )
+        processor, _ = _make_processor(mock_stack, response)
+        config = DEFAULT_LAYER_CONFIGS["raw_to_episode"]
+        result = processor._process_layer("raw_to_episode", config, auto_promote=True)
+
+        assert result.created == []
+        assert any("Write failed for raw_to_episode" in err for err in result.errors)
+        mock_stack._backend.mark_raw_processed.assert_not_called()
+
+    def test_suggestion_write_failure_keeps_sources_unprocessed_and_reports_error(self):
+        mock_stack = _make_mock_stack()
+        raw = MagicMock()
+        raw.id = "r-1"
+        raw.blob = "stuff"
+        raw.content = None
+        mock_stack._backend.list_raw.return_value = [raw]
+        mock_stack.get_episodes.return_value = []
+        mock_stack.save_suggestion.side_effect = RuntimeError("db write failed")
+
+        response = json.dumps(
+            [
+                {
+                    "objective": "thing",
+                    "outcome": "done",
+                    "source_raw_ids": ["r-1"],
+                }
+            ]
+        )
+        processor, _ = _make_processor(mock_stack, response)
+        config = DEFAULT_LAYER_CONFIGS["raw_to_episode"]
+        result = processor._process_layer("raw_to_episode", config, auto_promote=False)
+
+        assert result.suggestions == []
+        assert any("Suggestion write failed for raw_to_episode" in err for err in result.errors)
+        mock_stack._backend.mark_raw_processed.assert_not_called()
+
+    def test_write_suggestions_preserves_typed_sources_for_non_raw_transitions(self):
+        mock_stack = _make_mock_stack()
+        mock_stack.save_suggestion.return_value = "sug-1"
+        processor, _ = _make_processor(mock_stack)
+
+        suggestions = processor._write_suggestions(
+            "episode_to_belief",
+            [
+                {
+                    "statement": "Belief from episodes",
+                    "source_episode_ids": ["ep-1", "ep-2"],
+                }
+            ],
+            [],
+        )
+
+        assert suggestions == [{"type": "belief", "id": "sug-1"}]
+        saved = mock_stack.save_suggestion.call_args[0][0]
+        assert saved.source_raw_ids == ["episode:ep-1", "episode:ep-2"]
+
 
 # =============================================================================
 # process() — full flow with force and trigger checking (mock-based)

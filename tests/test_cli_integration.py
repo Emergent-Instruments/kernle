@@ -583,7 +583,13 @@ class TestTrustCommands:
             cmd_trust(args, k)
 
         output = out.getvalue()
-        assert "Applied trust decay" in output or "Error" in output
+        assert "Applied trust decay for: old-friend" in output
+        assert "Decay factor: 0.3000" in output
+        assert "general: 78%" in output.lower()
+
+        updated = k.trust_show("old-friend")
+        assert updated is not None
+        assert updated["dimensions"]["general"]["score"] == pytest.approx(0.78, abs=1e-4)
 
     def test_trust_unknown_action(self, cli_kernle):
         """Unknown action shows usage help."""
