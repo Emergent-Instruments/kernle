@@ -39,6 +39,11 @@ jobs:
         run: |
           black --check .
 
+      - name: Validate audit roadmap and finding index
+        run: |
+          make lint-audit-roadmap
+          make lint-audit-index
+
   test:
     needs: lint
     runs-on: ubuntu-latest
