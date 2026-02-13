@@ -14,6 +14,7 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 1
+          token: ${{ secrets.SUBMODULE_PAT || github.token }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -51,6 +52,7 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 1
+          token: ${{ secrets.SUBMODULE_PAT || github.token }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -78,6 +80,7 @@ jobs:
         with:
           submodules: recursive
           fetch-depth: 1
+          token: ${{ secrets.SUBMODULE_PAT || github.token }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
