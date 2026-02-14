@@ -3,9 +3,10 @@
 import logging
 import uuid
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, get_args
 
 from kernle.logging_config import log_save
+from kernle.protocols import BeliefType, NoteType
 from kernle.storage import Belief, Drive, Episode, Goal, Note, Relationship, Value
 from kernle.types import VALID_SOURCE_TYPE_VALUES, SourceType
 
@@ -15,41 +16,9 @@ logger = logging.getLogger(__name__)
 class WritersMixin:
     """Memory write operations for Kernle."""
 
-    _VALID_BELIEF_TYPES = frozenset(
-        {
-            "assumption",
-            "causal",
-            "constraint",
-            "evaluative",
-            "fact",
-            "factual",
-            "hypothesis",
-            "learned",
-            "model",
-            "opinion",
-            "observation",
-            "pattern",
-            "preference",
-            "principle",
-            "procedural",
-            "rule",
-            "strategy",
-        }
-    )
-
-    _VALID_NOTE_TYPES = frozenset(
-        {
-            "diagnostic",
-            "decision",
-            "fact",
-            "insight",
-            "note",
-            "observation",
-            "procedure",
-            "quote",
-            "reference",
-        }
-    )
+    # Derived from the canonical Literal types in protocols.py — single source of truth.
+    _VALID_BELIEF_TYPES: frozenset[str] = frozenset(get_args(BeliefType))
+    _VALID_NOTE_TYPES: frozenset[str] = frozenset(get_args(NoteType))
 
     @staticmethod
     def _normalize_source_type(source_type: Optional[str]) -> SourceType:

@@ -92,6 +92,14 @@ class ForgettingMixin:
         # Salience calculation with minimum base value
         salience = (confidence * (reinforcement_weight + 0.1)) / (age_factor + 1)
 
+        # Protect never-accessed memories from premature forgetting.
+        # When times_accessed is 0 the reinforcement_weight is 0, which
+        # produces a very low salience (e.g. 0.08) even for brand-new
+        # memories.  A floor of 0.5 ensures every memory survives until
+        # it has been loaded/searched at least once.
+        if times_accessed == 0:
+            salience = max(salience, 0.5)
+
         return salience
 
     def get_forgetting_candidates(

@@ -72,31 +72,35 @@ from kernle.types import (
 )
 
 BeliefType = Literal[
-    "fact",
-    "observation",
-    "factual",
+    "assumption",
     "causal",
-    "evaluative",
-    "procedural",
-    "opinion",
-    "principle",
-    "model",
-    "strategy",
-    "rule",
-    "preference",
     "constraint",
+    "evaluative",
+    "fact",
+    "factual",
+    "hypothesis",
     "learned",
+    "model",
+    "observation",
+    "opinion",
+    "pattern",
+    "preference",
+    "principle",
+    "procedural",
+    "rule",
+    "strategy",
 ]
 
 NoteType = Literal[
-    "note",
     "decision",
-    "insight",
-    "quote",
-    "observation",
-    "reference",
-    "procedure",
     "diagnostic",
+    "fact",
+    "insight",
+    "note",
+    "observation",
+    "procedure",
+    "quote",
+    "reference",
 ]
 
 InferenceScope = Literal["none", "fast", "capable", "embedding"]

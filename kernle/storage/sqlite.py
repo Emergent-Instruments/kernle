@@ -646,12 +646,14 @@ class SQLiteStorage:
 
         # External access: only show records where requesting_entity is in access_grants
         # NULL or empty access_grants = private to self only
+        # Escape LIKE metacharacters to prevent pattern injection (%, _, \)
+        escaped_entity = escape_like_pattern(requesting_entity)
         where_clause = """
             AND (access_grants IS NOT NULL
                  AND access_grants != '[]'
-                 AND access_grants LIKE ?)
+                 AND access_grants LIKE ? ESCAPE '\\')
         """
-        params = [f'%"{requesting_entity}"%']
+        params = [f'%"{escaped_entity}"%']
 
         return (where_clause, params)
 
@@ -3614,8 +3616,9 @@ class SQLiteStorage:
                     filt, filt_params = self._build_token_filter(tokens, columns)
                 else:
                     # All words too short, use full-phrase match
-                    search_pattern = f"%{query}%"
-                    filt = "(name LIKE ? OR description LIKE ? OR trigger_conditions LIKE ?)"
+                    escaped_query = escape_like_pattern(query)
+                    search_pattern = f"%{escaped_query}%"
+                    filt = "(name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\' OR trigger_conditions LIKE ? ESCAPE '\\')"
                     filt_params = [search_pattern, search_pattern, search_pattern]
                 cur = conn.execute(
                     f"""
@@ -4013,8 +4016,9 @@ class SQLiteStorage:
 
         if source_raw_id is not None:
             # source_raw_ids is stored as JSON array; use LIKE for containment
-            query += " AND source_raw_ids LIKE ?"
-            params.append(f'%"{source_raw_id}"%')
+            escaped_raw_id = escape_like_pattern(source_raw_id)
+            query += " AND source_raw_ids LIKE ? ESCAPE '\\'"
+            params.append(f'%"{escaped_raw_id}"%')
 
         query += " ORDER BY created_at DESC LIMIT ?"
         params.append(limit)
@@ -4310,14 +4314,16 @@ class SQLiteStorage:
 
         Returns (sql_fragment, params) where sql_fragment is a parenthesized
         OR expression matching any token in any column, and params is the
-        list of LIKE pattern values.
+        list of LIKE pattern values. Tokens are escaped to prevent LIKE
+        metacharacter injection.
         """
         clauses = []
         params: list = []
         for token in tokens:
-            pattern = f"%{token}%"
+            escaped = escape_like_pattern(token)
+            pattern = f"%{escaped}%"
             for col in columns:
-                clauses.append(f"{col} LIKE ?")
+                clauses.append(f"{col} LIKE ? ESCAPE '\\'")
                 params.append(pattern)
         sql = f"({' OR '.join(clauses)})"
         return sql, params
@@ -4341,7 +4347,8 @@ class SQLiteStorage:
 
         # If no meaningful tokens, fall back to full-phrase match
         if not tokens:
-            search_term = f"%{query}%"
+            escaped_query = escape_like_pattern(query)
+            search_term = f"%{escaped_query}%"
         else:
             search_term = None
 
@@ -4351,7 +4358,7 @@ class SQLiteStorage:
                 if tokens:
                     filt, filt_params = self._build_token_filter(tokens, columns)
                 else:
-                    filt = "(objective LIKE ? OR outcome LIKE ? OR lessons LIKE ?)"
+                    filt = "(objective LIKE ? ESCAPE '\\' OR outcome LIKE ? ESCAPE '\\' OR lessons LIKE ? ESCAPE '\\')"
                     filt_params = [search_term, search_term, search_term]
                 rows = conn.execute(
                     f"""SELECT * FROM episodes
@@ -4371,7 +4378,7 @@ class SQLiteStorage:
                 if tokens:
                     filt, filt_params = self._build_token_filter(tokens, columns)
                 else:
-                    filt = "content LIKE ?"
+                    filt = "content LIKE ? ESCAPE '\\'"
                     filt_params = [search_term]
                 rows = conn.execute(
                     f"""SELECT * FROM notes
@@ -4390,7 +4397,7 @@ class SQLiteStorage:
                 if tokens:
                     filt, filt_params = self._build_token_filter(tokens, columns)
                 else:
-                    filt = "statement LIKE ?"
+                    filt = "statement LIKE ? ESCAPE '\\'"
                     filt_params = [search_term]
                 rows = conn.execute(
                     f"""SELECT * FROM beliefs
@@ -4411,7 +4418,7 @@ class SQLiteStorage:
                 if tokens:
                     filt, filt_params = self._build_token_filter(tokens, columns)
                 else:
-                    filt = "(name LIKE ? OR statement LIKE ?)"
+                    filt = "(name LIKE ? ESCAPE '\\' OR statement LIKE ? ESCAPE '\\')"
                     filt_params = [search_term, search_term]
                 rows = conn.execute(
                     f"""SELECT * FROM agent_values
@@ -4431,7 +4438,7 @@ class SQLiteStorage:
                 if tokens:
                     filt, filt_params = self._build_token_filter(tokens, columns)
                 else:
-                    filt = "(title LIKE ? OR description LIKE ?)"
+                    filt = "(title LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')"
                     filt_params = [search_term, search_term]
                 rows = conn.execute(
                     f"""SELECT * FROM goals
