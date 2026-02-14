@@ -7,31 +7,39 @@ Discovery via entry point: kernle.stack_components
 """
 
 from kernle.stack.components.anxiety import AnxietyComponent
+from kernle.stack.components.belief_revision import BeliefRevisionComponent
 from kernle.stack.components.consolidation import ConsolidationComponent
 from kernle.stack.components.embedding import EmbeddingComponent
 from kernle.stack.components.emotions import EmotionalTaggingComponent
 from kernle.stack.components.forgetting import ForgettingComponent
 from kernle.stack.components.knowledge import KnowledgeComponent
 from kernle.stack.components.metamemory import MetaMemoryComponent
+from kernle.stack.components.playbook import PlaybookComponent
 from kernle.stack.components.suggestions import SuggestionComponent
+from kernle.stack.components.trust import TrustComponent
 
 __all__ = [
     "AnxietyComponent",
+    "BeliefRevisionComponent",
     "ConsolidationComponent",
     "EmbeddingComponent",
     "EmotionalTaggingComponent",
     "ForgettingComponent",
     "KnowledgeComponent",
     "MetaMemoryComponent",
+    "PlaybookComponent",
     "SuggestionComponent",
+    "TrustComponent",
     "get_default_components",
     "get_minimal_components",
     "load_components_from_discovery",
 ]
 
-# The default component set — all 8 built-in components.
+# The default component set — all 11 built-in components.
 _DEFAULT_COMPONENT_CLASSES = [
     EmbeddingComponent,
+    TrustComponent,
+    BeliefRevisionComponent,
     ForgettingComponent,
     ConsolidationComponent,
     EmotionalTaggingComponent,
@@ -39,11 +47,12 @@ _DEFAULT_COMPONENT_CLASSES = [
     SuggestionComponent,
     MetaMemoryComponent,
     KnowledgeComponent,
+    PlaybookComponent,
 ]
 
 
 def get_default_components():
-    """Return new instances of all 8 built-in stack components.
+    """Return new instances of all 11 built-in stack components.
 
     This is the default set loaded when a stack is created without
     an explicit component list.

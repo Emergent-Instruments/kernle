@@ -8,13 +8,16 @@ import pytest
 
 from kernle.stack.components import (
     AnxietyComponent,
+    BeliefRevisionComponent,
     ConsolidationComponent,
     EmbeddingComponent,
     EmotionalTaggingComponent,
     ForgettingComponent,
     KnowledgeComponent,
     MetaMemoryComponent,
+    PlaybookComponent,
     SuggestionComponent,
+    TrustComponent,
     get_default_components,
     get_minimal_components,
     load_components_from_discovery,
@@ -26,15 +29,17 @@ from kernle.stack.components import (
 
 
 class TestGetDefaultComponents:
-    def test_returns_8_components(self):
+    def test_returns_11_components(self):
         components = get_default_components()
-        assert len(components) == 8
+        assert len(components) == 11
 
     def test_component_types(self):
         components = get_default_components()
         types = {type(c) for c in components}
         expected = {
             EmbeddingComponent,
+            TrustComponent,
+            BeliefRevisionComponent,
             ForgettingComponent,
             ConsolidationComponent,
             EmotionalTaggingComponent,
@@ -42,6 +47,7 @@ class TestGetDefaultComponents:
             SuggestionComponent,
             MetaMemoryComponent,
             KnowledgeComponent,
+            PlaybookComponent,
         }
         assert types == expected
 
@@ -175,7 +181,7 @@ class TestSQLiteStackComponents:
         from kernle.stack.sqlite_stack import SQLiteStack
 
         stack = SQLiteStack("test-stack", db_path=tmp_path / "test.db", enforce_provenance=False)
-        assert len(stack.components) == 8
+        assert len(stack.components) == 11
         # Verify embedding is present
         names = set(stack.components.keys())
         assert "embedding-ngram" in names
@@ -287,7 +293,7 @@ class TestComponentLifecycle:
         )
 
         # Components auto-loaded
-        assert len(stack.components) == 8
+        assert len(stack.components) == 11
 
         # Maintenance runs without error
         results = stack.maintenance()
