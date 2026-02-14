@@ -60,4 +60,5 @@ jobs:
       - name: Audit project dependencies
         run: |
           pip install -e ".[all]"
-          pip-audit --strict --desc on
+          pip freeze --exclude kernle > /tmp/deps.txt
+          pip-audit --strict --desc on -r /tmp/deps.txt
