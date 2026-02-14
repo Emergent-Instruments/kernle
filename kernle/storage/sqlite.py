@@ -328,7 +328,7 @@ class SQLiteStorage:
             return self._embedder.embed(text)
         except Exception as exc:
             if isinstance(self._embedder, HashEmbedder):
-                logger.warning("Hash embedder failed for %s: %s", context, exc)
+                logger.warning("Hash embedder failed for %s: %s", context, exc, exc_info=True)
                 return None
 
             error_class = getattr(exc, "error_class", "unknown")
@@ -350,6 +350,7 @@ class SQLiteStorage:
                         "error_class": error_class,
                         "provider": provider_name,
                     },
+                    exc_info=True,
                 )
                 return None
 
@@ -370,6 +371,7 @@ class SQLiteStorage:
                     "provider": provider_name,
                     "degraded": True,
                 },
+                exc_info=True,
             )
             self._embedder_retry_at = datetime.now(timezone.utc) + timedelta(
                 seconds=self.EMBEDDER_RETRY_SECONDS
@@ -378,7 +380,9 @@ class SQLiteStorage:
             try:
                 return self._embedder_fallback.embed(text)
             except Exception as fallback_exc:
-                logger.warning("Fallback embedding failed for %s: %s", context, fallback_exc)
+                logger.warning(
+                    "Fallback embedding failed for %s: %s", context, fallback_exc, exc_info=True
+                )
                 return None
 
     def _init_flat_files(self) -> None:
@@ -410,7 +414,8 @@ class SQLiteStorage:
             fallback_dir = Path(tempfile.gettempdir()) / ".kernle"
             fallback_path = fallback_dir / "memories.db"
             logger.warning(
-                f"Cannot write to {default_path.parent} ({e}), " f"falling back to {fallback_dir}"
+                f"Cannot write to {default_path.parent} ({e}), " f"falling back to {fallback_dir}",
+                exc_info=True,
             )
             return self._validate_db_path(fallback_path)
 
@@ -451,7 +456,7 @@ class SQLiteStorage:
             return resolved_path
 
         except (OSError, ValueError) as e:
-            logger.error(f"Invalid database path: {e}")
+            logger.error(f"Invalid database path: {e}", exc_info=True)
             raise ValueError(f"Invalid database path: {e}")
 
     def _get_conn(self) -> sqlite3.Connection:
@@ -490,7 +495,7 @@ class SQLiteStorage:
             yield conn
             conn.commit()
         except Exception as e:
-            logger.debug(f"Transaction failed, rolling back: {e}")
+            logger.debug(f"Transaction failed, rolling back: {e}", exc_info=True)
             conn.rollback()
             raise
         finally:
@@ -556,10 +561,10 @@ class SQLiteStorage:
             conn.close()
             return True
         except ImportError:
-            logger.debug("sqlite-vec package not installed")
+            logger.debug("sqlite-vec package not installed", exc_info=True)
             return False
         except Exception as e:
-            logger.debug(f"sqlite-vec not available: {e}")
+            logger.debug(f"sqlite-vec not available: {e}", exc_info=True)
             return False
 
     def _load_vec(self, conn: sqlite3.Connection):
@@ -570,7 +575,7 @@ class SQLiteStorage:
             conn.enable_load_extension(True)
             sqlite_vec.load(conn)
         except Exception as e:
-            logger.error(f"Could not load sqlite-vec: {e}")
+            logger.error(f"Could not load sqlite-vec: {e}", exc_info=True)
 
     def _now(self) -> str:
         """Get current timestamp as ISO string."""
@@ -620,7 +625,7 @@ class SQLiteStorage:
                     d[k] = v.isoformat()
             return d
         except Exception as e:
-            logger.debug(f"Failed to serialize record, using fallback: {e}")
+            logger.debug(f"Failed to serialize record, using fallback: {e}", exc_info=True)
             return {"id": getattr(record, "id", "unknown")}
 
     def _build_access_filter(
@@ -766,7 +771,7 @@ class SQLiteStorage:
                 ),
             )
         except Exception as e:
-            logger.warning(f"Failed to save embedding for {vec_id}: {e}")
+            logger.warning(f"Failed to save embedding for {vec_id}: {e}", exc_info=True)
             # Ensure stale embedding state never persists if writes partially fail.
             # This prevents old vectors/metadata from being used after transient
             # provider or storage failures.
@@ -776,12 +781,14 @@ class SQLiteStorage:
                 logger.warning(
                     "Cleaned stale embedding cache entry for %s after save failure",
                     vec_id,
+                    exc_info=True,
                 )
             except sqlite3.OperationalError as cleanup_error:
                 logger.error(
                     "Failed to clean stale embedding cache entry for %s: %s",
                     vec_id,
                     cleanup_error,
+                    exc_info=True,
                 )
                 raise e from cleanup_error
             except Exception as cleanup_error:
@@ -789,6 +796,7 @@ class SQLiteStorage:
                     "Unexpected error cleaning stale embedding cache entry for %s: %s",
                     vec_id,
                     cleanup_error,
+                    exc_info=True,
                 )
                 raise e from cleanup_error
 
@@ -3992,7 +4000,9 @@ class SQLiteStorage:
                     (query_packed, limit * 2),  # Get more to filter by type
                 ).fetchall()
             except Exception as e:
-                logger.warning(f"Vector search failed: {e}, falling back to text search")
+                logger.warning(
+                    f"Vector search failed: {e}, falling back to text search", exc_info=True
+                )
                 return self._text_search(query, limit, types)
 
             # Fetch actual records
@@ -4619,7 +4629,7 @@ class SQLiteStorage:
                         )
                 except Exception as e:
                     # Column might not exist in old schema
-                    logger.debug(f"Could not query {table} by confidence: {e}")
+                    logger.debug(f"Could not query {table} by confidence: {e}", exc_info=True)
 
         # Sort by confidence
         results.sort(key=lambda x: x.score, reverse=not below)
@@ -4689,7 +4699,7 @@ class SQLiteStorage:
                         )
                 except Exception as e:
                     # Column might not exist in old schema
-                    logger.debug(f"Could not query {table} by source_type: {e}")
+                    logger.debug(f"Could not query {table} by source_type: {e}", exc_info=True)
 
         return results[:limit]
 

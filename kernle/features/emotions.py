@@ -196,7 +196,7 @@ class EmotionsMixin:
                 tags=tags,
             )
         except Exception as e:
-            logger.warning(f"Failed to add emotional association: {e}")
+            logger.warning(f"Failed to add emotional association: {e}", exc_info=True)
             return False
 
     def get_emotional_summary(self: "Kernle", days: int = 7) -> Dict[str, Any]:

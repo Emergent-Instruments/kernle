@@ -68,7 +68,7 @@ def check_low_confidence_beliefs(k: "Kernle", threshold: float = 0.3) -> List[St
     try:
         beliefs = k._storage.get_beliefs(limit=500, include_inactive=False)
     except Exception as e:
-        logger.debug(f"Failed to get beliefs for structural check: {e}")
+        logger.debug(f"Failed to get beliefs for structural check: {e}", exc_info=True)
         return findings
     for belief in beliefs:
         if belief.confidence < threshold:
@@ -100,7 +100,7 @@ def check_stale_relationships(k: "Kernle", stale_days: int = 90) -> List[Structu
     try:
         relationships = k._storage.get_relationships()
     except Exception as e:
-        logger.debug(f"Failed to get relationships for structural check: {e}")
+        logger.debug(f"Failed to get relationships for structural check: {e}", exc_info=True)
         return findings
     for rel in relationships:
         if rel.interaction_count == 0:
@@ -189,7 +189,7 @@ def check_belief_contradictions(k: "Kernle") -> List[StructuralFinding]:
     try:
         beliefs = k._storage.get_beliefs(limit=200, include_inactive=False)
     except Exception as e:
-        logger.debug(f"Failed to get beliefs for contradiction check: {e}")
+        logger.debug(f"Failed to get beliefs for contradiction check: {e}", exc_info=True)
         return findings
 
     negation_words = {
@@ -280,7 +280,7 @@ def check_stale_goals(k: "Kernle", stale_days: int = 60) -> List[StructuralFindi
     try:
         goals = k._storage.get_goals(status="active", limit=200)
     except Exception as e:
-        logger.debug(f"Failed to get goals for structural check: {e}")
+        logger.debug(f"Failed to get goals for structural check: {e}", exc_info=True)
         return findings
     for goal in goals:
         if not goal.created_at:

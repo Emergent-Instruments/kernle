@@ -141,7 +141,7 @@ def cmd_checkpoint(args, k: "Kernle"):
                             print("⚠ Checkpoint is stale - consider saving a fresh one")
                             print()
                 except Exception as e:
-                    logger.debug(f"Failed to parse checkpoint timestamp: {e}")
+                    logger.debug(f"Failed to parse checkpoint timestamp: {e}", exc_info=True)
 
                 print("## Last Checkpoint")
                 print(f"**Task**: {cp.get('current_task', 'unknown')}{age_str}")

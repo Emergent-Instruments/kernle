@@ -889,6 +889,14 @@ TOOLS = [
                     "type": "string",
                     "description": "Absolute root used to resolve and validate relative paths.",
                 },
+                "allow_outside_root": {
+                    "type": "boolean",
+                    "description": (
+                        "Allow seeding paths outside `seed_root` only when "
+                        "KERNLE_MCP_ALLOW_UNSAFE_SEED_PATHS is enabled."
+                    ),
+                    "default": False,
+                },
                 "exclude": {
                     "type": "array",
                     "items": {"type": "string"},
@@ -926,6 +934,14 @@ TOOLS = [
                 "seed_root": {
                     "type": "string",
                     "description": "Absolute root used to resolve and validate relative paths.",
+                },
+                "allow_outside_root": {
+                    "type": "boolean",
+                    "description": (
+                        "Allow seeding paths outside `seed_root` only when "
+                        "KERNLE_MCP_ALLOW_UNSAFE_SEED_PATHS is enabled."
+                    ),
+                    "default": False,
                 },
                 "max_chunk_size": {
                     "type": "integer",

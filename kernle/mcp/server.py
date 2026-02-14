@@ -40,7 +40,9 @@ try:
 
     _HAS_JSONSCHEMA = True
 except Exception as exc:
-    logger.debug("Swallowed %s importing jsonschema (optional): %s", type(exc).__name__, exc)
+    logger.debug(
+        "Swallowed %s importing jsonschema (optional): %s", type(exc).__name__, exc, exc_info=True
+    )
     Draft7Validator = None  # type: ignore[assignment]
     SchemaError = Exception  # type: ignore[assignment]
     _HAS_JSONSCHEMA = False
@@ -249,7 +251,7 @@ def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         raise ValueError(f"Unknown tool: {name}")
 
     except (ValueError, TypeError) as e:
-        logger.warning(f"Input validation failed for tool {name}: {e}")
+        logger.warning(f"Input validation failed for tool {name}: {e}", exc_info=True)
         raise ValueError(f"Invalid input: {str(e)}")
 
 

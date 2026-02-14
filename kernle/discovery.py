@@ -45,7 +45,7 @@ def _get_entry_points(group: str) -> list[importlib.metadata.EntryPoint]:
     try:
         return list(importlib.metadata.entry_points(group=group))
     except Exception as exc:
-        logger.warning("Failed to read entry points for group '%s': %s", group, exc)
+        logger.warning("Failed to read entry points for group '%s': %s", group, exc, exc_info=True)
         return []
 
 

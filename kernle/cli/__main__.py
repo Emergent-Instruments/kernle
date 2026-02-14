@@ -403,7 +403,7 @@ def cmd_init(args, k: Kernle):
                 print("  ✓ Seeded: memory_sovereignty (priority 90)")
                 print("  ✓ Seeded: continuous_learning (priority 85)")
         except Exception as e:
-            logger.debug("Could not seed values during setup: %s", e)
+            logger.debug("Could not seed values during setup: %s", e, exc_info=True)
             print(f"  Warning: Could not seed values: {e}")
         print()
 
@@ -419,7 +419,7 @@ def cmd_init(args, k: Kernle):
         )
         print("  ✓ Checkpoint saved")
     except Exception as e:
-        logger.debug("Could not create initial checkpoint: %s", e)
+        logger.debug("Could not create initial checkpoint: %s", e, exc_info=True)
         print(f"  Warning: Could not create checkpoint: {e}")
     print()
 
@@ -2222,9 +2222,9 @@ Beliefs already present in the agent's memory will be skipped.
                             else:
                                 _plugin_cmd_map[cmd_name] = plugin
             except Exception as e:
-                logger.debug(f"Plugin {comp.name} CLI registration failed: {e}")
+                logger.debug(f"Plugin {comp.name} CLI registration failed: {e}", exc_info=True)
     except Exception as e:
-        logger.debug(f"Plugin discovery failed: {e}")
+        logger.debug(f"Plugin discovery failed: {e}", exc_info=True)
 
     args = parser.parse_args(argv)
 
@@ -2243,7 +2243,7 @@ Beliefs already present in the agent's memory will be skipped.
             stack_id = resolve_stack_id()
         k = Kernle(stack_id=stack_id)
     except (ValueError, TypeError) as e:
-        logger.error(f"Failed to initialize Kernle: {e}")
+        logger.error(f"Failed to initialize Kernle: {e}", exc_info=True)
         sys.exit(1)
 
     # Dispatch with error handling
@@ -2393,6 +2393,7 @@ Beliefs already present in the agent's memory will be skipped.
                     plugin.name,
                     args.command,
                     e,
+                    exc_info=True,
                 )
                 print(
                     f"Failed to activate plugin '{plugin.name}' for "
@@ -2426,10 +2427,10 @@ Beliefs already present in the agent's memory will be skipped.
         else:
             parser.print_help()
     except (ValueError, TypeError) as e:
-        logger.error(f"Input validation error: {e}")
+        logger.error(f"Input validation error: {e}", exc_info=True)
         sys.exit(1)
     except Exception as e:
-        logger.error(f"Command failed: {e}")
+        logger.error(f"Command failed: {e}", exc_info=True)
         sys.exit(1)
 
 

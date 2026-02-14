@@ -119,7 +119,12 @@ def _read_last_messages(
 
         return (last_user or "Session ended", last_assistant)
     except Exception as exc:
-        logger.debug("Swallowed %s in _read_last_messages: %s", type(exc).__name__, exc)
+        logger.debug(
+            "Swallowed %s in _read_last_messages: %s",
+            type(exc).__name__,
+            exc,
+            exc_info=True,
+        )
         return ("Session ended", None)
 
 
@@ -208,7 +213,12 @@ def cmd_hook_session_start(args) -> None:
             json.dump(output, sys.stdout)
     except Exception as exc:
         # FAIL-OPEN: swallow all errors, produce no output
-        logger.debug("Swallowed %s in SessionStart hook: %s", type(exc).__name__, exc)
+        logger.debug(
+            "Swallowed %s in SessionStart hook: %s",
+            type(exc).__name__,
+            exc,
+            exc_info=True,
+        )
 
     sys.exit(0)
 
@@ -257,7 +267,12 @@ def cmd_hook_pre_tool_use(args) -> None:
     except Exception as e:
         # FAIL-CLOSED: emit deny using hookSpecificOutput schema
         # MUST use same schema as normal deny and exit(0) per hook contract
-        logger.warning("PreToolUse hook FAIL-CLOSED due to %s: %s", type(e).__name__, e)
+        logger.warning(
+            "PreToolUse hook FAIL-CLOSED due to %s: %s",
+            type(e).__name__,
+            e,
+            exc_info=True,
+        )
         deny_output = {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
@@ -269,7 +284,10 @@ def cmd_hook_pre_tool_use(args) -> None:
             json.dump(deny_output, sys.stdout)
         except Exception as exc2:
             logger.debug(
-                "Swallowed %s writing deny output in PreToolUse: %s", type(exc2).__name__, exc2
+                "Swallowed %s writing deny output in PreToolUse: %s",
+                type(exc2).__name__,
+                exc2,
+                exc_info=True,
             )
             # stdout itself is broken; still exit(0) per contract
 
@@ -296,7 +314,12 @@ def cmd_hook_pre_compact(args) -> None:
         k.checkpoint(f"[pre-compact] {task}", context=context)
     except Exception as exc:
         # FAIL-OPEN: swallow all errors, skip checkpoint
-        logger.debug("Swallowed %s in PreCompact hook: %s", type(exc).__name__, exc)
+        logger.debug(
+            "Swallowed %s in PreCompact hook: %s",
+            type(exc).__name__,
+            exc,
+            exc_info=True,
+        )
 
     sys.exit(0)
 
@@ -323,14 +346,29 @@ def cmd_hook_session_end(args) -> None:
         try:
             k.checkpoint(task, context=context)
         except Exception as exc:
-            logger.debug("Swallowed %s in SessionEnd checkpoint: %s", type(exc).__name__, exc)
+            logger.debug(
+                "Swallowed %s in SessionEnd checkpoint: %s",
+                type(exc).__name__,
+                exc,
+                exc_info=True,
+            )
         try:
             k.raw(f"Session ended. Task: {task}", source="hook")
         except Exception as exc:
-            logger.debug("Swallowed %s in SessionEnd raw capture: %s", type(exc).__name__, exc)
+            logger.debug(
+                "Swallowed %s in SessionEnd raw capture: %s",
+                type(exc).__name__,
+                exc,
+                exc_info=True,
+            )
     except Exception as exc:
         # FAIL-OPEN: swallow all errors, skip all operations
-        logger.debug("Swallowed %s in SessionEnd hook: %s", type(exc).__name__, exc)
+        logger.debug(
+            "Swallowed %s in SessionEnd hook: %s",
+            type(exc).__name__,
+            exc,
+            exc_info=True,
+        )
 
     sys.exit(0)
 

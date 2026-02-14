@@ -518,7 +518,7 @@ def cmd_auth_keys(args):
                     error = response.json().get("detail", response.text)
                     print(f"  {error[:200]}")
                 except Exception as e:
-                    logger.debug(f"Failed to parse error response as JSON: {e}")
+                    logger.debug(f"Failed to parse error response as JSON: {e}", exc_info=True)
                     print(f"  {response.text[:200]}")
                 sys.exit(1)
 
@@ -585,7 +585,7 @@ def cmd_auth_keys(args):
                     error = response.json().get("detail", response.text)
                     print(f"  {error[:200]}")
                 except Exception as e:
-                    logger.debug(f"Failed to parse error response as JSON: {e}")
+                    logger.debug(f"Failed to parse error response as JSON: {e}", exc_info=True)
                     print(f"  {response.text[:200]}")
                 sys.exit(1)
 
@@ -647,7 +647,7 @@ def cmd_auth_keys(args):
                     error = response.json().get("detail", response.text)
                     print(f"  {error[:200]}")
                 except Exception as e:
-                    logger.debug(f"Failed to parse error response as JSON: {e}")
+                    logger.debug(f"Failed to parse error response as JSON: {e}", exc_info=True)
                     print(f"  {response.text[:200]}")
                 sys.exit(1)
 
@@ -731,7 +731,7 @@ def cmd_auth_keys(args):
                     error = response.json().get("detail", response.text)
                     print(f"  {error[:200]}")
                 except Exception as e:
-                    logger.debug(f"Failed to parse error response as JSON: {e}")
+                    logger.debug(f"Failed to parse error response as JSON: {e}", exc_info=True)
                     print(f"  {response.text[:200]}")
                 sys.exit(1)
 

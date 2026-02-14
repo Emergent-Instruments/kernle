@@ -251,6 +251,7 @@ class ProcessingResult:
     deduplicated: int = 0  # Items skipped due to provenance/content match
     gate_blocked: int = 0  # Items blocked by promotion gates
     gate_details: List[str] = field(default_factory=list)  # Per-item gate failure messages
+    no_output_processed: bool = False  # True when inference produced no parseable output
 
 
 # =============================================================================
@@ -810,7 +811,9 @@ class MemoryProcessor:
                 limit=10_000,
             )
         except Exception as exc:
-            logger.debug("Unable to read processing audit log for %s: %s", transition, exc)
+            logger.debug(
+                "Unable to read processing audit log for %s: %s", transition, exc, exc_info=True
+            )
             return 0
 
         if not isinstance(audit_entries, list):
@@ -1032,7 +1035,7 @@ class MemoryProcessor:
         try:
             response = self._inference.infer(prompt, system=system)
         except Exception as e:
-            logger.error("Processing inference failed for %s: %s", transition, e)
+            logger.error("Processing inference failed for %s: %s", transition, e, exc_info=True)
             return ProcessingResult(
                 layer_transition=transition,
                 source_count=len(sources),
@@ -1049,7 +1052,9 @@ class MemoryProcessor:
         try:
             parsed = self._parse_response(response)
         except Exception as e:
-            logger.error("Failed to parse processing response for %s: %s", transition, e)
+            logger.error(
+                "Failed to parse processing response for %s: %s", transition, e, exc_info=True
+            )
             result.errors.append(f"Parse failed: {e}")
             return result
 
@@ -1073,13 +1078,12 @@ class MemoryProcessor:
 
         # 8. Mark sources as processed.
         # If items were gate-blocked (conditions may improve later), keep
-        # sources unprocessed so they can be re-evaluated. Otherwise the
-        # model evaluated the batch — mark processed even if no output was
-        # produced, so the system advances to the next batch.
+        # sources unprocessed so they can be re-evaluated.
         created_or_suggested = result.created or result.suggestions
+        result.no_output_processed = not bool(parsed)
         all_gate_blocked = result.gate_blocked > 0 and not created_or_suggested
         had_write_errors = bool(getattr(self, "_last_write_errors", []))
-        if not all_gate_blocked and not had_write_errors:
+        if not all_gate_blocked and not had_write_errors and not result.no_output_processed:
             self._mark_processed(transition, sources, created_or_suggested or [])
 
         # 9. Log audit
@@ -1343,7 +1347,7 @@ class MemoryProcessor:
                 limit=10000,
             )
         except Exception as e:
-            logger.debug("Failed to load pending suggestions for dedup: %s", e)
+            logger.debug("Failed to load pending suggestions for dedup: %s", e, exc_info=True)
             return set()
 
         if not isinstance(pending, list):
@@ -1557,7 +1561,7 @@ class MemoryProcessor:
                             dedup_index["content"][chash] = ref
 
             except Exception as e:
-                logger.error("Failed to write %s memory: %s", transition, e)
+                logger.error("Failed to write %s memory: %s", transition, e, exc_info=True)
                 self._last_write_errors.append(f"Write failed for {transition}: {e}")
 
         return created
@@ -1638,7 +1642,7 @@ class MemoryProcessor:
                     seen_fingerprints.add(fingerprint)
 
             except Exception as e:
-                logger.error("Failed to create %s suggestion: %s", transition, e)
+                logger.error("Failed to create %s suggestion: %s", transition, e, exc_info=True)
                 self._last_write_errors.append(f"Suggestion write failed for {transition}: {e}")
 
         return suggestions_created

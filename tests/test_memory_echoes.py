@@ -440,6 +440,8 @@ class TestLoadWithEchoes:
                 assert meta["temporal_summary"] is not None
                 assert "Memory spans" in meta["temporal_summary"]
                 assert "excluded memories" in meta["temporal_summary"]
+            else:
+                assert meta["temporal_summary"] is None
         finally:
             storage.close()
 
@@ -455,6 +457,8 @@ class TestLoadWithEchoes:
             if meta["excluded_count"] > 0:
                 assert len(meta["topic_clusters"]) > 0
                 assert len(meta["topic_clusters"]) <= 6
+            else:
+                assert meta["topic_clusters"] == []
         finally:
             storage.close()
 

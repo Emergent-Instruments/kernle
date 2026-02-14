@@ -136,6 +136,7 @@ class SuggestionComponent:
                     "SuggestionComponent: failed to mark raw entry %s processed: %s",
                     entry.id,
                     e,
+                    exc_info=True,
                 )
 
         result: Dict[str, Any] = {
@@ -162,7 +163,10 @@ class SuggestionComponent:
             existing = self._storage.get_suggestions(source_raw_id=raw_id, limit=200)
         except Exception as e:
             logger.debug(
-                "SuggestionComponent: could not fetch existing suggestions for %s: %s", raw_id, e
+                "SuggestionComponent: could not fetch existing suggestions for %s: %s",
+                raw_id,
+                e,
+                exc_info=True,
             )
             return signatures
 
@@ -171,7 +175,10 @@ class SuggestionComponent:
                 signatures.add(self._suggestion_signature(raw_id, suggestion))
             except Exception as exc:
                 logger.debug(
-                    "Swallowed %s computing suggestion signature: %s", type(exc).__name__, exc
+                    "Swallowed %s computing suggestion signature: %s",
+                    type(exc).__name__,
+                    exc,
+                    exc_info=True,
                 )
                 continue
         return signatures

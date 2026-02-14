@@ -811,7 +811,7 @@ class ManagersMixin:
                     elif age.total_seconds() > 6 * 3600:
                         age_warning = f"\n⚠ _Checkpoint is {age.seconds // 3600}+ hours old_"
             except Exception as e:
-                logger.debug(f"Failed to parse checkpoint age: {e}")
+                logger.debug(f"Failed to parse checkpoint age: {e}", exc_info=True)
 
             lines.append("## Continue With")
             lines.append(f"**Current task**: {cp.get('current_task', 'unknown')}")

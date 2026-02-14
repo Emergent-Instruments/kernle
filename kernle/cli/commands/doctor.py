@@ -279,7 +279,7 @@ def check_seed_beliefs(k: "Kernle") -> Tuple[ComplianceCheck, dict]:
             )
 
     except Exception as e:
-        logger.debug("Seed beliefs compliance check failed: %s", e)
+        logger.debug("Seed beliefs compliance check failed: %s", e, exc_info=True)
         return (
             ComplianceCheck(
                 name="seed_beliefs",
@@ -370,7 +370,7 @@ def check_openclaw_hook() -> ComplianceCheck:
                 category="recommended",
             )
     except Exception as e:
-        logger.debug("OpenClaw hook config check failed: %s", e)
+        logger.debug("OpenClaw hook config check failed: %s", e, exc_info=True)
         return ComplianceCheck(
             name="openclaw_hook",
             passed=False,
@@ -419,7 +419,7 @@ def check_claude_code_hook(stack_id: str) -> ComplianceCheck:
                     category="recommended",
                 )
         except Exception as e:
-            logger.debug(f"Failed to read config at {config_path}: {e}")
+            logger.debug(f"Failed to read config at {config_path}: {e}", exc_info=True)
             continue
 
     return ComplianceCheck(

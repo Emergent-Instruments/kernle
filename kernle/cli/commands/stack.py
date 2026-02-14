@@ -53,7 +53,7 @@ def _list_stacks(args: "argparse.Namespace", k: "Kernle") -> None:
                 agents.append(row[0])
             conn.close()
         except Exception as e:
-            logger.debug(f"Failed to query agents from database: {e}")
+            logger.debug(f"Failed to query agents from database: {e}", exc_info=True)
 
     # Also check for per-agent directories (for raw layer)
     for item in kernle_dir.iterdir():
@@ -101,7 +101,7 @@ def _list_stacks(args: "argparse.Namespace", k: "Kernle") -> None:
                 ).fetchone()[0]
                 conn.close()
             except Exception as e:
-                logger.debug(f"Failed to get counts for agent '{stack_id}': {e}")
+                logger.debug(f"Failed to get counts for agent '{stack_id}': {e}", exc_info=True)
 
         # Mark current agent
         marker = " ← current" if stack_id == k.stack_id else ""
@@ -144,7 +144,7 @@ def _delete_stack(args: "argparse.Namespace", k: "Kernle") -> None:
             has_db_data = count > 0
             conn.close()
         except Exception as e:
-            logger.debug(f"Failed to check agent in database: {e}")
+            logger.debug(f"Failed to check agent in database: {e}", exc_info=True)
 
     if not has_db_data and not has_dir:
         print(f"❌ Stack '{stack_id}' not found")
@@ -174,7 +174,7 @@ def _delete_stack(args: "argparse.Namespace", k: "Kernle") -> None:
             ).fetchone()[0]
             conn.close()
         except Exception as e:
-            logger.debug(f"Failed to get deletion counts: {e}")
+            logger.debug(f"Failed to get deletion counts: {e}", exc_info=True)
 
     total_records = episode_count + note_count + belief_count + goal_count + value_count
 
@@ -220,7 +220,7 @@ def _delete_stack(args: "argparse.Namespace", k: "Kernle") -> None:
                     if cursor.rowcount > 0:
                         deleted_tables.append(f"{table}: {cursor.rowcount}")
                 except Exception as e:
-                    logger.debug(f"Failed to delete from table '{table}': {e}")
+                    logger.debug(f"Failed to delete from table '{table}': {e}", exc_info=True)
 
             # Also delete from vec_embeddings and embedding_meta if they exist
             for vec_table in ("vec_embeddings", "embedding_meta"):
@@ -230,7 +230,7 @@ def _delete_stack(args: "argparse.Namespace", k: "Kernle") -> None:
                         (f"{stack_id}:%",),
                     )
                 except Exception as e:
-                    logger.debug(f"Failed to delete from {vec_table}: {e}")
+                    logger.debug(f"Failed to delete from {vec_table}: {e}", exc_info=True)
 
             conn.commit()
             conn.close()

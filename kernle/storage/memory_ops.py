@@ -659,7 +659,9 @@ class MemoryOps:
                             SearchResult(record=record, record_type=memory_type, score=strength)
                         )
                 except Exception as e:
-                    logger.debug(f"Could not get forgetting candidates from {table}: {e}")
+                    logger.debug(
+                        f"Could not get forgetting candidates from {table}: {e}", exc_info=True
+                    )
 
         results.sort(key=lambda x: x.score)
         return results[:limit]
@@ -720,6 +722,8 @@ class MemoryOps:
                             )
                         )
                 except Exception as e:
-                    logger.debug(f"Could not get forgotten memories from {table}: {e}")
+                    logger.debug(
+                        f"Could not get forgotten memories from {table}: {e}", exc_info=True
+                    )
 
         return results[:limit]

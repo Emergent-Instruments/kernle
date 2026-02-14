@@ -70,7 +70,7 @@ def cmd_status(args, k: "Kernle"):
         else:
             print("Model:      (none)")
     except Exception as e:
-        logger.debug(f"Failed to show composition info: {e}")
+        logger.debug(f"Failed to show composition info: {e}", exc_info=True)
 
 
 def cmd_resume(args, k: "Kernle"):
@@ -100,7 +100,7 @@ def cmd_resume(args, k: "Kernle"):
             else:
                 age_str = "just now"
     except Exception as e:
-        logger.debug(f"Failed to calculate checkpoint age: {e}")
+        logger.debug(f"Failed to calculate checkpoint age: {e}", exc_info=True)
         age_str = "unknown"
 
     # Parse context for structured fields
@@ -129,7 +129,7 @@ def cmd_resume(args, k: "Kernle"):
         else:
             anxiety_indicator = ""
     except Exception as e:
-        logger.debug(f"Failed to get anxiety score: {e}")
+        logger.debug(f"Failed to get anxiety score: {e}", exc_info=True)
         anxiety_indicator = ""
 
     # Display
@@ -162,7 +162,7 @@ def cmd_resume(args, k: "Kernle"):
             if age.total_seconds() > 6 * 3600:
                 print(f"\n⚠ Checkpoint is stale ({age_str}). Consider saving a fresh one.")
     except Exception as e:
-        logger.debug(f"Failed to check checkpoint staleness: {e}")
+        logger.debug(f"Failed to check checkpoint staleness: {e}", exc_info=True)
 
 
 def cmd_temporal(args, k: "Kernle"):

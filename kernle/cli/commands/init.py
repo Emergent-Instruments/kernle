@@ -144,7 +144,12 @@ def _snapshot_values(k: "Kernle") -> list[str]:
     try:
         return [value.name for value in k.storage.get_values()]
     except Exception as exc:
-        logger.debug("Swallowed %s in _snapshot_values: %s", type(exc).__name__, exc)
+        logger.debug(
+            "Swallowed %s in _snapshot_values: %s",
+            type(exc).__name__,
+            exc,
+            exc_info=True,
+        )
         return []
 
 
@@ -316,6 +321,12 @@ def cmd_init(args, k: "Kernle"):
     try:
         target_file.write_text(new_content)
     except Exception as e:
+        logger.warning(
+            "Failed to write instruction file %s: %s",
+            target_file,
+            e,
+            exc_info=True,
+        )
         print(f"\n⚠ Could not write instruction file: {e}")
         return _build_init_result(
             success=False,
@@ -382,6 +393,12 @@ def cmd_init(args, k: "Kernle"):
                 print("  ✓ Seeded: memory_sovereignty (priority 90)")
                 print("  ✓ Seeded: continuous_learning (priority 85)")
         except Exception as e:
+            logger.warning(
+                "Could not seed initial values for %s: %s",
+                target_file,
+                e,
+                exc_info=True,
+            )
             print(f"  Warning: Could not seed values: {e}")
             state_checks["seed_values"]["error"] = str(e)
         print()
@@ -400,6 +417,12 @@ def cmd_init(args, k: "Kernle"):
         state_checks["checkpoint"]["saved"] = True
         state_checks["checkpoint"]["payload"] = checkpoint
     except Exception as e:
+        logger.warning(
+            "Could not create initial checkpoint for stack %s: %s",
+            stack_id,
+            e,
+            exc_info=True,
+        )
         print(f"  Warning: Could not create checkpoint: {e}")
         state_checks["checkpoint"]["saved"] = False
         state_checks["checkpoint"]["error"] = str(e)
@@ -413,6 +436,12 @@ def cmd_init(args, k: "Kernle"):
             )
         state_checks["seed_trust"]["count"] = trust_count
     except Exception as e:
+        logger.warning(
+            "Could not seed trust layer for stack %s: %s",
+            stack_id,
+            e,
+            exc_info=True,
+        )
         print(f"  Warning: Could not seed trust layer: {e}")
         state_checks["seed_trust"]["count"] = 0
         state_checks["seed_trust"]["error"] = str(e)

@@ -96,7 +96,7 @@ class MarkdownImporter:
                     _import_item(item, k)
                 counts[item.type] = counts.get(item.type, 0) + 1
             except Exception as e:
-                logger.debug("Markdown import item %s failed: %s", item.type, e)
+                logger.debug("Markdown import item %s failed: %s", item.type, e, exc_info=True)
                 errors.append(f"{item.type}: {str(e)[:50]}")
 
         return counts

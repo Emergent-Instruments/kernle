@@ -41,7 +41,9 @@ def load_persisted_model(k: "Kernle") -> Optional[object]:
 
             return OllamaModel(model_id=model_id) if model_id else OllamaModel()
     except (ValueError, ImportError) as e:
-        logger.debug("Failed to load persisted model (%s/%s): %s", provider, model_id, e)
+        logger.debug(
+            "Failed to load persisted model (%s/%s): %s", provider, model_id, e, exc_info=True
+        )
         return None
 
     logger.debug("Unknown persisted model provider: %s", provider)

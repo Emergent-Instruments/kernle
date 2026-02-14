@@ -258,7 +258,7 @@ class ValidationMixin:
             return resolved_path
 
         except (OSError, ValueError) as e:
-            logger.error(f"Invalid checkpoint directory: {e}")
+            logger.error(f"Invalid checkpoint directory: {e}", exc_info=True)
             raise ValueError(f"Invalid checkpoint directory: {e}")
 
     def _validate_string_input(

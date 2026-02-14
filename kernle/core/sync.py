@@ -74,6 +74,7 @@ class SyncMixin:
             logger.warning(
                 f"Sync before load failed (continuing with local data): {e}",
                 extra={"operation": "sync_before_load", "error_type": type(e).__name__},
+                exc_info=True,
             )
             if self._strict:
                 raise
@@ -121,6 +122,7 @@ class SyncMixin:
             logger.warning(
                 f"Sync after checkpoint failed (local save succeeded): {e}",
                 extra={"operation": "sync_after_checkpoint", "error_type": type(e).__name__},
+                exc_info=True,
             )
             if self._strict:
                 raise

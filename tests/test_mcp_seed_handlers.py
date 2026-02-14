@@ -1,5 +1,6 @@
 """Tests for kernle.mcp.handlers.seed."""
 
+import logging
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
@@ -89,6 +90,17 @@ class TestSeedValidators:
         with pytest.raises(ValueError, match="outside allowed seed root"):
             validate_memory_seed_repo({"path": str(outside), "allow_outside_root": True})
 
+    def test_validate_repo_env_opt_out_allows_outside_safe_root(self, monkeypatch, tmp_path):
+        safe_root = tmp_path / "safe"
+        safe_root.mkdir()
+        outside = tmp_path / "outside"
+
+        monkeypatch.setenv("KERNLE_MCP_SEED_ROOT", str(safe_root))
+        monkeypatch.setenv("KERNLE_MCP_ALLOW_UNSAFE_SEED_PATHS", "1")
+
+        result = validate_memory_seed_repo({"path": str(outside), "allow_outside_root": True})
+        assert result["path"] == str(outside.resolve())
+
     def test_validate_docs_client_opt_out_does_not_bypass_safe_root(self, monkeypatch, tmp_path):
         safe_root = tmp_path / "safe"
         safe_root.mkdir()
@@ -107,8 +119,54 @@ class TestSeedValidators:
         monkeypatch.setenv("KERNLE_MCP_SEED_ROOT", str(safe_root))
         monkeypatch.setenv("KERNLE_MCP_ALLOW_UNSAFE_SEED_PATHS", "1")
 
-        result = validate_memory_seed_docs({"path": str(outside)})
+        result = validate_memory_seed_docs({"path": str(outside), "allow_outside_root": True})
         assert result["path"] == str(outside.resolve())
+
+    def test_validate_docs_env_opt_out_requires_config_flag(self, monkeypatch, tmp_path):
+        safe_root = tmp_path / "safe"
+        safe_root.mkdir()
+        outside = tmp_path / "outside-docs"
+
+        monkeypatch.setenv("KERNLE_MCP_SEED_ROOT", str(safe_root))
+        monkeypatch.setenv("KERNLE_MCP_ALLOW_UNSAFE_SEED_PATHS", "1")
+
+        with pytest.raises(ValueError, match="outside allowed seed root"):
+            validate_memory_seed_docs({"path": str(outside)})
+
+    def test_validate_repo_env_opt_out_requires_config_flag(self, monkeypatch, tmp_path):
+        safe_root = tmp_path / "safe"
+        safe_root.mkdir()
+        outside = tmp_path / "outside"
+
+        monkeypatch.setenv("KERNLE_MCP_SEED_ROOT", str(safe_root))
+        monkeypatch.setenv("KERNLE_MCP_ALLOW_UNSAFE_SEED_PATHS", "1")
+
+        with pytest.raises(ValueError, match="outside allowed seed root"):
+            validate_memory_seed_repo({"path": str(outside)})
+
+    def test_validate_docs_rejects_outside_safe_root(self, monkeypatch, tmp_path):
+        safe_root = tmp_path / "safe"
+        safe_root.mkdir()
+        outside = tmp_path / "outside-docs"
+
+        monkeypatch.setenv("KERNLE_MCP_SEED_ROOT", str(safe_root))
+        monkeypatch.delenv("KERNLE_MCP_ALLOW_UNSAFE_SEED_PATHS", raising=False)
+
+        with pytest.raises(ValueError, match="outside allowed seed root"):
+            validate_memory_seed_docs({"path": str(outside)})
+
+    def test_bypass_emits_warning_log(self, monkeypatch, tmp_path, caplog):
+        safe_root = tmp_path / "safe"
+        safe_root.mkdir()
+        outside = tmp_path / "outside"
+
+        monkeypatch.setenv("KERNLE_MCP_SEED_ROOT", str(safe_root))
+        monkeypatch.setenv("KERNLE_MCP_ALLOW_UNSAFE_SEED_PATHS", "1")
+
+        with caplog.at_level(logging.WARNING, logger="kernle.mcp.handlers.seed"):
+            validate_memory_seed_repo({"path": str(outside), "allow_outside_root": True})
+
+        assert "Bypassing MCP seed-root enforcement" in caplog.text
 
 
 class TestSeedHandlers:

@@ -45,7 +45,7 @@ def cmd_sync(args, k: "Kernle"):
                 auth_token = creds.get("auth_token") or creds.get("token") or creds.get("api_key")
                 user_id = creds.get("user_id")
         except (json.JSONDecodeError, OSError, KeyError, ValueError) as e:
-            logger.debug(f"Failed to load credentials file: {e}")
+            logger.debug(f"Failed to load credentials file: {e}", exc_info=True)
             # Fall through to env vars
 
     # Fall back to environment variables
@@ -67,7 +67,7 @@ def cmd_sync(args, k: "Kernle"):
                 backend_url = backend_url or config.get("backend_url")
                 auth_token = auth_token or config.get("auth_token")
         except (json.JSONDecodeError, OSError, KeyError, ValueError) as e:
-            logger.debug(f"Failed to load legacy config file: {e}")
+            logger.debug(f"Failed to load legacy config file: {e}", exc_info=True)
 
     # Validate backend URL security
     if backend_url:
@@ -115,7 +115,7 @@ def cmd_sync(args, k: "Kernle"):
                 return True, "Connected"
             return False, f"Backend returned status {response.status_code}"
         except Exception as e:
-            logger.debug("Sync connectivity check failed: %s", e)
+            logger.debug("Sync connectivity check failed: %s", e, exc_info=True)
             return False, f"Connection failed: {e}"
 
     def get_headers():
@@ -312,7 +312,10 @@ def cmd_sync(args, k: "Kernle"):
             return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
         except Exception as exc:
             logger.debug(
-                "Swallowed %s in _serialize_json, using fallback: %s", type(exc).__name__, exc
+                "Swallowed %s in _serialize_json, using fallback: %s",
+                type(exc).__name__,
+                exc,
+                exc_info=True,
             )
             return json.dumps(str(value))
 
@@ -439,7 +442,7 @@ def cmd_sync(args, k: "Kernle"):
         try:
             parsed = json.loads(raw)
         except (TypeError, json.JSONDecodeError):
-            logger.warning("Corrupt pull poison metadata; resetting.")
+            logger.warning("Corrupt pull poison metadata; resetting.", exc_info=True)
             return {}
         if not isinstance(parsed, dict):
             return {}
@@ -486,6 +489,7 @@ def cmd_sync(args, k: "Kernle"):
                 record_id,
                 exc,
                 extra={"table": table, "record_id": record_id, "error_type": type(exc).__name__},
+                exc_info=True,
             )
 
     def _save_push_apply_conflict(envelope):
@@ -539,6 +543,7 @@ def cmd_sync(args, k: "Kernle"):
                 record_id,
                 exc,
                 extra={"table": table, "record_id": record_id, "error_type": type(exc).__name__},
+                exc_info=True,
             )
 
     def _apply_single_pull_operation(op):
@@ -911,7 +916,7 @@ def cmd_sync(args, k: "Kernle"):
                 sys.exit(1)
 
         except Exception as e:
-            logger.warning("Push failed: %s", e)
+            logger.warning("Push failed: %s", e, exc_info=True)
             print(f"✗ Push failed: {e}")
             print("  Tip: changes are queued locally and will be pushed on next `kernle sync push`")
             sys.exit(1)
@@ -1067,7 +1072,7 @@ def cmd_sync(args, k: "Kernle"):
                 sys.exit(1)
 
         except Exception as e:
-            logger.warning("Pull failed: %s", e)
+            logger.warning("Pull failed: %s", e, exc_info=True)
             print(f"✗ Pull failed: {e}")
             print("  Tip: check network connectivity, then retry with `kernle sync pull`")
             sys.exit(1)

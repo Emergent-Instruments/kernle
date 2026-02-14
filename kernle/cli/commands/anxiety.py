@@ -55,7 +55,7 @@ def cmd_anxiety(args, k: "Kernle"):
             anxiety_score=report.get("overall_score"), source=source, triggered_by=triggered_by
         )
     except Exception as e:
-        logger.debug(f"Failed to log health check event: {e}")
+        logger.debug(f"Failed to log health check event: {e}", exc_info=True)
 
     if args.json:
         print(json.dumps(report, indent=2, default=str))

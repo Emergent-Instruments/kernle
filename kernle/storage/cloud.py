@@ -170,7 +170,7 @@ class CloudClient:
                 "error": f"Connection failed: {e.reason}",
             }
         except Exception as e:
-            logger.debug("Cloud health check failed: %s", e)
+            logger.debug("Cloud health check failed: %s", e, exc_info=True)
             return {
                 "healthy": False,
                 "error": str(e),
@@ -240,13 +240,13 @@ class CloudClient:
                     return None
 
         except urllib.error.URLError as e:
-            logger.debug(f"Cloud search failed: {e.reason}")
+            logger.debug(f"Cloud search failed: {e.reason}", exc_info=True)
             return None
         except json.JSONDecodeError as e:
-            logger.debug(f"Cloud search response parse error: {e}")
+            logger.debug(f"Cloud search response parse error: {e}", exc_info=True)
             return None
         except Exception as e:
-            logger.debug(f"Cloud search error: {e}")
+            logger.debug(f"Cloud search error: {e}", exc_info=True)
             return None
 
     def _parse_cloud_search_results(self, response_data: Dict[str, Any]) -> List[SearchResult]:

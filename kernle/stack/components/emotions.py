@@ -249,7 +249,10 @@ class EmotionalTaggingComponent:
                 "confidence": 0.9,
             }
         except Exception:
-            logger.debug("EmotionalTaggingComponent: inference failed, falling back to keywords")
+            logger.debug(
+                "EmotionalTaggingComponent: inference failed, falling back to keywords",
+                exc_info=True,
+            )
             return None
 
     def detect_emotion(self, text: str) -> Dict[str, Any]:

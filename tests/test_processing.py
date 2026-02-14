@@ -289,7 +289,18 @@ class TestLayerConfigGating:
         mock_stack._backend.list_raw.return_value = [MagicMock(id="r-1", blob="raw", content=None)]
         mock_stack.get_episodes.return_value = []
         mock_stack.get_beliefs.return_value = []
-        inference = MockInferenceWithModel("expected-model", response="[]")
+        inference = MockInferenceWithModel(
+            "expected-model",
+            response=json.dumps(
+                [
+                    {
+                        "objective": "validated output",
+                        "outcome": "accepted",
+                        "source_raw_ids": ["r-1"],
+                    }
+                ]
+            ),
+        )
         processor = MemoryProcessor(
             stack=mock_stack,
             inference=inference,
@@ -308,6 +319,22 @@ class TestLayerConfigGating:
         assert result.source_count == 1
         assert inference.calls
         mock_stack._backend.mark_raw_processed.assert_called_once()
+
+    def test_empty_inference_output_keeps_sources_unprocessed_suggestion_mode(self):
+        mock_stack = _make_mock_stack()
+        mock_stack._backend.list_raw.return_value = [MagicMock(id="r-1", blob="test", content=None)]
+        mock_stack.get_episodes.return_value = []
+
+        processor, _ = _make_processor(mock_stack, "[]")
+        config = DEFAULT_LAYER_CONFIGS["raw_to_episode"]
+        result = processor._process_layer("raw_to_episode", config, auto_promote=False)
+
+        assert not result.skipped
+        assert result.source_count == 1
+        assert result.no_output_processed
+        assert result.created == []
+        assert result.suggestions == []
+        mock_stack._backend.mark_raw_processed.assert_not_called()
 
     def test_process_blocks_when_daily_session_cap_reached(self):
         mock_stack = _make_mock_stack()
@@ -1805,6 +1832,26 @@ class TestProcessLayer:
         assert not result.skipped
         assert len(result.errors) == 1
         assert "Parse failed" in result.errors[0]
+
+    def test_empty_inference_output_keeps_sources_unprocessed(self):
+        mock_stack = _make_mock_stack()
+        raw = MagicMock()
+        raw.id = "r-1"
+        raw.blob = "test"
+        raw.content = None
+        mock_stack._backend.list_raw.return_value = [raw]
+        mock_stack.get_episodes.return_value = []
+
+        processor, _ = _make_processor(mock_stack, "[]")
+        config = DEFAULT_LAYER_CONFIGS["raw_to_episode"]
+        result = processor._process_layer("raw_to_episode", config, auto_promote=True)
+
+        assert not result.skipped
+        assert result.source_count == 1
+        assert result.no_output_processed
+        assert result.created == []
+        assert result.suggestions == []
+        mock_stack._backend.mark_raw_processed.assert_not_called()
 
     def test_audit_log_called_on_success(self):
         mock_stack = _make_mock_stack()

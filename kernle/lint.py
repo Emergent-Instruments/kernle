@@ -159,7 +159,7 @@ def get_lint_config(settings_getter=None) -> Dict[str, Any]:
                 if isinstance(overrides, dict):
                     config.update(overrides)
             except (json.JSONDecodeError, TypeError):
-                logger.warning("Invalid lint_rules setting, using defaults")
+                logger.warning("Invalid lint_rules setting, using defaults", exc_info=True)
     return config
 
 
