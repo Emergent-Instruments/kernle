@@ -86,6 +86,9 @@ def sanitize_number(
             return default
         raise ValueError(f"{field_name} is required")
 
+    if isinstance(value, bool):
+        raise ValueError(f"{field_name} must be a number, got bool")
+
     if not isinstance(value, (int, float)):
         raise ValueError(f"{field_name} must be a number, got {type(value).__name__}")
 

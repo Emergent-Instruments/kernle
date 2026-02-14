@@ -1136,8 +1136,9 @@ class WritersMixin:
             entity_type: Type of entity (person, agent, organization, system)
             derived_from: Memory IDs this relationship was derived from
         """
-        # Check existing
-        existing = self._storage.get_relationship(other_stack_id)
+        # Check existing — use write backend for consistent strict-mode path
+        backend = self._write_backend
+        existing = backend.get_relationship(other_stack_id)
 
         now = datetime.now(timezone.utc)
 

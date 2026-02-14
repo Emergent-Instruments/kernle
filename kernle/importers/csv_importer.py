@@ -7,6 +7,7 @@ Supports bulk import of memories in tabular format.
 import csv
 import io
 import logging
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union, overload
@@ -115,7 +116,13 @@ class CsvImporter:
             raise FileNotFoundError(f"File not found: {self.file_path}")
 
         content = self.file_path.read_text(encoding="utf-8")
-        self.items = parse_csv(content, self.memory_type, strict=self.strict)
+        self.items, self.coercion_warnings, self.rejections = parse_csv(
+            content,
+            self.memory_type,
+            strict=self.strict,
+            return_warnings=True,
+            return_rejections=True,
+        )
         return self.items
 
     def import_to(
@@ -346,6 +353,18 @@ def _map_columns(
                             value = 0.7
                             result[field_name] = value
                             break
+
+                    # Reject non-finite values
+                    if math.isnan(fval) or math.isinf(fval):
+                        rejections.append(
+                            {
+                                "row": row_num,
+                                "field": "confidence",
+                                "value": value,
+                                "reason": f"non-finite confidence value: {value!r}",
+                            }
+                        )
+                        break
 
                     # Auto-scale percentage values (1 < x <= 100)
                     if fval > 1:

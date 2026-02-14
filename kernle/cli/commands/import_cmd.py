@@ -8,9 +8,10 @@ Supports importing from:
 """
 
 import json
+import math
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
 from kernle.dedup import load_raw_content_hashes, strip_corpus_header
 from kernle.processing import compute_content_hash
@@ -23,6 +24,34 @@ if TYPE_CHECKING:
 
 _DUPLICATE_SCAN_LIMIT = 100_000
 _IMPORT_FINGERPRINT_SCHEME = "context:import-fingerprint:v1"
+
+
+def _validate_import_numeric(
+    value: Any,
+    min_val: float,
+    max_val: float,
+    default: float,
+    *,
+    strict: bool = False,
+) -> Tuple[float, bool]:
+    """Validate and clamp a numeric field for import.
+
+    Returns:
+        (validated_value, rejected) — rejected=True means skip in strict mode.
+    """
+    if value is None:
+        return default, False
+    try:
+        fval = float(value)
+    except (ValueError, TypeError):
+        return default, strict
+    if math.isnan(fval) or math.isinf(fval):
+        return default, strict
+    if fval < min_val or fval > max_val:
+        if strict:
+            return fval, True
+        return max(min_val, min(max_val, fval)), False
+    return fval, False
 
 
 def _normalize_text(value: Any) -> str:
@@ -485,11 +514,17 @@ def _import_json(
 
     # Values
     for item in data.get("values", []):
+        priority_val, rejected = _validate_import_numeric(
+            item.get("priority", 50), 0, 100, 50, strict=strict
+        )
+        if rejected:
+            errors.append(f"value: priority out of range: {item.get('priority')}")
+            continue
         import_item = {
             "type": "value",
             "name": item.get("name", ""),
             "description": item.get("statement", item.get("description", "")),
-            "priority": item.get("priority", 50),
+            "priority": int(priority_val),
         }
         import_derived_from = _merge_derived_from(derived_from, import_item)
         try:
@@ -516,11 +551,17 @@ def _import_json(
 
     # Beliefs
     for item in data.get("beliefs", []):
+        conf_val, rejected = _validate_import_numeric(
+            item.get("confidence", 0.8), 0.0, 1.0, 0.8, strict=strict
+        )
+        if rejected:
+            errors.append(f"belief: confidence out of range: {item.get('confidence')}")
+            continue
         import_item = {
             "type": "belief",
             "statement": item.get("statement", ""),
             "belief_type": item.get("type", "fact"),
-            "confidence": item.get("confidence", 0.8),
+            "confidence": conf_val,
         }
         import_derived_from = _merge_derived_from(derived_from, import_item)
         try:
@@ -652,10 +693,16 @@ def _import_json(
 
     # Drives
     for item in data.get("drives", []):
+        intensity_val, rejected = _validate_import_numeric(
+            item.get("intensity", 0.5), 0.0, 1.0, 0.5, strict=strict
+        )
+        if rejected:
+            errors.append(f"drive: intensity out of range: {item.get('intensity')}")
+            continue
         import_item = {
             "type": "drive",
             "drive_type": item.get("drive_type", ""),
-            "intensity": item.get("intensity", 0.5),
+            "intensity": intensity_val,
             "focus_areas": item.get("focus_areas"),
         }
         import_derived_from = _merge_derived_from(derived_from, import_item)
@@ -683,12 +730,18 @@ def _import_json(
 
     # Relationships
     for item in data.get("relationships", []):
+        sentiment_val, rejected = _validate_import_numeric(
+            item.get("sentiment", 0.0), -1.0, 1.0, 0.0, strict=strict
+        )
+        if rejected:
+            errors.append(f"relationship: sentiment out of range: {item.get('sentiment')}")
+            continue
         import_item = {
             "type": "relationship",
             "entity_name": item.get("entity_name", ""),
             "entity_type": item.get("entity_type", "unknown"),
             "relationship_type": item.get("relationship_type", "knows"),
-            "sentiment": item.get("sentiment", 0.0),
+            "sentiment": sentiment_val,
             "notes": item.get("notes"),
         }
         import_derived_from = _merge_derived_from(derived_from, import_item)
@@ -836,18 +889,26 @@ def _import_csv(
             item["statement"] = row.get("statement") or row.get("belief") or row.get("content", "")
             conf = row.get("confidence") or row.get("conf") or "0.7"
             try:
-                item["confidence"] = float(conf)
-                if item["confidence"] > 1:
-                    item["confidence"] = item["confidence"] / 100
-            except ValueError:
-                item["confidence"] = 0.7
+                fval = float(conf)
+                if fval > 1:
+                    fval = fval / 100
+            except (ValueError, TypeError):
+                if strict:
+                    continue
+                fval = 0.7
+            conf_val, rejected = _validate_import_numeric(fval, 0.0, 1.0, 0.7, strict=strict)
+            if rejected:
+                continue
+            item["confidence"] = conf_val
         elif item_type == "value":
             item["name"] = row.get("name") or row.get("value") or row.get("title", "")
             item["description"] = row.get("description") or row.get("statement") or item["name"]
-            try:
-                item["priority"] = int(row.get("priority", "50"))
-            except ValueError:
-                item["priority"] = 50
+            prio_val, rejected = _validate_import_numeric(
+                row.get("priority", "50"), 0, 100, 50, strict=strict
+            )
+            if rejected:
+                continue
+            item["priority"] = int(prio_val)
         elif item_type == "goal":
             item["title"] = row.get("title") or row.get("goal") or row.get("name", "")
             item["description"] = row.get("description") or item["title"]

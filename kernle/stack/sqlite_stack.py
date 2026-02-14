@@ -833,6 +833,10 @@ class SQLiteStack(
         self._backend.update_drive_atomic(drive)
         self._dispatch_on_save("drive", drive.id, drive)
 
+    def get_relationship(self, entity_name: str):
+        """Delegate read to backend for consistent strict-mode path."""
+        return self._backend.get_relationship(entity_name)
+
     def update_relationship_atomic(self, relationship: Relationship):
         self._validate_provenance(
             "relationship", relationship.derived_from, getattr(relationship, "source_entity", None)

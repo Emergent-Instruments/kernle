@@ -18,6 +18,7 @@ from kernle.anxiety_core import (
     compute_epoch_staleness_score,
     compute_identity_coherence_score,
     compute_memory_uncertainty_score,
+    compute_raw_aging_score_weighted,
     score_with_confidence,
 )
 from kernle.anxiety_core import get_anxiety_level as _get_anxiety_level
@@ -157,14 +158,14 @@ class AnxietyComponent:
         raw_sample_count = 0
         try:
             if hasattr(self._storage, "list_raw"):
-                from kernle.anxiety_core import compute_raw_aging_score
-
                 raw_entries = self._storage.list_raw(processed=False, limit=100)
-                now = datetime.now(timezone.utc)
                 total_unprocessed = len(raw_entries)
                 raw_sample_count = total_unprocessed
+                raw_aging_score = compute_raw_aging_score_weighted(
+                    raw_entries, age_threshold_hours=24
+                )
+                now = datetime.now(timezone.utc)
                 aging_count = 0
-                oldest_hours = 0.0
                 for entry in raw_entries:
                     try:
                         entry_time = getattr(entry, "captured_at", None) or getattr(
@@ -176,16 +177,10 @@ class AnxietyComponent:
                                     entry_time.replace("Z", "+00:00")
                                 )
                             age = now - entry_time
-                            entry_hours = age.total_seconds() / 3600
-                            if entry_hours > 24:
+                            if age.total_seconds() / 3600 > 24:
                                 aging_count += 1
-                            if entry_hours > oldest_hours:
-                                oldest_hours = entry_hours
                     except (ValueError, TypeError, AttributeError):
                         continue
-                raw_aging_score = compute_raw_aging_score(
-                    total_unprocessed, aging_count, oldest_hours
-                )
                 if total_unprocessed == 0:
                     raw_aging_detail = "No unprocessed raw entries"
                 elif aging_count == 0:

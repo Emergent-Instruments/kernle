@@ -6,6 +6,7 @@ This preserves metadata like confidence, timestamps, and relationships.
 
 import json
 import logging
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -46,6 +47,9 @@ def _validate_range(
     Returns:
         Tuple of (clamped_value, rejected). If rejected=True, the item should be skipped.
     """
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return value, True  # Always reject non-finite values
+
     if min_val <= value <= max_val:
         return value, False
 

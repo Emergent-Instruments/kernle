@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from kernle.anxiety_core import compute_raw_aging_score
+from kernle.anxiety_core import compute_raw_aging_score_weighted
 from kernle.stack.components.anxiety import AnxietyComponent
 from kernle.storage.sqlite import SQLiteStorage
 
@@ -76,12 +76,9 @@ class TestComponentRawAging:
         report = comp.get_anxiety_report()
         component_score = report["dimensions"]["raw_aging"]["score"]
 
-        # Compute expected score from core function
-        expected = compute_raw_aging_score(
-            total_unprocessed=3,
-            aging_count=2,
-            oldest_hours=72,
-        )
+        # Compute expected score from weighted core function
+        raw_entries = storage.list_raw(processed=False, limit=100)
+        expected = compute_raw_aging_score_weighted(raw_entries, age_threshold_hours=24)
         assert component_score == expected
 
     def test_component_raw_aging_graceful_without_list_raw(self, storage, comp):

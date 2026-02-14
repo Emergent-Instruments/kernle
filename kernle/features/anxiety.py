@@ -16,7 +16,7 @@ from kernle.anxiety_core import (
     compute_epoch_staleness_score,
     compute_identity_coherence_score,
     compute_memory_uncertainty_score,
-    compute_raw_aging_score,
+    compute_raw_aging_score_weighted,
     compute_unsaved_work_score,
     score_with_confidence,
 )
@@ -99,7 +99,7 @@ class AnxietyMixin:
         """Get raw entries that are older than age_hours and unprocessed.
 
         Returns:
-            Tuple of (total_unprocessed, aging_count, oldest_age_hours)
+            Tuple of (total_unprocessed, aging_count, oldest_age_hours, entries)
         """
         raw_entries = self.list_raw(processed=False, limit=100)
         now = datetime.now(timezone.utc)
@@ -124,7 +124,7 @@ class AnxietyMixin:
             except (ValueError, TypeError, AttributeError):
                 continue
 
-        return len(raw_entries), aging_count, oldest_age_hours
+        return len(raw_entries), aging_count, oldest_age_hours, raw_entries
 
     def _get_epoch_staleness_months(self: "Kernle") -> Optional[float]:
         """Get months since the current epoch started, or since the last epoch ended.
@@ -313,9 +313,9 @@ class AnxietyMixin:
             "emoji": self._get_anxiety_level(uncertainty_score)[0],
         }
 
-        # 6. Raw Entry Aging (0-100%)
-        total_unprocessed, aging_count, oldest_hours = self._get_aging_raw_entries(24)
-        raw_aging_score = compute_raw_aging_score(total_unprocessed, aging_count, oldest_hours)
+        # 6. Raw Entry Aging (0-100%) — weighted by content length
+        total_unprocessed, aging_count, oldest_hours, raw_entries = self._get_aging_raw_entries(24)
+        raw_aging_score = compute_raw_aging_score_weighted(raw_entries, age_threshold_hours=24)
 
         if total_unprocessed == 0:
             raw_aging_detail = "No unprocessed raw entries"
