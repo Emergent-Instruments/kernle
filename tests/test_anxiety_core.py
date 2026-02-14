@@ -98,6 +98,17 @@ class TestEpochStaleness:
         score = compute_epoch_staleness_score(15)
         assert score == int(70 + (15 - 12) * 4)  # 82
 
+    def test_boundary_at_18_months_is_continuous(self):
+        """Fix Logic-08: No discontinuity at 18-month boundary."""
+        score_just_below = compute_epoch_staleness_score(17.99)
+        score_at_18 = compute_epoch_staleness_score(18)
+        # The jump should be at most 1 point (rounding), not 4
+        assert abs(score_at_18 - score_just_below) <= 1
+
+    def test_never_exceeds_100(self):
+        assert compute_epoch_staleness_score(100) <= 100
+        assert compute_epoch_staleness_score(1000) <= 100
+
 
 class TestContextPressure:
     """compute_context_pressure_score nonlinear curve."""
@@ -113,6 +124,12 @@ class TestContextPressure:
     def test_90_percent_falloff(self):
         score = compute_context_pressure_score(90)
         assert score >= 90
+
+    def test_never_exceeds_100(self):
+        """Fix Logic-01: context_pressure_score must be clamped to 100."""
+        assert compute_context_pressure_score(100) <= 100
+        assert compute_context_pressure_score(150) <= 100
+        assert compute_context_pressure_score(200) <= 100
 
 
 class TestUnsavedWork:

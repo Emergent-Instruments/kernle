@@ -940,14 +940,17 @@ class SyncEngine:
                     "cloud_wins_arrays_merged",
                     policy_decision="newer_cloud_timestamp",
                 )
-                self._save_from_cloud(table, merged_record)
+                if not self._record_already_applied(table, cloud_record):
+                    self._save_from_cloud(table, merged_record)
                 self._mark_synced_and_cleanup_queue(table, cloud_record.id)
                 self.save_sync_conflict(conflict)
                 return (1, conflict)
 
             if local_time > cloud_time:
                 merged_record = self._merge_array_fields(table, local_record, cloud_record)
-                if merged_record is not local_record:
+                if merged_record is not local_record and not self._record_already_applied(
+                    table, cloud_record
+                ):
                     self._save_from_cloud(table, merged_record)
                 conflict = self._create_conflict(
                     table,
@@ -971,12 +974,16 @@ class SyncEngine:
             policy_decision = self._choose_tie_break_policy(local_record, cloud_record)
             if policy_decision == "local_wins_tie_hash":
                 merged_record = self._merge_array_fields(table, local_record, cloud_record)
-                if merged_record is not local_record:
+                if merged_record is not local_record and not self._record_already_applied(
+                    table, cloud_record
+                ):
                     self._save_from_cloud(table, merged_record)
                 resolution = "local_wins_arrays_merged"
             else:
                 merged_record = self._merge_array_fields(table, cloud_record, local_record)
-                if merged_record is not cloud_record:
+                if merged_record is not cloud_record and not self._record_already_applied(
+                    table, cloud_record
+                ):
                     self._save_from_cloud(table, merged_record)
                 resolution = "cloud_wins_arrays_merged"
 
@@ -1005,7 +1012,15 @@ class SyncEngine:
             self._mark_synced_and_cleanup_queue(table, cloud_record.id)
             return (1, None)
 
-        return (0, None)
+        # Fallback: both timestamps missing — save cloud record with warning
+        logger.warning(
+            "Sync merge for %s:%s has no timestamps — applying cloud record as fallback",
+            table,
+            cloud_record.id,
+        )
+        save_fn()
+        self._mark_synced_and_cleanup_queue(table, cloud_record.id)
+        return (1, None)
 
     def _create_conflict(
         self,

@@ -6,6 +6,7 @@ files in sync with the database.
 """
 
 import logging
+import os
 from pathlib import Path
 from typing import List
 
@@ -56,9 +57,6 @@ def sync_beliefs_to_file(beliefs_file: Path, beliefs: List[Belief], now: str) ->
 
         with open(beliefs_file, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
-        # Secure permissions
-        import os
-
         os.chmod(beliefs_file, 0o600)
     except Exception as e:
         logger.warning(f"Failed to sync beliefs to file: {e}")
@@ -76,6 +74,7 @@ def sync_values_to_file(values_file: Path, values: List[Value], now: str) -> Non
 
         with open(values_file, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
+        os.chmod(values_file, 0o600)
     except Exception as e:
         logger.warning(f"Failed to sync values to file: {e}")
 
@@ -107,6 +106,7 @@ def sync_goals_to_file(goals_file: Path, goals: List[Goal], now: str) -> None:
 
         with open(goals_file, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
+        os.chmod(goals_file, 0o600)
     except Exception as e:
         logger.warning(f"Failed to sync goals to file: {e}")
 
@@ -132,5 +132,6 @@ def sync_relationships_to_file(
 
         with open(relationships_file, "w", encoding="utf-8") as f:
             f.write("\n".join(lines))
+        os.chmod(relationships_file, 0o600)
     except Exception as e:
         logger.warning(f"Failed to sync relationships to file: {e}")
