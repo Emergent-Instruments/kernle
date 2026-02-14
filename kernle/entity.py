@@ -85,16 +85,45 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+_ID_SEQUENCE_WARN_THRESHOLD = int(_ID_SEQUENCE_MAX * 0.9)  # 900,000
+_ID_CLOCK_WAS_PINNED = False
+
+
 def _generate_id() -> str:
-    global _ID_SEQUENCE, _ID_LAST_TIMESTAMP_MS
+    global _ID_SEQUENCE, _ID_LAST_TIMESTAMP_MS, _ID_CLOCK_WAS_PINNED
     with _ID_LOCK:
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+
         if now_ms < _ID_LAST_TIMESTAMP_MS:
+            # Backward clock jump detected -- pin to last known timestamp
+            # to preserve monotonicity.
+            delta = _ID_LAST_TIMESTAMP_MS - now_ms
+            logger.warning("Clock jump detected: %d ms backward", delta)
             now_ms = _ID_LAST_TIMESTAMP_MS
+            _ID_CLOCK_WAS_PINNED = True
 
         if now_ms == _ID_LAST_TIMESTAMP_MS:
-            _ID_SEQUENCE = (_ID_SEQUENCE + 1) % _ID_SEQUENCE_MAX
+            _ID_SEQUENCE += 1
+            if _ID_SEQUENCE >= _ID_SEQUENCE_MAX:
+                raise RuntimeError(
+                    f"ID sequence exhausted: {_ID_SEQUENCE_MAX} IDs generated "
+                    f"within millisecond {now_ms}. Cannot guarantee uniqueness."
+                )
+            if _ID_SEQUENCE >= _ID_SEQUENCE_WARN_THRESHOLD:
+                logger.warning(
+                    "ID sequence nearing limit: %d / %d (%.0f%%)",
+                    _ID_SEQUENCE,
+                    _ID_SEQUENCE_MAX,
+                    _ID_SEQUENCE / _ID_SEQUENCE_MAX * 100,
+                )
         else:
+            if _ID_CLOCK_WAS_PINNED:
+                logger.info(
+                    "Clock recovered: advanced to %d (was pinned at %d)",
+                    now_ms,
+                    _ID_LAST_TIMESTAMP_MS,
+                )
+                _ID_CLOCK_WAS_PINNED = False
             _ID_LAST_TIMESTAMP_MS = now_ms
             _ID_SEQUENCE = 0
 
@@ -919,7 +948,10 @@ class Entity:
                     health = stored_health
                 else:
                     health = plugin.health_check()
-            except Exception:
+            except Exception as exc:
+                logger.debug(
+                    "Swallowed %s in plugin '%s' health_check: %s", type(exc).__name__, name, exc
+                )
                 health = PluginHealth(healthy=False, message="health_check failed")
             result["plugins"][name] = {
                 "version": plugin.version,

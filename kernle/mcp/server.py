@@ -39,7 +39,8 @@ try:
     from jsonschema.exceptions import SchemaError
 
     _HAS_JSONSCHEMA = True
-except Exception:
+except Exception as exc:
+    logger.debug("Swallowed %s importing jsonschema (optional): %s", type(exc).__name__, exc)
     Draft7Validator = None  # type: ignore[assignment]
     SchemaError = Exception  # type: ignore[assignment]
     _HAS_JSONSCHEMA = False

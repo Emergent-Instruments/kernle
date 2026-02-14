@@ -1,8 +1,11 @@
 """Init command for Kernle CLI - generates CLAUDE.md sections for frictionless adoption."""
 
+import logging
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from kernle import Kernle
@@ -140,7 +143,8 @@ def _snapshot_values(k: "Kernle") -> list[str]:
     """Snapshot value names to validate seed-value side effects."""
     try:
         return [value.name for value in k.storage.get_values()]
-    except Exception:
+    except Exception as exc:
+        logger.debug("Swallowed %s in _snapshot_values: %s", type(exc).__name__, exc)
         return []
 
 

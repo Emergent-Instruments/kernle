@@ -5,6 +5,7 @@ anxiety of a synthetic intelligence facing finite context and potential
 memory loss.
 """
 
+import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
@@ -24,6 +25,7 @@ from kernle.anxiety_core import (
 if TYPE_CHECKING:
     from kernle.core import Kernle
 
+logger = logging.getLogger(__name__)
 
 # Emoji mapping for anxiety levels (Kernle-layer presentation)
 _LEVEL_EMOJIS = {
@@ -157,7 +159,8 @@ class AnxietyMixin:
                 return delta.total_seconds() / (30.44 * 86400)
 
             return None
-        except Exception:
+        except Exception as exc:
+            logger.debug("Swallowed %s in _months_since_last_epoch: %s", type(exc).__name__, exc)
             return None  # Graceful degradation if epochs not available
 
     def get_anxiety_report(
@@ -623,6 +626,7 @@ class AnxietyMixin:
             results["checkpoint_saved"] = True
             results["checkpoint"] = cp
         except Exception as e:
+            logger.warning("Emergency save checkpoint failed: %s", e)
             results["errors"].append(f"Checkpoint failed: {str(e)}")
 
         # 2. Consolidate all unreflected episodes
@@ -631,6 +635,7 @@ class AnxietyMixin:
             results["episodes_consolidated"] = promotion.get("episodes_scanned", 0)
             results["consolidation_result"] = promotion
         except Exception as e:
+            logger.warning("Emergency save consolidation failed: %s", e)
             results["errors"].append(f"Consolidation failed: {str(e)}")
 
         # 3. Synthesize identity (to have a coherent state)
@@ -639,6 +644,7 @@ class AnxietyMixin:
             results["identity_synthesized"] = True
             results["identity_confidence"] = identity.get("confidence", 0)
         except Exception as e:
+            logger.warning("Emergency save identity synthesis failed: %s", e)
             results["errors"].append(f"Identity synthesis failed: {str(e)}")
 
         # 4. Attempt cloud sync
@@ -652,6 +658,7 @@ class AnxietyMixin:
             else:
                 results["sync_attempted"] = False
         except Exception as e:
+            logger.warning("Emergency save sync failed: %s", e)
             results["errors"].append(f"Sync failed: {str(e)}")
 
         # 5. Record this emergency save as an episode
@@ -667,6 +674,7 @@ class AnxietyMixin:
                 tags=["emergency", "anxiety", "critical"],
             )
         except Exception as e:
+            logger.warning("Emergency save episode recording failed: %s", e)
             results["errors"].append(f"Episode recording failed: {str(e)}")
 
         results["success"] = len(results["errors"]) == 0

@@ -170,6 +170,7 @@ class CloudClient:
                 "error": f"Connection failed: {e.reason}",
             }
         except Exception as e:
+            logger.debug("Cloud health check failed: %s", e)
             return {
                 "healthy": False,
                 "error": str(e),

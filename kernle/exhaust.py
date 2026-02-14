@@ -157,6 +157,7 @@ class ExhaustionRunner:
                                 cycle_result.promotions += len(pr.suggestions)
                             cycle_result.errors.extend(pr.errors)
                     except Exception as e:
+                        logger.warning("Exhaust cycle transition %s failed: %s", transition, e)
                         cycle_result.errors.append(f"{transition}: {e}")
 
                 result.cycle_results.append(cycle_result)

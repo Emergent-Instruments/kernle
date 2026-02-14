@@ -113,7 +113,8 @@ class CognitiveAssertions:
                 return self._storage.get_raw(mem_id)
             if hasattr(self._storage, "get_memory"):
                 return self._storage.get_memory(mem_type, mem_id)
-        except Exception:
+        except Exception as exc:
+            logger.debug("Swallowed %s in _get_memory_by_ref(%s): %s", type(exc).__name__, ref, exc)
             return None
         return None
 

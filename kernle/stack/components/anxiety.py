@@ -187,8 +187,10 @@ class AnxietyComponent:
                     raw_aging_detail = f"{total_unprocessed} unprocessed (all fresh)"
                 else:
                     raw_aging_detail = f"{aging_count}/{total_unprocessed} entries >24h old"
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(
+                "Swallowed %s computing raw_aging anxiety dimension: %s", type(exc).__name__, exc
+            )
         raw_conf = score_with_confidence(raw_aging_score, raw_sample_count)
         dimensions["raw_aging"] = {
             "score": raw_conf["score"],
@@ -209,8 +211,12 @@ class AnxietyComponent:
                 months = (now - started).total_seconds() / (30.44 * 86400)
                 epoch_staleness_score = compute_epoch_staleness_score(months)
                 epoch_sample_count = 1
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug(
+                "Swallowed %s computing epoch_staleness anxiety dimension: %s",
+                type(exc).__name__,
+                exc,
+            )
         epoch_conf = score_with_confidence(min(100, epoch_staleness_score), epoch_sample_count)
         dimensions["epoch_staleness"] = {
             "score": epoch_conf["score"],

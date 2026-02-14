@@ -8,6 +8,7 @@ Supports importing from:
 """
 
 import json
+import logging
 import math
 import re
 from pathlib import Path
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
 
     from kernle import Kernle
 
+logger = logging.getLogger(__name__)
 
 _DUPLICATE_SCAN_LIMIT = 100_000
 _IMPORT_FINGERPRINT_SCHEME = "context:import-fingerprint:v1"
@@ -549,6 +551,7 @@ def _import_json(
             if skip_duplicates:
                 _register_seen_signature(import_item, seen_signatures)
         except Exception as e:
+            logger.debug("Import value failed: %s", e)
             errors.append(f"value: {str(e)[:50]}")
 
     # Beliefs
@@ -586,6 +589,7 @@ def _import_json(
             if skip_duplicates:
                 _register_seen_signature(import_item, seen_signatures)
         except Exception as e:
+            logger.debug("Import belief failed: %s", e)
             errors.append(f"belief: {str(e)[:50]}")
 
     # Goals
@@ -622,6 +626,7 @@ def _import_json(
             if skip_duplicates:
                 _register_seen_signature(import_item, seen_signatures)
         except Exception as e:
+            logger.debug("Import goal failed: %s", e)
             errors.append(f"goal: {str(e)[:50]}")
 
     # Episodes
@@ -655,6 +660,7 @@ def _import_json(
             if skip_duplicates:
                 _register_seen_signature(import_item, seen_signatures)
         except Exception as e:
+            logger.debug("Import episode failed: %s", e)
             errors.append(f"episode: {str(e)[:50]}")
 
     # Notes
@@ -691,6 +697,7 @@ def _import_json(
             if skip_duplicates:
                 _register_seen_signature(import_item, seen_signatures)
         except Exception as e:
+            logger.debug("Import note failed: %s", e)
             errors.append(f"note: {str(e)[:50]}")
 
     # Drives
@@ -728,6 +735,7 @@ def _import_json(
             if skip_duplicates:
                 _register_seen_signature(import_item, seen_signatures)
         except Exception as e:
+            logger.debug("Import drive failed: %s", e)
             errors.append(f"drive: {str(e)[:50]}")
 
     # Relationships
@@ -769,6 +777,7 @@ def _import_json(
             if skip_duplicates:
                 _register_seen_signature(import_item, seen_signatures)
         except Exception as e:
+            logger.debug("Import relationship failed: %s", e)
             errors.append(f"relationship: {str(e)[:50]}")
 
     # Raw entries
@@ -793,6 +802,7 @@ def _import_json(
             if skip_duplicates:
                 _register_seen_signature(import_item, seen_signatures)
         except Exception as e:
+            logger.debug("Import raw entry failed: %s", e)
             errors.append(f"raw: {str(e)[:50]}")
 
     # Summary
@@ -837,6 +847,7 @@ def _import_csv(
         reader = csv.DictReader(io.StringIO(content))
         headers = [h.lower().strip() for h in (reader.fieldnames or [])]
     except Exception as e:
+        logger.debug("CSV parsing failed: %s", e)
         print(f"Error: Invalid CSV: {e}")
         return
 
@@ -982,6 +993,7 @@ def _import_pdf(
     try:
         text = extract_text(str(file_path))
     except Exception as e:
+        logger.debug("PDF text extraction failed: %s", e)
         print(f"Error extracting text from PDF: {e}")
         return
 
@@ -1037,6 +1049,7 @@ def _import_pdf(
             k.raw(blob=content, source=source)
             imported += 1
         except Exception as e:
+            logger.debug("Import PDF chunk failed: %s", e)
             errors.append(f"chunk {chunk['chunk_name']}: {str(e)[:50]}")
 
     print(f"Imported {imported} raw entries from PDF")
@@ -1472,6 +1485,7 @@ def _batch_import(
                 _register_seen_signature(item, seen_signatures)
             success += 1
         except Exception as e:
+            logger.debug("Import item %s failed: %s", item.get("type", "unknown"), e)
             errors.append(f"{item['type']}: {str(e)[:50]}")
 
     print(f"Imported {success} items")

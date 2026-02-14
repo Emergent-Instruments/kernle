@@ -362,6 +362,7 @@ def sync_raw_from_files(
                 )
 
         except Exception as e:
+            logger.debug("Raw entry file import failed for %s: %s", file_path.name, e)
             result["errors"].append(f"{file_path.name}: {str(e)}")
 
     return result
@@ -427,6 +428,7 @@ def import_raw_entry(
         result["imported"] += 1
 
     except Exception as e:
+        logger.debug("Raw entry import failed for %s: %s", id_prefix, e)
         result["errors"].append(f"Entry {id_prefix}: {str(e)}")
 
 

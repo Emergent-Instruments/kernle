@@ -1,10 +1,12 @@
 """Tests for kernle.entity.Entity — CoreProtocol implementation."""
 
+import logging
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
+import kernle.entity as entity_module
 from kernle.entity import Entity, _generate_id, _PluginContextImpl
 from kernle.protocols import (
     Binding,
@@ -52,6 +54,152 @@ class TestGenerateIdDeterministicOrdering:
             replay = _generate_id()
 
         assert replay == first
+
+
+class TestGenerateIdClockAndSequenceSafety:
+    """Tests for clock jump detection and sequence overflow protection in _generate_id()."""
+
+    @pytest.fixture(autouse=True)
+    def _save_restore_id_globals(self):
+        """Save and restore module-level ID generator state around each test."""
+        saved_seq = entity_module._ID_SEQUENCE
+        saved_ts = entity_module._ID_LAST_TIMESTAMP_MS
+        saved_pinned = entity_module._ID_CLOCK_WAS_PINNED
+        yield
+        entity_module._ID_SEQUENCE = saved_seq
+        entity_module._ID_LAST_TIMESTAMP_MS = saved_ts
+        entity_module._ID_CLOCK_WAS_PINNED = saved_pinned
+
+    def test_backward_clock_jump_pins_timestamp(self):
+        """When the clock jumps backward, the ID should use the last known timestamp."""
+        base_time = datetime(2025, 6, 1, 12, 0, tzinfo=timezone.utc)
+        base_ms = int(base_time.timestamp() * 1000)
+
+        # Set state: we've already generated an ID at base_ms
+        entity_module._ID_LAST_TIMESTAMP_MS = base_ms
+        entity_module._ID_SEQUENCE = 0
+
+        # Clock jumps backward by 5000ms
+        jumped_time = datetime(2025, 6, 1, 11, 59, 55, tzinfo=timezone.utc)
+
+        with patch("kernle.entity.datetime") as mock_dt:
+            mock_dt.now.return_value = jumped_time
+            result = _generate_id()
+
+        # The timestamp in the ID should be the pinned value (base_ms), not the jumped time
+        id_timestamp = int(result.split("-")[0])
+        assert id_timestamp == base_ms
+
+    def test_backward_clock_jump_logs_warning(self, caplog):
+        """A backward clock jump should produce a warning log with the delta."""
+        base_time = datetime(2025, 6, 1, 12, 0, tzinfo=timezone.utc)
+        base_ms = int(base_time.timestamp() * 1000)
+
+        entity_module._ID_LAST_TIMESTAMP_MS = base_ms
+        entity_module._ID_SEQUENCE = 0
+
+        # Clock jumps backward by 5000ms
+        jumped_time = datetime(2025, 6, 1, 11, 59, 55, tzinfo=timezone.utc)
+        expected_delta = base_ms - int(jumped_time.timestamp() * 1000)
+
+        with caplog.at_level(logging.WARNING, logger="kernle.entity"):
+            with patch("kernle.entity.datetime") as mock_dt:
+                mock_dt.now.return_value = jumped_time
+                _generate_id()
+
+        assert any("Clock jump detected" in msg for msg in caplog.messages)
+        assert any(str(expected_delta) in msg for msg in caplog.messages)
+
+    def test_sequence_wrap_raises_error(self):
+        """When the sequence reaches _ID_SEQUENCE_MAX, a RuntimeError should be raised."""
+        base_time = datetime(2025, 6, 1, 12, 0, tzinfo=timezone.utc)
+        base_ms = int(base_time.timestamp() * 1000)
+
+        entity_module._ID_LAST_TIMESTAMP_MS = base_ms
+        # Set sequence to one below max so the next increment hits the limit
+        entity_module._ID_SEQUENCE = entity_module._ID_SEQUENCE_MAX - 1
+
+        with patch("kernle.entity.datetime") as mock_dt:
+            mock_dt.now.return_value = base_time
+            with pytest.raises(RuntimeError, match="ID sequence exhausted"):
+                _generate_id()
+
+    def test_sequence_near_limit_warns(self, caplog):
+        """When the sequence reaches 90% capacity, a warning should be logged."""
+        base_time = datetime(2025, 6, 1, 12, 0, tzinfo=timezone.utc)
+        base_ms = int(base_time.timestamp() * 1000)
+
+        entity_module._ID_LAST_TIMESTAMP_MS = base_ms
+        # Set sequence so the next increment lands at the warn threshold
+        entity_module._ID_SEQUENCE = entity_module._ID_SEQUENCE_WARN_THRESHOLD - 1
+
+        with caplog.at_level(logging.WARNING, logger="kernle.entity"):
+            with patch("kernle.entity.datetime") as mock_dt:
+                mock_dt.now.return_value = base_time
+                result = _generate_id()
+
+        # Should still produce a valid ID
+        assert result is not None
+        # Should warn about nearing limit
+        assert any("ID sequence nearing limit" in msg for msg in caplog.messages)
+
+    def test_clock_recovery_resets_sequence(self, caplog):
+        """After a backward jump, when the clock catches up, the sequence resets and an info log is emitted."""
+        base_time = datetime(2025, 6, 1, 12, 0, tzinfo=timezone.utc)
+        base_ms = int(base_time.timestamp() * 1000)
+
+        entity_module._ID_LAST_TIMESTAMP_MS = base_ms
+        entity_module._ID_SEQUENCE = 0
+
+        # Step 1: Simulate backward jump
+        jumped_time = datetime(2025, 6, 1, 11, 59, 55, tzinfo=timezone.utc)
+        with patch("kernle.entity.datetime") as mock_dt:
+            mock_dt.now.return_value = jumped_time
+            _generate_id()
+
+        # Verify we're pinned
+        assert entity_module._ID_CLOCK_WAS_PINNED is True
+
+        # Step 2: Clock recovers past the original timestamp
+        recovered_time = datetime(2025, 6, 1, 12, 0, 1, tzinfo=timezone.utc)
+        recovered_ms = int(recovered_time.timestamp() * 1000)
+
+        with caplog.at_level(logging.INFO, logger="kernle.entity"):
+            with patch("kernle.entity.datetime") as mock_dt:
+                mock_dt.now.return_value = recovered_time
+                result = _generate_id()
+
+        # The ID should use the recovered timestamp
+        id_timestamp = int(result.split("-")[0])
+        assert id_timestamp == recovered_ms
+
+        # Sequence should have been reset
+        assert entity_module._ID_SEQUENCE == 0
+
+        # Clock recovery should be logged
+        assert any("Clock recovered" in msg for msg in caplog.messages)
+
+        # Pin flag should be cleared
+        assert entity_module._ID_CLOCK_WAS_PINNED is False
+
+    def test_normal_operation_no_warnings(self, caplog):
+        """Normal forward-moving clock operation should not produce any warnings."""
+        entity_module._ID_LAST_TIMESTAMP_MS = 0
+        entity_module._ID_SEQUENCE = 0
+        entity_module._ID_CLOCK_WAS_PINNED = False
+
+        with caplog.at_level(logging.DEBUG, logger="kernle.entity"):
+            ids = [_generate_id() for _ in range(10)]
+
+        # All IDs should be unique and ordered
+        assert len(set(ids)) == 10
+        assert ids == sorted(ids)
+
+        # No warnings should be emitted
+        warning_messages = [
+            r for r in caplog.records if r.levelno >= logging.WARNING and r.name == "kernle.entity"
+        ]
+        assert len(warning_messages) == 0
 
 
 # ---- Fixtures ----
