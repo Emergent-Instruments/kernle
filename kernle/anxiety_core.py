@@ -284,7 +284,7 @@ def compute_epoch_staleness_score(months: Optional[float]) -> int:
     elif months < 18:
         return int(70 + (months - 12) * 4)
     else:
-        return min(100, int(90 + (months - 18) * 1.67))
+        return min(100, int(94 + (months - 18) * 1.0))
 
 
 def compute_context_pressure_score(context_pressure_pct: int) -> int:
@@ -296,7 +296,7 @@ def compute_context_pressure_score(context_pressure_pct: int) -> int:
     elif context_pressure_pct < 85:
         return int(60 + (context_pressure_pct - 70) * 2)
     else:
-        return int(90 + (context_pressure_pct - 85) * 0.67)
+        return min(100, int(90 + (context_pressure_pct - 85) * 0.67))
 
 
 def compute_unsaved_work_score(checkpoint_age_minutes: Optional[int]) -> int:

@@ -6,11 +6,13 @@ These tests verify that:
 - Recovery after simulated crash (record saved but queue not cleaned)
 - The _record_already_applied guard detects previously-synced records
 - _mark_synced_and_cleanup_queue consolidates operations into one transaction
+- Conflict branches (cloud_time > local_time) skip save on crash recovery
+- Both-timestamps-None fallback saves the cloud record instead of dropping it
 """
 
 import logging
-from datetime import datetime, timezone
-from unittest.mock import MagicMock
+from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -572,3 +574,241 @@ class TestEndToEndSyncRecovery:
             "Queue entry created by save_fn should be cleaned up by "
             "_mark_synced_and_cleanup_queue"
         )
+
+
+class TestConflictBranchCrashRecovery:
+    """Test that conflict resolution branches (cloud_time > local_time, tie-break)
+    skip _save_from_cloud when the record was already applied (crash recovery)."""
+
+    def test_cloud_wins_branch_skips_save_on_recovery(self, storage):
+        """cloud_time > local_time: if the record was already saved (crash recovery),
+        _save_from_cloud should be skipped."""
+        engine = storage._sync_engine
+        now = datetime.now(timezone.utc)
+        earlier = now - timedelta(minutes=5)
+
+        local = Note(
+            id="conflict-recovery-1",
+            stack_id="test-agent",
+            content="Local version",
+            local_updated_at=earlier,
+        )
+        cloud = Note(
+            id="conflict-recovery-1",
+            stack_id="test-agent",
+            content="Cloud version (newer)",
+            local_updated_at=now,
+            cloud_synced_at=now,
+            version=2,
+        )
+
+        # Pre-save: put a local record in place so the conflict branch is hit
+        storage.save_note(local)
+
+        # First merge: cloud_time > local_time, should save
+        save_fn_calls = []
+        count1, conflict1 = engine._merge_generic(
+            "notes", cloud, local, lambda: save_fn_calls.append(1)
+        )
+        assert count1 == 1
+        assert conflict1 is not None
+        assert conflict1.policy_decision == "newer_cloud_timestamp"
+
+        # Simulate crash recovery: the record exists with matching version + cloud_synced_at.
+        # Manually set version and cloud_synced_at to match cloud record (as _save_from_cloud would).
+        with storage._connect() as conn:
+            conn.execute(
+                "UPDATE notes SET version = ?, cloud_synced_at = ? WHERE id = ?",
+                (2, now.isoformat(), "conflict-recovery-1"),
+            )
+            conn.commit()
+
+        # Second merge (recovery): _save_from_cloud should be skipped
+        with patch.object(engine, "_save_from_cloud", wraps=engine._save_from_cloud) as mock_save:
+            count2, conflict2 = engine._merge_generic(
+                "notes", cloud, local, lambda: save_fn_calls.append(1)
+            )
+            mock_save.assert_not_called()
+
+        assert count2 == 1
+        assert conflict2 is not None
+
+    def test_tie_break_branch_skips_save_on_recovery(self, storage):
+        """Equal timestamps with different content: tie-break branch skips save
+        when record was already applied."""
+        engine = storage._sync_engine
+        shared_time = datetime.now(timezone.utc)
+
+        local = Note(
+            id="tie-recovery-1",
+            stack_id="test-agent",
+            content="local-content",
+            tags=["local"],
+            local_updated_at=shared_time,
+        )
+        cloud = Note(
+            id="tie-recovery-1",
+            stack_id="test-agent",
+            content="cloud-content",
+            tags=["cloud"],
+            local_updated_at=shared_time,
+            cloud_synced_at=shared_time,
+            version=3,
+        )
+
+        # Pre-save the local record
+        storage.save_note(local)
+
+        # First merge to establish the tie-break
+        count1, conflict1 = engine._merge_generic("notes", cloud, local, lambda: None)
+        assert conflict1 is not None
+        assert conflict1.policy_decision in {"local_wins_tie_hash", "cloud_wins_tie_hash"}
+
+        # Set matching version and cloud_synced_at to simulate recovery state
+        with storage._connect() as conn:
+            conn.execute(
+                "UPDATE notes SET version = ?, cloud_synced_at = ? WHERE id = ?",
+                (3, shared_time.isoformat(), "tie-recovery-1"),
+            )
+            conn.commit()
+
+        # Second merge (recovery): _save_from_cloud should be skipped
+        with patch.object(engine, "_save_from_cloud", wraps=engine._save_from_cloud) as mock_save:
+            count2, conflict2 = engine._merge_generic("notes", cloud, local, lambda: None)
+            mock_save.assert_not_called()
+
+
+class TestBothTimestampsNoneFallback:
+    """Test that when both cloud_time and local_time are None, the cloud record
+    is saved as a fallback instead of being silently dropped."""
+
+    def test_both_timestamps_none_saves_cloud_record(self, storage):
+        """When both timestamps are None with local_record, creates conflict-aware merge."""
+        engine = storage._sync_engine
+
+        cloud = Note(
+            id="no-timestamp-1",
+            stack_id="test-agent",
+            content="Cloud with no timestamps",
+            cloud_synced_at=None,
+            local_updated_at=None,
+        )
+        local = Note(
+            id="no-timestamp-1",
+            stack_id="test-agent",
+            content="Local with no timestamps",
+            cloud_synced_at=None,
+            local_updated_at=None,
+        )
+
+        count, conflict = engine._merge_generic("notes", cloud, local, lambda: None)
+
+        assert count == 1, "Both-timestamps-None should save (count=1), not drop (count=0)"
+        assert conflict is not None, "Should create conflict record when local exists"
+        assert conflict.resolution == "cloud_wins_arrays_merged"
+        assert conflict.policy_decision == "no_timestamps_fallback"
+
+    def test_both_timestamps_none_logs_warning(self, storage, caplog):
+        """The fallback path should log a warning about missing timestamps."""
+        engine = storage._sync_engine
+
+        cloud = Note(
+            id="no-timestamp-warn",
+            stack_id="test-agent",
+            content="Cloud",
+            cloud_synced_at=None,
+            local_updated_at=None,
+        )
+        local = Note(
+            id="no-timestamp-warn",
+            stack_id="test-agent",
+            content="Local",
+            cloud_synced_at=None,
+            local_updated_at=None,
+        )
+
+        with caplog.at_level(logging.WARNING, logger="kernle.storage.sync_engine"):
+            engine._merge_generic("notes", cloud, local, lambda: storage.save_note(cloud))
+
+        assert any(
+            "no timestamps" in msg for msg in caplog.messages
+        ), f"Expected 'no timestamps' warning in log, got: {caplog.messages}"
+
+    def test_both_timestamps_none_cleans_up_queue(self, storage):
+        """The fallback path should clean up the sync queue after saving."""
+        engine = storage._sync_engine
+
+        cloud = Note(
+            id="no-timestamp-queue",
+            stack_id="test-agent",
+            content="Cloud",
+            cloud_synced_at=None,
+            local_updated_at=None,
+        )
+        local = Note(
+            id="no-timestamp-queue",
+            stack_id="test-agent",
+            content="Local",
+            cloud_synced_at=None,
+            local_updated_at=None,
+        )
+
+        engine._merge_generic("notes", cloud, local, lambda: None)
+
+        # Queue should be cleaned up
+        with storage._connect() as conn:
+            queue_count = conn.execute(
+                "SELECT COUNT(*) FROM sync_queue WHERE record_id = 'no-timestamp-queue' AND synced = 0"
+            ).fetchone()[0]
+        assert queue_count == 0, "Queue should be cleaned up after fallback save"
+
+    def test_both_timestamps_none_no_local_uses_save_fn(self, storage):
+        """When local_record is None, the fallback uses save_fn directly."""
+        engine = storage._sync_engine
+
+        cloud = Note(
+            id="no-timestamp-no-local",
+            stack_id="test-agent",
+            content="Cloud only",
+            cloud_synced_at=None,
+            local_updated_at=None,
+        )
+
+        save_called = []
+        count, conflict = engine._merge_generic(
+            "notes", cloud, None, lambda: save_called.append(True)
+        )
+
+        assert count == 1
+        assert conflict is None
+        assert len(save_called) == 1
+
+    def test_both_timestamps_none_replay_idempotent(self, storage):
+        """Replaying the no-timestamp fallback should skip save on second pass."""
+        engine = storage._sync_engine
+
+        cloud = Note(
+            id="no-ts-replay",
+            stack_id="test-agent",
+            content="Cloud replay test",
+            cloud_synced_at=None,
+            local_updated_at=None,
+            version=1,
+        )
+
+        # First pass: saves the record
+        engine._merge_generic("notes", cloud, None, lambda: storage.save_note(cloud))
+
+        # Simulate crash recovery: record is saved but set cloud_synced_at
+        # to match _record_already_applied expectations
+        with storage._connect() as conn:
+            conn.execute(
+                "UPDATE notes SET cloud_synced_at = '2025-01-01T00:00:00+00:00' WHERE id = ?",
+                ("no-ts-replay",),
+            )
+            conn.commit()
+
+        # Second pass: should detect duplicate and skip save
+        save_called = []
+        count2, _ = engine._merge_generic("notes", cloud, None, lambda: save_called.append(True))
+        assert len(save_called) == 0, "Replay should skip save_fn"

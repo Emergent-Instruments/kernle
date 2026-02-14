@@ -773,7 +773,7 @@ def cmd_sync(args, k: "Kernle"):
             # Dead-lettered operations
             if dead_letter_count > 0:
                 print(f"🔴 Dead-lettered: {dead_letter_count}")
-                print("   These entries failed permanently. Use `kernle sync requeue` to retry.")
+                print("   These entries failed permanently and will be skipped during sync.")
 
             # Last sync time
             if last_sync:
