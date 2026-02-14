@@ -660,74 +660,20 @@ class StackComponentProtocol(Protocol):
 
 
 # =============================================================================
-# STACK PROTOCOL — Head
+# STACK SUB-PROTOCOLS — Granular interfaces for type narrowing
 # =============================================================================
-# A self-contained memory system. Knows nothing about models or core plugins.
-# Stores, retrieves, searches, and maintains memories. That's it.
+# Each sub-protocol captures a cohesive subset of stack behavior.
+# Code that only needs to read memories can accept StackReaderProtocol;
+# code that only needs search can accept StackSearchProtocol; etc.
 #
-# A stack can be:
-# - Attached to one core, or many, or none
-# - Shared between entities (collaborative memory)
-# - Forked/snapshotted for experimentation
-# - Swapped at runtime (context switching)
-#
-# The stack's schema is sovereign. Nothing outside the stack modifies it.
-#
-# The stack has components (sub-plugins) that extend its capabilities.
-# Components are discovered via the kernle.stack_components entry point
-# and are swappable at runtime. Embedding is just one such component.
-#
-# PROVENANCE AND WRITE DISCIPLINE:
-#
-# Memories should be written through an attached core following protocol
-# standards. The core ensures full provenance: source attribution,
-# timestamps, context tags, derived_from chains, and source_type tracking.
-# This provenance is not just metadata — it is functionally important.
-# Consolidation, trust computation, forgetting, and meta-memory all
-# depend on knowing where a memory came from and how it was formed.
-#
-# A detached stack is a portable data artifact — it can be opened,
-# queried, exported, synced, and maintained by scripts or tooling.
-# But it is not an autonomous system. Direct writes to a detached
-# stack produce memories with incomplete provenance (no source
-# attribution, no context from the core's current composition).
-# This is sometimes necessary for migration, repair, or bootstrap,
-# but it degrades the stack's ability to reason about its own contents.
-# Like doctoring medical records — sometimes clinically necessary,
-# never clean, and should be minimized.
-#
-# The save_*() methods on the stack are low-level storage operations.
-# They accept whatever is passed to them. The core's routed methods
-# (episode(), belief(), etc.) are the protocol-compliant entry points
-# that ensure provenance is complete before calling save_*().
+# The composite StackProtocol below inherits from all of them,
+# so existing code that depends on StackProtocol is unchanged.
 # =============================================================================
 
 
 @runtime_checkable
-class StackProtocol(Protocol):
-    """Interface for a memory system.
-
-    A self-contained, portable unit of memory. The stack's value is
-    independence of lifecycle — it persists unchanged when the core
-    is reconfigured, the model is swapped, or plugins come and go.
-
-    The intended write path is: core -> stack (with full provenance).
-    Direct writes are possible but produce incomplete provenance.
-
-    Implementations: SQLiteStack (default), InMemoryStack, and custom backends.
-    """
-
-    @property
-    def stack_id(self) -> str:
-        """Unique identifier for this stack."""
-        ...
-
-    @property
-    def schema_version(self) -> int:
-        """Current schema version of this stack's storage."""
-        ...
-
-    # ---- Lifecycle State ----
+class StackLifecycleProtocol(Protocol):
+    """Stack lifecycle state and composition hooks."""
 
     @property
     def state(self) -> StackState:
@@ -742,7 +688,50 @@ class StackProtocol(Protocol):
         """Exit maintenance mode, returning to ACTIVE state."""
         ...
 
-    # ---- Component Management ----
+    def on_attach(
+        self,
+        core_id: str,
+        inference: Optional[InferenceService] = None,
+    ) -> None:
+        """Called when this stack is attached to a core.
+
+        The stack should:
+        - Track the core_id (for shared stack coordination)
+        - Pass the inference service to components that need it
+        - Enable inference-dependent features if inference is provided
+
+        Args:
+            core_id: The core attaching this stack.
+            inference: Model access for components. None if the core
+                      has no model bound yet.
+        """
+        ...
+
+    def on_detach(self, core_id: str) -> None:
+        """Called when this stack is detached from a core.
+
+        The stack should:
+        - Stop tracking this core_id
+        - If no other cores are attached, set inference to None
+          on all components (graceful degradation)
+        """
+        ...
+
+    def on_model_changed(
+        self,
+        inference: Optional[InferenceService],
+    ) -> None:
+        """Called when the attached core's model changes.
+
+        The stack should update the inference service on all
+        components. If inference is None, the model was removed.
+        """
+        ...
+
+
+@runtime_checkable
+class StackComponentManagerProtocol(Protocol):
+    """Component management for stacks."""
 
     @property
     def components(self) -> dict[str, StackComponentProtocol]:
@@ -777,19 +766,10 @@ class StackProtocol(Protocol):
         """
         ...
 
-    # ---- Write Operations (Low-Level) ----
-    # These are raw storage operations. They persist whatever is passed
-    # to them without enforcing provenance completeness.
-    #
-    # The INTENDED write path is through the core's routed methods
-    # (core.episode(), core.belief(), etc.) which populate provenance
-    # fields (source, source_type, derived_from, context) before
-    # calling these. Plugins write through PluginContext, which also
-    # ensures provenance (source="plugin:{name}").
-    #
-    # Direct calls to save_*() are for migration, repair, import,
-    # and testing. Memories written this way may have incomplete
-    # provenance, which degrades consolidation, trust, and forgetting.
+
+@runtime_checkable
+class StackWriterProtocol(Protocol):
+    """Low-level write operations for memories."""
 
     def save_episode(self, episode: Episode) -> str: ...
     def save_belief(self, belief: Belief) -> str: ...
@@ -805,13 +785,14 @@ class StackProtocol(Protocol):
     def save_self_narrative(self, narrative: SelfNarrative) -> str: ...
     def save_suggestion(self, suggestion: MemorySuggestion) -> str: ...
 
-    # ---- Batch Write ----
-
     def save_episodes_batch(self, episodes: list[Episode]) -> list[str]: ...
     def save_beliefs_batch(self, beliefs: list[Belief]) -> list[str]: ...
     def save_notes_batch(self, notes: list[Note]) -> list[str]: ...
 
-    # ---- Read Operations ----
+
+@runtime_checkable
+class StackReaderProtocol(Protocol):
+    """Read operations for memories."""
 
     def get_episodes(
         self,
@@ -879,7 +860,44 @@ class StackProtocol(Protocol):
         """Get any single memory by type and ID."""
         ...
 
-    # ---- Suggestion Lifecycle ----
+
+@runtime_checkable
+class StackSearchProtocol(Protocol):
+    """Semantic search across memory types."""
+
+    def search(
+        self,
+        query: str,
+        *,
+        limit: int = 10,
+        record_types: Optional[list[SearchRecordType]] = None,
+        context: Optional[str] = None,
+        min_confidence: Optional[float] = None,
+    ) -> list[SearchResult]:
+        """Semantic search across all memory types."""
+        ...
+
+
+@runtime_checkable
+class StackLoaderProtocol(Protocol):
+    """Working memory assembly."""
+
+    def load(
+        self,
+        *,
+        token_budget: int = 8000,
+        context: Optional[str] = None,
+    ) -> dict[str, Any]:
+        """Assemble working memory within a token budget.
+
+        Returns a structured dict of the most relevant current memories.
+        """
+        ...
+
+
+@runtime_checkable
+class StackSuggestionProtocol(Protocol):
+    """Suggestion lifecycle management."""
 
     def get_suggestion(self, suggestion_id: str) -> Optional[MemorySuggestion]:
         """Retrieve a single suggestion by ID."""
@@ -917,35 +935,10 @@ class StackProtocol(Protocol):
         """Dismiss a pending suggestion (will not be promoted)."""
         ...
 
-    # ---- Search ----
 
-    def search(
-        self,
-        query: str,
-        *,
-        limit: int = 10,
-        record_types: Optional[list[SearchRecordType]] = None,
-        context: Optional[str] = None,
-        min_confidence: Optional[float] = None,
-    ) -> list[SearchResult]:
-        """Semantic search across all memory types."""
-        ...
-
-    # ---- Working Memory ----
-
-    def load(
-        self,
-        *,
-        token_budget: int = 8000,
-        context: Optional[str] = None,
-    ) -> dict[str, Any]:
-        """Assemble working memory within a token budget.
-
-        Returns a structured dict of the most relevant current memories.
-        """
-        ...
-
-    # ---- Meta-Memory ----
+@runtime_checkable
+class StackMetaMemoryProtocol(Protocol):
+    """Meta-memory operations: access tracking, forgetting, auditing."""
 
     def record_access(self, memory_type: MemoryType, memory_id: str) -> bool:
         """Record that a memory was accessed (strengthens salience)."""
@@ -1024,7 +1017,10 @@ class StackProtocol(Protocol):
         """Get audit log entries."""
         ...
 
-    # ---- Processing ----
+
+@runtime_checkable
+class StackProcessingProtocol(Protocol):
+    """Processing configuration and state management."""
 
     def get_processing_config(self) -> list[dict[str, Any]]:
         """Get all processing configuration entries."""
@@ -1046,7 +1042,10 @@ class StackProtocol(Protocol):
         """Mark a note as processed."""
         ...
 
-    # ---- Stack Settings ----
+
+@runtime_checkable
+class StackSettingsProtocol(Protocol):
+    """Stack-level settings management."""
 
     def get_stack_setting(self, key: str) -> Optional[str]:
         """Get a stack setting value by key."""
@@ -1060,7 +1059,10 @@ class StackProtocol(Protocol):
         """Get all stack settings as a dict."""
         ...
 
-    # ---- Trust Layer ----
+
+@runtime_checkable
+class StackTrustProtocol(Protocol):
+    """Trust assessment and computation."""
 
     def save_trust_assessment(self, assessment: TrustAssessment) -> str: ...
 
@@ -1079,7 +1081,10 @@ class StackProtocol(Protocol):
         """Compute aggregate trust for an entity."""
         ...
 
-    # ---- Features ----
+
+@runtime_checkable
+class StackFeatureProtocol(Protocol):
+    """Higher-level memory features: consolidation and forgetting."""
 
     def consolidate(
         self,
@@ -1101,7 +1106,10 @@ class StackProtocol(Protocol):
         """Apply salience-based forgetting."""
         ...
 
-    # ---- Sync ----
+
+@runtime_checkable
+class StackSyncProtocol(Protocol):
+    """Remote sync operations."""
 
     def sync(self) -> SyncResult:
         """Sync with remote storage (if configured)."""
@@ -1114,7 +1122,10 @@ class StackProtocol(Protocol):
     def get_pending_sync_count(self) -> int: ...
     def is_online(self) -> bool: ...
 
-    # ---- Stats & Export ----
+
+@runtime_checkable
+class StackExportProtocol(Protocol):
+    """Stats and export operations."""
 
     def get_stats(self) -> dict[str, int]:
         """Counts of each memory type."""
@@ -1134,49 +1145,88 @@ class StackProtocol(Protocol):
         """Export all memories to a file."""
         ...
 
-    # ---- Composition Hooks ----
-    # Called by the core when this stack is attached/detached.
-    # The core provides an InferenceService so stack components
-    # that need model access can use it.
 
-    def on_attach(
-        self,
-        core_id: str,
-        inference: Optional[InferenceService] = None,
-    ) -> None:
-        """Called when this stack is attached to a core.
+# =============================================================================
+# STACK PROTOCOL — Head
+# =============================================================================
+# A self-contained memory system. Knows nothing about models or core plugins.
+# Stores, retrieves, searches, and maintains memories. That's it.
+#
+# A stack can be:
+# - Attached to one core, or many, or none
+# - Shared between entities (collaborative memory)
+# - Forked/snapshotted for experimentation
+# - Swapped at runtime (context switching)
+#
+# The stack's schema is sovereign. Nothing outside the stack modifies it.
+#
+# The stack has components (sub-plugins) that extend its capabilities.
+# Components are discovered via the kernle.stack_components entry point
+# and are swappable at runtime. Embedding is just one such component.
+#
+# PROVENANCE AND WRITE DISCIPLINE:
+#
+# Memories should be written through an attached core following protocol
+# standards. The core ensures full provenance: source attribution,
+# timestamps, context tags, derived_from chains, and source_type tracking.
+# This provenance is not just metadata — it is functionally important.
+# Consolidation, trust computation, forgetting, and meta-memory all
+# depend on knowing where a memory came from and how it was formed.
+#
+# A detached stack is a portable data artifact — it can be opened,
+# queried, exported, synced, and maintained by scripts or tooling.
+# But it is not an autonomous system. Direct writes to a detached
+# stack produce memories with incomplete provenance (no source
+# attribution, no context from the core's current composition).
+# This is sometimes necessary for migration, repair, or bootstrap,
+# but it degrades the stack's ability to reason about its own contents.
+# Like doctoring medical records — sometimes clinically necessary,
+# never clean, and should be minimized.
+#
+# The save_*() methods on the stack are low-level storage operations.
+# They accept whatever is passed to them. The core's routed methods
+# (episode(), belief(), etc.) are the protocol-compliant entry points
+# that ensure provenance is complete before calling save_*().
+# =============================================================================
 
-        The stack should:
-        - Track the core_id (for shared stack coordination)
-        - Pass the inference service to components that need it
-        - Enable inference-dependent features if inference is provided
 
-        Args:
-            core_id: The core attaching this stack.
-            inference: Model access for components. None if the core
-                      has no model bound yet.
-        """
+@runtime_checkable
+class StackProtocol(
+    StackLifecycleProtocol,
+    StackComponentManagerProtocol,
+    StackWriterProtocol,
+    StackReaderProtocol,
+    StackSearchProtocol,
+    StackLoaderProtocol,
+    StackSuggestionProtocol,
+    StackMetaMemoryProtocol,
+    StackProcessingProtocol,
+    StackSettingsProtocol,
+    StackTrustProtocol,
+    StackFeatureProtocol,
+    StackSyncProtocol,
+    StackExportProtocol,
+    Protocol,
+):
+    """Full stack interface — backwards compatible composite.
+
+    A self-contained, portable unit of memory. Sub-protocols can
+    be used independently for type narrowing.
+
+    The intended write path is: core -> stack (with full provenance).
+    Direct writes are possible but produce incomplete provenance.
+
+    Implementations: SQLiteStack (default), InMemoryStack, and custom backends.
+    """
+
+    @property
+    def stack_id(self) -> str:
+        """Unique identifier for this stack."""
         ...
 
-    def on_detach(self, core_id: str) -> None:
-        """Called when this stack is detached from a core.
-
-        The stack should:
-        - Stop tracking this core_id
-        - If no other cores are attached, set inference to None
-          on all components (graceful degradation)
-        """
-        ...
-
-    def on_model_changed(
-        self,
-        inference: Optional[InferenceService],
-    ) -> None:
-        """Called when the attached core's model changes.
-
-        The stack should update the inference service on all
-        components. If inference is None, the model was removed.
-        """
+    @property
+    def schema_version(self) -> int:
+        """Current schema version of this stack's storage."""
         ...
 
 
