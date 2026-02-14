@@ -8,6 +8,7 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
+from kernle.core.validation import validate_backend_url
 from kernle.utils import get_kernle_home
 
 from .base import (
@@ -38,22 +39,12 @@ class CloudClient:
         self._cloud_credentials_loaded: bool = False
 
     def _validate_backend_url(self, backend_url: str) -> Optional[str]:
-        """Validate backend URL to avoid leaking auth tokens to unsafe endpoints."""
-        from urllib.parse import urlparse
+        """Validate backend URL to avoid leaking auth tokens to unsafe endpoints.
 
-        parsed = urlparse(backend_url)
-        if parsed.scheme not in {"https", "http"}:
-            logger.warning("Invalid backend_url scheme; only http/https allowed.")
-            return None
-        if not parsed.netloc:
-            logger.warning("Invalid backend_url; missing host.")
-            return None
-        if parsed.scheme == "http":
-            host = parsed.hostname or ""
-            if host not in {"localhost", "127.0.0.1"}:
-                logger.warning("Refusing non-local http backend_url for security.")
-                return None
-        return backend_url
+        Delegates to the canonical ``validate_backend_url`` in
+        ``kernle.core.validation``.
+        """
+        return validate_backend_url(backend_url)
 
     def _load_cloud_credentials(self) -> Optional[Dict[str, str]]:
         """Load cloud credentials from config files or environment variables.

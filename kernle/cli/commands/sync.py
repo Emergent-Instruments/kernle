@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+from kernle.core.validation import validate_backend_url as _validate_backend_url
 from kernle.utils import get_kernle_home
 
 if TYPE_CHECKING:
@@ -18,30 +19,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 PULL_POISON_META_KEY = "pull_poison_operations"
-
-
-def _validate_backend_url(url: str) -> "str | None":
-    """Validate backend URL to avoid leaking auth tokens over plaintext HTTP.
-
-    Mirrors the validation in CloudClient._validate_backend_url().
-    """
-    if not url:
-        return None
-    from urllib.parse import urlparse
-
-    parsed = urlparse(url)
-    if parsed.scheme not in {"https", "http"}:
-        logger.warning("Invalid backend_url scheme; only http/https allowed.")
-        return None
-    if not parsed.netloc:
-        logger.warning("Invalid backend_url; missing host.")
-        return None
-    if parsed.scheme == "http":
-        host = parsed.hostname or ""
-        if host not in {"localhost", "127.0.0.1"}:
-            logger.warning("Refusing non-local http backend_url for security.")
-            return None
-    return url
 
 
 def cmd_sync(args, k: "Kernle"):
@@ -734,6 +711,7 @@ def cmd_sync(args, k: "Kernle"):
 
         # Get local status from storage
         pending_count = k._storage.get_pending_sync_count()
+        dead_letter_count = k._storage.get_dead_letter_count()
         last_sync = k._storage.get_last_sync_time()
         is_online = k._storage.is_online()
         pull_poison_pending = len(_load_pull_poison_records())
@@ -747,10 +725,12 @@ def cmd_sync(args, k: "Kernle"):
 
         if args.json:
             status_data = {
+                "version": 1,
                 "local_stack_id": local_project,
                 "namespaced_stack_id": namespaced_id if user_id else None,
                 "user_id": user_id,
                 "pending_operations": pending_count,
+                "dead_letter_count": dead_letter_count,
                 "pull_recovery_queue": pull_poison_pending,
                 "last_sync_time": format_datetime(last_sync),
                 "local_storage_online": is_online,
@@ -785,6 +765,11 @@ def cmd_sync(args, k: "Kernle"):
             # Pending operations
             pending_icon = "🟢" if pending_count == 0 else "🟡" if pending_count < 10 else "🟠"
             print(f"{pending_icon} Pending operations: {pending_count}")
+
+            # Dead-lettered operations
+            if dead_letter_count > 0:
+                print(f"🔴 Dead-lettered: {dead_letter_count}")
+                print("   These entries failed permanently. Use `kernle sync requeue` to retry.")
 
             # Last sync time
             if last_sync:
@@ -887,6 +872,7 @@ def cmd_sync(args, k: "Kernle"):
                 result["synced"] = synced
 
                 if args.json:
+                    result["version"] = 1
                     result["local_project"] = local_project
                     result["namespaced_id"] = get_namespaced_stack_id()
                     result["conflicts"] = normalized_conflicts
@@ -1016,6 +1002,7 @@ def cmd_sync(args, k: "Kernle"):
                     print(
                         json.dumps(
                             {
+                                "version": 1,
                                 "pulled": applied,
                                 "conflicts": conflicts,
                                 "conflict_envelopes": conflict_envelopes,
@@ -1287,7 +1274,7 @@ def cmd_sync(args, k: "Kernle"):
         if args.clear:
             cleared = k._storage.clear_sync_conflicts()
             if args.json:
-                print(json.dumps({"cleared": cleared}))
+                print(json.dumps({"version": 1, "cleared": cleared}))
             else:
                 print(f"✓ Cleared {cleared} conflict records")
             return
@@ -1308,7 +1295,11 @@ def cmd_sync(args, k: "Kernle"):
                         "cloud_summary": c.cloud_summary,
                     }
                 )
-            print(json.dumps({"conflicts": conflict_data, "count": len(conflicts)}, indent=2))
+            print(
+                json.dumps(
+                    {"version": 1, "conflicts": conflict_data, "count": len(conflicts)}, indent=2
+                )
+            )
         else:
             if not conflicts:
                 print("No sync conflicts in history")

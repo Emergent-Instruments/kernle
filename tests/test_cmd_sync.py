@@ -1274,3 +1274,129 @@ class TestSyncFull:
             c.record_id == "not-applied" and c.resolution == "pull_apply_failed"
             for c in pull_conflicts
         )
+
+
+# ============================================================================
+# JSON version field (#710)
+# ============================================================================
+
+
+class TestJsonVersionField:
+    """All JSON outputs must include 'version': 1 for forward compatibility."""
+
+    def test_status_json_includes_version(self, k, capsys, tmp_path):
+        """sync status --json includes version field."""
+        health_resp = _make_response(200)
+        mock_httpx = _mock_httpx_module(get_response=health_resp)
+
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok123", "user_id": "u1"}
+        creds_path = tmp_path / "ver_status"
+        creds_path.mkdir()
+        (creds_path / "credentials.json").write_text(json.dumps(creds))
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="status", json=True), k)
+
+        output = json.loads(capsys.readouterr().out)
+        assert output["version"] == 1
+
+    def test_push_json_includes_version(self, k, capsys, tmp_path):
+        """sync push --json includes version field."""
+        from kernle.storage import Note
+
+        k._storage.save_note(Note(id="n-ver", stack_id="test-sync", content="ver test"))
+
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok", "user_id": "u1"}
+        creds_path = tmp_path / "ver_push"
+        creds_path.mkdir()
+        (creds_path / "credentials.json").write_text(json.dumps(creds))
+
+        push_resp = _make_response(200, json_data={"synced": 1, "conflicts": []})
+        mock_httpx = _mock_httpx_module(post_response=push_resp)
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="push", json=True), k)
+
+        output = _extract_json(capsys.readouterr().out)
+        assert output["version"] == 1
+
+    def test_pull_json_includes_version(self, k, capsys, tmp_path):
+        """sync pull --json includes version field."""
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok", "user_id": "u1"}
+        creds_path = tmp_path / "ver_pull"
+        creds_path.mkdir()
+        (creds_path / "credentials.json").write_text(json.dumps(creds))
+
+        ops = [
+            {
+                "table": "episodes",
+                "record_id": "ep-ver",
+                "operation": "upsert",
+                "data": {"objective": "version test", "outcome_type": "neutral"},
+            }
+        ]
+        pull_resp = _make_response(200, json_data={"operations": ops, "has_more": False})
+        mock_httpx = _mock_httpx_module(post_response=pull_resp)
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="pull", json=True), k)
+
+        output = _extract_json(capsys.readouterr().out)
+        assert output["version"] == 1
+
+    def test_conflicts_json_includes_version(self, k, capsys, tmp_path):
+        """sync conflicts --json includes version field."""
+        creds_path = tmp_path / "ver_conf"
+        creds_path.mkdir()
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                cmd_sync(_args(sync_action="conflicts", json=True), k)
+
+        output = json.loads(capsys.readouterr().out)
+        assert output["version"] == 1
+
+    def test_conflicts_clear_json_includes_version(self, k, capsys, tmp_path):
+        """sync conflicts --clear --json includes version field."""
+        creds_path = tmp_path / "ver_conf_clear"
+        creds_path.mkdir()
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                cmd_sync(_args(sync_action="conflicts", clear=True, json=True), k)
+
+        output = json.loads(capsys.readouterr().out)
+        assert output["version"] == 1
+
+    def test_status_timestamps_are_iso8601(self, k, capsys, tmp_path):
+        """Timestamp fields in status JSON use ISO 8601 format."""
+        # Set a last_sync_time so we can verify its format
+        k._storage._set_sync_meta("last_sync_time", "2025-06-01T12:00:00+00:00")
+
+        health_resp = _make_response(200)
+        mock_httpx = _mock_httpx_module(get_response=health_resp)
+
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok", "user_id": "u1"}
+        creds_path = tmp_path / "ver_ts"
+        creds_path.mkdir()
+        (creds_path / "credentials.json").write_text(json.dumps(creds))
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="status", json=True), k)
+
+        output = json.loads(capsys.readouterr().out)
+        ts = output["last_sync_time"]
+        assert ts is not None
+        # ISO 8601 should contain 'T' separator and be parseable
+        assert "T" in ts
+        from datetime import datetime as dt
+
+        dt.fromisoformat(ts)  # will raise if not valid ISO 8601

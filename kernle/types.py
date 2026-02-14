@@ -46,6 +46,13 @@ def parse_datetime(
         return result
 
 
+# === Sync Queue State Constants ===
+# Integer values stored in sync_queue.synced column.
+SYNC_PENDING = 0  # Not yet synced / awaiting push
+SYNC_COMPLETED = 1  # Successfully synced to cloud
+SYNC_DEAD_LETTER = 2  # Permanently failed after max retries
+
+
 # === Enums ===
 
 

@@ -1,10 +1,30 @@
 """Hook commands for Claude Code integration.
 
-These commands are invoked by Claude Code hooks configured via `kernle setup claude-code`.
+These commands are invoked by Claude Code hooks configured via ``kernle setup claude-code``.
 They read JSON from stdin, perform memory operations, and write JSON to stdout.
 
 CRITICAL: All hook commands MUST exit 0 regardless of errors. A non-zero exit
 from a hook breaks the Claude Code session.
+
+Hook Failure Semantics
+----------------------
+Each hook type has an explicit failure mode that determines what happens when
+an error occurs (validation failure, storage error, corrupted input, etc.):
+
+- **PreToolUse: FAIL-CLOSED** -- Deny on any error, including validation.
+  This is the security-critical hook that gates memory-file writes.  A silent
+  pass-through on error would let unvalidated writes land on disk.
+
+- **SessionStart: FAIL-OPEN** -- Return empty additionalContext on error.
+  This is a lifecycle hook.  If memory cannot be loaded the session should
+  still start; the user just won't see prior context.
+
+- **PreCompact: FAIL-OPEN** -- Skip checkpoint and exit 0 on error.
+  Missing a pre-compaction checkpoint is acceptable; blocking compaction
+  would degrade the session.
+
+- **SessionEnd: FAIL-OPEN** -- Skip checkpoint/capture and exit 0 on error.
+  The session is already ending; there is no user-facing recovery path.
 """
 
 import json
@@ -122,10 +142,47 @@ def _truncate(text: str, max_len: int) -> str:
     return text[: max_len - 3] + "..."
 
 
+# -- Payload validation (#717) ------------------------------------------------
+
+# Required keys per hook type.  Unknown hook types pass through for forward
+# compatibility -- new hooks added upstream shouldn't break older kernle.
+_REQUIRED_KEYS: dict[str, list[str]] = {
+    "SessionStart": ["cwd"],
+    "PreToolUse": ["cwd", "tool_input"],
+    "PreCompact": ["cwd"],
+    "SessionEnd": ["cwd"],
+}
+
+
+def _validate_hook_input(data: dict, hook_name: str) -> dict:
+    """Validate that *data* contains the required keys for *hook_name*.
+
+    Returns *data* unchanged on success.  Raises ``ValueError`` with a
+    descriptive message when a required key is missing.
+
+    Unknown hook names are passed through without validation so that newer
+    Claude Code versions don't break older kernle installs.
+    """
+    required = _REQUIRED_KEYS.get(hook_name)
+    if required is None:
+        return data
+
+    for key in required:
+        if key not in data:
+            raise ValueError(f"Hook '{hook_name}' requires key '{key}' in payload")
+
+    return data
+
+
 def cmd_hook_session_start(args) -> None:
-    """SessionStart hook: Load memory and output as additionalContext."""
+    """SessionStart hook: Load memory and output as additionalContext.
+
+    Failure mode: FAIL-OPEN -- return empty context on any error so the
+    session can start without prior memory.
+    """
     try:
         hook_input = json.loads(sys.stdin.read())
+        _validate_hook_input(hook_input, "SessionStart")
         cwd = hook_input.get("cwd")
         stack_id = _resolve_hook_stack_id(getattr(args, "stack", None), cwd)
 
@@ -146,15 +203,21 @@ def cmd_hook_session_start(args) -> None:
             }
             json.dump(output, sys.stdout)
     except Exception:
+        # FAIL-OPEN: swallow all errors, produce no output
         pass
 
     sys.exit(0)
 
 
 def cmd_hook_pre_tool_use(args) -> None:
-    """PreToolUse hook: Intercept and deny writes to memory files."""
+    """PreToolUse hook: Intercept and deny writes to memory files.
+
+    Failure mode: FAIL-CLOSED -- emit deny on any error (validation,
+    storage, import, etc.) so that unvalidated writes never land on disk.
+    """
     try:
         hook_input = json.loads(sys.stdin.read())
+        _validate_hook_input(hook_input, "PreToolUse")
         tool_input = hook_input.get("tool_input", {})
 
         file_path = tool_input.get("file_path", "") or tool_input.get("path", "")
@@ -188,7 +251,7 @@ def cmd_hook_pre_tool_use(args) -> None:
         }
         json.dump(output, sys.stdout)
     except Exception as e:
-        # Fail closed: emit deny using hookSpecificOutput schema
+        # FAIL-CLOSED: emit deny using hookSpecificOutput schema
         # MUST use same schema as normal deny and exit(0) per hook contract
         deny_output = {
             "hookSpecificOutput": {
@@ -206,9 +269,14 @@ def cmd_hook_pre_tool_use(args) -> None:
 
 
 def cmd_hook_pre_compact(args) -> None:
-    """PreCompact hook: Save checkpoint before context compaction."""
+    """PreCompact hook: Save checkpoint before context compaction.
+
+    Failure mode: FAIL-OPEN -- skip checkpoint and exit 0 on any error
+    so that context compaction is never blocked.
+    """
     try:
         hook_input = json.loads(sys.stdin.read())
+        _validate_hook_input(hook_input, "PreCompact")
         cwd = hook_input.get("cwd")
         transcript_path = hook_input.get("transcript_path")
         stack_id = _resolve_hook_stack_id(getattr(args, "stack", None), cwd)
@@ -219,15 +287,21 @@ def cmd_hook_pre_compact(args) -> None:
         task, context = _read_last_messages(transcript_path)
         k.checkpoint(f"[pre-compact] {task}", context=context)
     except Exception:
+        # FAIL-OPEN: swallow all errors, skip checkpoint
         pass
 
     sys.exit(0)
 
 
 def cmd_hook_session_end(args) -> None:
-    """SessionEnd hook: Save checkpoint and raw entry on session termination."""
+    """SessionEnd hook: Save checkpoint and raw entry on session termination.
+
+    Failure mode: FAIL-OPEN -- skip operations and exit 0 on any error.
+    The session is already ending; there is no recovery path.
+    """
     try:
         hook_input = json.loads(sys.stdin.read())
+        _validate_hook_input(hook_input, "SessionEnd")
         cwd = hook_input.get("cwd")
         transcript_path = hook_input.get("transcript_path")
         stack_id = _resolve_hook_stack_id(getattr(args, "stack", None), cwd)
@@ -237,7 +311,7 @@ def cmd_hook_session_end(args) -> None:
         k = Kernle(stack_id=stack_id)
         task, context = _read_last_messages(transcript_path)
 
-        # Save both (ignore individual failures)
+        # Save both (ignore individual failures -- FAIL-OPEN per-operation)
         try:
             k.checkpoint(task, context=context)
         except Exception:
@@ -247,6 +321,7 @@ def cmd_hook_session_end(args) -> None:
         except Exception:
             pass
     except Exception:
+        # FAIL-OPEN: swallow all errors, skip all operations
         pass
 
     sys.exit(0)

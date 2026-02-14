@@ -4,7 +4,12 @@ import math
 
 import pytest
 
-from kernle.core.validation import sanitize_list, sanitize_number, sanitize_string
+from kernle.core.validation import (
+    sanitize_list,
+    sanitize_number,
+    sanitize_string,
+    validate_backend_url,
+)
 
 
 class TestSanitizeString:
@@ -161,3 +166,70 @@ class TestSanitizeList:
 
     def test_empty_list_passes(self):
         assert sanitize_list([], "field") == []
+
+
+class TestValidateBackendUrl:
+    """Unit tests for the canonical validate_backend_url function."""
+
+    def test_validate_backend_url_https_passes(self):
+        assert validate_backend_url("https://api.example.com") == "https://api.example.com"
+
+    def test_validate_backend_url_http_localhost_passes(self):
+        assert validate_backend_url("http://localhost:8000") == "http://localhost:8000"
+
+    def test_validate_backend_url_http_127_passes(self):
+        assert validate_backend_url("http://127.0.0.1:8000") == "http://127.0.0.1:8000"
+
+    def test_validate_backend_url_http_remote_rejected(self):
+        assert validate_backend_url("http://evil.example.com") is None
+
+    def test_validate_backend_url_ftp_rejected(self):
+        assert validate_backend_url("ftp://example.com") is None
+
+    def test_validate_backend_url_empty_returns_none(self):
+        assert validate_backend_url("") is None
+
+    def test_validate_backend_url_none_returns_none(self):
+        assert validate_backend_url(None) is None
+
+    def test_validate_backend_url_missing_host_rejected(self):
+        assert validate_backend_url("http://") is None
+
+    def test_validate_backend_url_https_with_port_passes(self):
+        assert validate_backend_url("https://api.example.com:443") == "https://api.example.com:443"
+
+    def test_validate_backend_url_http_remote_with_port_rejected(self):
+        assert validate_backend_url("http://evil.example.com:8080") is None
+
+    def test_validate_backend_url_http_localhost_no_port_passes(self):
+        assert validate_backend_url("http://localhost") == "http://localhost"
+
+    def test_validate_backend_url_http_localhost_with_path_passes(self):
+        assert (
+            validate_backend_url("http://localhost:8000/api/v1") == "http://localhost:8000/api/v1"
+        )
+
+    def test_validate_backend_url_allow_localhost_http_false_blocks_localhost(self):
+        """When allow_localhost_http=False, even localhost HTTP is rejected."""
+        assert validate_backend_url("http://localhost:8000", allow_localhost_http=False) is None
+
+    def test_validate_backend_url_allow_localhost_http_false_allows_https(self):
+        """When allow_localhost_http=False, HTTPS still passes."""
+        assert (
+            validate_backend_url("https://api.example.com", allow_localhost_http=False)
+            == "https://api.example.com"
+        )
+
+    def test_validate_backend_url_javascript_scheme_rejected(self):
+        assert validate_backend_url("javascript:alert(1)") is None
+
+    def test_validate_backend_url_file_scheme_rejected(self):
+        assert validate_backend_url("file:///etc/passwd") is None
+
+    def test_validate_backend_url_localhost_dot_evil_rejected(self):
+        """http://localhost.evil.com must be rejected (not real localhost)."""
+        assert validate_backend_url("http://localhost.evil.com") is None
+
+    def test_validate_backend_url_localhost_at_evil_rejected(self):
+        """http://localhost@evil.com must be rejected (userinfo bypass)."""
+        assert validate_backend_url("http://localhost@evil.com") is None

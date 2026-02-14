@@ -41,6 +41,8 @@ def _validate_import_numeric(
     """
     if value is None:
         return default, False
+    if isinstance(value, bool):
+        return default, strict
     try:
         fval = float(value)
     except (ValueError, TypeError):

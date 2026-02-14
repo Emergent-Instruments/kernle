@@ -16,6 +16,7 @@ from kernle.cli.commands.hook import (
     _read_last_messages,
     _resolve_hook_stack_id,
     _truncate,
+    _validate_hook_input,
     cmd_hook_pre_compact,
     cmd_hook_pre_tool_use,
     cmd_hook_session_end,
@@ -363,7 +364,7 @@ class TestHookPreToolUse:
     def test_allows_write_to_non_memory_path(self):
         output, exit_code = run_hook(
             cmd_hook_pre_tool_use,
-            {"tool_input": {"file_path": "src/main.py", "content": "code"}},
+            {"cwd": "/tmp/project", "tool_input": {"file_path": "src/main.py", "content": "code"}},
         )
 
         assert exit_code == 0
@@ -406,7 +407,7 @@ class TestHookPreToolUse:
     def test_allows_when_no_file_path(self):
         output, exit_code = run_hook(
             cmd_hook_pre_tool_use,
-            {"tool_input": {"content": "hello"}},
+            {"cwd": "/tmp/project", "tool_input": {"content": "hello"}},
         )
         assert exit_code == 0
         assert output is None
@@ -561,3 +562,77 @@ class TestHookSessionEnd:
         finally:
             sys.stdin = old_stdin
             sys.stdout = old_stdout
+
+
+# --- TestValidateHookInput (#717: Payload Validation) ---
+
+
+class TestValidateHookInput:
+    """Validate that hook payloads contain required keys for each hook type."""
+
+    def test_session_start_rejects_missing_cwd(self):
+        with pytest.raises(ValueError, match="cwd"):
+            _validate_hook_input({}, "SessionStart")
+
+    def test_session_start_accepts_valid_payload(self):
+        result = _validate_hook_input({"cwd": "/tmp/project"}, "SessionStart")
+        assert result["cwd"] == "/tmp/project"
+
+    def test_pre_tool_use_rejects_missing_tool_input(self):
+        with pytest.raises(ValueError, match="tool_input"):
+            _validate_hook_input({"cwd": "/tmp/project"}, "PreToolUse")
+
+    def test_pre_tool_use_rejects_missing_cwd(self):
+        with pytest.raises(ValueError, match="cwd"):
+            _validate_hook_input({"tool_input": {"file_path": "x"}}, "PreToolUse")
+
+    def test_pre_tool_use_with_valid_payload_succeeds(self):
+        data = {"cwd": "/tmp/project", "tool_input": {"file_path": "src/main.py"}}
+        result = _validate_hook_input(data, "PreToolUse")
+        assert result["cwd"] == "/tmp/project"
+        assert result["tool_input"]["file_path"] == "src/main.py"
+
+    def test_pre_compact_rejects_missing_cwd(self):
+        with pytest.raises(ValueError, match="cwd"):
+            _validate_hook_input({}, "PreCompact")
+
+    def test_pre_compact_accepts_valid_payload(self):
+        result = _validate_hook_input({"cwd": "/tmp/project"}, "PreCompact")
+        assert result["cwd"] == "/tmp/project"
+
+    def test_session_end_rejects_missing_cwd(self):
+        with pytest.raises(ValueError, match="cwd"):
+            _validate_hook_input({}, "SessionEnd")
+
+    def test_session_end_accepts_valid_payload(self):
+        result = _validate_hook_input({"cwd": "/tmp/project"}, "SessionEnd")
+        assert result["cwd"] == "/tmp/project"
+
+    def test_unknown_hook_type_passes_through(self):
+        """Unknown hook types should not raise -- forward compatibility."""
+        result = _validate_hook_input({"anything": True}, "FutureHook")
+        assert result == {"anything": True}
+
+
+class TestPreToolUseValidationFailsDenyClosed:
+    """PreToolUse validation failure must produce deny output, not crash (#717)."""
+
+    def test_pre_tool_use_denies_on_missing_cwd(self):
+        """Missing cwd triggers validation error, which must still deny."""
+        output, exit_code = run_hook(
+            cmd_hook_pre_tool_use,
+            {"tool_input": {"file_path": "memory/notes.md", "content": "data"}},
+        )
+        assert exit_code == 0
+        assert output is not None
+        assert output["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+    def test_pre_tool_use_denies_on_missing_tool_input(self):
+        """Missing tool_input triggers validation error, which must still deny."""
+        output, exit_code = run_hook(
+            cmd_hook_pre_tool_use,
+            {"cwd": "/tmp/project"},
+        )
+        assert exit_code == 0
+        assert output is not None
+        assert output["hookSpecificOutput"]["permissionDecision"] == "deny"

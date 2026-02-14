@@ -341,7 +341,10 @@ class TestTrustInLoad:
         assert "context-injection" in trust
         assert trust["context-injection"]["trust"] == 0.0
 
-    def test_load_no_trust_when_empty(self, trust_setup):
+    def test_load_has_self_trust_by_default(self, trust_setup):
+        """A fresh stack has self-trust bootstrapped via _ensure_self_trust."""
         k, _ = trust_setup
         result = k.load()
-        assert "trust" not in result
+        assert "trust" in result
+        assert "identity" in result["trust"]
+        assert result["trust"]["identity"]["trust"] == 1.0

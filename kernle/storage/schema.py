@@ -1419,6 +1419,10 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
         )
         logger.info("Created trust_assessments table")
         conn.commit()
+        # NOTE: Self-trust bootstrapping (identity entity with score 1.0) is
+        # handled at runtime by SQLiteStack._ensure_self_trust(), not during
+        # schema migration.  This keeps migrations DDL-only and avoids
+        # coupling migration code to stack_id / runtime context.
 
     # v20: Add diagnostic sessions and reports tables
     if "diagnostic_sessions" not in table_names and "agent_diagnostic_sessions" not in table_names:

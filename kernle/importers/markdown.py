@@ -68,7 +68,7 @@ class MarkdownImporter:
             raise FileNotFoundError(f"File not found: {self.file_path}")
 
         content = self.file_path.read_text(encoding="utf-8")
-        self.items = parse_markdown(content)
+        self.items = parse_markdown(content, origin_file=str(self.file_path))
         return self.items
 
     def import_to(self, k: "Kernle", dry_run: bool = False) -> Dict[str, int]:
@@ -98,7 +98,10 @@ class MarkdownImporter:
         return counts
 
 
-def parse_markdown(content: str) -> List[ImportItem]:
+def parse_markdown(
+    content: str,
+    origin_file: Optional[str] = None,
+) -> List[ImportItem]:
     """Parse markdown content into importable items.
 
     Detects sections like:
@@ -112,6 +115,7 @@ def parse_markdown(content: str) -> List[ImportItem]:
 
     Args:
         content: Markdown content to parse
+        origin_file: Optional source file path for provenance tracking
 
     Returns:
         List of ImportItem objects
@@ -126,35 +130,52 @@ def parse_markdown(content: str) -> List[ImportItem]:
         preamble = sections[0].strip()
         for para in _split_paragraphs(preamble):
             if para.strip():
-                items.append(ImportItem(type="raw", content=para.strip(), source="preamble"))
+                item = ImportItem(type="raw", content=para.strip(), source="preamble")
+                if origin_file:
+                    item.metadata["_import_meta"] = {
+                        "origin_file": origin_file,
+                        "origin_section": "preamble",
+                    }
+                items.append(item)
 
     # Process header sections
     for i in range(1, len(sections), 2):
         if i + 1 >= len(sections):
             break
 
-        header = sections[i].strip().lower()
+        header = sections[i].strip()
+        header_lower = header.lower()
         section_content = sections[i + 1].strip()
 
         if not section_content:
             continue
 
         # Determine type from header
-        if any(h in header for h in ["episode", "lesson", "experience", "event"]):
-            items.extend(_parse_episodes(section_content))
-        elif any(h in header for h in ["decision", "note", "insight", "observation"]):
-            items.extend(_parse_notes(section_content, header))
-        elif "belief" in header:
-            items.extend(_parse_beliefs(section_content))
-        elif any(h in header for h in ["value", "principle"]):
-            items.extend(_parse_values(section_content))
-        elif any(h in header for h in ["goal", "objective", "todo", "task"]):
-            items.extend(_parse_goals(section_content))
-        elif any(h in header for h in ["raw", "thought", "scratch", "draft", "idea"]):
-            items.extend(_parse_raw(section_content))
+        if any(h in header_lower for h in ["episode", "lesson", "experience", "event"]):
+            section_items = _parse_episodes(section_content)
+        elif any(h in header_lower for h in ["decision", "note", "insight", "observation"]):
+            section_items = _parse_notes(section_content, header_lower)
+        elif "belief" in header_lower:
+            section_items = _parse_beliefs(section_content)
+        elif any(h in header_lower for h in ["value", "principle"]):
+            section_items = _parse_values(section_content)
+        elif any(h in header_lower for h in ["goal", "objective", "todo", "task"]):
+            section_items = _parse_goals(section_content)
+        elif any(h in header_lower for h in ["raw", "thought", "scratch", "draft", "idea"]):
+            section_items = _parse_raw(section_content)
         else:
             # Unknown section - treat as raw
-            items.extend(_parse_raw(section_content))
+            section_items = _parse_raw(section_content)
+
+        # Annotate section items with origin metadata
+        if origin_file:
+            for item in section_items:
+                item.metadata["_import_meta"] = {
+                    "origin_file": origin_file,
+                    "origin_section": header,
+                }
+
+        items.extend(section_items)
 
     return items
 

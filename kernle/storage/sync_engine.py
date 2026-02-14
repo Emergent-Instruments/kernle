@@ -13,6 +13,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict, List, Optional
 
+from kernle.types import SYNC_COMPLETED, SYNC_DEAD_LETTER, SYNC_PENDING
+
 from .base import (
     Belief,
     Drive,
@@ -167,23 +169,37 @@ class SyncEngine:
     def get_sync_status(self) -> Dict[str, Any]:
         """Get sync queue status with counts."""
         with self._host._connect() as conn:
-            pending = conn.execute("SELECT COUNT(*) FROM sync_queue WHERE synced = 0").fetchone()[0]
-            synced = conn.execute("SELECT COUNT(*) FROM sync_queue WHERE synced = 1").fetchone()[0]
+            pending = conn.execute(
+                "SELECT COUNT(*) FROM sync_queue WHERE synced = ?", (SYNC_PENDING,)
+            ).fetchone()[0]
+            synced = conn.execute(
+                "SELECT COUNT(*) FROM sync_queue WHERE synced = ?", (SYNC_COMPLETED,)
+            ).fetchone()[0]
+            dead_letter = conn.execute(
+                "SELECT COUNT(*) FROM sync_queue WHERE synced = ?", (SYNC_DEAD_LETTER,)
+            ).fetchone()[0]
 
-            table_rows = conn.execute("""SELECT table_name, COUNT(*) as count
-                   FROM sync_queue WHERE synced = 0
-                   GROUP BY table_name""").fetchall()
+            table_rows = conn.execute(
+                """SELECT table_name, COUNT(*) as count
+                   FROM sync_queue WHERE synced = ?
+                   GROUP BY table_name""",
+                (SYNC_PENDING,),
+            ).fetchall()
             by_table = {row["table_name"]: row["count"] for row in table_rows}
 
-            op_rows = conn.execute("""SELECT operation, COUNT(*) as count
-                   FROM sync_queue WHERE synced = 0
-                   GROUP BY operation""").fetchall()
+            op_rows = conn.execute(
+                """SELECT operation, COUNT(*) as count
+                   FROM sync_queue WHERE synced = ?
+                   GROUP BY operation""",
+                (SYNC_PENDING,),
+            ).fetchall()
             by_operation = {row["operation"]: row["count"] for row in op_rows}
 
         return {
             "pending": pending,
             "synced": synced,
-            "total": pending + synced,
+            "dead_letter": dead_letter,
+            "total": pending + synced + dead_letter,
             "by_table": by_table,
             "by_operation": by_operation,
         }
@@ -275,7 +291,11 @@ class SyncEngine:
         ]
 
     def clear_failed_sync_records(self, older_than_days: int = 7) -> int:
-        """Clear failed sync records older than the specified days."""
+        """Move failed sync records older than the specified days to dead-letter state.
+
+        Dead-lettered entries use synced=SYNC_DEAD_LETTER (2) so they remain
+        distinguishable from successfully synced records (synced=1).
+        """
         from datetime import timedelta
 
         cutoff = datetime.now(timezone.utc) - timedelta(days=older_than_days)
@@ -284,16 +304,51 @@ class SyncEngine:
         with self._host._connect() as conn:
             cursor = conn.execute(
                 """UPDATE sync_queue
-                   SET synced = 1
-                   WHERE synced = 0
+                   SET synced = ?
+                   WHERE synced = ?
                      AND COALESCE(retry_count, 0) >= 5
                      AND last_attempt_at < ?""",
-                (cutoff_str,),
+                (SYNC_DEAD_LETTER, SYNC_PENDING, cutoff_str),
             )
             count = cursor.rowcount
             conn.commit()
 
         return count
+
+    def get_dead_letter_count(self) -> int:
+        """Get count of dead-lettered sync records."""
+        with self._host._connect() as conn:
+            count = conn.execute(
+                "SELECT COUNT(*) FROM sync_queue WHERE synced = ?",
+                (SYNC_DEAD_LETTER,),
+            ).fetchone()[0]
+        return count
+
+    def requeue_dead_letters(self, record_ids: list[int] | None = None) -> int:
+        """Re-enqueue dead-lettered entries for retry.
+
+        Args:
+            record_ids: Specific IDs to requeue, or None for all.
+        Returns:
+            Number of entries requeued.
+        """
+        with self._host._connect() as conn:
+            if record_ids:
+                placeholders = ",".join("?" for _ in record_ids)
+                cursor = conn.execute(
+                    f"UPDATE sync_queue SET synced = {SYNC_PENDING}, retry_count = 0, "
+                    f"last_error = NULL WHERE synced = {SYNC_DEAD_LETTER} "
+                    f"AND id IN ({placeholders})",
+                    record_ids,
+                )
+            else:
+                cursor = conn.execute(
+                    "UPDATE sync_queue SET synced = ?, retry_count = 0, last_error = NULL "
+                    "WHERE synced = ?",
+                    (SYNC_PENDING, SYNC_DEAD_LETTER),
+                )
+            conn.commit()
+            return cursor.rowcount
 
     # === Sync Metadata ===
 

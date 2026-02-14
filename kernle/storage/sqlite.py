@@ -5299,6 +5299,14 @@ class SQLiteStorage:
         """Clear failed sync records older than the specified days."""
         return self._sync_engine.clear_failed_sync_records(older_than_days)
 
+    def get_dead_letter_count(self) -> int:
+        """Get count of dead-lettered sync records."""
+        return self._sync_engine.get_dead_letter_count()
+
+    def requeue_dead_letters(self, record_ids: list[int] | None = None) -> int:
+        """Re-enqueue dead-lettered entries for retry."""
+        return self._sync_engine.requeue_dead_letters(record_ids)
+
     def _get_sync_meta(self, key: str):
         """Get a sync metadata value."""
         return self._sync_engine._get_sync_meta(key)

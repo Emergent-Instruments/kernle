@@ -144,7 +144,7 @@ def cmd_auth(args, k: "Kernle" = None):
                 user_id = result.get("user_id")
                 # Backend returns "secret" for the permanent credential (store as api_key)
                 secret = result.get("secret")
-                # Backend returns "access_token" for the JWT (store as token)
+                # Backend returns "access_token" for the JWT (store as auth_token)
                 access_token = result.get("access_token")
                 expires_in = result.get("expires_in", 604800)
 
@@ -169,7 +169,7 @@ def cmd_auth(args, k: "Kernle" = None):
                     "user_id": user_id,
                     "api_key": secret,  # Permanent secret stored as api_key
                     "backend_url": backend_url,
-                    "token": access_token,  # JWT access token
+                    "auth_token": access_token,  # JWT access token (matches login flow)
                     "token_expires": token_expires,
                 }
                 save_credentials(credentials)

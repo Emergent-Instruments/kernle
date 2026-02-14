@@ -2618,3 +2618,179 @@ class TestPlaybookMergeArrayFields:
         assert set(result.recovery_steps) == {"recover-a", "recover-b"}
         assert set(result.source_episodes) == {"ep-1", "ep-2"}
         assert set(result.tags) == {"tag-w", "tag-l"}
+
+
+class TestDeadLetterSemantics:
+    """Tests for dead-letter sync queue semantics (issue #721).
+
+    Dead-lettered entries (synced=2) must be distinguishable from
+    successfully synced records (synced=1) and pending records (synced=0).
+    """
+
+    def test_clear_failed_sets_dead_letter_state(self, storage):
+        """clear_failed_sync_records should set synced=2 (DEAD_LETTER), not synced=1."""
+        from kernle.types import SYNC_DEAD_LETTER
+
+        storage.save_note(Note(id="dl-1", stack_id="test-agent", content="Dead letter test"))
+
+        queued = storage.get_queued_changes(limit=10)
+        change = next(c for c in queued if c.record_id == "dl-1")
+
+        # Simulate 5 failures and set last_attempt_at to 10 days ago
+        with storage._connect() as conn:
+            for _ in range(5):
+                storage._record_sync_failure(conn, change.id, "Persistent error")
+            old_time = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+            conn.execute(
+                "UPDATE sync_queue SET last_attempt_at = ? WHERE id = ?",
+                (old_time, change.id),
+            )
+            conn.commit()
+
+        cleared = storage.clear_failed_sync_records(older_than_days=7)
+        assert cleared == 1
+
+        # Verify the record has synced=2 (DEAD_LETTER), not synced=1
+        with storage._connect() as conn:
+            row = conn.execute(
+                "SELECT synced FROM sync_queue WHERE id = ?", (change.id,)
+            ).fetchone()
+        assert row["synced"] == SYNC_DEAD_LETTER
+
+    def test_dead_letter_entries_not_in_queued_changes(self, storage):
+        """Dead-lettered entries must not appear in get_queued_changes."""
+        storage.save_note(Note(id="dl-2", stack_id="test-agent", content="Dead letter queue test"))
+
+        queued = storage.get_queued_changes(limit=10)
+        change = next(c for c in queued if c.record_id == "dl-2")
+
+        # Move to dead-letter state
+        with storage._connect() as conn:
+            for _ in range(5):
+                storage._record_sync_failure(conn, change.id, "Error")
+            old_time = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+            conn.execute(
+                "UPDATE sync_queue SET last_attempt_at = ? WHERE id = ?",
+                (old_time, change.id),
+            )
+            conn.commit()
+
+        storage.clear_failed_sync_records(older_than_days=7)
+
+        # Should not appear in queued changes
+        queued_after = storage.get_queued_changes(limit=100)
+        assert not any(c.record_id == "dl-2" for c in queued_after)
+
+    def test_get_dead_letter_count(self, storage):
+        """get_dead_letter_count returns the number of dead-lettered entries."""
+        # Initially zero
+        assert storage.get_dead_letter_count() == 0
+
+        # Create and dead-letter two entries
+        for note_id in ("dl-3a", "dl-3b"):
+            storage.save_note(Note(id=note_id, stack_id="test-agent", content=f"DL test {note_id}"))
+            queued = storage.get_queued_changes(limit=100)
+            change = next(c for c in queued if c.record_id == note_id)
+            with storage._connect() as conn:
+                for _ in range(5):
+                    storage._record_sync_failure(conn, change.id, "Error")
+                old_time = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+                conn.execute(
+                    "UPDATE sync_queue SET last_attempt_at = ? WHERE id = ?",
+                    (old_time, change.id),
+                )
+                conn.commit()
+
+        storage.clear_failed_sync_records(older_than_days=7)
+        assert storage.get_dead_letter_count() == 2
+
+    def test_requeue_dead_letters_resets_state(self, storage):
+        """requeue_dead_letters moves dead-lettered entries back to pending."""
+        from kernle.types import SYNC_PENDING
+
+        storage.save_note(Note(id="dl-4", stack_id="test-agent", content="Requeue test"))
+
+        queued = storage.get_queued_changes(limit=10)
+        change = next(c for c in queued if c.record_id == "dl-4")
+
+        # Move to dead-letter
+        with storage._connect() as conn:
+            for _ in range(5):
+                storage._record_sync_failure(conn, change.id, "Error")
+            old_time = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+            conn.execute(
+                "UPDATE sync_queue SET last_attempt_at = ? WHERE id = ?",
+                (old_time, change.id),
+            )
+            conn.commit()
+
+        storage.clear_failed_sync_records(older_than_days=7)
+        assert storage.get_dead_letter_count() == 1
+
+        # Requeue
+        requeued = storage.requeue_dead_letters()
+        assert requeued == 1
+        assert storage.get_dead_letter_count() == 0
+
+        # Verify it is back in queued changes with reset retry_count
+        queued_after = storage.get_queued_changes(limit=100)
+        requeued_change = next(c for c in queued_after if c.record_id == "dl-4")
+        assert requeued_change.retry_count == 0
+        assert requeued_change.last_error is None
+
+        # Verify synced column is SYNC_PENDING
+        with storage._connect() as conn:
+            row = conn.execute(
+                "SELECT synced FROM sync_queue WHERE id = ?", (change.id,)
+            ).fetchone()
+        assert row["synced"] == SYNC_PENDING
+
+    def test_requeue_dead_letters_by_id(self, storage):
+        """requeue_dead_letters with specific IDs only requeues those entries."""
+        ids_map = {}
+        for note_id in ("dl-5a", "dl-5b", "dl-5c"):
+            storage.save_note(Note(id=note_id, stack_id="test-agent", content=f"DL {note_id}"))
+            queued = storage.get_queued_changes(limit=100)
+            change = next(c for c in queued if c.record_id == note_id)
+            ids_map[note_id] = change.id
+            with storage._connect() as conn:
+                for _ in range(5):
+                    storage._record_sync_failure(conn, change.id, "Error")
+                old_time = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+                conn.execute(
+                    "UPDATE sync_queue SET last_attempt_at = ? WHERE id = ?",
+                    (old_time, change.id),
+                )
+                conn.commit()
+
+        storage.clear_failed_sync_records(older_than_days=7)
+        assert storage.get_dead_letter_count() == 3
+
+        # Requeue only the first one
+        requeued = storage.requeue_dead_letters(record_ids=[ids_map["dl-5a"]])
+        assert requeued == 1
+        assert storage.get_dead_letter_count() == 2
+
+    def test_dead_letter_count_in_sync_status(self, storage):
+        """get_sync_status should include dead_letter count."""
+        status = storage.get_sync_status()
+        assert "dead_letter" in status
+        assert status["dead_letter"] == 0
+
+        # Create and dead-letter an entry
+        storage.save_note(Note(id="dl-6", stack_id="test-agent", content="Status test"))
+        queued = storage.get_queued_changes(limit=10)
+        change = next(c for c in queued if c.record_id == "dl-6")
+        with storage._connect() as conn:
+            for _ in range(5):
+                storage._record_sync_failure(conn, change.id, "Error")
+            old_time = (datetime.now(timezone.utc) - timedelta(days=10)).isoformat()
+            conn.execute(
+                "UPDATE sync_queue SET last_attempt_at = ? WHERE id = ?",
+                (old_time, change.id),
+            )
+            conn.commit()
+
+        storage.clear_failed_sync_records(older_than_days=7)
+        status = storage.get_sync_status()
+        assert status["dead_letter"] == 1

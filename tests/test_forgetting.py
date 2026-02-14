@@ -380,6 +380,33 @@ class TestForgettingCycle:
         episode = storage.get_episode("live-run-test")
         assert episode.strength == 0.0
 
+    def test_forgetting_cycle_respects_limit(self, kernle_instance):
+        """Forgetting cycle should process at most `limit` candidates."""
+        kernle, storage = kernle_instance
+
+        old_date = datetime.now(timezone.utc) - timedelta(days=120)
+
+        # Create more candidates than the limit
+        for i in range(5):
+            episode = Episode(
+                id=f"limit-test-{i}",
+                stack_id=kernle.stack_id,
+                objective=f"Limit test episode {i}",
+                outcome="meh",
+                outcome_type="partial",
+                created_at=old_date,
+                confidence=0.1,
+                times_accessed=0,
+                strength=0.1,
+            )
+            storage.save_episode(episode)
+
+        # Run with limit=2 so only 2 should be forgotten
+        result = kernle.run_forgetting_cycle(threshold=0.5, limit=2, dry_run=False)
+
+        assert result["candidate_count"] <= 2
+        assert result["forgotten"] <= 2
+
 
 class TestAccessTracking:
     """Test memory access tracking for salience."""

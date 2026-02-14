@@ -1,6 +1,21 @@
-"""Tests for _validate_backend_url in CLI sync module."""
+"""Tests for _validate_backend_url in CLI sync module.
+
+Verifies that the sync module's ``_validate_backend_url`` is wired to the
+canonical ``validate_backend_url`` from ``kernle.core.validation`` and that
+the import alias preserves the existing call-site contract.
+"""
 
 from kernle.cli.commands.sync import _validate_backend_url
+from kernle.core.validation import validate_backend_url
+
+
+class TestSyncValidateBackendUrlIsCanonical:
+    """Verify sync's _validate_backend_url delegates to core.validation."""
+
+    def test_sync_alias_is_canonical_function(self):
+        """The sync module's _validate_backend_url must be the same object
+        as kernle.core.validation.validate_backend_url."""
+        assert _validate_backend_url is validate_backend_url
 
 
 class TestValidateBackendUrl:
