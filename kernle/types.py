@@ -146,6 +146,9 @@ class SyncConflict:
     resolved_at: datetime  # When the conflict was resolved
     local_summary: Optional[str] = None  # Human-readable summary of local content
     cloud_summary: Optional[str] = None  # Human-readable summary of cloud content
+    source: Optional[str] = None  # Origin of this conflict record (e.g., sync_engine)
+    diff_hash: Optional[str] = None  # Stable hash of compared values
+    policy_decision: Optional[str] = None  # Resolution policy used
 
 
 @dataclass

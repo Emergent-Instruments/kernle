@@ -5,6 +5,7 @@ merge logic, and conflict resolution. Receives the host SQLiteStorage
 instance to access DB connection and record operations.
 """
 
+import hashlib
 import json
 import logging
 import sqlite3
@@ -323,7 +324,8 @@ class SyncEngine:
         with self._host._connect() as conn:
             rows = conn.execute(
                 """SELECT id, table_name, record_id, local_version, cloud_version,
-                          resolution, resolved_at, local_summary, cloud_summary
+                          resolution, resolved_at, local_summary, cloud_summary,
+                          source, diff_hash, policy_decision
                    FROM sync_conflicts
                    ORDER BY resolved_at DESC
                    LIMIT ?""",
@@ -342,18 +344,31 @@ class SyncEngine:
                 or datetime.now(timezone.utc),
                 local_summary=row["local_summary"],
                 cloud_summary=row["cloud_summary"],
+                source=row["source"] if "source" in row.keys() else None,
+                diff_hash=row["diff_hash"] if "diff_hash" in row.keys() else None,
+                policy_decision=row["policy_decision"] if "policy_decision" in row.keys() else None,
             )
             for row in rows
         ]
 
     def save_sync_conflict(self, conflict: SyncConflict) -> str:
-        """Save a sync conflict record."""
+        """Save a sync conflict record. Deduplicates by diff_hash when available."""
         with self._host._connect() as conn:
+            # Deduplicate by diff_hash if available
+            if conflict.diff_hash:
+                existing = conn.execute(
+                    "SELECT id FROM sync_conflicts WHERE diff_hash = ?",
+                    (conflict.diff_hash,),
+                ).fetchone()
+                if existing:
+                    return existing["id"]  # Already recorded
+
             conn.execute(
                 """INSERT INTO sync_conflicts
                    (id, table_name, record_id, local_version, cloud_version,
-                    resolution, resolved_at, local_summary, cloud_summary)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    resolution, resolved_at, local_summary, cloud_summary,
+                    source, diff_hash, policy_decision)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     conflict.id,
                     conflict.table,
@@ -368,6 +383,9 @@ class SyncEngine:
                     ),
                     conflict.local_summary,
                     conflict.cloud_summary,
+                    conflict.source,
+                    conflict.diff_hash,
+                    conflict.policy_decision,
                 ),
             )
             conn.commit()
@@ -793,7 +811,12 @@ class SyncEngine:
             if cloud_time > local_time:
                 merged_record = self._merge_array_fields(table, cloud_record, local_record)
                 conflict = self._create_conflict(
-                    table, cloud_record.id, local_record, cloud_record, "cloud_wins_arrays_merged"
+                    table,
+                    cloud_record.id,
+                    local_record,
+                    cloud_record,
+                    "cloud_wins_arrays_merged",
+                    policy_decision="newer_cloud_timestamp",
                 )
                 self._save_from_cloud(table, merged_record)
                 with self._host._connect() as conn:
@@ -805,12 +828,18 @@ class SyncEngine:
                     conn.commit()
                 self.save_sync_conflict(conflict)
                 return (1, conflict)
-            else:
+
+            if local_time > cloud_time:
                 merged_record = self._merge_array_fields(table, local_record, cloud_record)
                 if merged_record is not local_record:
                     self._save_from_cloud(table, merged_record)
                 conflict = self._create_conflict(
-                    table, cloud_record.id, local_record, cloud_record, "local_wins_arrays_merged"
+                    table,
+                    cloud_record.id,
+                    local_record,
+                    cloud_record,
+                    "local_wins_arrays_merged",
+                    policy_decision="older_local_timestamp",
                 )
                 with self._host._connect() as conn:
                     self._mark_synced(conn, table, cloud_record.id)
@@ -821,17 +850,68 @@ class SyncEngine:
                     conn.commit()
                 self.save_sync_conflict(conflict)
                 return (0, conflict)
-        elif cloud_time:
+
+            # Equal timestamps: deterministic tie-break for replay safety.
+            if self._build_record_snapshot(cloud_record) == self._build_record_snapshot(
+                local_record
+            ):
+                with self._host._connect() as conn:
+                    self._mark_synced(conn, table, cloud_record.id)
+                    conn.execute(
+                        "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
+                        (table, cloud_record.id),
+                    )
+                    conn.commit()
+                return (0, None)
+
+            policy_decision = self._choose_tie_break_policy(local_record, cloud_record)
+            if policy_decision == "local_wins_tie_hash":
+                merged_record = self._merge_array_fields(table, local_record, cloud_record)
+                if merged_record is not local_record:
+                    self._save_from_cloud(table, merged_record)
+                resolution = "local_wins_arrays_merged"
+            else:
+                merged_record = self._merge_array_fields(table, cloud_record, local_record)
+                if merged_record is not cloud_record:
+                    self._save_from_cloud(table, merged_record)
+                resolution = "cloud_wins_arrays_merged"
+
+            conflict = self._create_conflict(
+                table,
+                cloud_record.id,
+                local_record,
+                cloud_record,
+                resolution,
+                policy_decision=policy_decision,
+            )
+            with self._host._connect() as conn:
+                self._mark_synced(conn, table, cloud_record.id)
+                conn.execute(
+                    "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
+                    (table, cloud_record.id),
+                )
+                conn.commit()
+            self.save_sync_conflict(conflict)
+            return (0, conflict)
+
+        if cloud_time:
             save_fn()
             with self._host._connect() as conn:
                 self._mark_synced(conn, table, cloud_record.id)
                 conn.commit()
             return (1, None)
-        else:
-            return (0, None)
+
+        return (0, None)
 
     def _create_conflict(
-        self, table: str, record_id: str, local_record: Any, cloud_record: Any, resolution: str
+        self,
+        table: str,
+        record_id: str,
+        local_record: Any,
+        cloud_record: Any,
+        resolution: str,
+        *,
+        policy_decision: Optional[str] = None,
     ) -> SyncConflict:
         """Create a SyncConflict record with human-readable summaries."""
         local_summary = self._get_record_summary(table, local_record)
@@ -848,7 +928,57 @@ class SyncEngine:
             resolved_at=datetime.now(timezone.utc),
             local_summary=local_summary,
             cloud_summary=cloud_summary,
+            source="sync_engine",
+            diff_hash=self._build_conflict_hash(local_dict, cloud_dict),
+            policy_decision=policy_decision,
         )
+
+    def _build_record_snapshot(self, record: Any) -> Dict[str, Any]:
+        """Build a deterministic snapshot for timestamp-equality comparison."""
+        snapshot = self._record_to_dict(record)
+        if not isinstance(snapshot, dict):
+            return {}
+
+        # Ignore mutable sync metadata when comparing semantically-equivalent records.
+        # The cloud metadata timestamp can differ while payload/content remains identical,
+        # and should not trigger a conflict in that case.
+        snapshot.pop("cloud_synced_at", None)
+        return snapshot
+
+    def _build_record_hash(self, record: Dict[str, Any]) -> Optional[str]:
+        """Build a deterministic hash for a record snapshot."""
+        try:
+            return hashlib.sha256(
+                json.dumps(record, sort_keys=True, default=str).encode("utf-8")
+            ).hexdigest()
+        except Exception:
+            return None
+
+    def _build_conflict_hash(
+        self, local_version: Dict[str, Any], cloud_version: Dict[str, Any]
+    ) -> Optional[str]:
+        """Build a deterministic hash for conflict comparisons and auditing."""
+        try:
+            payload = {"cloud": cloud_version, "local": local_version}
+            return hashlib.sha256(
+                json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
+            ).hexdigest()
+        except Exception:
+            return None
+
+    def _choose_tie_break_policy(self, local_record: Any, cloud_record: Any) -> str:
+        """Deterministically choose conflict winner when timestamps are equal."""
+        local_snapshot = self._build_record_snapshot(local_record)
+        cloud_snapshot = self._build_record_snapshot(cloud_record)
+
+        local_hash = self._build_record_hash(local_snapshot)
+        cloud_hash = self._build_record_hash(cloud_snapshot)
+
+        if local_hash is None or cloud_hash is None:
+            return "local_wins_tie_hash"
+
+        # Deterministic, stable tie-breaker. Smallest hash wins.
+        return "cloud_wins_tie_hash" if cloud_hash < local_hash else "local_wins_tie_hash"
 
     def _get_record_summary(self, table: str, record: Any) -> str:
         """Get a human-readable summary of a record for conflict display."""

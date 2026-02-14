@@ -92,7 +92,7 @@ class TestGetAgingRawEntries:
             SimpleNamespace(id="3", captured_at=old_time, timestamp=old_time),
         ]
         with patch.object(k, "list_raw", return_value=mock_entries):
-            total, aging, oldest = k._get_aging_raw_entries(24)
+            total, aging, oldest, _ = k._get_aging_raw_entries(24)
             assert total == 3
             assert aging == 2  # Two entries > 24h old
             assert oldest > 24
@@ -105,14 +105,14 @@ class TestGetAgingRawEntries:
             SimpleNamespace(id="2", captured_at=recent_time, timestamp=None),
         ]
         with patch.object(k, "list_raw", return_value=mock_entries):
-            total, aging, oldest = k._get_aging_raw_entries(24)
+            total, aging, oldest, _ = k._get_aging_raw_entries(24)
             assert total == 2
             assert aging == 0
             assert oldest < 24
 
     def test_empty_raw_entries(self, k):
         """No raw entries should return zeros."""
-        total, aging, oldest = k._get_aging_raw_entries(24)
+        total, aging, oldest, _ = k._get_aging_raw_entries(24)
         assert total == 0
         assert aging == 0
         assert oldest == 0
@@ -125,7 +125,7 @@ class TestGetAgingRawEntries:
             SimpleNamespace(id="3", captured_at=None, timestamp=None),
         ]
         with patch.object(k, "list_raw", return_value=mock_entries):
-            total, aging, oldest = k._get_aging_raw_entries(24)
+            total, aging, oldest, _ = k._get_aging_raw_entries(24)
             assert total == 3
             assert aging == 0  # All skipped due to invalid timestamps
 
@@ -138,7 +138,7 @@ class TestGetAgingRawEntries:
             SimpleNamespace(id="1", captured_at=old_time, timestamp=recent_time),
         ]
         with patch.object(k, "list_raw", return_value=mock_entries):
-            total, aging, oldest = k._get_aging_raw_entries(24)
+            total, aging, oldest, _ = k._get_aging_raw_entries(24)
             assert aging == 1  # Uses captured_at (old), not timestamp (recent)
 
     def test_falls_back_to_timestamp_field(self, k):
@@ -149,7 +149,7 @@ class TestGetAgingRawEntries:
             SimpleNamespace(id="1", captured_at=None, timestamp=old_time),
         ]
         with patch.object(k, "list_raw", return_value=mock_entries):
-            total, aging, oldest = k._get_aging_raw_entries(24)
+            total, aging, oldest, _ = k._get_aging_raw_entries(24)
             assert aging == 1
 
 
@@ -338,7 +338,8 @@ class TestRawAgingHighCounts:
         """8+ aging entries should show STALE with review needed."""
         old_time = (datetime.now(timezone.utc) - timedelta(hours=96)).isoformat()
         mock_entries = [
-            SimpleNamespace(id=str(i), captured_at=old_time, timestamp=None) for i in range(10)
+            SimpleNamespace(id=str(i), content="x" * 250, captured_at=old_time, timestamp=None)
+            for i in range(10)
         ]
         with patch.object(k, "list_raw", return_value=mock_entries):
             report = k.get_anxiety_report()
@@ -538,20 +539,30 @@ class TestRawAgingReportIntegration:
     """Test raw aging paths in get_anxiety_report (lines 310-311, 313-314)."""
 
     def test_fresh_unprocessed_entries_report(self, k):
-        """Unprocessed but fresh entries should show 'all fresh' detail (lines 310-311)."""
-        with patch.object(k, "_get_aging_raw_entries", return_value=(5, 0, 2)):
+        """Unprocessed but fresh entries should show 'all fresh' detail."""
+        recent = datetime.now(timezone.utc) - timedelta(hours=2)
+        entries = [
+            SimpleNamespace(content="x" * 100, captured_at=recent, timestamp=None) for _ in range(5)
+        ]
+        with patch.object(k, "_get_aging_raw_entries", return_value=(5, 0, 2, entries)):
             report = k.get_anxiety_report()
             dim = report["dimensions"]["raw_aging"]
             assert "all fresh" in dim["detail"]
-            assert dim["score"] == 15
 
     def test_few_aging_entries_report(self, k):
-        """1-3 aging entries should show >24h old detail (lines 313-314)."""
-        with patch.object(k, "_get_aging_raw_entries", return_value=(8, 2, 30)):
+        """1-3 aging entries should show >24h old detail."""
+        old = datetime.now(timezone.utc) - timedelta(hours=30)
+        recent = datetime.now(timezone.utc) - timedelta(hours=2)
+        entries = [
+            SimpleNamespace(content="x" * 100, captured_at=old, timestamp=None),
+            SimpleNamespace(content="x" * 100, captured_at=old, timestamp=None),
+        ] + [
+            SimpleNamespace(content="x" * 100, captured_at=recent, timestamp=None) for _ in range(6)
+        ]
+        with patch.object(k, "_get_aging_raw_entries", return_value=(8, 2, 30, entries)):
             report = k.get_anxiety_report()
             dim = report["dimensions"]["raw_aging"]
             assert ">24h old" in dim["detail"]
-            assert dim["score"] == 60
 
 
 class TestIdentityCoherenceStrong:

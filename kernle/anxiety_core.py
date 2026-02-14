@@ -4,7 +4,8 @@ Pure functions for computing anxiety dimension scores, used by both
 AnxietyMixin (7-dim, Kernle layer) and AnxietyComponent (5-dim, stack layer).
 """
 
-from typing import Optional, Tuple
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
 # ---- Anxiety Level Thresholds ----
 
@@ -98,6 +99,149 @@ def compute_raw_aging_score(total_unprocessed: int, aging_count: int, oldest_hou
         return int(60 + (aging_count - 3) * 8)
     else:
         return min(100, int(92 + (aging_count - 7) * 1))
+
+
+def compute_raw_aging_score_weighted(entries: List[Any], age_threshold_hours: int = 24) -> int:
+    """Score for aging raw entries weighted by content length (0-100).
+
+    A companion to compute_raw_aging_score() that weights entries by their
+    content length instead of counting them equally. Callers can opt into
+    this for more nuanced scoring of short/ambiguous prompts.
+
+    Weight tiers:
+        < 20 chars:  0.3 (low information)
+        20-200 chars: 0.7 (moderate)
+        > 200 chars:  1.0 (full weight)
+
+    Args:
+        entries: List of raw entry objects with ``content``, ``captured_at``
+            and/or ``timestamp`` attributes.
+        age_threshold_hours: Hours after which an entry is considered aging.
+    """
+    if not entries:
+        return 0
+
+    now = datetime.now(timezone.utc)
+    total_weight = 0.0
+    aging_weight = 0.0
+    oldest_hours = 0.0
+
+    for entry in entries:
+        # Determine content-based weight
+        content = getattr(entry, "content", None) or ""
+        length = len(content)
+        if length < 20:
+            w = 0.3
+        elif length <= 200:
+            w = 0.7
+        else:
+            w = 1.0
+
+        total_weight += w
+
+        # Determine age
+        entry_time = getattr(entry, "captured_at", None) or getattr(entry, "timestamp", None)
+        if entry_time:
+            try:
+                if isinstance(entry_time, str):
+                    entry_time = datetime.fromisoformat(entry_time.replace("Z", "+00:00"))
+                age = now - entry_time
+                entry_hours = age.total_seconds() / 3600
+                if entry_hours > age_threshold_hours:
+                    aging_weight += w
+                if entry_hours > oldest_hours:
+                    oldest_hours = entry_hours
+            except (ValueError, TypeError, AttributeError):
+                continue
+
+    # Convert weighted counts to integer-like values for the existing scorer
+    effective_total = total_weight
+    effective_aging = aging_weight
+
+    return compute_raw_aging_score(
+        int(round(effective_total)),
+        int(round(effective_aging)),
+        oldest_hours,
+    )
+
+
+def score_with_confidence(score: int, sample_count: int) -> Dict[str, Any]:
+    """Return score with confidence based on sample size.
+
+    Confidence reflects how much data backs the score:
+        0 samples:  0.0 (no data)
+        1-2 samples: 0.5 (very sparse)
+        3-5 samples: 0.7 (moderate)
+        6+ samples:  0.9 (well-supported)
+
+    Args:
+        score: The raw dimension score (0-100).
+        sample_count: Number of data points that contributed to the score.
+    """
+    if sample_count == 0:
+        confidence = 0.0
+    elif sample_count <= 2:
+        confidence = 0.5
+    elif sample_count <= 5:
+        confidence = 0.7
+    else:
+        confidence = 0.9
+    return {"score": score, "confidence": confidence}
+
+
+def apply_hysteresis(
+    current_score: int,
+    previous_level: Optional[str],
+    enter_threshold: int = 75,
+    exit_threshold: int = 60,
+) -> str:
+    """Apply hysteresis to prevent oscillation near thresholds.
+
+    When a score hovers near a level boundary, rapid toggling between
+    adjacent levels is distracting. Hysteresis uses separate enter and
+    exit thresholds so that a higher score is needed to *enter* the next
+    level than is needed to *stay* there.
+
+    Args:
+        current_score: The current numeric anxiety score (0-100).
+        previous_level: The last computed level key (e.g. "elevated").
+            Pass ``None`` on first call or when no history is available.
+        enter_threshold: Score required to move *up* into the higher level.
+        exit_threshold: Score below which the system drops *down* to the
+            lower level.
+
+    Returns:
+        The level key string (e.g. "calm", "aware", "elevated", "high",
+        "critical").
+    """
+    # Standard level from raw score (no hysteresis)
+    standard_key, _ = get_anxiety_level(current_score)
+
+    if previous_level is None:
+        return standard_key
+
+    # Ordered level keys for comparison
+    level_order = ["calm", "aware", "elevated", "high", "critical"]
+
+    prev_idx = level_order.index(previous_level) if previous_level in level_order else -1
+    std_idx = level_order.index(standard_key) if standard_key in level_order else -1
+
+    if prev_idx < 0:
+        return standard_key
+
+    # Trying to move UP: require score >= enter_threshold for that boundary
+    if std_idx > prev_idx:
+        if current_score >= enter_threshold:
+            return standard_key
+        return previous_level
+
+    # Trying to move DOWN: require score < exit_threshold for that boundary
+    if std_idx < prev_idx:
+        if current_score < exit_threshold:
+            return standard_key
+        return previous_level
+
+    return previous_level
 
 
 def compute_epoch_staleness_score(months: Optional[float]) -> int:

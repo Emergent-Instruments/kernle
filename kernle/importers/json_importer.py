@@ -5,12 +5,16 @@ This preserves metadata like confidence, timestamps, and relationships.
 """
 
 import json
+import logging
+import math
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 if TYPE_CHECKING:
     from kernle import Kernle
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -21,6 +25,62 @@ class JsonImportItem:
     data: Dict[str, Any] = field(default_factory=dict)
 
 
+def _validate_range(
+    value: float,
+    min_val: float,
+    max_val: float,
+    field_name: str,
+    *,
+    strict: bool = False,
+    coercion_warnings: Optional[List[Dict[str, Any]]] = None,
+) -> tuple[float, bool]:
+    """Validate and optionally clamp a numeric value to a range.
+
+    Args:
+        value: The value to validate
+        min_val: Minimum allowed value (inclusive)
+        max_val: Maximum allowed value (inclusive)
+        field_name: Name of the field for warning messages
+        strict: If True, reject out-of-range values instead of clamping
+        coercion_warnings: List to append warnings to when clamping
+
+    Returns:
+        Tuple of (clamped_value, rejected). If rejected=True, the item should be skipped.
+    """
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        return value, True  # Always reject non-finite values
+
+    if min_val <= value <= max_val:
+        return value, False
+
+    if strict:
+        return value, True
+
+    original = value
+    clamped = max(min_val, min(max_val, value))
+
+    if coercion_warnings is not None:
+        coercion_warnings.append(
+            {
+                "field": field_name,
+                "original": original,
+                "coerced_to": clamped,
+                "reason": f"{field_name} clamped from {original} to {clamped} (valid range: [{min_val}, {max_val}])",
+            }
+        )
+    else:
+        logger.warning(
+            "%s value %s out of range [%s, %s], clamped to %s",
+            field_name,
+            original,
+            min_val,
+            max_val,
+            clamped,
+        )
+
+    return clamped, False
+
+
 class JsonImporter:
     """Import memories from Kernle JSON export files.
 
@@ -28,15 +88,17 @@ class JsonImporter:
     `kernle dump --format json`.
     """
 
-    def __init__(self, file_path: str):
+    def __init__(self, file_path: str, strict: bool = False):
         """Initialize with path to JSON file.
 
         Args:
             file_path: Path to the JSON file to import
+            strict: If True, reject items with out-of-range values
         """
         self.file_path = Path(file_path).expanduser()
         self.items: List[JsonImportItem] = []
         self.source_stack_id: Optional[str] = None
+        self.strict = strict
 
     def parse(self) -> List[JsonImportItem]:
         """Parse the JSON file and return importable items.
@@ -74,11 +136,18 @@ class JsonImporter:
         counts: Dict[str, int] = {}
         skipped: Dict[str, int] = {}
         errors: List[str] = []
+        coercion_warnings: List[Dict[str, Any]] = []
 
         for item in self.items:
             try:
                 if not dry_run:
-                    imported = _import_json_item(item, k, skip_duplicates)
+                    imported = _import_json_item(
+                        item,
+                        k,
+                        skip_duplicates,
+                        strict=self.strict,
+                        coercion_warnings=coercion_warnings,
+                    )
                     if imported:
                         counts[item.type] = counts.get(item.type, 0) + 1
                     else:
@@ -93,6 +162,7 @@ class JsonImporter:
             "skipped": skipped,
             "errors": errors,
             "source_stack_id": self.source_stack_id,
+            "coercion_warnings": coercion_warnings,
         }
 
 
@@ -160,16 +230,25 @@ def parse_kernle_json(content: str) -> tuple[List[JsonImportItem], Optional[str]
     return items, stack_id
 
 
-def _import_json_item(item: JsonImportItem, k: "Kernle", skip_duplicates: bool = True) -> bool:
+def _import_json_item(
+    item: JsonImportItem,
+    k: "Kernle",
+    skip_duplicates: bool = True,
+    *,
+    strict: bool = False,
+    coercion_warnings: Optional[List[Dict[str, Any]]] = None,
+) -> bool:
     """Import a single JSON item into Kernle.
 
     Args:
         item: The JsonImportItem to import
         k: Kernle instance
         skip_duplicates: If True, skip items that already exist
+        strict: If True, reject items with out-of-range values
+        coercion_warnings: List to append coercion warnings to
 
     Returns:
-        True if imported, False if skipped
+        True if imported, False if skipped/rejected
     """
     t = item.type
     data = item.data
@@ -219,10 +298,24 @@ def _import_json_item(item: JsonImportItem, k: "Kernle", skip_duplicates: bool =
             if existing:
                 return False
 
+        # Validate confidence
+        confidence = data.get("confidence", 0.8)
+        if isinstance(confidence, (int, float)):
+            confidence, rejected = _validate_range(
+                float(confidence),
+                0.0,
+                1.0,
+                "confidence",
+                strict=strict,
+                coercion_warnings=coercion_warnings,
+            )
+            if rejected:
+                return False
+
         k.belief(
             statement=statement,
             type=data.get("type", "fact"),
-            confidence=data.get("confidence", 0.8),
+            confidence=confidence,
         )
         return True
 
@@ -234,10 +327,29 @@ def _import_json_item(item: JsonImportItem, k: "Kernle", skip_duplicates: bool =
                 if v.name == name:
                     return False
 
+        # Validate priority if it's numeric
+        priority = data.get("priority", 50)
+        if isinstance(priority, (int, float)) and not isinstance(priority, str):
+            try:
+                int_priority = int(priority)
+                int_priority, rejected = _validate_range(
+                    float(int_priority),
+                    0,
+                    100,
+                    "priority",
+                    strict=strict,
+                    coercion_warnings=coercion_warnings,
+                )
+                if rejected:
+                    return False
+                priority = int(int_priority)
+            except (ValueError, TypeError):
+                pass
+
         k.value(
             name=name,
             statement=data.get("statement", data.get("description", name)),
-            priority=data.get("priority", 50),
+            priority=priority,
         )
         return True
 
@@ -263,9 +375,23 @@ def _import_json_item(item: JsonImportItem, k: "Kernle", skip_duplicates: bool =
             if existing:
                 return False
 
+        # Validate intensity
+        intensity = data.get("intensity", 0.5)
+        if isinstance(intensity, (int, float)):
+            intensity, rejected = _validate_range(
+                float(intensity),
+                0.0,
+                1.0,
+                "intensity",
+                strict=strict,
+                coercion_warnings=coercion_warnings,
+            )
+            if rejected:
+                return False
+
         k.drive(
             drive_type=drive_type,
-            intensity=data.get("intensity", 0.5),
+            intensity=intensity,
             focus_areas=data.get("focus_areas"),
         )
         return True
@@ -281,6 +407,20 @@ def _import_json_item(item: JsonImportItem, k: "Kernle", skip_duplicates: bool =
         # entity_name -> other_stack_id, sentiment -> trust_level (rescale -1..1 to 0..1),
         # relationship_type -> interaction_type
         sentiment = data.get("sentiment", 0.0)
+
+        # Validate sentiment
+        if isinstance(sentiment, (int, float)):
+            sentiment, rejected = _validate_range(
+                float(sentiment),
+                -1.0,
+                1.0,
+                "sentiment",
+                strict=strict,
+                coercion_warnings=coercion_warnings,
+            )
+            if rejected:
+                return False
+
         trust_level = (sentiment + 1.0) / 2.0  # Convert sentiment (-1..1) to trust (0..1)
 
         k.relationship(

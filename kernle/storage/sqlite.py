@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from kernle.protocols import ModelStatus
 from kernle.types import VALID_SOURCE_TYPE_VALUES, SourceType
 from kernle.utils import get_kernle_home
 
@@ -116,6 +117,9 @@ from .raw_entries import (
 )
 from .raw_entries import (
     delete_raw as _delete_raw,
+)
+from .raw_entries import (
+    find_by_id_prefix as _find_by_id_prefix,
 )
 from .raw_entries import (
     get_all_stack_settings as _get_all_stack_settings,
@@ -326,18 +330,45 @@ class SQLiteStorage:
                 logger.warning("Hash embedder failed for %s: %s", context, exc)
                 return None
 
+            error_class = getattr(exc, "error_class", "unknown")
+            provider_name = type(self._embedder).__name__
             if self._embedder_fallback is None:
+                status = ModelStatus(
+                    provider=provider_name,
+                    available=False,
+                    error_class=error_class,
+                    error_message=str(exc),
+                    degraded=False,
+                )
                 logger.warning(
                     "Embedding provider failed for %s and no fallback is configured: %s",
                     context,
                     exc,
+                    extra={
+                        "model_status": status,
+                        "error_class": error_class,
+                        "provider": provider_name,
+                    },
                 )
                 return None
 
+            status = ModelStatus(
+                provider=provider_name,
+                available=False,
+                error_class=error_class,
+                error_message=str(exc),
+                degraded=True,
+            )
             logger.warning(
                 "Preferred embedding provider failed for %s; falling back to hash embeddings until retry: %s",
                 context,
                 exc,
+                extra={
+                    "model_status": status,
+                    "error_class": error_class,
+                    "provider": provider_name,
+                    "degraded": True,
+                },
             )
             self._embedder_retry_at = datetime.now(timezone.utc) + timedelta(
                 seconds=self.EMBEDDER_RETRY_SECONDS
@@ -538,7 +569,7 @@ class SQLiteStorage:
             conn.enable_load_extension(True)
             sqlite_vec.load(conn)
         except Exception as e:
-            logger.warning(f"Could not load sqlite-vec: {e}")
+            logger.error(f"Could not load sqlite-vec: {e}")
 
     def _now(self) -> str:
         """Get current timestamp as ISO string."""
@@ -690,9 +721,21 @@ class SQLiteStorage:
         if existing and existing["content_hash"] == content_hash:
             return  # Already up to date
 
+        # Track provider state before embedding (for observability)
+        is_fallback = (
+            self._embedder is self._embedder_fallback and self._embedder_fallback is not None
+        )
+        provider_name = type(self._embedder).__name__
+
         embedding = self._embed_text(content, context=f"vector-save:{table}:{record_id}")
         if not embedding:
             return
+
+        # Re-check after _embed_text (which may have switched to fallback)
+        is_fallback = (
+            self._embedder is self._embedder_fallback and self._embedder_fallback is not None
+        )
+        provider_name = type(self._embedder).__name__
 
         packed = pack_embedding(embedding)
 
@@ -703,12 +746,21 @@ class SQLiteStorage:
                 (vec_id, packed),
             )
 
-            # Update metadata
+            # Update metadata with provider observability
             conn.execute(
                 """INSERT OR REPLACE INTO embedding_meta
-                   (id, table_name, record_id, content_hash, created_at)
-                   VALUES (?, ?, ?, ?, ?)""",
-                (vec_id, table, record_id, content_hash, self._now()),
+                   (id, table_name, record_id, content_hash, created_at,
+                    embedding_provider, fallback_used)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    vec_id,
+                    table,
+                    record_id,
+                    content_hash,
+                    self._now(),
+                    provider_name,
+                    1 if is_fallback else 0,
+                ),
             )
         except Exception as e:
             logger.warning(f"Failed to save embedding for {vec_id}: {e}")
@@ -718,12 +770,69 @@ class SQLiteStorage:
             try:
                 conn.execute("DELETE FROM vec_embeddings WHERE id = ?", (vec_id,))
                 conn.execute("DELETE FROM embedding_meta WHERE id = ?", (vec_id,))
-            except Exception as cleanup_error:
-                logger.debug(
+                logger.warning(
+                    "Cleaned stale embedding cache entry for %s after save failure",
+                    vec_id,
+                )
+            except sqlite3.OperationalError as cleanup_error:
+                logger.error(
                     "Failed to clean stale embedding cache entry for %s: %s",
                     vec_id,
                     cleanup_error,
                 )
+                raise e from cleanup_error
+            except Exception as cleanup_error:
+                logger.error(
+                    "Unexpected error cleaning stale embedding cache entry for %s: %s",
+                    vec_id,
+                    cleanup_error,
+                )
+                raise e from cleanup_error
+
+    def get_embedding_stats(self) -> dict[str, Any]:
+        """Get embedding provider statistics for observability.
+
+        Returns a dict with:
+        - total: total embeddings stored
+        - by_provider: counts per embedding_provider
+        - fallback_count: number of embeddings generated via fallback
+        - current_provider: name of the currently active embedding provider
+        - is_degraded: whether the system is currently using the fallback
+        """
+        stats: dict[str, Any] = {
+            "total": 0,
+            "by_provider": {},
+            "fallback_count": 0,
+            "current_provider": type(self._embedder).__name__,
+            "is_degraded": (
+                self._embedder is self._embedder_fallback and self._embedder_fallback is not None
+            ),
+        }
+
+        if not self._has_vec:
+            return stats
+
+        with self._connect() as conn:
+            # Total count
+            row = conn.execute("SELECT COUNT(*) FROM embedding_meta").fetchone()
+            stats["total"] = row[0] if row else 0
+
+            # Per-provider breakdown
+            rows = conn.execute(
+                "SELECT embedding_provider, COUNT(*) as cnt FROM embedding_meta "
+                "GROUP BY embedding_provider"
+            ).fetchall()
+            for r in rows:
+                provider = r["embedding_provider"] or "unknown"
+                stats["by_provider"][provider] = r["cnt"]
+
+            # Fallback count
+            row = conn.execute(
+                "SELECT COUNT(*) FROM embedding_meta WHERE fallback_used = 1"
+            ).fetchone()
+            stats["fallback_count"] = row[0] if row else 0
+
+        return stats
 
     def _get_searchable_content(self, record_type: str, record: Any) -> str:
         """Get searchable text content from a record."""
@@ -1732,6 +1841,112 @@ class SQLiteStorage:
 
         return goal.id
 
+    def update_goal_atomic(self, goal: Goal, expected_version: Optional[int] = None) -> bool:
+        """Update a goal with optimistic concurrency control.
+
+        Args:
+            goal: The goal with updated fields
+            expected_version: The version we expect the record to have.
+                             If None, uses goal.version.
+
+        Returns:
+            True if update succeeded
+
+        Raises:
+            VersionConflictError: If the record's version doesn't match expected
+        """
+        if expected_version is None:
+            expected_version = goal.version
+
+        now = self._now()
+
+        with self._connect() as conn:
+            # Check current version
+            current = conn.execute(
+                "SELECT version FROM goals WHERE id = ? AND stack_id = ?",
+                (goal.id, self.stack_id),
+            ).fetchone()
+
+            if not current:
+                return False
+
+            current_version = current["version"]
+            if current_version != expected_version:
+                raise VersionConflictError("goals", goal.id, expected_version, current_version)
+
+            # Atomic update with version increment
+            cursor = conn.execute(
+                """
+                UPDATE goals SET
+                    status = ?,
+                    priority = ?,
+                    description = ?,
+                    title = ?,
+                    goal_type = ?,
+                    confidence = ?,
+                    source_type = ?,
+                    source_episodes = ?,
+                    derived_from = ?,
+                    last_verified = ?,
+                    verification_count = ?,
+                    confidence_history = ?,
+                    strength = ?,
+                    context = ?,
+                    context_tags = ?,
+                    local_updated_at = ?,
+                    deleted = ?,
+                    version = version + 1
+                WHERE id = ? AND stack_id = ? AND version = ?
+                """,
+                (
+                    goal.status,
+                    goal.priority,
+                    goal.description,
+                    goal.title,
+                    goal.goal_type,
+                    goal.confidence,
+                    goal.source_type,
+                    self._to_json(goal.source_episodes),
+                    self._to_json(goal.derived_from),
+                    goal.last_verified.isoformat() if goal.last_verified else None,
+                    goal.verification_count,
+                    self._to_json(goal.confidence_history),
+                    goal.strength,
+                    goal.context,
+                    self._to_json(goal.context_tags),
+                    now,
+                    1 if goal.deleted else 0,
+                    goal.id,
+                    self.stack_id,
+                    expected_version,
+                ),
+            )
+
+            if cursor.rowcount == 0:
+                conn.rollback()
+                new_current = conn.execute(
+                    "SELECT version FROM goals WHERE id = ? AND stack_id = ?",
+                    (goal.id, self.stack_id),
+                ).fetchone()
+                actual = new_current["version"] if new_current else -1
+                raise VersionConflictError("goals", goal.id, expected_version, actual)
+
+            # Queue for sync
+            goal.version = expected_version + 1
+            goal_data = self._to_json(self._record_to_dict(goal))
+            self._queue_sync(conn, "goals", goal.id, "upsert", data=goal_data)
+
+            # Update embedding
+            content = f"{goal.title} {goal.description or ''}"
+            self._save_embedding(conn, "goals", goal.id, content)
+
+            conn.commit()
+
+        # Sync to flat file
+        self._sync_goals_to_file()
+
+        return True
+
     def _sync_goals_to_file(self) -> None:
         """Write all active goals to flat file."""
         sync_goals_to_file(self._goals_file, self.get_goals(status=None, limit=100), self._now())
@@ -2029,6 +2244,97 @@ class SQLiteStorage:
 
         return drive.id
 
+    def update_drive_atomic(self, drive: Drive, expected_version: Optional[int] = None) -> bool:
+        """Update a drive with optimistic concurrency control.
+
+        Args:
+            drive: The drive with updated fields
+            expected_version: The version we expect the record to have.
+                             If None, uses drive.version.
+
+        Returns:
+            True if update succeeded
+
+        Raises:
+            VersionConflictError: If the record's version doesn't match expected
+        """
+        if expected_version is None:
+            expected_version = drive.version
+
+        now = self._now()
+
+        with self._connect() as conn:
+            # Check current version
+            current = conn.execute(
+                "SELECT version FROM drives WHERE id = ? AND stack_id = ?",
+                (drive.id, self.stack_id),
+            ).fetchone()
+
+            if not current:
+                return False
+
+            current_version = current["version"]
+            if current_version != expected_version:
+                raise VersionConflictError("drives", drive.id, expected_version, current_version)
+
+            # Atomic update with version increment
+            cursor = conn.execute(
+                """
+                UPDATE drives SET
+                    intensity = ?,
+                    focus_areas = ?,
+                    updated_at = ?,
+                    confidence = ?,
+                    source_type = ?,
+                    source_episodes = ?,
+                    derived_from = ?,
+                    last_verified = ?,
+                    verification_count = ?,
+                    confidence_history = ?,
+                    context = ?,
+                    context_tags = ?,
+                    local_updated_at = ?,
+                    version = version + 1
+                WHERE id = ? AND stack_id = ? AND version = ?
+                """,
+                (
+                    drive.intensity,
+                    self._to_json(drive.focus_areas),
+                    now,
+                    drive.confidence,
+                    drive.source_type,
+                    self._to_json(drive.source_episodes),
+                    self._to_json(drive.derived_from),
+                    drive.last_verified.isoformat() if drive.last_verified else None,
+                    drive.verification_count,
+                    self._to_json(drive.confidence_history),
+                    drive.context,
+                    self._to_json(drive.context_tags),
+                    now,
+                    drive.id,
+                    self.stack_id,
+                    expected_version,
+                ),
+            )
+
+            if cursor.rowcount == 0:
+                conn.rollback()
+                new_current = conn.execute(
+                    "SELECT version FROM drives WHERE id = ? AND stack_id = ?",
+                    (drive.id, self.stack_id),
+                ).fetchone()
+                actual = new_current["version"] if new_current else -1
+                raise VersionConflictError("drives", drive.id, expected_version, actual)
+
+            # Queue for sync
+            drive.version = expected_version + 1
+            drive_data = self._to_json(self._record_to_dict(drive))
+            self._queue_sync(conn, "drives", drive.id, "upsert", data=drive_data)
+
+            conn.commit()
+
+        return True
+
     def get_drives(self, requesting_entity: Optional[str] = None) -> List[Drive]:
         """Get all drives."""
         access_filter, access_params = self._build_access_filter(requesting_entity)
@@ -2190,6 +2496,131 @@ class SQLiteStorage:
         self._sync_relationships_to_file()
 
         return relationship.id
+
+    def update_relationship_atomic(
+        self, relationship: Relationship, expected_version: Optional[int] = None
+    ) -> bool:
+        """Update a relationship with optimistic concurrency control.
+
+        Args:
+            relationship: The relationship with updated fields
+            expected_version: The version we expect the record to have.
+                             If None, uses relationship.version.
+
+        Returns:
+            True if update succeeded
+
+        Raises:
+            VersionConflictError: If the record's version doesn't match expected
+        """
+        if expected_version is None:
+            expected_version = relationship.version
+
+        now = self._now()
+
+        with self._connect() as conn:
+            # Fetch full row for version check and history tracking
+            current = conn.execute(
+                "SELECT * FROM relationships WHERE id = ? AND stack_id = ?",
+                (relationship.id, self.stack_id),
+            ).fetchone()
+
+            if not current:
+                return False
+
+            current_version = current["version"]
+            if current_version != expected_version:
+                raise VersionConflictError(
+                    "relationships",
+                    relationship.id,
+                    expected_version,
+                    current_version,
+                )
+
+            # Track relationship changes (history entries)
+            self._log_relationship_changes(conn, current, relationship, now)
+
+            # Atomic update with version increment
+            cursor = conn.execute(
+                """
+                UPDATE relationships SET
+                    entity_type = ?,
+                    relationship_type = ?,
+                    notes = ?,
+                    sentiment = ?,
+                    interaction_count = ?,
+                    last_interaction = ?,
+                    confidence = ?,
+                    source_type = ?,
+                    source_episodes = ?,
+                    derived_from = ?,
+                    last_verified = ?,
+                    verification_count = ?,
+                    confidence_history = ?,
+                    context = ?,
+                    context_tags = ?,
+                    local_updated_at = ?,
+                    version = version + 1
+                WHERE id = ? AND stack_id = ? AND version = ?
+                """,
+                (
+                    relationship.entity_type,
+                    relationship.relationship_type,
+                    relationship.notes,
+                    relationship.sentiment,
+                    relationship.interaction_count,
+                    (
+                        relationship.last_interaction.isoformat()
+                        if relationship.last_interaction
+                        else None
+                    ),
+                    relationship.confidence,
+                    relationship.source_type,
+                    self._to_json(relationship.source_episodes),
+                    self._to_json(relationship.derived_from),
+                    (
+                        relationship.last_verified.isoformat()
+                        if relationship.last_verified
+                        else None
+                    ),
+                    relationship.verification_count,
+                    self._to_json(relationship.confidence_history),
+                    relationship.context,
+                    self._to_json(relationship.context_tags),
+                    now,
+                    relationship.id,
+                    self.stack_id,
+                    expected_version,
+                ),
+            )
+
+            if cursor.rowcount == 0:
+                conn.rollback()
+                new_current = conn.execute(
+                    "SELECT version FROM relationships WHERE id = ? AND stack_id = ?",
+                    (relationship.id, self.stack_id),
+                ).fetchone()
+                actual = new_current["version"] if new_current else -1
+                raise VersionConflictError(
+                    "relationships",
+                    relationship.id,
+                    expected_version,
+                    actual,
+                )
+
+            # Queue for sync
+            relationship.version = expected_version + 1
+            relationship_data = self._to_json(self._record_to_dict(relationship))
+            self._queue_sync(
+                conn, "relationships", relationship.id, "upsert", data=relationship_data
+            )
+
+            conn.commit()
+
+        # Sync to flat file
+        self._sync_relationships_to_file()
+
+        return True
 
     def _sync_relationships_to_file(self) -> None:
         """Write all relationships to flat file."""
@@ -3405,6 +3836,11 @@ class SQLiteStorage:
         """Search raw entries via FTS5. Delegates to raw_entries.search_raw_fts()."""
         with self._connect() as conn:
             return _search_raw_fts(conn, self.stack_id, query, limit)
+
+    def find_raw_by_prefix(self, prefix, limit=10):
+        """Find raw entries by ID prefix. Delegates to raw_entries.find_by_id_prefix()."""
+        with self._connect() as conn:
+            return _find_by_id_prefix(conn, self.stack_id, prefix, limit)
 
     def _escape_like_pattern(self, pattern):
         """Escape LIKE pattern. Delegates to raw_entries.escape_like_pattern()."""

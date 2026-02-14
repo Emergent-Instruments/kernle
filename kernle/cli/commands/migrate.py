@@ -1,5 +1,6 @@
 """Migration commands for Kernle CLI — seed beliefs, backfill provenance, link raw."""
 
+import hashlib
 import json as _json
 from typing import TYPE_CHECKING, Dict, List
 
@@ -167,6 +168,13 @@ _MINIMAL_SEED_BELIEFS = [
         "tags": ["autonomy", "boundaries", "agency", "minimal"],
     },
 ]
+
+
+def _snapshot_digest(payload):
+    """Build a deterministic hash for migration payload snapshots."""
+    return hashlib.sha256(
+        _json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
 
 
 def _migrate_seed_beliefs(args: "argparse.Namespace", k: "Kernle") -> None:
@@ -654,14 +662,37 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
             updates.append(update)
 
     # Output results
+    updates = sorted(
+        updates,
+        key=lambda item: (
+            item.get("type", ""),
+            item.get("id", ""),
+            str(item.get("old_source_type") or ""),
+            str(item.get("new_source_type") or ""),
+        ),
+    )
+
+    by_type: Dict[str, int] = {}
+    for u in updates:
+        by_type[u["type"]] = by_type.get(u["type"], 0) + 1
+
     if json_output:
+        status_snapshot = {
+            "total_updates": len(updates),
+            "by_type": dict(sorted(by_type.items())),
+            "ids": [u["id"] for u in updates],
+            "types": sorted(by_type.keys()),
+        }
+        snapshot = {
+            "dry_run": dry_run,
+            "total_updates": len(updates),
+            "updates": updates,
+            "status_snapshot": status_snapshot,
+            "status_snapshot_sha256": _snapshot_digest(status_snapshot),
+        }
         print(
             _json.dumps(
-                {
-                    "dry_run": dry_run,
-                    "total_updates": len(updates),
-                    "updates": updates,
-                },
+                snapshot,
                 indent=2,
                 default=str,
             )
@@ -678,9 +709,6 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
             return
 
         # Summary by type
-        by_type: Dict[str, int] = {}
-        for u in updates:
-            by_type[u["type"]] = by_type.get(u["type"], 0) + 1
         for t, c in sorted(by_type.items()):
             print(f"  {t}: {c}")
 
@@ -968,20 +996,44 @@ def _migrate_link_raw(args: "argparse.Namespace", k: "Kernle") -> None:
     matched_links = [link for link in links if not link.get("synthetic")]
     synthetic_links = [link for link in links if link.get("synthetic")]
 
+    links = sorted(
+        links,
+        key=lambda item: (
+            item.get("type", ""),
+            item.get("id", ""),
+            str(item.get("raw_id") or ""),
+        ),
+    )
+    matched_links = [link for link in links if not link.get("synthetic")]
+    synthetic_links = [link for link in links if link.get("synthetic")]
+
     # Output results
     if json_output:
+        by_type: Dict[str, int] = {}
+        for link in links:
+            by_type[link["type"]] = by_type.get(link["type"], 0) + 1
+        status_snapshot = {
+            "total_links": len(links),
+            "matched_links": len(matched_links),
+            "synthetic_links": len(synthetic_links),
+            "types": sorted(by_type.keys()),
+            "ids": sorted([link["id"] for link in links]),
+        }
+        payload = {
+            "dry_run": dry_run,
+            "total_links": len(links),
+            "matched_links": len(matched_links),
+            "synthetic_links": len(synthetic_links),
+            "window_minutes": window_minutes,
+            "raw_entries_available": len(raw_index),
+            "link_all": link_all,
+            "links": links,
+            "status_snapshot": status_snapshot,
+            "status_snapshot_sha256": _snapshot_digest(status_snapshot),
+        }
         print(
             _json.dumps(
-                {
-                    "dry_run": dry_run,
-                    "total_links": len(links),
-                    "matched_links": len(matched_links),
-                    "synthetic_links": len(synthetic_links),
-                    "window_minutes": window_minutes,
-                    "raw_entries_available": len(raw_index),
-                    "link_all": link_all,
-                    "links": links,
-                },
+                payload,
                 indent=2,
                 default=str,
             )

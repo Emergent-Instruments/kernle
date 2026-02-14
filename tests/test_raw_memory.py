@@ -500,11 +500,18 @@ class TestCLIRaw:
 
         from kernle.cli.__main__ import cmd_raw
 
+        # Set up _storage with find_raw_by_prefix for database-level prefix search
+        mock_match = Mock()
+        mock_match.id = "raw123-full-uuid-here"
+        mock_storage = Mock()
+        mock_storage.find_raw_by_prefix.return_value = [mock_match]
+        mock_kernle._storage = mock_storage
+
         # Set up mock: first get_raw returns None (no exact match),
-        # then list_raw returns entries, then get_raw returns the entry
+        # then get_raw returns the entry after prefix resolution
         mock_kernle.get_raw.side_effect = [
             None,  # No exact match for partial ID
-            {  # Found via list_raw, fetch full entry
+            {  # Found via prefix match, fetch full entry
                 "id": "raw123-full-uuid-here",
                 "content": "Test content here",
                 "timestamp": "2024-01-01T12:00:00+00:00",
@@ -513,17 +520,6 @@ class TestCLIRaw:
                 "processed_into": None,
                 "tags": ["dev"],
             },
-        ]
-        mock_kernle.list_raw.return_value = [
-            {
-                "id": "raw123-full-uuid-here",
-                "content": "Test content",
-                "timestamp": "2024-01-01T12:00:00+00:00",
-                "source": "cli",
-                "processed": False,
-                "processed_into": None,
-                "tags": ["dev"],
-            }
         ]
 
         args = argparse.Namespace(
@@ -535,8 +531,8 @@ class TestCLIRaw:
         with patch("sys.stdout", new=StringIO()) as fake_out:
             cmd_raw(args, mock_kernle)
 
-        # Should have called list_raw to find the match
-        mock_kernle.list_raw.assert_called()
+        # Should have used database-level prefix search
+        mock_storage.find_raw_by_prefix.assert_called_once_with("raw123", limit=6)
         output = fake_out.getvalue()
         assert "Raw Entry: raw123-full-uuid-here" in output
         assert "Test content here" in output

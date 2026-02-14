@@ -22,6 +22,10 @@ from kernle.protocols import (
 class OllamaModelError(KernleError):
     """Raised when the Ollama API reports an error or is unreachable."""
 
+    def __init__(self, error_class: str, message: str) -> None:
+        super().__init__(message)
+        self.error_class = error_class
+
 
 class OllamaModel:
     """ModelProtocol implementation backed by a local Ollama instance.
@@ -136,14 +140,19 @@ class OllamaModel:
         try:
             resp = self._requests.post(url, json=payload, stream=True, timeout=self._timeout)
         except self._requests.ConnectionError as exc:
-            raise OllamaModelError(f"Cannot connect to Ollama at {self._base_url}: {exc}") from exc
+            raise OllamaModelError(
+                "timeout", f"Cannot connect to Ollama at {self._base_url}: {exc}"
+            ) from exc
         except self._requests.Timeout as exc:
             raise OllamaModelError(
-                f"Ollama request timed out after {self._timeout}s: {exc}"
+                "timeout", f"Ollama request timed out after {self._timeout}s: {exc}"
             ) from exc
 
         if resp.status_code != 200:
-            raise OllamaModelError(f"Ollama returned HTTP {resp.status_code}: {resp.text}")
+            error_class = self._classify_http_status(resp.status_code)
+            raise OllamaModelError(
+                error_class, f"Ollama returned HTTP {resp.status_code}: {resp.text}"
+            )
 
         for line in resp.iter_lines(decode_unicode=True):
             if not line:
@@ -188,16 +197,32 @@ class OllamaModel:
         try:
             resp = self._requests.post(url, json=payload, timeout=self._timeout)
         except self._requests.ConnectionError as exc:
-            raise OllamaModelError(f"Cannot connect to Ollama at {self._base_url}: {exc}") from exc
+            raise OllamaModelError(
+                "timeout", f"Cannot connect to Ollama at {self._base_url}: {exc}"
+            ) from exc
         except self._requests.Timeout as exc:
             raise OllamaModelError(
-                f"Ollama request timed out after {self._timeout}s: {exc}"
+                "timeout", f"Ollama request timed out after {self._timeout}s: {exc}"
             ) from exc
 
         if resp.status_code != 200:
-            raise OllamaModelError(f"Ollama returned HTTP {resp.status_code}: {resp.text}")
+            error_class = self._classify_http_status(resp.status_code)
+            raise OllamaModelError(
+                error_class, f"Ollama returned HTTP {resp.status_code}: {resp.text}"
+            )
 
         return resp.json()
+
+    @staticmethod
+    def _classify_http_status(status_code: int) -> str:
+        """Map HTTP status codes to error classes."""
+        if status_code == 401:
+            return "auth"
+        if status_code == 429:
+            return "rate_limit"
+        if status_code >= 500:
+            return "server"
+        return "unknown"
 
     def _extract_usage(self, data: dict[str, Any]) -> dict[str, int]:
         """Extract token usage from an Ollama response."""

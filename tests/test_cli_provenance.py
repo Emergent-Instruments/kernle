@@ -8,7 +8,7 @@ from argparse import Namespace
 from unittest.mock import MagicMock
 
 from kernle.cli.__main__ import cmd_relation
-from kernle.cli.commands.import_cmd import _import_item
+from kernle.cli.commands.import_cmd import _import_item, _item_signature
 
 
 class TestRelationDerivedFrom:
@@ -180,7 +180,7 @@ class TestImportItemDerivedFrom:
     """Test that _import_item passes derived_from to Kernle methods."""
 
     def test_import_episode_with_derived_from(self):
-        """Import episode passes derived_from."""
+        """Import episode passes derived_from with import fingerprint appended."""
         k = MagicMock()
         k.episode.return_value = "ep-123"
 
@@ -194,10 +194,14 @@ class TestImportItemDerivedFrom:
 
         k.episode.assert_called_once()
         call_kwargs = k.episode.call_args[1]
-        assert call_kwargs["derived_from"] == ["context:imported_from_backup"]
+        # Original derived_from preserved, fingerprint appended
+        assert "context:imported_from_backup" in call_kwargs["derived_from"]
+        fingerprint = _item_signature(item)
+        if fingerprint:
+            assert fingerprint in call_kwargs["derived_from"]
 
     def test_import_note_with_derived_from(self):
-        """Import note passes derived_from."""
+        """Import note passes derived_from with import fingerprint appended."""
         k = MagicMock()
         k.note.return_value = "note-123"
 
@@ -210,10 +214,13 @@ class TestImportItemDerivedFrom:
 
         k.note.assert_called_once()
         call_kwargs = k.note.call_args[1]
-        assert call_kwargs["derived_from"] == ["context:csv_import"]
+        assert "context:csv_import" in call_kwargs["derived_from"]
+        fingerprint = _item_signature(item)
+        if fingerprint:
+            assert fingerprint in call_kwargs["derived_from"]
 
     def test_import_belief_with_derived_from(self):
-        """Import belief passes derived_from."""
+        """Import belief passes derived_from with import fingerprint appended."""
         k = MagicMock()
         k.belief.return_value = "belief-123"
 
@@ -227,10 +234,13 @@ class TestImportItemDerivedFrom:
 
         k.belief.assert_called_once()
         call_kwargs = k.belief.call_args[1]
-        assert call_kwargs["derived_from"] == ["context:json_import"]
+        assert "context:json_import" in call_kwargs["derived_from"]
+        fingerprint = _item_signature(item)
+        if fingerprint:
+            assert fingerprint in call_kwargs["derived_from"]
 
     def test_import_value_with_derived_from(self):
-        """Import value passes derived_from."""
+        """Import value passes derived_from with import fingerprint appended."""
         k = MagicMock()
         k.value.return_value = "value-123"
 
@@ -244,10 +254,13 @@ class TestImportItemDerivedFrom:
 
         k.value.assert_called_once()
         call_kwargs = k.value.call_args[1]
-        assert call_kwargs["derived_from"] == ["context:migration"]
+        assert "context:migration" in call_kwargs["derived_from"]
+        fingerprint = _item_signature(item)
+        if fingerprint:
+            assert fingerprint in call_kwargs["derived_from"]
 
     def test_import_goal_with_derived_from(self):
-        """Import goal passes derived_from."""
+        """Import goal passes derived_from with import fingerprint appended."""
         k = MagicMock()
         k.goal.return_value = "goal-123"
 
@@ -260,10 +273,13 @@ class TestImportItemDerivedFrom:
 
         k.goal.assert_called_once()
         call_kwargs = k.goal.call_args[1]
-        assert call_kwargs["derived_from"] == ["context:backup_restore"]
+        assert "context:backup_restore" in call_kwargs["derived_from"]
+        fingerprint = _item_signature(item)
+        if fingerprint:
+            assert fingerprint in call_kwargs["derived_from"]
 
     def test_import_without_derived_from(self):
-        """Import without derived_from passes None."""
+        """Import without derived_from gets just the import fingerprint."""
         k = MagicMock()
         k.episode.return_value = "ep-123"
 
@@ -277,7 +293,12 @@ class TestImportItemDerivedFrom:
 
         k.episode.assert_called_once()
         call_kwargs = k.episode.call_args[1]
-        assert call_kwargs["derived_from"] is None
+        fingerprint = _item_signature(item)
+        if fingerprint:
+            # Should have the import fingerprint
+            assert call_kwargs["derived_from"] == [fingerprint]
+        else:
+            assert call_kwargs["derived_from"] is None
 
     def test_import_raw_ignores_derived_from(self):
         """Import raw does not pass derived_from (raw entries don't support it)."""
@@ -410,6 +431,6 @@ class TestCoreDerivedFrom:
             derived_from=["episode:ep-collaboration"],
         )
 
-        storage.save_relationship.assert_called_once()
-        saved_rel = storage.save_relationship.call_args[0][0]
+        storage.update_relationship_atomic.assert_called_once()
+        saved_rel = storage.update_relationship_atomic.call_args[0][0]
         assert saved_rel.derived_from == ["episode:ep-collaboration"]

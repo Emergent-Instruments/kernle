@@ -25,10 +25,9 @@ class TestResolveRawId:
         """Single prefix match should resolve to full ID."""
         k = MagicMock()
         k.get_raw.return_value = None  # No exact match
-        k.list_raw.return_value = [
-            {"id": "abc123456789", "content": "test"},
-            {"id": "xyz987654321", "content": "other"},
-        ]
+        match_entry = MagicMock()
+        match_entry.id = "abc123456789"
+        k._storage.find_raw_by_prefix.return_value = [match_entry]
 
         result = resolve_raw_id(k, "abc")
         assert result == "abc123456789"
@@ -37,10 +36,10 @@ class TestResolveRawId:
         """Multiple prefix matches should raise error."""
         k = MagicMock()
         k.get_raw.return_value = None
-        k.list_raw.return_value = [
-            {"id": "abc123456789", "content": "test1"},
-            {"id": "abc987654321", "content": "test2"},
-        ]
+        e1, e2 = MagicMock(), MagicMock()
+        e1.id = "abc123456789"
+        e2.id = "abc987654321"
+        k._storage.find_raw_by_prefix.return_value = [e1, e2]
 
         with pytest.raises(ValueError, match="Ambiguous ID"):
             resolve_raw_id(k, "abc")
@@ -49,7 +48,7 @@ class TestResolveRawId:
         """No matches should raise error."""
         k = MagicMock()
         k.get_raw.return_value = None
-        k.list_raw.return_value = []
+        k._storage.find_raw_by_prefix.return_value = []
 
         with pytest.raises(ValueError, match="not found"):
             resolve_raw_id(k, "nonexistent")
@@ -58,10 +57,40 @@ class TestResolveRawId:
         """Many prefix matches should show truncated list."""
         k = MagicMock()
         k.get_raw.return_value = None
-        k.list_raw.return_value = [{"id": f"abc{i:010d}", "content": f"test{i}"} for i in range(10)]
+        entries = []
+        for i in range(6):
+            e = MagicMock()
+            e.id = f"abc{i:010d}"
+            entries.append(e)
+        k._storage.find_raw_by_prefix.return_value = entries
 
         with pytest.raises(ValueError, match=r"Ambiguous ID.*\.\.\."):
             resolve_raw_id(k, "abc")
+
+    def test_prefix_match_uses_db_level_query(self):
+        """resolve_raw_id calls find_raw_by_prefix for database-level prefix search."""
+        k = MagicMock()
+        k.get_raw.return_value = None
+        match_entry = MagicMock()
+        match_entry.id = "def456789012"
+        k._storage.find_raw_by_prefix.return_value = [match_entry]
+
+        result = resolve_raw_id(k, "def")
+        assert result == "def456789012"
+        k._storage.find_raw_by_prefix.assert_called_once_with("def", limit=6)
+
+    def test_fallback_to_list_raw_without_prefix_method(self):
+        """Gracefully falls back to list_raw if find_raw_by_prefix is unavailable."""
+        k = MagicMock()
+        k.get_raw.return_value = None
+        # Remove the find_raw_by_prefix method
+        del k._storage.find_raw_by_prefix
+        k.list_raw.return_value = [
+            {"id": "abc123456789", "content": "test"},
+        ]
+
+        result = resolve_raw_id(k, "abc")
+        assert result == "abc123456789"
 
 
 class TestCmdRawCapture:

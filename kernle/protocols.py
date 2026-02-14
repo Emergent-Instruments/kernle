@@ -113,6 +113,21 @@ ProcessingTransition = Literal[
 
 GoalType = Literal["task", "aspiration", "commitment", "exploration"]
 DriveType = Literal["existence", "growth", "curiosity", "connection", "reproduction"]
+GoalStatus = Literal["active", "completed", "paused"]
+SuggestionStatus = Literal[
+    "pending",
+    "promoted",
+    "modified",
+    "rejected",
+    "dismissed",
+    "expired",
+]
+SuggestionMemoryType = Literal[
+    "belief", "note", "episode", "goal", "relationship", "value", "drive"
+]
+SearchRecordType = Literal["episode", "note", "belief", "value", "goal"]
+DumpFormat = Literal["markdown", "json"]
+ModelRole = Literal["system", "user", "assistant", "tool"]
 
 
 # =============================================================================
@@ -237,7 +252,7 @@ class ModelCapabilities:
 class ModelMessage:
     """A message in a conversation."""
 
-    role: str  # "system", "user", "assistant", "tool"
+    role: ModelRole  # "system", "user", "assistant", "tool"
     content: str | list[dict[str, Any]]
     name: Optional[str] = None
     tool_call_id: Optional[str] = None
@@ -265,6 +280,20 @@ class ModelChunk:
     usage: Optional[dict[str, int]] = None
 
 
+ModelErrorClass = Literal["rate_limit", "auth", "timeout", "server", "unknown"]
+
+
+@dataclass
+class ModelStatus:
+    """Status envelope for model operations."""
+
+    provider: str  # "openai", "anthropic", "ollama"
+    available: bool  # True if last call succeeded
+    error_class: Optional[ModelErrorClass] = None
+    error_message: Optional[str] = None
+    degraded: bool = False  # True when fallback was used
+
+
 @dataclass
 class ToolDefinition:
     """A tool that can be offered to the model."""
@@ -272,7 +301,7 @@ class ToolDefinition:
     name: str
     description: str
     input_schema: dict[str, Any]
-    handler: Optional[Callable] = None
+    handler: Optional[Callable[[dict[str, Any]], Any]] = None
 
 
 @dataclass
@@ -811,7 +840,7 @@ class StackProtocol(Protocol):
         self,
         *,
         limit: int = 50,
-        status: Optional[str] = None,
+        status: Optional[GoalStatus] = None,
         context: Optional[str] = None,
         include_forgotten: bool = False,
     ) -> list[Goal]: ...
@@ -854,8 +883,8 @@ class StackProtocol(Protocol):
 
     def get_suggestions(
         self,
-        status: Optional[str] = None,
-        memory_type: Optional[MemoryType] = None,
+        status: Optional[SuggestionStatus] = None,
+        memory_type: Optional[SuggestionMemoryType] = None,
         limit: int = 100,
         min_confidence: Optional[float] = None,
         max_age_hours: Optional[float] = None,
@@ -891,7 +920,7 @@ class StackProtocol(Protocol):
         query: str,
         *,
         limit: int = 10,
-        record_types: Optional[list[str]] = None,
+        record_types: Optional[list[SearchRecordType]] = None,
         context: Optional[str] = None,
         min_confidence: Optional[float] = None,
     ) -> list[SearchResult]:
@@ -999,7 +1028,7 @@ class StackProtocol(Protocol):
 
     def set_processing_config(
         self,
-        layer_transition: str,
+        layer_transition: ProcessingTransition,
         **kwargs: Any,
     ) -> bool:
         """Update processing configuration."""
@@ -1090,14 +1119,14 @@ class StackProtocol(Protocol):
     def dump(
         self,
         *,
-        format: str = "markdown",
+        format: DumpFormat = "markdown",
         include_raw: bool = True,
         include_forgotten: bool = False,
     ) -> str:
         """Export all memories as a formatted string."""
         ...
 
-    def export(self, path: str, *, format: str = "markdown") -> None:
+    def export(self, path: str, *, format: DumpFormat = "markdown") -> None:
         """Export all memories to a file."""
         ...
 
@@ -1273,7 +1302,7 @@ class PluginContext(Protocol):
         query: str,
         *,
         limit: int = 10,
-        record_types: Optional[list[str]] = None,
+        record_types: Optional[list[SearchRecordType]] = None,
         context: Optional[str] = None,
     ) -> list[SearchResult]:
         """Search the active stack."""
@@ -1292,7 +1321,7 @@ class PluginContext(Protocol):
     def get_goals(
         self,
         *,
-        status: Optional[str] = None,
+        status: Optional[GoalStatus] = None,
         context: Optional[str] = None,
     ) -> list[Goal]:
         """Read goals from the active stack."""
@@ -1739,7 +1768,7 @@ class CoreProtocol(Protocol):
         query: str,
         *,
         limit: int = 10,
-        record_types: Optional[list[str]] = None,
+        record_types: Optional[list[SearchRecordType]] = None,
         context: Optional[str] = None,
     ) -> list[SearchResult]: ...
 

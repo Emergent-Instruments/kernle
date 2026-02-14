@@ -378,6 +378,24 @@ class TestGoalRoundtrip:
         assert all(g.status == "active" for g in active)
 
 
+class TestConstrainedValueValidation:
+    def test_get_goals_rejects_invalid_status(self, stack):
+        with pytest.raises(ValueError, match="Invalid goal status"):
+            stack.get_goals(status="broken")
+
+    def test_get_suggestions_rejects_invalid_status(self, stack):
+        with pytest.raises(ValueError, match="Invalid suggestion status"):
+            stack.get_suggestions(status="stalled")
+
+    def test_get_suggestions_rejects_invalid_memory_type(self, stack):
+        with pytest.raises(ValueError, match="Invalid suggestion memory_type"):
+            stack.get_suggestions(memory_type="widget")
+
+    def test_search_rejects_invalid_record_types(self, stack):
+        with pytest.raises(ValueError, match="Invalid search record type"):
+            stack.search("test", record_types=["episode", "invalid"])
+
+
 class TestNoteRoundtrip:
     def test_save_and_retrieve(self, stack):
         n = _make_note()
@@ -1008,6 +1026,20 @@ class TestExport:
         stack.export(export_path)
         content = (tmp_path / "export.md").read_text()
         assert len(content) > 0
+
+    def test_dump_rejects_invalid_format(self, stack):
+        with pytest.raises(ValueError, match="Invalid dump format"):
+            stack.dump(format="xml")
+
+    def test_export_rejects_invalid_format(self, stack, tmp_path):
+        with pytest.raises(ValueError, match="Invalid export format"):
+            stack.export(str(tmp_path / "export.bin"), format="binary")
+
+
+class TestProcessingConfig:
+    def test_set_processing_config_rejects_invalid_transition(self, stack):
+        with pytest.raises(ValueError, match="Invalid processing transition"):
+            stack.set_processing_config("bogus", enabled=True)
 
 
 # ============================================================================

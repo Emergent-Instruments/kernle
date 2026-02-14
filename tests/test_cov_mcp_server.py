@@ -23,6 +23,7 @@ from kernle.mcp.server import (
     main,
     run_server,
     set_stack_id,
+    validate_tool_input,
 )
 
 
@@ -91,12 +92,15 @@ class TestCallToolPluginHandler:
     @pytest.mark.asyncio
     async def test_plugin_handler_returns_string(self, monkeypatch):
         """Plugin handler returning a string is passed through directly."""
-        # Register a fake plugin handler
+        # Register a fake plugin handler with a schema
         _plugin_schemas.clear()
         _plugin_schema_validators.clear()
         _plugin_handlers["fake_plugin.do_thing"] = lambda args: f"result: {args['x']}"
-        # Also register in _plugin_tools so validate_tool_input doesn't reject it
         _plugin_tools["fake_plugin.do_thing"] = MagicMock()
+        _plugin_schemas["fake_plugin.do_thing"] = {
+            "type": "object",
+            "properties": {"x": {"type": "integer"}},
+        }
 
         # Mock get_kernle to avoid real Kernle creation
         mock_kernle = MagicMock()
@@ -119,6 +123,7 @@ class TestCallToolPluginHandler:
         _plugin_schema_validators.clear()
         _plugin_handlers["fake_plugin.info"] = lambda args: {"status": "ok", "count": 3}
         _plugin_tools["fake_plugin.info"] = MagicMock()
+        _plugin_schemas["fake_plugin.info"] = {"type": "object", "properties": {}}
 
         mock_kernle = MagicMock()
         monkeypatch.setattr("kernle.mcp.server.get_kernle", lambda: mock_kernle)
@@ -176,6 +181,25 @@ class TestCallToolPluginHandler:
             assert "Invalid input" in result[0].text
         finally:
             srv.unregister_plugin_tools("validator")
+
+
+class TestValidateToolInput:
+    """Negative tests for validate_tool_input()."""
+
+    def test_tool_name_must_be_non_empty_string(self):
+        """Empty tool names are rejected."""
+        with pytest.raises(ValueError, match="tool name must not be empty"):
+            validate_tool_input("", {})
+
+    def test_tool_name_must_be_string(self):
+        """Non-string tool names are rejected."""
+        with pytest.raises(ValueError, match="tool name must be a string"):
+            validate_tool_input(123, {})
+
+    def test_arguments_must_be_object(self):
+        """Non-dict arguments are rejected early."""
+        with pytest.raises(ValueError, match="arguments must be an object"):
+            validate_tool_input("some_tool", [])
 
 
 class TestMain:

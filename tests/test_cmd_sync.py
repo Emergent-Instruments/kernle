@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import sqlite3
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
@@ -448,6 +449,41 @@ class TestSyncPush:
         assert "1 conflicts" in captured
         assert "version mismatch" in captured
 
+    def test_push_conflicts_have_deterministic_snapshot(self, k, capsys, tmp_path):
+        """Push conflict JSON should expose deterministic ordering and snapshot."""
+        from kernle.storage import Note
+
+        k._storage.save_note(Note(id="zz-conflict", stack_id="test-sync", content="z note"))
+        k._storage.save_note(Note(id="aa-conflict", stack_id="test-sync", content="a note"))
+
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok", "user_id": "u1"}
+        creds_path = tmp_path / "push_conf_snapshot"
+        creds_path.mkdir()
+        (creds_path / "credentials.json").write_text(json.dumps(creds))
+
+        push_resp = _make_response(
+            200,
+            json_data={
+                "synced": 0,
+                "conflicts": [
+                    {"table": "notes", "record_id": "zz-conflict", "error": "version mismatch"},
+                    {"table": "notes", "record_id": "aa-conflict", "error": "stale snapshot"},
+                ],
+            },
+        )
+        mock_httpx = _mock_httpx_module(post_response=push_resp)
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="push", json=True), k)
+
+        output = _extract_json(capsys.readouterr().out)
+        assert output["conflict_snapshot"]["count"] == 2
+        assert output["conflict_snapshot"]["records"][0]["record_id"] == "aa-conflict"
+        assert output["conflict_snapshot"]["records"][1]["record_id"] == "zz-conflict"
+        assert output["conflicts"][0]["record_id"] == "aa-conflict"
+
     def test_push_table_name_mapping(self, k, tmp_path):
         """Verifies table name translation from local to backend schema."""
         from kernle.storage import Episode
@@ -684,6 +720,49 @@ class TestSyncPull:
         assert output["local_project"] == "test-sync"
         assert output["namespaced_id"] == "u1/test-sync"
 
+    def test_pull_conflict_snapshot_is_deterministic(self, k, capsys, tmp_path):
+        """Pull JSON includes deterministic conflict order and snapshot metadata."""
+        creds = {"backend_url": "https://api.test.com", "auth_token": "tok"}
+        creds_path = tmp_path / "pull_conf_snapshot"
+        creds_path.mkdir()
+        (creds_path / "credentials.json").write_text(json.dumps(creds))
+
+        ops = [
+            {
+                "table": "notes",
+                "record_id": "z-note",
+                "operation": "remove",
+                "data": {},
+            },
+            {
+                "table": "episodes",
+                "record_id": "a-episode",
+                "operation": "delete",
+                "data": {"objective": "bad", "outcome": "bad"},
+            },
+            {
+                "table": "notes",
+                "record_id": "a-note",
+                "operation": "upsert",
+                "data": {"content": "pull note", "note_type": "insight"},
+            },
+        ]
+        pull_resp = _make_response(200, json_data={"operations": ops, "has_more": False})
+        mock_httpx = _mock_httpx_module(post_response=pull_resp)
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(creds_path)}):
+            with patch("kernle.cli.commands.sync.get_kernle_home", return_value=creds_path):
+                with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                    cmd_sync(_args(sync_action="pull", json=True), k)
+
+        output = _extract_json(capsys.readouterr().out)
+        assert output["conflicts"] == 2
+        assert output["conflict_snapshot"]["count"] == 2
+        first = output["conflict_snapshot"]["records"][0]
+        second = output["conflict_snapshot"]["records"][1]
+        assert (first["table"], first["record_id"]) == ("episodes", "a-episode")
+        assert (second["table"], second["record_id"]) == ("notes", "z-note")
+
     def test_pull_auth_failure(self, k, tmp_path):
         """Exits on 401 response."""
         creds = {"backend_url": "https://api.test.com", "auth_token": "bad"}
@@ -851,7 +930,7 @@ class TestSyncPull:
         def flaky_save(note):
             calls["count"] += 1
             if calls["count"] == 1:
-                raise RuntimeError("transient write failure")
+                raise sqlite3.OperationalError("database is locked")
             return original_save_note(note)
 
         with patch.object(k._storage, "save_note", side_effect=flaky_save):

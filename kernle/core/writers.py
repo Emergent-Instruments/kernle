@@ -219,8 +219,8 @@ class WritersMixin:
         # Validate inputs
         episode_id = self._validate_string_input(episode_id, "episode_id", 100)
 
-        # Get the existing episode
-        existing = self._storage.get_episode(episode_id)
+        # Get the existing episode via _write_backend (respects strict mode)
+        existing = self._write_backend.get_memory("episode", episode_id)
 
         if not existing:
             return False
@@ -962,9 +962,9 @@ class WritersMixin:
 
         self._write_backend.save_goal(goal)
 
-        # Protect aspiration/commitment goals from forgetting
+        # Protect aspiration/commitment goals from forgetting (via _write_backend)
         if is_protected:
-            self._storage.protect_memory("goal", goal_id, protected=True)
+            self._write_backend.protect_memory("goal", goal_id, protected=True)
 
         return goal_id
 
@@ -979,8 +979,8 @@ class WritersMixin:
         # Validate inputs
         goal_id = self._validate_string_input(goal_id, "goal_id", 100)
 
-        # Get goals to find matching one
-        goals = self._storage.get_goals(status=None, limit=1000)
+        # Get goals via _write_backend (respects strict mode)
+        goals = self._write_backend.get_goals(status=None, limit=1000)
         existing = None
         for g in goals:
             if g.id == goal_id:
@@ -1004,9 +1004,7 @@ class WritersMixin:
             description = self._validate_string_input(description, "description", 1000)
             existing.description = description
 
-        # TODO: Add update_goal_atomic for optimistic concurrency control
-        existing.version += 1
-        self._write_backend.save_goal(existing)
+        self._write_backend.update_goal_atomic(existing)
         return True
 
     # =========================================================================
@@ -1061,8 +1059,11 @@ class WritersMixin:
             derived_from_value.append(f"context:{source}")
         derived_from_value = self._validate_derived_from(derived_from_value)
 
-        # Check if drive exists
-        existing = self._storage.get_drive(drive_type)
+        # Check if drive exists via _write_backend (respects strict mode)
+        existing = next(
+            (d for d in self._write_backend.get_drives() if d.drive_type == drive_type),
+            None,
+        )
 
         now = datetime.now(timezone.utc)
 
@@ -1070,8 +1071,6 @@ class WritersMixin:
             existing.intensity = max(0.0, min(1.0, intensity))
             existing.focus_areas = focus_areas or []
             existing.updated_at = now
-            # TODO: Add update_drive_atomic for optimistic concurrency control
-            existing.version += 1
             if context is not None:
                 existing.context = context
             if context_tags is not None:
@@ -1079,7 +1078,7 @@ class WritersMixin:
             existing.source_type = self._normalize_source_type(source_type_val)
             if derived_from_value:
                 existing.derived_from = derived_from_value
-            self._write_backend.save_drive(existing)
+            self._write_backend.update_drive_atomic(existing)
             return existing.id
         else:
             drive_id = str(uuid.uuid4())
@@ -1101,15 +1100,16 @@ class WritersMixin:
 
     def satisfy_drive(self, drive_type: str, amount: float = 0.2) -> bool:
         """Record satisfaction of a drive (reduces intensity toward baseline)."""
-        existing = self._storage.get_drive(drive_type)
+        existing = next(
+            (d for d in self._write_backend.get_drives() if d.drive_type == drive_type),
+            None,
+        )
 
         if existing:
             new_intensity = max(0.1, existing.intensity - amount)
             existing.intensity = new_intensity
             existing.updated_at = datetime.now(timezone.utc)
-            # TODO: Add update_drive_atomic for optimistic concurrency control
-            existing.version += 1
-            self._write_backend.save_drive(existing)
+            self._write_backend.update_drive_atomic(existing)
             return True
         return False
 
@@ -1136,8 +1136,9 @@ class WritersMixin:
             entity_type: Type of entity (person, agent, organization, system)
             derived_from: Memory IDs this relationship was derived from
         """
-        # Check existing
-        existing = self._storage.get_relationship(other_stack_id)
+        # Check existing — use write backend for consistent strict-mode path
+        backend = self._write_backend
+        existing = backend.get_relationship(other_stack_id)
 
         now = datetime.now(timezone.utc)
 
@@ -1153,8 +1154,7 @@ class WritersMixin:
                 existing.derived_from = derived_from
             existing.interaction_count += 1
             existing.last_interaction = now
-            existing.version += 1
-            self._write_backend.save_relationship(existing)
+            self._write_backend.update_relationship_atomic(existing)
             return existing.id
         else:
             rel_id = str(uuid.uuid4())

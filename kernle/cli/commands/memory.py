@@ -81,20 +81,35 @@ def cmd_checkpoint(args, k: "Kernle"):
             sync = True
 
         result = k.checkpoint(task, pending, context, sync=sync)
-        print(f"✓ Checkpoint saved: {result['current_task']}")
+
+        # Determine if sync had errors
+        sync_result = result.get("_sync")
+        sync_errors = []
+        if sync_result:
+            sync_errors = sync_result.get("errors", [])
+
+        # Show appropriate status line
+        if sync_errors and sync_result.get("attempted"):
+            error_detail = "; ".join(sync_errors)
+            print(
+                f"\u26a0 Checkpoint saved (sync failed: {error_detail}): {result['current_task']}"
+            )
+        else:
+            print(f"\u2713 Checkpoint saved: {result['current_task']}")
+
         if result.get("pending"):
             print(f"  Pending: {len(result['pending'])} items")
 
         # Show sync status if sync was attempted
-        sync_result = result.get("_sync")
         if sync_result:
             if sync_result.get("attempted"):
                 if sync_result.get("pushed", 0) > 0:
-                    print(f"  ↑ Synced: {sync_result['pushed']} changes pushed")
-                elif sync_result.get("errors"):
-                    print(f"  ⚠ Sync: {sync_result['errors'][0][:50]}")
-            elif sync_result.get("errors"):
-                print("  ℹ Sync: offline, changes queued")
+                    print(f"  \u2191 Synced: {sync_result['pushed']} changes pushed")
+                elif sync_errors:
+                    for err in sync_errors:
+                        print(f"  \u26a0 Sync error: {err}")
+            elif sync_errors:
+                print("  \u2139 Sync: offline, changes queued")
 
     elif args.checkpoint_action == "load":
         cp = k.load_checkpoint()

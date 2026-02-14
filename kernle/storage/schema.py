@@ -15,7 +15,7 @@ import sqlite3
 logger = logging.getLogger(__name__)
 
 # Schema version for migrations
-SCHEMA_VERSION = 25  # Add offset/pagination to list_raw: backfill captured_at, compound index
+SCHEMA_VERSION = 26  # v0.13.06: add sync conflict provenance and deterministic tie-break metadata
 
 # Allowed table names for SQL queries (security: prevents SQL injection via table names)
 ALLOWED_TABLES = frozenset(
@@ -661,7 +661,10 @@ CREATE TABLE IF NOT EXISTS sync_conflicts (
     resolution TEXT NOT NULL,      -- "local_wins" or "cloud_wins"
     resolved_at TEXT NOT NULL,
     local_summary TEXT,            -- Human-readable summary
-    cloud_summary TEXT
+    cloud_summary TEXT,
+    source TEXT,
+    diff_hash TEXT,
+    policy_decision TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_sync_conflicts_resolved ON sync_conflicts(resolved_at);
 CREATE INDEX IF NOT EXISTS idx_sync_conflicts_record ON sync_conflicts(table_name, record_id);
@@ -762,7 +765,9 @@ CREATE TABLE IF NOT EXISTS embedding_meta (
     table_name TEXT NOT NULL,
     record_id TEXT NOT NULL,
     content_hash TEXT NOT NULL,  -- To detect when re-embedding needed
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    embedding_provider TEXT,     -- Provider that generated this embedding
+    fallback_used INTEGER DEFAULT 0  -- 1 if fallback embedder was used
 );
 CREATE INDEX IF NOT EXISTS idx_embedding_meta_record ON embedding_meta(table_name, record_id);
 
@@ -1125,6 +1130,16 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
             migrations.append("ALTER TABLE sync_queue ADD COLUMN last_error TEXT")
         if "last_attempt_at" not in sync_cols:
             migrations.append("ALTER TABLE sync_queue ADD COLUMN last_attempt_at TEXT")
+
+    # Migrations for sync_conflicts metadata (v0.13.06)
+    sync_conflict_cols = get_columns("sync_conflicts")
+    if "sync_conflicts" in table_names:
+        if "source" not in sync_conflict_cols:
+            migrations.append("ALTER TABLE sync_conflicts ADD COLUMN source TEXT")
+        if "diff_hash" not in sync_conflict_cols:
+            migrations.append("ALTER TABLE sync_conflicts ADD COLUMN diff_hash TEXT")
+        if "policy_decision" not in sync_conflict_cols:
+            migrations.append("ALTER TABLE sync_conflicts ADD COLUMN policy_decision TEXT")
 
     # === Forgetting field migrations ===
     # Add forgetting fields to all memory tables
@@ -1844,5 +1859,26 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
                 logger.info("v25: Created compound index idx_raw_captured_at")
         except Exception as e:
             logger.warning(f"v25: Index rebuild failed: {e}")
+
+    # v26: Add embedding observability columns to embedding_meta
+    if "embedding_meta" in table_names:
+        emb_cols = get_columns("embedding_meta")
+        if "embedding_provider" not in emb_cols:
+            try:
+                conn.execute("ALTER TABLE embedding_meta ADD COLUMN embedding_provider TEXT")
+                logger.info("v26: Added embedding_provider column to embedding_meta")
+            except Exception as e:
+                if "duplicate column" not in str(e).lower():
+                    logger.warning(f"v26: Failed to add embedding_provider: {e}")
+        if "fallback_used" not in emb_cols:
+            try:
+                conn.execute(
+                    "ALTER TABLE embedding_meta ADD COLUMN fallback_used INTEGER DEFAULT 0"
+                )
+                logger.info("v26: Added fallback_used column to embedding_meta")
+            except Exception as e:
+                if "duplicate column" not in str(e).lower():
+                    logger.warning(f"v26: Failed to add fallback_used: {e}")
+        conn.commit()
 
         conn.commit()

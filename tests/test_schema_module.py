@@ -44,7 +44,7 @@ class TestSchemaConstants:
 
     def test_schema_version_is_current(self):
         assert isinstance(SCHEMA_VERSION, int)
-        assert SCHEMA_VERSION == 25
+        assert SCHEMA_VERSION == 26
 
     def test_allowed_tables_has_core_tables(self):
         core_tables = {
@@ -158,6 +158,45 @@ class TestMigrateSchema:
         assert "strength" in cols
         assert "context" in cols
         assert "epoch_id" in cols
+        conn.close()
+
+    def test_migration_adds_sync_conflict_metadata_columns(self):
+        """Add sync_conflict metadata columns when upgrading older schemas."""
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.execute("""
+            CREATE TABLE episodes (
+                id TEXT PRIMARY KEY,
+                stack_id TEXT NOT NULL,
+                objective TEXT NOT NULL,
+                outcome TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                local_updated_at TEXT NOT NULL,
+                version INTEGER DEFAULT 1,
+                deleted INTEGER DEFAULT 0
+            )
+            """)
+        conn.execute("""
+            CREATE TABLE sync_conflicts (
+                id TEXT PRIMARY KEY,
+                table_name TEXT NOT NULL,
+                record_id TEXT NOT NULL,
+                local_version TEXT NOT NULL,
+                cloud_version TEXT NOT NULL,
+                resolution TEXT NOT NULL,
+                resolved_at TEXT NOT NULL,
+                local_summary TEXT,
+                cloud_summary TEXT
+            )
+            """)
+        conn.commit()
+
+        migrate_schema(conn, "test-stack")
+
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(sync_conflicts)").fetchall()}
+        assert "source" in cols
+        assert "diff_hash" in cols
+        assert "policy_decision" in cols
         conn.close()
 
     def test_migration_creates_health_check_table(self):

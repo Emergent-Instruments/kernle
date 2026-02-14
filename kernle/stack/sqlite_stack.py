@@ -17,7 +17,7 @@ import uuid
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, get_args
 
 from kernle.features import (
     ConsolidationMixin,
@@ -28,11 +28,17 @@ from kernle.features import (
     SuggestionsMixin,
 )
 from kernle.protocols import (
+    DumpFormat,
+    GoalStatus,
     InferenceService,
     MaintenanceModeError,
+    ProcessingTransition,
     ProvenanceError,
+    SearchRecordType,
     StackComponentProtocol,
     StackState,
+    SuggestionMemoryType,
+    SuggestionStatus,
 )
 from kernle.protocols import (
     SearchResult as ProtocolSearchResult,
@@ -91,6 +97,13 @@ STRENGTH_FORGOTTEN = 0.0  # Tombstoned — only via recover()
 STRENGTH_DORMANT = 0.2  # Only via explicit include_dormant=True
 STRENGTH_WEAK = 0.5  # Excluded from load(), still searchable
 STRENGTH_FADING = 0.8  # Included but reduced priority
+
+VALID_GOAL_STATUSES = frozenset(get_args(GoalStatus))
+VALID_SUGGESTION_STATUSES = frozenset(get_args(SuggestionStatus))
+VALID_SUGGESTION_MEMORY_TYPES = frozenset(get_args(SuggestionMemoryType))
+VALID_SEARCH_RECORD_TYPES = frozenset(get_args(SearchRecordType))
+VALID_PROCESSING_TRANSITIONS = frozenset(get_args(ProcessingTransition))
+VALID_DUMP_FORMATS = frozenset(get_args(DumpFormat))
 
 
 def _estimate_tokens(text: str) -> int:
@@ -158,6 +171,30 @@ def _normalize_suggestion_provenance_refs(source_refs: Optional[List[str]]) -> L
         seen.add(canonical)
         normalized.append(canonical)
     return normalized
+
+
+def _sorted_literals(values: frozenset[str]) -> str:
+    return ", ".join(sorted(values))
+
+
+def _validate_literal_value(value: Optional[str], allowed: frozenset[str], field: str) -> None:
+    if value is None:
+        return
+    if value not in allowed:
+        raise ValueError(
+            f"Invalid {field}: {value!r}. Valid values are: {_sorted_literals(allowed)}"
+        )
+
+
+def _validate_record_types(record_types: Optional[list[str] | tuple[str, ...]]) -> None:
+    if record_types is None:
+        return
+    if not isinstance(record_types, (list, tuple)):
+        raise ValueError("record_types must be a sequence of memory record type strings")
+    for record_type in record_types:
+        if not isinstance(record_type, str):
+            raise ValueError("record_types values must be strings")
+        _validate_literal_value(record_type, VALID_SEARCH_RECORD_TYPES, "search record type")
 
 
 # Provenance hierarchy: which source types are allowed for each memory type
@@ -344,16 +381,31 @@ class SQLiteStack(
                 datetime.now(timezone.utc).isoformat(),
             )
 
+    def _log_partial_failure(self, component_name: str, hook_name: str, exc: Exception) -> None:
+        """Log a component hook failure with standardized structured fields.
+
+        All partial-failure paths should use this helper so that log
+        consumers can reliably filter on ``component``, ``hook``, and
+        ``error_type`` extra fields.
+        """
+        logger.warning(
+            "Component %s %s failed: %s — memory operation continues without component",
+            component_name,
+            hook_name,
+            exc,
+            extra={
+                "component": component_name,
+                "hook": hook_name,
+                "error_type": type(exc).__name__,
+            },
+        )
+
     def _set_inference_for_components(self, inference: Optional[InferenceService]) -> None:
         for component in self._components.values():
             try:
                 component.set_inference(inference)
             except Exception as exc:
-                logger.warning(
-                    "Error while propagating inference to component %s: %s",
-                    component.name,
-                    exc,
-                )
+                self._log_partial_failure(component.name, "set_inference", exc)
 
     def maintenance(self) -> Dict[str, Any]:
         """Run maintenance on all components."""
@@ -364,7 +416,7 @@ class SQLiteStack(
                 if stats:
                     results[name] = stats
             except Exception as e:
-                logger.warning(f"Component '{name}' maintenance failed: {e}")
+                self._log_partial_failure(name, "on_maintenance", e)
                 results[name] = {"error": str(e)}
         return results
 
@@ -378,7 +430,7 @@ class SQLiteStack(
                 if result and isinstance(result, dict):
                     self._persist_on_save_metadata(memory_type, memory_id, result)
             except Exception as e:
-                logger.warning("Component '%s' on_save failed: %s", name, e)
+                self._log_partial_failure(name, "on_save", e)
 
     def _persist_on_save_metadata(self, memory_type: str, memory_id: str, metadata: dict) -> None:
         """Persist metadata returned by on_save components."""
@@ -439,7 +491,7 @@ class SQLiteStack(
                 if modified is not None:
                     results = modified
             except Exception as e:
-                logger.warning("Component '%s' on_search failed: %s", name, e)
+                self._log_partial_failure(name, "on_search", e)
         return results
 
     def _dispatch_on_load(self, context: Dict[str, Any]) -> None:
@@ -448,7 +500,7 @@ class SQLiteStack(
             try:
                 component.on_load(context)
             except Exception as e:
-                logger.warning("Component '%s' on_load failed: %s", name, e)
+                self._log_partial_failure(name, "on_load", e)
 
     # ---- Strength Tier Filtering ----
 
@@ -505,7 +557,7 @@ class SQLiteStack(
             try:
                 self._persist_decay_updates(strength_updates)
             except Exception as e:
-                logger.warning("Failed to persist lazy decay updates: %s", e)
+                self._log_partial_failure("lazy_decay", "persist_updates", e)
 
         return records
 
@@ -767,6 +819,32 @@ class SQLiteStack(
         self._dispatch_on_save("relationship", result_id, relationship)
         return result_id
 
+    def update_goal_atomic(self, goal: Goal):
+        self._validate_provenance("goal", goal.derived_from, getattr(goal, "source_entity", None))
+        self._validate_source_type("goal", goal.source_type)
+        self._backend.update_goal_atomic(goal)
+        self._dispatch_on_save("goal", goal.id, goal)
+
+    def update_drive_atomic(self, drive: Drive):
+        self._validate_provenance(
+            "drive", drive.derived_from, getattr(drive, "source_entity", None)
+        )
+        self._validate_source_type("drive", drive.source_type)
+        self._backend.update_drive_atomic(drive)
+        self._dispatch_on_save("drive", drive.id, drive)
+
+    def get_relationship(self, entity_name: str):
+        """Delegate read to backend for consistent strict-mode path."""
+        return self._backend.get_relationship(entity_name)
+
+    def update_relationship_atomic(self, relationship: Relationship):
+        self._validate_provenance(
+            "relationship", relationship.derived_from, getattr(relationship, "source_entity", None)
+        )
+        self._validate_source_type("relationship", relationship.source_type)
+        self._backend.update_relationship_atomic(relationship)
+        self._dispatch_on_save("relationship", relationship.id, relationship)
+
     def save_raw(self, raw: RawEntry) -> str:
         self._validate_provenance("raw", None)  # Raw entries need no provenance
         result_id = self._backend.save_raw(
@@ -813,6 +891,10 @@ class SQLiteStack(
         max_age_hours: Optional[float] = None,
         source_raw_id: Optional[str] = None,
     ) -> List[MemorySuggestion]:
+        _validate_literal_value(status, VALID_SUGGESTION_STATUSES, "suggestion status")
+        _validate_literal_value(
+            memory_type, VALID_SUGGESTION_MEMORY_TYPES, "suggestion memory_type"
+        )
         return self._backend.get_suggestions(
             status=status,
             memory_type=memory_type,
@@ -1126,6 +1208,7 @@ class SQLiteStack(
         include_forgotten: bool = False,
         include_weak: bool = False,
     ) -> List[Goal]:
+        _validate_literal_value(status, VALID_GOAL_STATUSES, "goal status")
         goals = self._backend.get_goals(status=status, limit=limit)
         goals = self._apply_lazy_decay(goals, "goal")
         goals = self._filter_by_strength(goals, include_forgotten, include_weak)
@@ -1191,6 +1274,7 @@ class SQLiteStack(
         context: Optional[str] = None,
         min_confidence: Optional[float] = None,
     ) -> List[ProtocolSearchResult]:
+        _validate_record_types(record_types)
         storage_results = self._backend.search(
             query=query,
             limit=limit,
@@ -1221,7 +1305,7 @@ class SQLiteStack(
                 try:
                     self._persist_decay_updates(decay_updates)
                 except Exception as e:
-                    logger.warning("Failed to persist lazy decay updates in search: %s", e)
+                    self._log_partial_failure("lazy_decay", "persist_search_updates", e)
 
         results = []
         for sr in storage_results:
@@ -1380,10 +1464,12 @@ class SQLiteStack(
         excluded = []
         budget_exhausted = False
         for priority, memory_type, record in candidates:
+            excluded_record = {
+                "memory_type": memory_type,
+                "memory_id": getattr(record, "id", None),
+            }
             if budget_exhausted:
-                excluded.append(
-                    {"memory_type": memory_type, "memory_id": getattr(record, "id", None)}
-                )
+                excluded.append(excluded_record)
                 continue
             text = self._record_to_text(memory_type, record)
             text = _truncate_at_word_boundary(text, max_item_chars)
@@ -1398,9 +1484,7 @@ class SQLiteStack(
                     selected[key].append(record)
                 remaining -= tokens
             else:
-                excluded.append(
-                    {"memory_type": memory_type, "memory_id": getattr(record, "id", None)}
-                )
+                excluded.append(excluded_record)
             if remaining <= 0:
                 budget_exhausted = True
 
@@ -1681,6 +1765,9 @@ class SQLiteStack(
         **kwargs: Any,
     ) -> bool:
         """Update processing configuration for a layer transition."""
+        _validate_literal_value(
+            layer_transition, VALID_PROCESSING_TRANSITIONS, "processing transition"
+        )
         return self._backend.set_processing_config(layer_transition, **kwargs)
 
     def mark_episode_processed(self, episode_id: str) -> bool:
@@ -1838,12 +1925,14 @@ class SQLiteStack(
         include_forgotten: bool = False,
     ) -> str:
         """Export all memories as a formatted string."""
+        _validate_literal_value(format, VALID_DUMP_FORMATS, "dump format")
         if format == "json":
             return self._dump_json(include_raw, include_forgotten)
         return self._dump_markdown(include_raw, include_forgotten)
 
     def export(self, path: str, *, format: str = "markdown") -> None:
         """Export all memories to a file."""
+        _validate_literal_value(format, VALID_DUMP_FORMATS, "export format")
         content = self.dump(format=format)
         if format == "markdown" and path.endswith(".json"):
             content = self.dump(format="json")

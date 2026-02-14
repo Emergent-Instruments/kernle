@@ -14,6 +14,38 @@ from .base import SearchResult
 
 logger = logging.getLogger(__name__)
 
+
+def _exact_derived_from_match(
+    derived_from_json: Optional[str], memory_type: str, memory_id: str
+) -> bool:
+    """Check if a derived_from JSON array contains an exact 'type:id' entry.
+
+    The LIKE query used as a prefilter can produce false positives when one
+    ID is a prefix of another (e.g., "belief:abc" substring-matches
+    "belief:abcdef"). This helper parses the JSON and checks for exact
+    membership.
+
+    Args:
+        derived_from_json: Raw JSON string from the derived_from column.
+        memory_type: The memory type prefix (e.g., "belief").
+        memory_id: The exact memory ID to match.
+
+    Returns:
+        True if the exact 'type:id' string is in the parsed list, False otherwise.
+    """
+    if not derived_from_json:
+        return False
+    try:
+        derived_from = json.loads(derived_from_json)
+    except (json.JSONDecodeError, TypeError):
+        return False
+    if not isinstance(derived_from, list):
+        return False
+
+    target = f"{memory_type}:{memory_id}"
+    return target in derived_from
+
+
 # Canonical mapping from logical memory type to DB table name
 MEMORY_TYPE_TABLE_MAP = {
     "episode": "episodes",
@@ -425,13 +457,17 @@ class MemoryOps:
         with self._connect() as conn:
             for mem_type, table in MEMORY_TYPE_TABLE_MAP.items():
                 rows = conn.execute(
-                    f"""SELECT id FROM {table}
+                    f"""SELECT id, derived_from FROM {table}
                        WHERE stack_id = ? AND deleted = 0
                          AND derived_from LIKE ?""",
                     (self.stack_id, search_pattern),
                 ).fetchall()
                 for row in rows:
-                    results.append((mem_type, row["id"]))
+                    # Post-filter: LIKE is a cheap prefilter but can match
+                    # prefix substrings (e.g., "belief:abc" inside "belief:abcdef").
+                    # Verify exact membership in the parsed JSON array.
+                    if _exact_derived_from_match(row["derived_from"], memory_type, memory_id):
+                        results.append((mem_type, row["id"]))
 
         return results
 

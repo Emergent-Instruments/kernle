@@ -6,6 +6,7 @@ from typing import Any, Dict
 from kernle.core import Kernle
 from kernle.mcp.sanitize import (
     sanitize_array,
+    sanitize_source_metadata,
     sanitize_string,
     validate_enum,
     validate_number,
@@ -53,23 +54,7 @@ def validate_memory_episode(arguments: Dict[str, Any]) -> Dict[str, Any]:
     sanitized["outcome"] = sanitize_string(arguments.get("outcome"), "outcome", 1000, required=True)
     sanitized["lessons"] = sanitize_array(arguments.get("lessons"), "lessons", 500, 20)
     sanitized["tags"] = sanitize_array(arguments.get("tags"), "tags", 100, 10)
-    sanitized["context"] = (
-        sanitize_string(arguments.get("context"), "context", 500, required=False) or None
-    )
-    sanitized["context_tags"] = (
-        sanitize_array(arguments.get("context_tags"), "context_tags", 100, 20) or None
-    )
-    sanitized["source"] = (
-        sanitize_string(arguments.get("source"), "source", 500, required=False) or None
-    )
-    sanitized["derived_from"] = (
-        sanitize_array(arguments.get("derived_from"), "derived_from", 200, 20) or None
-    )
-    sanitized["source_type"] = (
-        validate_enum(arguments.get("source_type"), "source_type", VALID_SOURCE_TYPES, None)
-        if arguments.get("source_type")
-        else None
-    )
+    sanitized.update(sanitize_source_metadata(arguments, VALID_SOURCE_TYPES))
     return sanitized
 
 
@@ -82,23 +67,7 @@ def validate_memory_note(arguments: Dict[str, Any]) -> Dict[str, Any]:
     sanitized["speaker"] = sanitize_string(arguments.get("speaker"), "speaker", 200, required=False)
     sanitized["reason"] = sanitize_string(arguments.get("reason"), "reason", 1000, required=False)
     sanitized["tags"] = sanitize_array(arguments.get("tags"), "tags", 100, 10)
-    sanitized["context"] = (
-        sanitize_string(arguments.get("context"), "context", 500, required=False) or None
-    )
-    sanitized["context_tags"] = (
-        sanitize_array(arguments.get("context_tags"), "context_tags", 100, 20) or None
-    )
-    sanitized["source"] = (
-        sanitize_string(arguments.get("source"), "source", 500, required=False) or None
-    )
-    sanitized["derived_from"] = (
-        sanitize_array(arguments.get("derived_from"), "derived_from", 200, 20) or None
-    )
-    sanitized["source_type"] = (
-        validate_enum(arguments.get("source_type"), "source_type", VALID_SOURCE_TYPES, None)
-        if arguments.get("source_type")
-        else None
-    )
+    sanitized.update(sanitize_source_metadata(arguments, VALID_SOURCE_TYPES))
     return sanitized
 
 
@@ -159,12 +128,15 @@ def validate_memory_episode_update(arguments: Dict[str, Any]) -> Dict[str, Any]:
 def validate_memory_auto_capture(arguments: Dict[str, Any]) -> Dict[str, Any]:
     sanitized: Dict[str, Any] = {}
     sanitized["text"] = sanitize_string(arguments.get("text"), "text", 10000, required=True)
-    sanitized["context"] = sanitize_string(
-        arguments.get("context"), "context", 1000, required=False
+    sanitized.update(
+        sanitize_source_metadata(
+            arguments,
+            VALID_SOURCE_TYPES,
+            coalesce_empty_to_none=False,
+        )
     )
-    sanitized["source"] = (
-        sanitize_string(arguments.get("source"), "source", 100, required=False) or "auto"
-    )
+    if not sanitized.get("source"):
+        sanitized["source"] = "auto"
     sanitized["extract_suggestions"] = arguments.get("extract_suggestions", False)
     if not isinstance(sanitized["extract_suggestions"], bool):
         sanitized["extract_suggestions"] = False

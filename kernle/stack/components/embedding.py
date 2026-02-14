@@ -34,6 +34,7 @@ class EmbeddingComponent:
         self._stack_id: Optional[str] = None
         self._inference: Optional[InferenceService] = None
         self._embedder = HashEmbedder()
+        self._storage: Any = None
 
     # ---- StackComponentProtocol properties ----
 
@@ -82,8 +83,8 @@ class EmbeddingComponent:
         self._inference = inference
 
     def set_storage(self, storage: Any) -> None:
-        """Not needed by EmbeddingComponent."""
-        pass
+        """Store reference for embedding stats queries."""
+        self._storage = storage
 
     # ---- Lifecycle Hooks ----
 
@@ -119,14 +120,27 @@ class EmbeddingComponent:
         """Re-index stale embeddings.
 
         Returns stats about what was done. Currently reports
-        component status; full re-indexing deferred to when the
-        component owns the embedding lifecycle.
+        component status and degradation info; full re-indexing
+        deferred to when the component owns the embedding lifecycle.
         """
-        return {
+        result: dict[str, Any] = {
             "provider": self.embedding_provider_id,
             "dimension": self.embedding_dimension,
             "has_inference": self._inference is not None,
         }
+
+        # Include storage-level embedding stats if available
+        if self._storage is not None and hasattr(self._storage, "get_embedding_stats"):
+            try:
+                stats = self._storage.get_embedding_stats()
+                result["is_degraded"] = stats.get("is_degraded", False)
+                result["current_provider"] = stats.get("current_provider", "unknown")
+                result["fallback_count"] = stats.get("fallback_count", 0)
+                result["total_embeddings"] = stats.get("total", 0)
+            except Exception:
+                logger.debug("Failed to fetch embedding stats from storage")
+
+        return result
 
     # ---- Embedding Interface ----
 

@@ -267,6 +267,45 @@ class TestBackfillProvenance:
 
         mock_k.set_memory_source.assert_not_called()
 
+    def test_backfill_json_is_deterministic(self, stack, capsys):
+        now = datetime.now(timezone.utc)
+        ep_a = _ep(objective="first", outcome="outcome", created_at=now)
+        ep_a.id = "ep-b"
+        ep_b = _ep(objective="second", outcome="outcome", created_at=now)
+        ep_b.id = "ep-a"
+
+        stack.save_episode(ep_a)
+        stack.save_episode(ep_b)
+
+        from kernle.cli.commands.migrate import _migrate_backfill_provenance
+
+        mock_k = MagicMock()
+        mock_k._storage = stack._backend
+        mock_k.stack_id = STACK_ID
+        mock_k.set_memory_source = MagicMock(return_value=True)
+
+        args = MagicMock()
+        args.dry_run = True
+        args.json = True
+
+        _migrate_backfill_provenance(args, mock_k)
+
+        output = json.loads(capsys.readouterr().out)
+        assert output["status_snapshot"]["total_updates"] == 2
+        assert output["status_snapshot"]["ids"] == sorted(output["status_snapshot"]["ids"])
+        assert output["updates"][0]["id"] < output["updates"][1]["id"]
+        assert output["status_snapshot_sha256"] == _snapshot_sha256(output["status_snapshot"])
+
+
+def _snapshot_sha256(payload):
+    return (
+        __import__("hashlib")
+        .sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+        )
+        .hexdigest()
+    )
+
 
 # ==============================================================================
 # link-raw: matches episodes to raw entries
@@ -622,6 +661,58 @@ class TestLinkRaw:
         _migrate_link_raw(args, mock_k)
 
         mock_k.set_memory_source.assert_not_called()
+
+    def test_link_json_is_deterministic(self, stack, capsys):
+        now = datetime.now(timezone.utc)
+        _save_raw(
+            stack._backend,
+            blob="alpha raw match",
+            captured_at=now,
+        )
+        _save_raw(
+            stack._backend,
+            blob="beta raw match",
+            captured_at=now,
+        )
+
+        ep = Episode(
+            id="z-episode",
+            stack_id=STACK_ID,
+            objective="alpha raw match",
+            outcome="good",
+            created_at=now,
+        )
+        note = Note(
+            id="a-note",
+            stack_id=STACK_ID,
+            content="beta raw match",
+            note_type="observation",
+            created_at=now,
+        )
+        stack.save_episode(ep)
+        stack.save_note(note)
+
+        from kernle.cli.commands.migrate import _migrate_link_raw
+
+        mock_k = MagicMock()
+        mock_k._storage = stack._backend
+        mock_k.stack_id = STACK_ID
+        mock_k.set_memory_source = MagicMock(return_value=True)
+
+        args = MagicMock()
+        args.dry_run = False
+        args.json = True
+        args.window = 30
+        args.link_all = False
+
+        _migrate_link_raw(args, mock_k)
+
+        output = json.loads(capsys.readouterr().out)
+        assert output["status_snapshot"]["matched_links"] == 2
+        assert output["links"][0]["type"] == "episode"
+        assert output["links"][1]["type"] == "note"
+        assert output["status_snapshot"]["ids"][0] < output["status_snapshot"]["ids"][1]
+        assert output["status_snapshot_sha256"] == _snapshot_sha256(output["status_snapshot"])
 
 
 class TestPreV09ProvenanceBypass:
