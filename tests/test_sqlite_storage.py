@@ -136,6 +136,8 @@ class TestNotes:
 class TestEmbeddingCacheResilience:
     def test_save_embedding_failure_cleans_stale_cache(self, storage):
         """Transient embedding writes should remove stale vector cache entries."""
+        if not storage._has_vec:
+            pytest.skip("sqlite-vec not available in this environment")
         record_id = "ep-cache-stale"
         vec_id = f"{storage.stack_id}:episodes:{record_id}"
         stale_hash = "0000stale"

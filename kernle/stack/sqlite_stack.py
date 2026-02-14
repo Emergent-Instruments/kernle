@@ -1485,6 +1485,8 @@ class SQLiteStack(
             excluded_record = {
                 "memory_type": memory_type,
                 "memory_id": getattr(record, "id", None),
+                "record": record,
+                "priority": priority,
             }
             if budget_exhausted:
                 excluded.append(excluded_record)

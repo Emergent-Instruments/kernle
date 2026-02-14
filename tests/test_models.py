@@ -48,6 +48,7 @@ class TestAnthropicModelProperties:
         assert caps.context_window == 200_000
 
     def test_api_key_from_env(self, monkeypatch):
+        monkeypatch.delenv("CLAUDE_API_KEY", raising=False)
         monkeypatch.setenv("ANTHROPIC_API_KEY", "env-key-123")
         mock_module = _MockAnthropicModule()
         with patch.dict("sys.modules", {"anthropic": mock_module}):
@@ -59,6 +60,7 @@ class TestAnthropicModelProperties:
 
     def test_missing_api_key_raises(self, monkeypatch):
         monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.delenv("CLAUDE_API_KEY", raising=False)
         with _mock_anthropic_sdk():
             from kernle.models.anthropic import AnthropicModel
 
