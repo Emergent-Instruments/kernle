@@ -862,7 +862,7 @@ def init_db(
             conn.executescript(vec_schema)
         except sqlite3.OperationalError as e:
             if "already exists" not in str(e):
-                logger.warning(f"Could not create vector table: {e}")
+                logger.warning(f"Could not create vector table: {e}", exc_info=True)
 
     # Create FTS5 table for raw blob keyword search
     ensure_raw_fts5(conn)
@@ -878,7 +878,7 @@ def init_db(
         if agent_dir.exists():
             os.chmod(agent_dir, 0o700)
     except OSError as e:
-        logger.warning(f"Could not set secure permissions: {e}")
+        logger.warning(f"Could not set secure permissions: {e}", exc_info=True)
 
 
 def ensure_raw_fts5(conn: sqlite3.Connection) -> None:
@@ -913,13 +913,15 @@ def ensure_raw_fts5(conn: sqlite3.Connection) -> None:
     except sqlite3.OperationalError as e:
         # FTS5 might not be available in all SQLite builds
         if "no such module: fts5" in str(e).lower():
-            logger.warning("FTS5 not available in this SQLite build - keyword search disabled")
+            logger.warning(
+                "FTS5 not available in this SQLite build - keyword search disabled", exc_info=True
+            )
         elif "already exists" in str(e).lower():
             pass  # Table already exists, that's fine
         else:
-            logger.warning(f"Could not create FTS5 table: {e}")
+            logger.warning(f"Could not create FTS5 table: {e}", exc_info=True)
     except Exception as e:
-        logger.warning(f"FTS5 setup failed: {e}")
+        logger.warning(f"FTS5 setup failed: {e}", exc_info=True)
 
 
 def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
@@ -1239,7 +1241,7 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
                 conn.execute(migration)
             except Exception as e:
                 if "duplicate column" not in str(e).lower():
-                    logger.warning(f"Migration failed: {migration}: {e}")
+                    logger.warning(f"Migration failed: {migration}: {e}", exc_info=True)
         migrations.clear()
 
         # Migrate data from content/tags to blob with natural language format
@@ -1282,7 +1284,7 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
                 """)
                 logger.info(f"Migrated {needs_migration} raw entries to blob format")
         except Exception as e:
-            logger.warning(f"Raw blob data migration failed: {e}")
+            logger.warning(f"Raw blob data migration failed: {e}", exc_info=True)
 
     # Create health_check_events table if it doesn't exist
     if "health_check_events" not in table_names:
@@ -1310,7 +1312,9 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
             conn.execute(migration)
             logger.debug(f"Migration applied: {migration}")
         except Exception as e:
-            logger.warning(f"Migration failed (may already exist): {migration} - {e}")
+            logger.warning(
+                f"Migration failed (may already exist): {migration} - {e}", exc_info=True
+            )
 
     if migrations:
         conn.commit()
@@ -1335,7 +1339,9 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
                     logger.info(f"Added source_entity column to {table}")
                 except Exception as e:
                     if "duplicate column" not in str(e).lower():
-                        logger.warning(f"Failed to add source_entity to {table}: {e}")
+                        logger.warning(
+                            f"Failed to add source_entity to {table}: {e}", exc_info=True
+                        )
     conn.commit()
 
     # v14: Add privacy fields (Phase 8a) - subject_ids, access_grants, consent_grants
@@ -1361,7 +1367,7 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
                         logger.info(f"Added {field} column to {table}")
                     except Exception as e:
                         if "duplicate column" not in str(e).lower():
-                            logger.warning(f"Failed to add {field} to {table}: {e}")
+                            logger.warning(f"Failed to add {field} to {table}: {e}", exc_info=True)
     conn.commit()
 
     # v15: Sync queue payload/data consistency fix
@@ -1375,7 +1381,7 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
                 logger.info(f"Fixed {fixed} sync queue entries (data -> payload)")
             conn.commit()
         except Exception as e:
-            logger.warning(f"Sync queue payload migration failed: {e}")
+            logger.warning(f"Sync queue payload migration failed: {e}", exc_info=True)
 
     # v15: Boot config table (Phase 9) - always-available key/value config
     if "boot_config" not in table_names:
@@ -1493,7 +1499,7 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
                     logger.info(f"Added {field_name} column to beliefs")
                 except Exception as e:
                     if "duplicate column" not in str(e).lower():
-                        logger.warning(f"Failed to add {field_name} to beliefs: {e}")
+                        logger.warning(f"Failed to add {field_name} to beliefs: {e}", exc_info=True)
         conn.commit()
 
     # v19: Add epoch_id columns and epochs table (KEP v3)
@@ -1516,7 +1522,7 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
                     logger.info(f"Added epoch_id column to {tbl}")
                 except Exception as e:
                     if "duplicate column" not in str(e).lower():
-                        logger.warning(f"Failed to add epoch_id to {tbl}: {e}")
+                        logger.warning(f"Failed to add epoch_id to {tbl}: {e}", exc_info=True)
 
     # v21: Add summaries table (fractal summarization)
     if "summaries" not in table_names and "agent_summaries" not in table_names:
@@ -1588,7 +1594,7 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
                 logger.info("Added trigger_description column to epochs")
             except Exception as e:
                 if "duplicate column" not in str(e).lower():
-                    logger.warning(f"Failed to add trigger_description: {e}")
+                    logger.warning(f"Failed to add trigger_description: {e}", exc_info=True)
     conn.commit()
 
     # v22: Add self_narratives table (self-narrative layer)
@@ -1669,7 +1675,7 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
                         conn.execute(f"ALTER TABLE {tbl} RENAME COLUMN agent_id TO stack_id")
                         logger.info(f"Renamed agent_id -> stack_id in {tbl}")
                     except Exception as e:
-                        logger.warning(f"Column rename failed for {tbl}: {e}")
+                        logger.warning(f"Column rename failed for {tbl}: {e}", exc_info=True)
 
         # 2. Rename tables that had agent_ prefix
         # Note: agent_values is NOT renamed (values is a SQL reserved word)
@@ -1687,7 +1693,9 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
                     conn.execute(f"ALTER TABLE {old_name} RENAME TO {new_name}")
                     logger.info(f"Renamed table {old_name} -> {new_name}")
                 except Exception as e:
-                    logger.warning(f"Table rename failed {old_name} -> {new_name}: {e}")
+                    logger.warning(
+                        f"Table rename failed {old_name} -> {new_name}: {e}", exc_info=True
+                    )
 
         conn.commit()
         logger.info("Schema migration v23 complete (agent -> stack)")
@@ -1705,7 +1713,7 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
                     conn.execute(f"ALTER TABLE {tbl} RENAME COLUMN agent_id TO stack_id")
                     logger.info(f"v23 catch-up: renamed agent_id -> stack_id in {tbl}")
                 except Exception as e:
-                    logger.warning(f"v23 catch-up failed for {tbl}: {e}")
+                    logger.warning(f"v23 catch-up failed for {tbl}: {e}", exc_info=True)
     conn.commit()
 
     # v24: Memory integrity -- replace is_forgotten/forgotten_at/forgotten_reason with strength
@@ -1731,7 +1739,7 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
                 logger.info(f"Added strength column to {tbl}")
             except Exception as e:
                 if "duplicate column" not in str(e).lower():
-                    logger.warning(f"Failed to add strength to {tbl}: {e}")
+                    logger.warning(f"Failed to add strength to {tbl}: {e}", exc_info=True)
 
         # Migrate existing data: forgotten memories get strength = 0.0
         if "is_forgotten" in cols:
@@ -1742,7 +1750,7 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
                 if migrated > 0:
                     logger.info(f"Migrated {migrated} forgotten records in {tbl} to strength=0.0")
             except Exception as e:
-                logger.warning(f"Failed to migrate is_forgotten data in {tbl}: {e}")
+                logger.warning(f"Failed to migrate is_forgotten data in {tbl}: {e}", exc_info=True)
 
     # Add processed column to episodes, notes, and beliefs
     for tbl in ["episodes", "notes", "beliefs"]:
@@ -1755,7 +1763,7 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
                 logger.info(f"Added processed column to {tbl}")
             except Exception as e:
                 if "duplicate column" not in str(e).lower():
-                    logger.warning(f"Failed to add processed to {tbl}: {e}")
+                    logger.warning(f"Failed to add processed to {tbl}: {e}", exc_info=True)
 
     # Create memory_audit table if it doesn't exist
     if "memory_audit" not in table_names:
@@ -1842,7 +1850,7 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
             if backfilled > 0:
                 logger.info(f"v25: Backfilled captured_at for {backfilled} raw entries")
         except Exception as e:
-            logger.warning(f"v25: captured_at backfill failed: {e}")
+            logger.warning(f"v25: captured_at backfill failed: {e}", exc_info=True)
 
         # Replace old single-column index with compound index for pagination
         try:
@@ -1862,7 +1870,7 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
                 """)
                 logger.info("v25: Created compound index idx_raw_captured_at")
         except Exception as e:
-            logger.warning(f"v25: Index rebuild failed: {e}")
+            logger.warning(f"v25: Index rebuild failed: {e}", exc_info=True)
 
     # v26: Add embedding observability columns to embedding_meta
     if "embedding_meta" in table_names:
@@ -1873,7 +1881,7 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
                 logger.info("v26: Added embedding_provider column to embedding_meta")
             except Exception as e:
                 if "duplicate column" not in str(e).lower():
-                    logger.warning(f"v26: Failed to add embedding_provider: {e}")
+                    logger.warning(f"v26: Failed to add embedding_provider: {e}", exc_info=True)
         if "fallback_used" not in emb_cols:
             try:
                 conn.execute(
@@ -1882,7 +1890,7 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
                 logger.info("v26: Added fallback_used column to embedding_meta")
             except Exception as e:
                 if "duplicate column" not in str(e).lower():
-                    logger.warning(f"v26: Failed to add fallback_used: {e}")
+                    logger.warning(f"v26: Failed to add fallback_used: {e}", exc_info=True)
         conn.commit()
 
         conn.commit()

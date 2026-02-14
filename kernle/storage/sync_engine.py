@@ -480,12 +480,12 @@ class SyncEngine:
                 self._host.cloud_storage.get_stats()
                 self._host._is_online_cached = True
             except Exception as e:
-                logger.debug(f"Connectivity check failed: {e}")
+                logger.debug(f"Connectivity check failed: {e}", exc_info=True)
                 self._host._is_online_cached = False
             finally:
                 socket.setdefaulttimeout(old_timeout)
         except Exception as e:
-            logger.debug(f"Connectivity check error: {e}")
+            logger.debug(f"Connectivity check error: {e}", exc_info=True)
             self._host._is_online_cached = False
 
         self._host._last_connectivity_check = now
@@ -556,7 +556,7 @@ class SyncEngine:
                 return False
             return True
         except Exception as e:
-            logger.error(f"Failed to push record {table}:{record.id}: {e}")
+            logger.error(f"Failed to push record {table}:{record.id}: {e}", exc_info=True)
             return False
 
     def sync(self) -> SyncResult:
@@ -628,7 +628,8 @@ class SyncEngine:
                     retry_count = self._record_sync_failure(conn, change.id, error_msg)
                     logger.error(
                         f"Error pushing {change.table_name}:{change.record_id}: {e} "
-                        f"(retry {retry_count}/5)"
+                        f"(retry {retry_count}/5)",
+                        exc_info=True,
                     )
                     result.errors.append(
                         f"Error pushing {change.table_name}:{change.record_id}: {error_msg}"
@@ -689,7 +690,7 @@ class SyncEngine:
                         result.conflicts.append(conflict)
 
             except Exception as e:
-                logger.error(f"Failed to pull from {table}: {e}")
+                logger.error(f"Failed to pull from {table}: {e}", exc_info=True)
                 result.errors.append(f"Failed to pull {table}: {str(e)}")
 
         return result
@@ -837,7 +838,10 @@ class SyncEngine:
                         merged = merged[:MAX_SYNC_ARRAY_SIZE]
                     updates[field_name] = merged
             except (TypeError, KeyError):
-                logger.warning(f"Failed to merge array field {field_name}, keeping winner's value")
+                logger.warning(
+                    f"Failed to merge array field {field_name}, keeping winner's value",
+                    exc_info=True,
+                )
                 continue
 
         if updates:
@@ -1095,7 +1099,9 @@ class SyncEngine:
                 json.dumps(record, sort_keys=True, default=str).encode("utf-8")
             ).hexdigest()
         except Exception as exc:
-            logger.debug("Swallowed %s in _build_record_hash: %s", type(exc).__name__, exc)
+            logger.debug(
+                "Swallowed %s in _build_record_hash: %s", type(exc).__name__, exc, exc_info=True
+            )
             return None
 
     def _build_conflict_hash(
@@ -1108,7 +1114,9 @@ class SyncEngine:
                 json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
             ).hexdigest()
         except Exception as exc:
-            logger.debug("Swallowed %s in _build_conflict_hash: %s", type(exc).__name__, exc)
+            logger.debug(
+                "Swallowed %s in _build_conflict_hash: %s", type(exc).__name__, exc, exc_info=True
+            )
             return None
 
     def _choose_tie_break_policy(self, local_record: Any, cloud_record: Any) -> str:
@@ -1159,7 +1167,7 @@ class SyncEngine:
                     d[k] = v.isoformat()
             return d
         except Exception as e:
-            logger.debug(f"Failed to serialize record, using fallback: {e}")
+            logger.debug(f"Failed to serialize record, using fallback: {e}", exc_info=True)
             return {"id": getattr(record, "id", "unknown")}
 
     def _save_from_cloud(self, table: str, record: Any):

@@ -171,7 +171,7 @@ def handle_memory_process_status(args: Dict[str, Any], k: Kernle) -> str:
                 status = "READY" if would_fire else "waiting"
                 lines.append(f"  {transition_name}: {count}/{cfg.quantity_threshold} ({status})")
     except Exception as e:
-        logger.warning("Error gathering processing status: %s", e)
+        logger.warning("Error gathering processing status: %s", e, exc_info=True)
         lines.append(f"\nError gathering status: {e}")
 
     return "\n".join(lines)

@@ -339,7 +339,7 @@ def _migrate_seed_beliefs(args: "argparse.Namespace", k: "Kernle") -> None:
             tier_label = f"[Tier {belief['tier']}]" if belief["tier"] > 0 else "[Meta]"
             print(f"  ✓ {tier_label} {belief['statement'][:50]}...")
         except Exception as e:
-            logger.debug("Seed belief failed: %s", e)
+            logger.debug("Seed belief failed: %s", e, exc_info=True)
             errors.append(f"{belief['statement'][:30]}...: {e}")
 
     print(f"\n{'='*60}")
@@ -746,7 +746,9 @@ def _migrate_backfill_provenance(args: "argparse.Namespace", k: "Kernle") -> Non
                 )
                 applied += 1
         except Exception as e:
-            logger.debug("Provenance backfill failed for %s:%s: %s", u["type"], u["id"][:8], e)
+            logger.debug(
+                "Provenance backfill failed for %s:%s: %s", u["type"], u["id"][:8], e, exc_info=True
+            )
             errors.append(f"{u['type']}:{u['id'][:8]}...: {e}")
 
     if not json_output:
@@ -1125,7 +1127,9 @@ def _migrate_link_raw(args: "argparse.Namespace", k: "Kernle") -> None:
             )
             applied += 1
         except Exception as e:
-            logger.debug("Raw link failed for %s:%s: %s", link["type"], link["id"][:8], e)
+            logger.debug(
+                "Raw link failed for %s:%s: %s", link["type"], link["id"][:8], e, exc_info=True
+            )
             errors.append(f"{link['type']}:{link['id'][:8]}...: {e}")
 
     if not json_output:

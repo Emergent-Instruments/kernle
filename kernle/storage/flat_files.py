@@ -39,7 +39,7 @@ def init_flat_files(
         if not goals_file.exists() or goals_file.stat().st_size == 0:
             sync_goals_fn()
     except Exception as e:
-        logger.warning(f"Failed to initialize flat files: {e}")
+        logger.warning(f"Failed to initialize flat files: {e}", exc_info=True)
 
 
 def sync_beliefs_to_file(beliefs_file: Path, beliefs: List[Belief], now: str) -> None:
@@ -59,7 +59,7 @@ def sync_beliefs_to_file(beliefs_file: Path, beliefs: List[Belief], now: str) ->
             f.write("\n".join(lines))
         os.chmod(beliefs_file, 0o600)
     except Exception as e:
-        logger.warning(f"Failed to sync beliefs to file: {e}")
+        logger.warning(f"Failed to sync beliefs to file: {e}", exc_info=True)
 
 
 def sync_values_to_file(values_file: Path, values: List[Value], now: str) -> None:
@@ -76,7 +76,7 @@ def sync_values_to_file(values_file: Path, values: List[Value], now: str) -> Non
             f.write("\n".join(lines))
         os.chmod(values_file, 0o600)
     except Exception as e:
-        logger.warning(f"Failed to sync values to file: {e}")
+        logger.warning(f"Failed to sync values to file: {e}", exc_info=True)
 
 
 def sync_goals_to_file(goals_file: Path, goals: List[Goal], now: str) -> None:
@@ -108,7 +108,7 @@ def sync_goals_to_file(goals_file: Path, goals: List[Goal], now: str) -> None:
             f.write("\n".join(lines))
         os.chmod(goals_file, 0o600)
     except Exception as e:
-        logger.warning(f"Failed to sync goals to file: {e}")
+        logger.warning(f"Failed to sync goals to file: {e}", exc_info=True)
 
 
 def sync_relationships_to_file(
@@ -134,4 +134,4 @@ def sync_relationships_to_file(
             f.write("\n".join(lines))
         os.chmod(relationships_file, 0o600)
     except Exception as e:
-        logger.warning(f"Failed to sync relationships to file: {e}")
+        logger.warning(f"Failed to sync relationships to file: {e}", exc_info=True)

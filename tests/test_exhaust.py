@@ -20,15 +20,24 @@ from kernle.processing import ProcessingResult
 # =============================================================================
 
 
-def _make_result(transition, created=None, suggestions=None, errors=None, auto_promote=True):
+def _make_result(
+    transition,
+    created=None,
+    suggestions=None,
+    errors=None,
+    auto_promote=True,
+    source_count=1,
+    no_output_processed=False,
+):
     """Build a ProcessingResult with given created/suggestions counts."""
     return ProcessingResult(
         layer_transition=transition,
-        source_count=1,
+        source_count=source_count,
         created=created or [],
         suggestions=suggestions or [],
         errors=errors or [],
         auto_promote=auto_promote,
+        no_output_processed=no_output_processed,
     )
 
 
@@ -279,6 +288,29 @@ class TestConvergenceLogic:
         light_cycles = [cr for cr in result.cycle_results if cr.intensity == "light"]
         # Cycle 1: errors (reset), Cycle 2: zero, Cycle 3: zero -> converge
         assert len(light_cycles) == 3
+
+    def test_no_output_cycles_converge_after_two_iterations(self):
+        """No-output sources should converge quickly to avoid livelock."""
+
+        def all_empty(**kwargs):
+            transition = kwargs.get("transition", "")
+            return [
+                _make_result(
+                    transition,
+                    source_count=1,
+                    no_output_processed=True,
+                    auto_promote=True,
+                )
+            ]
+
+        k = _mock_kernle(all_empty)
+        runner = ExhaustionRunner(k, max_cycles=20)
+        result = runner.run()
+
+        assert result.converged is True
+        assert result.convergence_reason == "converged"
+        # Light/medium/heavy each require 2 zero-promotion cycles with no-output.
+        assert result.cycles_completed == 6
 
 
 # =============================================================================

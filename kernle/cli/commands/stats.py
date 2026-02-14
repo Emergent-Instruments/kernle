@@ -57,7 +57,7 @@ def _health_checks_stats(args, k: "Kernle"):
 
             print(f"Last Check:       {elapsed_str}")
         except Exception as e:
-            logger.debug(f"Failed to compute elapsed time: {e}")
+            logger.debug(f"Failed to compute elapsed time: {e}", exc_info=True)
             print(f"Last Check:       {last_at[:19]}")
 
         if last_score is not None:

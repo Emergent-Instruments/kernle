@@ -100,7 +100,7 @@ class ExhaustionRunner:
                 snapshot = self._k.checkpoint("pre-exhaust")
                 result.snapshot = snapshot
             except Exception as e:
-                logger.warning("Could not create pre-exhaust checkpoint: %s", e)
+                logger.warning("Could not create pre-exhaust checkpoint: %s", e, exc_info=True)
 
         if dry_run:
             # In dry run, record one cycle per intensity level
@@ -157,7 +157,9 @@ class ExhaustionRunner:
                                 cycle_result.promotions += len(pr.suggestions)
                             cycle_result.errors.extend(pr.errors)
                     except Exception as e:
-                        logger.warning("Exhaust cycle transition %s failed: %s", transition, e)
+                        logger.warning(
+                            "Exhaust cycle transition %s failed: %s", transition, e, exc_info=True
+                        )
                         cycle_result.errors.append(f"{transition}: {e}")
 
                 result.cycle_results.append(cycle_result)
@@ -199,6 +201,9 @@ class ExhaustionRunner:
                 # evaluated, just nothing promoted).  Only count as a
                 # "true zero" when no sources remained to process.
                 total_sources = sum(pr.source_count for pr in cycle_result.results)
+                results_with_sources = [
+                    pr for pr in cycle_result.results if getattr(pr, "source_count", 0) > 0
+                ]
 
                 if cycle_result.errors and cycle_result.promotions == 0:
                     # Error-only cycles don't count toward convergence
@@ -215,13 +220,33 @@ class ExhaustionRunner:
                         )
                         break
                 elif cycle_result.promotions == 0 and total_sources > 0:
-                    # Sources were processed but nothing promoted — keep going
-                    consecutive_zero = 0
-                    logger.debug(
-                        "Cycle %d: 0 promotions but %d sources processed, continuing",
-                        total_cycle,
-                        total_sources,
-                    )
+                    # Sources were processed but nothing promoted.
+                    # For no-output cycles introduced by Logic-07, stop retrying
+                    # after a few consecutive attempts to avoid livelock.
+                    if results_with_sources and all(
+                        getattr(pr, "no_output_processed", False) for pr in results_with_sources
+                    ):
+                        consecutive_zero += 1
+                        if consecutive_zero >= 2:
+                            level_converged = True
+                            logger.info(
+                                "%s intensity converged after %d no-output cycles",
+                                intensity,
+                                consecutive_zero,
+                            )
+                            break
+                        logger.debug(
+                            "Cycle %d: 0 promotions, %d sources in no-output state",
+                            total_cycle,
+                            total_sources,
+                        )
+                    else:
+                        consecutive_zero = 0
+                        logger.debug(
+                            "Cycle %d: 0 promotions but %d sources processed, continuing",
+                            total_cycle,
+                            total_sources,
+                        )
                 else:
                     consecutive_zero = 0
 

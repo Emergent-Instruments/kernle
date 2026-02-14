@@ -207,7 +207,9 @@ class ConsolidationComponent:
 
             return [str(t) for t in themes if isinstance(t, str)][:10]
         except Exception:
-            logger.debug("ConsolidationComponent: inference synthesis failed, skipping")
+            logger.debug(
+                "ConsolidationComponent: inference synthesis failed, skipping", exc_info=True
+            )
             return None
 
     def _detect_cross_domain_patterns(self, episodes: list) -> List[Dict[str, Any]]:

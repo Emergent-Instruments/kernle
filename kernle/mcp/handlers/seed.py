@@ -29,6 +29,7 @@ def _sanitize_string_list(value: Any) -> Optional[list]:
 
 _SEED_ROOT_ENV = "KERNLE_MCP_SEED_ROOT"
 _SEED_ALLOW_UNSAFE_ENV = "KERNLE_MCP_ALLOW_UNSAFE_SEED_PATHS"
+_SEED_ALLOW_UNSAFE_ARG = "allow_outside_root"
 
 
 def _is_truthy(value: Any) -> bool:
@@ -65,21 +66,33 @@ def _is_path_within_root(path: Path, root: Path) -> bool:
         return False
 
 
-def _sanitize_seed_path(path_value: Any, seed_root: Any = None) -> str:
+def _sanitize_seed_path(
+    path_value: Any,
+    seed_root: Any = None,
+    allow_outside_root: Any = False,
+) -> str:
     path = sanitize_string(path_value, "path", 1000, required=True)
     resolved_path = Path(path).expanduser()
     if not resolved_path.is_absolute():
         resolved_path = _resolve_seed_root(seed_root) / resolved_path
     resolved_path = resolved_path.resolve()
 
-    if _is_truthy(os.environ.get(_SEED_ALLOW_UNSAFE_ENV)):
+    bypass_allowed = _is_truthy(os.environ.get(_SEED_ALLOW_UNSAFE_ENV)) and _is_truthy(
+        allow_outside_root
+    )
+    if bypass_allowed:
+        logger.warning(
+            "Bypassing MCP seed-root enforcement for %s because %s=1 and allow_outside_root=true",
+            resolved_path,
+            _SEED_ALLOW_UNSAFE_ENV,
+        )
         return str(resolved_path)
 
     seed_root = _resolve_seed_root(seed_root)
     if not _is_path_within_root(resolved_path, seed_root):
         raise ValueError(
             f"path '{resolved_path}' is outside allowed seed root '{seed_root}'. "
-            f"Set {_SEED_ALLOW_UNSAFE_ENV}=1 to opt out."
+            f"Set {_SEED_ALLOW_UNSAFE_ENV}=1 and {_SEED_ALLOW_UNSAFE_ARG}=true to opt out."
         )
 
     logger.debug("Validated MCP seed path '%s' against root '%s'", resolved_path, seed_root)
@@ -90,7 +103,11 @@ def validate_memory_seed_repo(arguments: Dict[str, Any]) -> Dict[str, Any]:
     sanitized: Dict[str, Any] = {}
     seed_root = arguments.get("seed_root")
     sanitized["seed_root"] = str(_resolve_seed_root(seed_root))
-    sanitized["path"] = _sanitize_seed_path(arguments.get("path"), seed_root)
+    sanitized["path"] = _sanitize_seed_path(
+        arguments.get("path"),
+        seed_root,
+        allow_outside_root=arguments.get(_SEED_ALLOW_UNSAFE_ARG),
+    )
     sanitized["extensions"] = _sanitize_string_list(arguments.get("extensions"))
     sanitized["exclude"] = _sanitize_string_list(arguments.get("exclude"))
     sanitized["max_chunk_size"] = arguments.get("max_chunk_size", 2000)
@@ -106,7 +123,11 @@ def validate_memory_seed_docs(arguments: Dict[str, Any]) -> Dict[str, Any]:
     sanitized: Dict[str, Any] = {}
     seed_root = arguments.get("seed_root")
     sanitized["seed_root"] = str(_resolve_seed_root(seed_root))
-    sanitized["path"] = _sanitize_seed_path(arguments.get("path"), seed_root)
+    sanitized["path"] = _sanitize_seed_path(
+        arguments.get("path"),
+        seed_root,
+        allow_outside_root=arguments.get(_SEED_ALLOW_UNSAFE_ARG),
+    )
     sanitized["extensions"] = _sanitize_string_list(arguments.get("extensions"))
     sanitized["max_chunk_size"] = arguments.get("max_chunk_size", 2000)
     if not isinstance(sanitized["max_chunk_size"], int):

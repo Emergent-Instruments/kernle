@@ -177,7 +177,7 @@ def get_default_embedder() -> EmbeddingProvider:
             logger.info("Using OpenAI embeddings")
         except Exception as e:
             _openai_available = False
-            logger.debug(f"OpenAI embeddings not available: {e}")
+            logger.debug(f"OpenAI embeddings not available: {e}", exc_info=True)
 
     if _openai_available:
         return OpenAIEmbedder()

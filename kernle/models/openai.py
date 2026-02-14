@@ -8,6 +8,7 @@ import fails only when the class is instantiated).
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any, Iterator, Optional
 
@@ -19,6 +20,8 @@ from kernle.protocols import (
     ModelResponse,
     ToolDefinition,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class OpenAIModelError(KernleError):
@@ -108,6 +111,7 @@ class OpenAIModel:
         try:
             response = self._client.chat.completions.create(**kwargs)
         except Exception as exc:
+            logger.debug("OpenAI API generate failed: %s", exc, exc_info=True)
             raise self._classify_error(exc, "OpenAI API error") from exc
 
         return self._parse_response(response)
@@ -162,6 +166,7 @@ class OpenAIModel:
                 else:
                     yield ModelChunk(content=content)
         except Exception as exc:
+            logger.debug("OpenAI API stream failed: %s", exc, exc_info=True)
             raise self._classify_error(exc, "OpenAI streaming error") from exc
 
     # ---- Internal helpers ----

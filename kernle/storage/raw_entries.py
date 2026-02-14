@@ -209,7 +209,7 @@ def update_raw_fts(conn: sqlite3.Connection, raw_id: str, blob: str) -> None:
     except sqlite3.OperationalError as e:
         # FTS5 might not be available
         if "no such table" not in str(e).lower():
-            logger.debug(f"FTS update failed: {e}")
+            logger.debug(f"FTS update failed: {e}", exc_info=True)
 
 
 def append_raw_to_file(
@@ -254,7 +254,7 @@ def append_raw_to_file(
             f.write("\n".join(lines) + "\n")
 
     except Exception as e:
-        logger.warning(f"Failed to write raw entry to flat file: {e}")
+        logger.warning(f"Failed to write raw entry to flat file: {e}", exc_info=True)
         # Don't fail - SQLite is the backup
 
 
@@ -362,7 +362,9 @@ def sync_raw_from_files(
                 )
 
         except Exception as e:
-            logger.debug("Raw entry file import failed for %s: %s", file_path.name, e)
+            logger.debug(
+                "Raw entry file import failed for %s: %s", file_path.name, e, exc_info=True
+            )
             result["errors"].append(f"{file_path.name}: {str(e)}")
 
     return result
@@ -428,7 +430,7 @@ def import_raw_entry(
         result["imported"] += 1
 
     except Exception as e:
-        logger.debug("Raw entry import failed for %s: %s", id_prefix, e)
+        logger.debug("Raw entry import failed for %s: %s", id_prefix, e, exc_info=True)
         result["errors"].append(f"Entry {id_prefix}: {str(e)}")
 
 
@@ -544,7 +546,7 @@ def search_raw_fts(
     except sqlite3.OperationalError as e:
         # FTS5 not available, fall back to LIKE search
         if "no such table" in str(e).lower() or "fts5" in str(e).lower():
-            logger.debug("FTS5 not available, using LIKE fallback")
+            logger.debug("FTS5 not available, using LIKE fallback", exc_info=True)
             escaped_query = escape_like_pattern(query)
             rows = conn.execute(
                 """

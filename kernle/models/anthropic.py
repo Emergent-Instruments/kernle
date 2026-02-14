@@ -7,6 +7,7 @@ import fails only when the class is instantiated).
 
 from __future__ import annotations
 
+import logging
 import os
 from typing import Any, Iterator, Optional
 
@@ -18,6 +19,8 @@ from kernle.protocols import (
     ModelResponse,
     ToolDefinition,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class AnthropicModelError(KernleError):
@@ -112,6 +115,7 @@ class AnthropicModel:
         try:
             response = self._client.messages.create(**kwargs)
         except Exception as exc:
+            logger.debug("Anthropic API generate failed: %s", exc, exc_info=True)
             raise self._classify_error(exc, "Anthropic API error") from exc
 
         return self._parse_response(response)
@@ -156,6 +160,7 @@ class AnthropicModel:
                     usage=usage,
                 )
         except Exception as exc:
+            logger.debug("Anthropic API stream failed: %s", exc, exc_info=True)
             raise self._classify_error(exc, "Anthropic streaming error") from exc
 
     # ---- Internal helpers ----

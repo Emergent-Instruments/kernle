@@ -375,7 +375,7 @@ class MetaMemoryMixin:
                     else:
                         continue  # Skip types without bulk getters for now
                 except Exception as e:
-                    logger.debug(f"Failed to get records for type '{mem_type}': {e}")
+                    logger.debug(f"Failed to get records for type '{mem_type}': {e}", exc_info=True)
                     continue
 
                 for record in records:
@@ -432,7 +432,10 @@ class MetaMemoryMixin:
                 else:
                     continue
             except Exception as e:
-                logger.debug(f"Failed to get records for provenance audit (type '{mem_type}'): {e}")
+                logger.debug(
+                    f"Failed to get records for provenance audit (type '{mem_type}'): {e}",
+                    exc_info=True,
+                )
                 continue
 
             for record in records:

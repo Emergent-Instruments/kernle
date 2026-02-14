@@ -471,7 +471,7 @@ class CorpusIngestor:
         try:
             return self._k.raw(blob, source="corpus")
         except Exception as e:
-            logger.error("Failed to create corpus raw entry: %s", e)
+            logger.error("Failed to create corpus raw entry: %s", e, exc_info=True)
             return None
 
     def _load_existing_hashes(self) -> None:
@@ -494,7 +494,7 @@ class CorpusIngestor:
                 len(corpus_entries),
             )
         except Exception as e:
-            logger.warning("Could not load existing corpus hashes: %s", e)
+            logger.warning("Could not load existing corpus hashes: %s", e, exc_info=True)
 
 
 _CORPUS_BATCH_SIZE = 10000

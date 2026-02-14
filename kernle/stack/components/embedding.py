@@ -138,7 +138,7 @@ class EmbeddingComponent:
                 result["fallback_count"] = stats.get("fallback_count", 0)
                 result["total_embeddings"] = stats.get("total", 0)
             except Exception:
-                logger.debug("Failed to fetch embedding stats from storage")
+                logger.debug("Failed to fetch embedding stats from storage", exc_info=True)
 
         return result
 
@@ -154,7 +154,7 @@ class EmbeddingComponent:
             try:
                 return self._inference.embed(text)
             except Exception:
-                logger.debug("Inference embed failed, falling back to local")
+                logger.debug("Inference embed failed, falling back to local", exc_info=True)
         return self._embedder.embed(text)
 
     def embed_batch(self, texts: list[str]) -> list[list[float]]:
@@ -163,7 +163,7 @@ class EmbeddingComponent:
             try:
                 return self._inference.embed_batch(texts)
             except Exception:
-                logger.debug("Inference embed_batch failed, falling back to local")
+                logger.debug("Inference embed_batch failed, falling back to local", exc_info=True)
         return self._embedder.embed_batch(texts)
 
     @property

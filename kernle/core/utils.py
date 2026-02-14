@@ -284,7 +284,9 @@ def compute_priority_score(
                     if isinstance(decayed, (int, float)):
                         confidence = decayed
                 except Exception:
-                    logger.debug("Failed to compute decayed confidence for belief priority")
+                    logger.debug(
+                        "Failed to compute decayed confidence for belief priority", exc_info=True
+                    )
         type_factor = confidence
     elif memory_type == "drive":
         type_factor = _get_record_attr(record, "intensity", 0.5)

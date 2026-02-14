@@ -58,7 +58,7 @@ def _is_local_http(url: str) -> bool:
         hostname = parsed.hostname  # Strips port, userinfo, etc.
         return hostname in ("localhost", "127.0.0.1")
     except Exception as exc:
-        logger.debug("Swallowed %s in _is_local_http: %s", type(exc).__name__, exc)
+        logger.debug("Swallowed %s in _is_local_http: %s", type(exc).__name__, exc, exc_info=True)
         return False
 
 

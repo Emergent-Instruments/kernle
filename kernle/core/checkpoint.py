@@ -49,7 +49,7 @@ class CheckpointMixin:
         try:
             self.checkpoint_dir.mkdir(parents=True, exist_ok=True)
         except (OSError, PermissionError) as e:
-            logger.error(f"Cannot create checkpoint directory: {e}")
+            logger.error(f"Cannot create checkpoint directory: {e}", exc_info=True)
             raise ValueError(f"Cannot create checkpoint directory: {e}")
 
         checkpoint_file = self.checkpoint_dir / f"{self.stack_id}.json"
@@ -62,7 +62,7 @@ class CheckpointMixin:
                     if not isinstance(existing, list):
                         existing = [existing]
             except (json.JSONDecodeError, OSError, PermissionError) as e:
-                logger.warning(f"Could not load existing checkpoint: {e}")
+                logger.warning(f"Could not load existing checkpoint: {e}", exc_info=True)
                 existing = []
 
         existing.append(checkpoint_data)
@@ -72,7 +72,7 @@ class CheckpointMixin:
             with open(checkpoint_file, "w", encoding="utf-8") as f:
                 json.dump(existing, f, indent=2)
         except (OSError, PermissionError) as e:
-            logger.error(f"Cannot save checkpoint: {e}")
+            logger.error(f"Cannot save checkpoint: {e}", exc_info=True)
             raise ValueError(f"Cannot save checkpoint: {e}")
 
         # Also save as episode
@@ -95,6 +95,7 @@ class CheckpointMixin:
             logger.warning(
                 f"Failed to save checkpoint to database: {e}",
                 extra={"operation": "checkpoint_episode_save", "error_type": type(e).__name__},
+                exc_info=True,
             )
             if self._strict:
                 raise
@@ -106,6 +107,7 @@ class CheckpointMixin:
             logger.warning(
                 f"Failed to export boot file on checkpoint: {e}",
                 extra={"operation": "checkpoint_boot_export", "error_type": type(e).__name__},
+                exc_info=True,
             )
             if self._strict:
                 raise
@@ -148,7 +150,7 @@ class CheckpointMixin:
                     elif isinstance(checkpoints, dict):
                         return checkpoints
             except (json.JSONDecodeError, OSError, PermissionError) as e:
-                logger.warning(f"Could not load checkpoint: {e}")
+                logger.warning(f"Could not load checkpoint: {e}", exc_info=True)
         return None
 
     def clear_checkpoint(self) -> bool:

@@ -589,7 +589,7 @@ class Entity:
                 self._plugin_tools[plugin.name] = tools
         except Exception as e:
             message = f"Plugin '{plugin_name}' tool registration failed: {e}"
-            logger.warning(message)
+            logger.warning(message, exc_info=True)
             self._plugin_health[plugin_name] = PluginHealth(
                 healthy=False,
                 message=message,
@@ -604,7 +604,7 @@ class Entity:
                 plugin.register_cli(subparsers)
             except Exception as e:
                 message = f"Plugin '{plugin_name}' CLI registration failed: {e}"
-                logger.warning(message)
+                logger.warning(message, exc_info=True)
                 self._plugin_health[plugin_name] = PluginHealth(
                     healthy=False,
                     message=message,
@@ -950,7 +950,11 @@ class Entity:
                     health = plugin.health_check()
             except Exception as exc:
                 logger.debug(
-                    "Swallowed %s in plugin '%s' health_check: %s", type(exc).__name__, name, exc
+                    "Swallowed %s in plugin '%s' health_check: %s",
+                    type(exc).__name__,
+                    name,
+                    exc,
+                    exc_info=True,
                 )
                 health = PluginHealth(healthy=False, message="health_check failed")
             result["plugins"][name] = {
@@ -1220,6 +1224,7 @@ class Entity:
                 "Using default promotion gates due to stack setting parse failure on %s: %s",
                 stack.stack_id,
                 exc,
+                exc_info=True,
             )
 
         processor = MemoryProcessor(
@@ -1255,6 +1260,7 @@ class Entity:
                 "Using default processing config due to stack config parse failure on %s: %s",
                 stack.stack_id,
                 exc,
+                exc_info=True,
             )
 
         return processor.process(
@@ -1366,12 +1372,15 @@ class Entity:
                     alias,
                     stack_id,
                     exc,
+                    exc_info=True,
                 )
                 continue
             try:
                 entity.attach_stack(stack, alias=alias, set_active=False)
             except Exception as exc:
-                logger.warning("Failed to attach stack '%s' from binding: %s", alias, exc)
+                logger.warning(
+                    "Failed to attach stack '%s' from binding: %s", alias, exc, exc_info=True
+                )
 
         if binding.active_stack_alias is not None:
             if binding.active_stack_alias in entity._stacks:
@@ -1382,6 +1391,7 @@ class Entity:
                         "Failed to restore active stack '%s': %s",
                         binding.active_stack_alias,
                         exc,
+                        exc_info=True,
                     )
             else:
                 logger.warning(
@@ -1407,6 +1417,7 @@ class Entity:
                         "Failed to restore plugin '%s' from binding: %s",
                         plugin_name,
                         exc,
+                        exc_info=True,
                     )
 
         # Restore model if the binding has sufficient metadata.
@@ -1434,6 +1445,7 @@ class Entity:
                         provider_key,
                         model_id,
                         exc,
+                        exc_info=True,
                     )
 
         return entity
