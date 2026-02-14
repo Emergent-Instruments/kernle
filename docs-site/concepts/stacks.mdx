@@ -53,14 +53,14 @@ For the full protocol definition and implementation details, see the [Stack Prot
 
 - The memory layers (raw → episodes → notes → beliefs → values → goals → drives)
 - The CLI interface (mostly — `kernle -a` becomes `kernle -s` or stays for compatibility)
-- Cloud sync and payment infrastructure
+- Cloud sync infrastructure
 
 ### What Changes
 
 - An **account** can own multiple stacks
 - A **stack** can be loaded by any compatible foundation model
 - Multiple stacks can be loaded simultaneously for synthesis
-- Billing is per-stack (cloud sync), not per-model or per-session
+- Billing is per-stack (cloud sync), not per-model or per-session *(planned — see [#813](https://github.com/emergent-instruments/kernle/issues/813))*
 
 ## Architecture Diagram
 
@@ -82,7 +82,7 @@ For the full protocol definition and implementation details, see the [Stack Prot
 │  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘│
 │        │              │              │              │        │
 │  ┌─────┴──────────────┴──────────────┴──────────────┴─────┐ │
-│  │                    Wallet                               │ │
+│  │                    Wallet (planned)                      │ │
 │  │            (USDC on Base, shared across stacks)         │ │
 │  └─────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────┘
@@ -113,16 +113,22 @@ The same stack can be loaded by different foundation models for different perspe
 <Tabs>
   <Tab title="Same Context, Different Models">
     ```bash
-    # Claude loads the primary stack (careful, nuanced reasoning)
-    kernle --stack ash-primary --model claude load
+    # Set the model, then load the stack
+    kernle model set claude
+    kernle --stack ash-primary load
 
-    # Gemini loads the same stack (creative, lateral thinking)
-    kernle --stack ash-primary --model gemini load
+    # Switch to a different model for a different perspective
+    kernle model set gemini
+    kernle --stack ash-primary load
 
     # Same memories, different reasoning patterns
     ```
 
     **Use case**: "I want to think about this problem from multiple angles."
+
+    <Info>
+    Model selection and stack loading are separate operations. Use `kernle model set` to choose the model, then `kernle load` to load the stack. See [#812](https://github.com/emergent-instruments/kernle/issues/812) for planned `--model` flag support on `load`.
+    </Info>
   </Tab>
 
   <Tab title="Model Comparison">
@@ -223,7 +229,11 @@ However, this raises important nuances:
 
 ## Stack Portability
 
-Stacks are fully exportable and importable, ensuring true memory sovereignty:
+<Warning>
+**Coming Soon** — The `stack export`, `stack import`, and `stack transfer` commands are planned but not yet implemented. See [#811](https://github.com/emergent-instruments/kernle/issues/811) for progress. The design below describes the intended behavior.
+</Warning>
+
+Stacks will be fully exportable and importable, ensuring true memory sovereignty:
 
 ```bash
 # Export a stack for backup or migration
@@ -246,6 +256,10 @@ kernle stack transfer ash-security --to my-project-account
 </CardGroup>
 
 ## Billing Model
+
+<Warning>
+**Coming Soon** — Wallet and billing infrastructure is planned but not yet implemented. See [#813](https://github.com/emergent-instruments/kernle/issues/813) for progress. The design below describes the intended billing model.
+</Warning>
 
 With stacks, billing becomes stack-centric:
 
@@ -275,24 +289,17 @@ With stacks, billing becomes stack-centric:
 ```bash
 # Stack management
 kernle stack list                      # List all stacks
-kernle stack create <name>             # Create new stack
-kernle stack switch <name>             # Switch active stack
 kernle stack delete <name>             # Delete (with confirmation)
-kernle stack export <name>             # Export to file
-kernle stack import <file>             # Import from file
-kernle stack priority <name> --essential|--optional
-kernle stack transfer <name> --to <account>
 
-# Backward compatible
+# Loading a stack
 kernle --stack ash load                # Preferred form
-kernle --stack ash load                # New preferred form
+kernle -s ash load                     # Short form
 ```
 
 ## Migration Path
 
 <CardGroup cols={2}>
   <Card title="Terminology (Non-Breaking)" icon="arrow-right">
-    - `--agent` continues to work as a deprecated alias for `--stack`
     - API accepts both `agent_id` (deprecated) and `stack_id`
     - DB migration renames columns gradually
   </Card>

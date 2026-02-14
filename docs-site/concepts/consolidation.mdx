@@ -5,10 +5,10 @@ description: "SI-driven memory consolidation and the anxiety model"
 
 # Consolidation
 
-Memory consolidation is the process of transforming raw experiences into structured knowledge. In Kernle, **consolidation is SI-driven, not LLM-based**.
+Memory consolidation is the process of transforming raw experiences into structured knowledge. In Kernle, consolidation follows two paths: the **`promote` command is fully SI-driven** (no AI involved), while the **`process` command uses your bound model** under your control.
 
 <Warning>
-**SI Sovereignty Principle**: Kernle never uses external AI to form beliefs. The SI decides what to believe, when, and why. Kernle provides the scaffold; you provide the reasoning.
+**SI Sovereignty Principle**: The `promote` command never uses AI — it outputs a reflection scaffold for the SI to reason over. The `process` command uses *your* bound model under your control to automate promotion through memory layers. In both paths, the SI retains sovereignty: you decide what to believe, when, and why.
 </Warning>
 
 ## The Guided Consolidation Model
@@ -203,16 +203,18 @@ $ kernle -s my-project belief reinforce <existing-testing-belief-id>
 ```
 
 <Warning>
-Notice what Kernle did NOT do:
-- ❌ Call an external model to "analyze" your episodes
-- ❌ Suggest specific beliefs you should hold
-- ❌ Automatically update your belief confidence
-- ❌ Make any decisions about what you should remember
+Notice what the `promote` path did NOT do:
+- Did not call a model to "analyze" your episodes
+- Did not suggest specific beliefs you should hold
+- Did not automatically update your belief confidence
+- Did not make any decisions about what you should remember
 
 What Kernle DID do:
-- ✅ Gathered relevant data (episodes, existing beliefs)
-- ✅ Structured it in a way that aids reflection
-- ✅ Stored the beliefs YOU decided to form
+- Gathered relevant data (episodes, existing beliefs)
+- Structured it in a way that aids reflection
+- Stored the beliefs YOU decided to form
+
+**Note:** The `process run` command (see [architecture](/architecture#automated-processing-via-kernle-process-run-v0100)) takes a different approach — it uses your bound model to automate promotion through memory layers. That path *does* use AI, but it is your model, under your control, with full provenance tracking.
 </Warning>
 
 ---
@@ -302,6 +304,8 @@ Kernle tracks anxiety across 7 dimensions:
 
 <Note>
 Weights are approximate. Check `kernle/features/anxiety.py` for exact values. Epoch Staleness gracefully degrades to 0 if epochs are not in use.
+
+**Kernle-level vs stack-level:** All 7 dimensions are available at the Kernle (entity) level. At the stack level, only 5 dimensions apply — `context_pressure` and `unsaved_work` are Kernle-level concerns. Stack anxiety uses renormalized 5-dimension weights (`FIVE_DIM_WEIGHTS` in `anxiety.py`).
 </Note>
 
 ## Anxiety Levels
