@@ -12,8 +12,9 @@ from abc import abstractmethod
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
-# Re-export all shared types from kernle.types for backwards compatibility.
-# Consumers can import from either kernle.types or kernle.storage.base.
+# DEPRECATED: Re-exports for backwards compatibility only.
+# Import from kernle.types (canonical) or kernle.storage (convenience) instead.
+# These re-exports will be removed in a future version.
 from kernle.types import (  # noqa: F401
     DEFAULT_TRUST,
     SEED_TRUST,

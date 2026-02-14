@@ -208,7 +208,7 @@ class TestStorageIntegration:
 
         from datetime import datetime, timezone
 
-        from kernle.storage.base import Belief, Episode
+        from kernle.storage import Belief, Episode
 
         episode = Episode(
             id="ep-test",
@@ -255,7 +255,7 @@ class TestStorageIntegration:
 
         from datetime import datetime, timezone
 
-        from kernle.storage.base import Episode
+        from kernle.storage import Episode
 
         # Test various unicode content
         episode = Episode(
@@ -287,7 +287,7 @@ class TestStorageIntegration:
 
         from datetime import datetime, timezone
 
-        from kernle.storage.base import Episode
+        from kernle.storage import Episode
 
         # Create large content (near the 2000 char limit)
         large_content = "x" * 1900

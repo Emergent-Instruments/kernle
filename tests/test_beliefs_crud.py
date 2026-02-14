@@ -521,7 +521,7 @@ class TestUpdateBeliefAtomic:
     def test_version_conflict_raises(
         self, connect_fn, now_fn, to_json, record_to_dict, queue_sync, save_embedding, sync_to_file
     ):
-        from kernle.storage.base import VersionConflictError
+        from kernle.storage import VersionConflictError
 
         belief = _make_belief(version=1)
         save_belief(

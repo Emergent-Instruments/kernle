@@ -10,7 +10,7 @@ from unittest.mock import patch
 import pytest
 
 from kernle.cli.commands.doctor import cmd_doctor_structural
-from kernle.storage.base import Belief, Episode, Goal, Note, Relationship
+from kernle.storage import Belief, Episode, Goal, Note, Relationship
 from kernle.structural import (
     StructuralFinding,
     check_belief_contradictions,

@@ -21,8 +21,7 @@ from kernle.core import (
     estimate_tokens,
     truncate_at_word_boundary,
 )
-from kernle.storage import SQLiteStorage
-from kernle.storage.base import Belief, Drive, Episode, Goal, Note, Relationship, Value
+from kernle.storage import Belief, Drive, Episode, Goal, Note, Relationship, SQLiteStorage, Value
 
 
 class TestEstimateTokens:

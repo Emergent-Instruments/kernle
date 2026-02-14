@@ -7,7 +7,7 @@ decay over time, but are tombstoned (not deleted) for potential recovery.
 
 from datetime import datetime, timedelta, timezone
 
-from kernle.storage.base import Episode
+from kernle.storage import Episode
 
 
 class TestSalienceCalculation:

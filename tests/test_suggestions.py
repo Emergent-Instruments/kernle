@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 from kernle import Kernle
-from kernle.storage.base import MemorySuggestion, RawEntry
+from kernle.storage import MemorySuggestion, RawEntry
 
 
 class TestPatternExtraction:

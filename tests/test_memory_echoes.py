@@ -15,8 +15,7 @@ from kernle.core import (
     _get_record_tags,
     _truncate_to_words,
 )
-from kernle.storage import SQLiteStorage
-from kernle.storage.base import Belief, Drive, Episode, Goal, Note, Relationship, Value
+from kernle.storage import Belief, Drive, Episode, Goal, Note, Relationship, SQLiteStorage, Value
 
 
 class TestTruncateToWords:

@@ -10,8 +10,7 @@ from datetime import datetime, timezone
 import pytest
 
 from kernle.core import Kernle
-from kernle.storage import SQLiteStorage
-from kernle.storage.base import Belief, Drive, Episode, Goal, Note, Value
+from kernle.storage import Belief, Drive, Episode, Goal, Note, SQLiteStorage, Value
 
 
 @pytest.fixture

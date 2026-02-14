@@ -11,7 +11,7 @@ from typing import List
 
 import pytest
 
-from kernle.storage.base import (
+from kernle.storage import (
     Belief,
     DiagnosticReport,
     DiagnosticSession,

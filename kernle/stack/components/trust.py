@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from kernle.protocols import InferenceService, SearchResult
-from kernle.storage.base import (
+from kernle.types import (
     DEFAULT_TRUST,
     SELF_TRUST_FLOOR,
     TRUST_DECAY_RATE,

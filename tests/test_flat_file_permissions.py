@@ -8,7 +8,7 @@ import os
 import stat
 from datetime import datetime, timezone
 
-from kernle.storage.base import Belief, Goal, Relationship, Value
+from kernle.storage import Belief, Goal, Relationship, Value
 from kernle.storage.flat_files import (
     sync_beliefs_to_file,
     sync_goals_to_file,

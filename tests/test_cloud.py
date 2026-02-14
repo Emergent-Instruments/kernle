@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from kernle.storage.base import Belief, Episode, Goal, Note, SearchResult, Value
+from kernle.storage import Belief, Episode, Goal, Note, SearchResult, Value
 from kernle.storage.cloud import CloudClient
 
 

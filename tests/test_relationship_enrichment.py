@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 import pytest
 
 from kernle.core import Kernle
-from kernle.storage.base import EntityModel, Relationship, RelationshipHistoryEntry
+from kernle.storage import EntityModel, Relationship, RelationshipHistoryEntry
 from kernle.storage.sqlite import SQLiteStorage
 
 # === Fixtures ===

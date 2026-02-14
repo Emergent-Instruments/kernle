@@ -625,7 +625,7 @@ class TestFindContradictionsThreshold:
         """find_contradictions should skip results below similarity_threshold."""
         from unittest.mock import patch
 
-        from kernle.storage.base import Belief, SearchResult
+        from kernle.storage import Belief, SearchResult
 
         k = kernle_instance
 
@@ -670,7 +670,7 @@ class TestFindContradictionsThreshold:
         """A threshold of 1.0 should filter out all results."""
         from unittest.mock import patch
 
-        from kernle.storage.base import Belief, SearchResult
+        from kernle.storage import Belief, SearchResult
 
         k = kernle_instance
 

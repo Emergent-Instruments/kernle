@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from kernle.core import compute_priority_score
-from kernle.storage.base import Belief
+from kernle.storage import Belief
 from kernle.storage.sqlite import SQLiteStorage
 
 
@@ -188,7 +188,7 @@ class TestBeliefScopePriority:
 
     def test_non_belief_unaffected(self):
         """Non-belief memory types are not affected by belief_scope logic."""
-        from kernle.storage.base import Episode
+        from kernle.storage import Episode
 
         episode = Episode(
             id=str(uuid.uuid4()),

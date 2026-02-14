@@ -296,7 +296,7 @@ class TestBootInExportCache:
         # Add a value for ordering check
         from datetime import datetime, timezone
 
-        from kernle.storage.base import Value
+        from kernle.storage import Value
 
         val = Value(
             id="test-val",
