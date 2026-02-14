@@ -159,7 +159,9 @@ class TestCmdSeed:
 
             cmd_seed(SimpleNamespace(seed_action="status", json=True), k)
             json_out = json.loads(capsys.readouterr().out)
-            assert json_out == status
+            assert json_out["status"] == status
+            assert json_out["status_snapshot"] == status
+            assert "status_snapshot_sha256" in json_out
 
     def test_unknown_action_prints_usage(self, capsys):
         cmd_seed(SimpleNamespace(seed_action="unknown"), MagicMock())

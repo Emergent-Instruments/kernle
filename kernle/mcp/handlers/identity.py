@@ -6,6 +6,7 @@ from typing import Any, Dict
 from kernle.core import Kernle
 from kernle.mcp.sanitize import (
     sanitize_array,
+    sanitize_source_metadata,
     sanitize_string,
     validate_enum,
     validate_number,
@@ -31,23 +32,7 @@ def validate_memory_belief(arguments: Dict[str, Any]) -> Dict[str, Any]:
     sanitized["confidence"] = validate_number(
         arguments.get("confidence"), "confidence", 0.0, 1.0, 0.8
     )
-    sanitized["context"] = (
-        sanitize_string(arguments.get("context"), "context", 500, required=False) or None
-    )
-    sanitized["context_tags"] = (
-        sanitize_array(arguments.get("context_tags"), "context_tags", 100, 20) or None
-    )
-    sanitized["source"] = (
-        sanitize_string(arguments.get("source"), "source", 500, required=False) or None
-    )
-    sanitized["derived_from"] = (
-        sanitize_array(arguments.get("derived_from"), "derived_from", 200, 20) or None
-    )
-    sanitized["source_type"] = (
-        validate_enum(arguments.get("source_type"), "source_type", VALID_SOURCE_TYPES, None)
-        if arguments.get("source_type")
-        else None
-    )
+    sanitized.update(sanitize_source_metadata(arguments, VALID_SOURCE_TYPES))
     return sanitized
 
 
@@ -58,23 +43,7 @@ def validate_memory_value(arguments: Dict[str, Any]) -> Dict[str, Any]:
         arguments.get("statement"), "statement", 1000, required=True
     )
     sanitized["priority"] = int(validate_number(arguments.get("priority"), "priority", 0, 100, 50))
-    sanitized["context"] = (
-        sanitize_string(arguments.get("context"), "context", 500, required=False) or None
-    )
-    sanitized["context_tags"] = (
-        sanitize_array(arguments.get("context_tags"), "context_tags", 100, 20) or None
-    )
-    sanitized["source"] = (
-        sanitize_string(arguments.get("source"), "source", 500, required=False) or None
-    )
-    sanitized["derived_from"] = (
-        sanitize_array(arguments.get("derived_from"), "derived_from", 200, 20) or None
-    )
-    sanitized["source_type"] = (
-        validate_enum(arguments.get("source_type"), "source_type", VALID_SOURCE_TYPES, None)
-        if arguments.get("source_type")
-        else None
-    )
+    sanitized.update(sanitize_source_metadata(arguments, VALID_SOURCE_TYPES))
     return sanitized
 
 
@@ -87,23 +56,7 @@ def validate_memory_goal(arguments: Dict[str, Any]) -> Dict[str, Any]:
     sanitized["priority"] = validate_enum(
         arguments.get("priority"), "priority", ["low", "medium", "high"], "medium"
     )
-    sanitized["context"] = (
-        sanitize_string(arguments.get("context"), "context", 500, required=False) or None
-    )
-    sanitized["context_tags"] = (
-        sanitize_array(arguments.get("context_tags"), "context_tags", 100, 20) or None
-    )
-    sanitized["source"] = (
-        sanitize_string(arguments.get("source"), "source", 500, required=False) or None
-    )
-    sanitized["derived_from"] = (
-        sanitize_array(arguments.get("derived_from"), "derived_from", 200, 20) or None
-    )
-    sanitized["source_type"] = (
-        validate_enum(arguments.get("source_type"), "source_type", VALID_SOURCE_TYPES, None)
-        if arguments.get("source_type")
-        else None
-    )
+    sanitized.update(sanitize_source_metadata(arguments, VALID_SOURCE_TYPES))
     return sanitized
 
 
@@ -118,23 +71,7 @@ def validate_memory_drive(arguments: Dict[str, Any]) -> Dict[str, Any]:
     )
     sanitized["intensity"] = validate_number(arguments.get("intensity"), "intensity", 0.0, 1.0, 0.5)
     sanitized["focus_areas"] = sanitize_array(arguments.get("focus_areas"), "focus_areas", 200, 10)
-    sanitized["context"] = (
-        sanitize_string(arguments.get("context"), "context", 500, required=False) or None
-    )
-    sanitized["context_tags"] = (
-        sanitize_array(arguments.get("context_tags"), "context_tags", 100, 20) or None
-    )
-    sanitized["source"] = (
-        sanitize_string(arguments.get("source"), "source", 500, required=False) or None
-    )
-    sanitized["derived_from"] = (
-        sanitize_array(arguments.get("derived_from"), "derived_from", 200, 20) or None
-    )
-    sanitized["source_type"] = (
-        validate_enum(arguments.get("source_type"), "source_type", VALID_SOURCE_TYPES, None)
-        if arguments.get("source_type")
-        else None
-    )
+    sanitized.update(sanitize_source_metadata(arguments, VALID_SOURCE_TYPES))
     return sanitized
 
 

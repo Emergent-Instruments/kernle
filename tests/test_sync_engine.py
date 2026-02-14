@@ -1196,6 +1196,28 @@ if __name__ == "__main__":
 class TestSyncQueueResilience:
     """Tests for resilient sync queue behavior (v0.2.5)."""
 
+    def test_record_sync_failure_truncates_long_error_to_500_chars(self, storage):
+        """Long sync errors are persisted as at most 500 characters."""
+        storage.save_note(Note(id="n-long", stack_id="test-agent", content="Test note"))
+
+        queued = storage.get_queued_changes(limit=10)
+        change = next((c for c in queued if c.record_id == "n-long"), None)
+        assert change is not None
+
+        long_error = "E" * 800
+
+        with storage._connect() as conn:
+            new_count = storage._record_sync_failure(conn, change.id, long_error)
+            conn.commit()
+
+        assert new_count == 1
+
+        refreshed = storage.get_queued_changes(limit=10)
+        failed = next((c for c in refreshed if c.id == change.id), None)
+        assert failed is not None
+        assert failed.retry_count == 1
+        assert failed.last_error == "E" * 500
+
     def test_failed_record_increments_retry_count(self, storage):
         """Test that failed sync records get retry count incremented."""
         # Create a test record

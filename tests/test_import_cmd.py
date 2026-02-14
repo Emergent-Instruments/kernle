@@ -33,6 +33,8 @@ from kernle.cli.commands.import_cmd import (
     _import_markdown,
     _import_pdf,
     _interactive_import,
+    _item_signature,
+    _merge_derived_from,
     _preview_item,
     cmd_import,
 )
@@ -2309,3 +2311,52 @@ class TestImportPdf:
                 or call_args[1].get("chunk_size") == 500
                 or 500 in call_args[0]
             )
+
+
+# ============================================================================
+# _merge_derived_from — fingerprint propagation
+# ============================================================================
+
+
+class TestMergeDerivedFrom:
+    """Tests that _merge_derived_from injects import fingerprints."""
+
+    def test_injects_fingerprint_when_no_derived_from(self):
+        """A record with no prior derived_from gets its import fingerprint."""
+        item = {"type": "belief", "statement": "test belief", "confidence": 0.9}
+        result = _merge_derived_from(None, item)
+        assert result is not None
+        assert len(result) == 1
+        assert result[0] == _item_signature(item)
+
+    def test_injects_fingerprint_alongside_existing(self):
+        """Existing derived_from entries are preserved and fingerprint is appended."""
+        item = {"type": "belief", "statement": "test belief", "confidence": 0.9}
+        existing = ["context:manual:v1:abc123"]
+        result = _merge_derived_from(existing, item)
+        assert result is not None
+        assert "context:manual:v1:abc123" in result
+        assert _item_signature(item) in result
+        assert len(result) == 2
+
+    def test_deduplicates_fingerprint(self):
+        """If the fingerprint is already present, it is not added again."""
+        item = {"type": "belief", "statement": "test belief", "confidence": 0.9}
+        fingerprint = _item_signature(item)
+        assert fingerprint is not None
+        result = _merge_derived_from([fingerprint], item)
+        assert result is not None
+        assert result.count(fingerprint) == 1
+
+    def test_returns_none_when_no_fingerprint_and_no_derived_from(self):
+        """Items that produce no fingerprint and have no derived_from return None."""
+        item = {"type": "unknown_type"}
+        result = _merge_derived_from(None, item)
+        assert result is None
+
+    def test_preserves_derived_from_when_no_fingerprint(self):
+        """If item has no fingerprint but has derived_from, preserve it."""
+        item = {"type": "unknown_type"}
+        existing = ["context:manual:v1:abc123"]
+        result = _merge_derived_from(existing, item)
+        assert result == ["context:manual:v1:abc123"]

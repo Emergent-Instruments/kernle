@@ -11,12 +11,19 @@ from typing import Literal, get_args, get_origin, get_type_hints
 from kernle.protocols import (
     BeliefType,
     CoreProtocol,
+    DumpFormat,
+    GoalStatus,
     GoalType,
     InferenceScope,
     MemoryType,
+    ModelRole,
     NoteType,
     ProcessingTransition,
+    SearchRecordType,
     StackComponentProtocol,
+    StackProtocol,
+    SuggestionMemoryType,
+    SuggestionStatus,
 )
 
 
@@ -56,6 +63,12 @@ class TestProtocolTypeConstraints:
         set_cfg_hints = get_type_hints(CoreProtocol.__dict__["belief"])
         assert set_cfg_hints["type"] is BeliefType
 
+        assert get_type_hints(StackProtocol.__dict__["dump"])["format"] is DumpFormat
+        assert (
+            get_type_hints(StackProtocol.__dict__["set_processing_config"])["layer_transition"]
+            is ProcessingTransition
+        )
+
     def test_belief_and_note_types_remain_literals(self):
         assert get_origin(BeliefType) is Literal
         assert get_origin(NoteType) is Literal
@@ -63,3 +76,37 @@ class TestProtocolTypeConstraints:
         assert "factual" in _literal_values(BeliefType)
         assert "note" in _literal_values(NoteType)
         assert "task" in _literal_values(GoalType)
+
+    def test_constrained_contract_literals(self):
+        assert get_origin(GoalStatus) is Literal
+        assert _literal_values(GoalStatus) == {"active", "completed", "paused"}
+
+        assert get_origin(SuggestionStatus) is Literal
+        assert _literal_values(SuggestionStatus) == {
+            "pending",
+            "promoted",
+            "modified",
+            "rejected",
+            "dismissed",
+            "expired",
+        }
+
+        assert get_origin(SuggestionMemoryType) is Literal
+        assert _literal_values(SuggestionMemoryType) == {
+            "belief",
+            "note",
+            "episode",
+            "goal",
+            "relationship",
+            "value",
+            "drive",
+        }
+
+        assert get_origin(SearchRecordType) is Literal
+        assert _literal_values(SearchRecordType) == {"episode", "note", "belief", "value", "goal"}
+
+        assert get_origin(DumpFormat) is Literal
+        assert _literal_values(DumpFormat) == {"markdown", "json"}
+
+        assert get_origin(ModelRole) is Literal
+        assert _literal_values(ModelRole) == {"system", "user", "assistant", "tool"}

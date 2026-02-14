@@ -394,6 +394,46 @@ class TestCmdMcp:
                 cmd_mcp(args)
                 mock_mcp_main.assert_called_once_with(stack_id="default")
 
+    def test_mcp_empty_stack_is_rejected(self):
+        """cmd_mcp rejects empty/whitespace stack IDs."""
+        args = argparse.Namespace(stack="   ")
+
+        with patch("kernle.cli.__main__.sys") as mock_sys:
+            mock_sys.stderr = StringIO()
+            with patch("kernle.mcp.server.main") as mock_mcp_main:
+                from kernle.cli.__main__ import cmd_mcp
+
+                with pytest.raises(SystemExit) as exc:
+                    cmd_mcp(args)
+                assert exc.value.code == 2
+                mock_mcp_main.assert_not_called()
+
+    def test_mcp_invalid_stack_sanitization_error(self):
+        """cmd_mcp sanitizes control characters in stack IDs."""
+        args = argparse.Namespace(stack="bad\0id")
+
+        with patch("kernle.cli.__main__.sys") as mock_sys:
+            mock_sys.stderr = StringIO()
+            with patch("kernle.mcp.server.main") as mock_mcp_main:
+                from kernle.cli.__main__ import cmd_mcp
+
+                cmd_mcp(args)
+                mock_mcp_main.assert_called_once_with(stack_id="badid")
+
+    def test_mcp_non_string_stack_is_rejected(self):
+        """cmd_mcp rejects non-string stack values."""
+        args = argparse.Namespace(stack=123)
+
+        with patch("kernle.cli.__main__.sys") as mock_sys:
+            mock_sys.stderr = StringIO()
+            with patch("kernle.mcp.server.main") as mock_mcp_main:
+                from kernle.cli.__main__ import cmd_mcp
+
+                with pytest.raises(SystemExit) as exc:
+                    cmd_mcp(args)
+                assert exc.value.code == 2
+                mock_mcp_main.assert_not_called()
+
 
 # ============================================================================
 # Raw argv preprocessing (lines 1954-1987)

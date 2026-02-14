@@ -107,6 +107,8 @@ def has_kernle_section(content: str) -> bool:
         r"##\s*Kernle",
         r"kernle\s+(?:-[sa]|--stack)\s+\S+\s+load",
         r"kernle\s+(?:-[sa]|--stack)\s+\S+\s+anxiety",
+        r"kernle\s+anxiety\s+-b",
+        r"kernle\s+anxiety\s+--baseline",
     ]
 
     for pattern in patterns:

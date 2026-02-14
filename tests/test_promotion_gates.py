@@ -371,8 +371,8 @@ class TestValuePromotionGate:
         assert len(result.failures) == 1
         assert "insufficient evidence" in result.failures[0]
 
-    def test_nonexistent_belief_treated_as_not_protected(self):
-        """If get_memory returns None for a belief, it's not protected."""
+    def test_nonexistent_belief_treated_as_missing(self):
+        """If get_memory returns None for a belief, it's flagged as missing."""
         mock_stack = _make_mock_stack()
 
         def mock_get_memory(mtype, mid):
@@ -388,12 +388,10 @@ class TestValuePromotionGate:
             "source_belief_ids": ["b-exists", "b-gone-1", "b-gone-2", "b-gone-3", "b-gone-4"],
         }
         result = processor._check_promotion_gate("belief_to_value", item)
-        # passes evidence (5 beliefs) but none of the missing ones are protected
-        # However, None beliefs can't have is_protected checked, so they should not
-        # be flagged as unprotected (they just don't exist)
-        # Let's verify — the code checks `if belief and not is_protected`
-        # So None beliefs are skipped in the unprotected check
-        assert result.passed or any("unprotected" in f for f in result.failures)
+        # Nonexistent beliefs should be flagged as "missing source beliefs"
+        # rather than silently skipped — this is the promotion gate safety contract
+        assert not result.passed
+        assert any("missing source beliefs" in f for f in result.failures)
 
 
 # =============================================================================

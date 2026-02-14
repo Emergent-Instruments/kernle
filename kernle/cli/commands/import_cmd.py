@@ -213,7 +213,13 @@ def _merge_derived_from(
     derived_from: Optional[List[str]],
     item: Dict[str, Any],
 ) -> Optional[List[str]]:
-    """Merge CLI-provided derived_from with import fingerprint references."""
+    """Merge CLI-provided derived_from with import fingerprint.
+
+    Appends the item's import fingerprint to the derived_from list so every
+    imported record carries a ``context:import-fingerprint:v1:*`` provenance
+    reference.  This enables duplicate suppression on repeated imports and
+    preserves the signal that a record is import-derived.
+    """
     signatures = _normalize_derived_from(derived_from)
     fingerprint = _item_signature(item)
     if not fingerprint:

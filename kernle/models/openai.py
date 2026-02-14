@@ -24,6 +24,10 @@ from kernle.protocols import (
 class OpenAIModelError(KernleError):
     """Raised when the OpenAI SDK reports an error."""
 
+    def __init__(self, error_class: str, message: str) -> None:
+        super().__init__(message)
+        self.error_class = error_class
+
 
 class OpenAIModel:
     """ModelProtocol implementation backed by the OpenAI API.
@@ -104,7 +108,7 @@ class OpenAIModel:
         try:
             response = self._client.chat.completions.create(**kwargs)
         except Exception as exc:
-            raise OpenAIModelError(f"OpenAI API error: {exc}") from exc
+            raise self._classify_error(exc, "OpenAI API error") from exc
 
         return self._parse_response(response)
 
@@ -158,7 +162,7 @@ class OpenAIModel:
                 else:
                     yield ModelChunk(content=content)
         except Exception as exc:
-            raise OpenAIModelError(f"OpenAI streaming error: {exc}") from exc
+            raise self._classify_error(exc, "OpenAI streaming error") from exc
 
     # ---- Internal helpers ----
 
@@ -251,6 +255,32 @@ class OpenAIModel:
             stop_reason=choice.finish_reason,
             model_id=response.model,
         )
+
+    @staticmethod
+    def _classify_error(exc: Exception, prefix: str) -> OpenAIModelError:
+        """Classify an OpenAI SDK exception into an error class.
+
+        Uses defensive attribute access so this works even when the
+        openai package is mocked or partially available.
+        """
+        import openai as _openai
+
+        _checks: list[tuple[str, str, str]] = [
+            ("RateLimitError", "rate_limit", "rate limited"),
+            ("AuthenticationError", "auth", "auth failed"),
+            ("APITimeoutError", "timeout", "timeout"),
+        ]
+        for attr, cls, label in _checks:
+            exc_type = getattr(_openai, attr, None)
+            if exc_type is not None and isinstance(exc, exc_type):
+                return OpenAIModelError(cls, f"{prefix}: {label}: {exc}")
+
+        api_status = getattr(_openai, "APIStatusError", None)
+        if api_status is not None and isinstance(exc, api_status):
+            code = getattr(exc, "status_code", "?")
+            return OpenAIModelError("server", f"{prefix}: API error ({code}): {exc}")
+
+        return OpenAIModelError("unknown", f"{prefix}: {exc}")
 
     def _parse_tool_call_input(self, arguments: Any) -> dict[str, Any]:
         """Best-effort parse for tool-call arguments.

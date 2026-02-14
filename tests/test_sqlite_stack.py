@@ -722,6 +722,7 @@ class TestComponentRegistry:
 
         assert "embedding" in stack.components
         comp.attach.assert_called_once_with(stack.stack_id, None)
+        comp.set_storage.assert_called_once_with(stack._storage)
 
     def test_add_duplicate_raises(self, stack):
         comp = self._make_component("embedding")
@@ -1132,6 +1133,32 @@ class TestComponentHooks:
         result_id = stack.save_note(n)
         comp.on_save.assert_called_once_with("note", result_id, n)
 
+    def test_save_episode_persists_component_metadata(self, stack):
+        comp = self._make_tracking_component()
+        comp.on_save = MagicMock(
+            return_value={
+                "emotional_valence": 0.7,
+                "emotional_arousal": 0.2,
+                "emotional_tags": ["focus", "calm"],
+            }
+        )
+        stack.add_component(comp)
+
+        ep = Episode(
+            id=str(uuid.uuid4()),
+            stack_id=stack.stack_id,
+            objective="test",
+            outcome="done",
+        )
+        episode_id = stack.save_episode(ep)
+        comp.on_save.assert_called_once_with("episode", episode_id, ep)
+
+        episodes = stack.get_episodes()
+        persisted = next(record for record in episodes if record.id == episode_id)
+        assert persisted.emotional_valence == 0.7
+        assert persisted.emotional_arousal == 0.2
+        assert persisted.emotional_tags == ["focus", "calm"]
+
     def test_search_calls_on_search(self, stack):
         comp = self._make_tracking_component()
         stack.add_component(comp)
@@ -1209,6 +1236,46 @@ class TestComponentHooks:
         # Should not raise
         results = stack.search("test error")
         assert isinstance(results, list)
+
+    def test_load_calls_on_load_for_all_components_despite_errors(self, stack):
+        good_comp = self._make_tracking_component("good-load")
+        bad_comp = self._make_tracking_component("bad-load")
+        bad_comp.on_load = MagicMock(side_effect=RuntimeError("load failed"))
+
+        stack.add_component(bad_comp)
+        stack.add_component(good_comp)
+
+        result = stack.load()
+
+        # A failing component should not prevent successful others from receiving the payload.
+        bad_comp.on_load.assert_called_once()
+        good_comp.on_load.assert_called_once()
+        assert isinstance(result, dict)
+        assert "_meta" in result
+
+    def test_batch_dispatch_continues_when_component_raises(self, stack):
+        good = self._make_tracking_component("good")
+        good.on_save = MagicMock(return_value={"emotional_valence": 0.11})
+        bad = self._make_tracking_component("bad")
+        bad.on_save = MagicMock(side_effect=RuntimeError("failed"))
+
+        stack.add_component(bad)
+        stack.add_component(good)
+
+        episode = Episode(
+            id=str(uuid.uuid4()),
+            stack_id=stack.stack_id,
+            objective="error isolation",
+            outcome="done",
+        )
+        episode_id = stack.save_episode(episode)
+
+        episodes = stack.get_episodes()
+        persisted = next(record for record in episodes if record.id == episode_id)
+        # Failed component should not prevent the successful one from applying metadata.
+        assert persisted.emotional_valence == 0.11
+        bad.on_save.assert_called_once_with("episode", episode_id, episode)
+        good.on_save.assert_called_once_with("episode", episode_id, episode)
 
     def test_batch_dispatches_per_item(self, stack):
         comp = self._make_tracking_component()

@@ -326,11 +326,13 @@ class SQLiteStorage:
                 logger.warning("Hash embedder failed for %s: %s", context, exc)
                 return None
 
+            error_class = getattr(exc, "error_class", "unknown")
             if self._embedder_fallback is None:
                 logger.warning(
                     "Embedding provider failed for %s and no fallback is configured: %s",
                     context,
                     exc,
+                    extra={"error_class": error_class, "provider": type(self._embedder).__name__},
                 )
                 return None
 
@@ -338,6 +340,11 @@ class SQLiteStorage:
                 "Preferred embedding provider failed for %s; falling back to hash embeddings until retry: %s",
                 context,
                 exc,
+                extra={
+                    "error_class": error_class,
+                    "provider": type(self._embedder).__name__,
+                    "degraded": True,
+                },
             )
             self._embedder_retry_at = datetime.now(timezone.utc) + timedelta(
                 seconds=self.EMBEDDER_RETRY_SECONDS
@@ -538,7 +545,7 @@ class SQLiteStorage:
             conn.enable_load_extension(True)
             sqlite_vec.load(conn)
         except Exception as e:
-            logger.warning(f"Could not load sqlite-vec: {e}")
+            logger.error(f"Could not load sqlite-vec: {e}")
 
     def _now(self) -> str:
         """Get current timestamp as ISO string."""
@@ -718,12 +725,24 @@ class SQLiteStorage:
             try:
                 conn.execute("DELETE FROM vec_embeddings WHERE id = ?", (vec_id,))
                 conn.execute("DELETE FROM embedding_meta WHERE id = ?", (vec_id,))
-            except Exception as cleanup_error:
-                logger.debug(
+                logger.warning(
+                    "Cleaned stale embedding cache entry for %s after save failure",
+                    vec_id,
+                )
+            except sqlite3.OperationalError as cleanup_error:
+                logger.error(
                     "Failed to clean stale embedding cache entry for %s: %s",
                     vec_id,
                     cleanup_error,
                 )
+                raise e from cleanup_error
+            except Exception as cleanup_error:
+                logger.error(
+                    "Unexpected error cleaning stale embedding cache entry for %s: %s",
+                    vec_id,
+                    cleanup_error,
+                )
+                raise e from cleanup_error
 
     def _get_searchable_content(self, record_type: str, record: Any) -> str:
         """Get searchable text content from a record."""

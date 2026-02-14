@@ -411,6 +411,34 @@ def cmd_sync(args, k: "Kernle"):
         }
         return envelope
 
+    def _sort_conflicts(conflicts):
+        """Sort conflict/envelope payloads deterministically."""
+        return sorted(
+            conflicts,
+            key=lambda item: (
+                str(item.get("table") or "unknown"),
+                str(item.get("record_id") or item.get("operation", {}).get("record_id") or ""),
+                str(item.get("operation") or item.get("operation_identity") or "unknown"),
+            ),
+        )
+
+    def _conflict_snapshot(conflicts):
+        """Build deterministic conflict summary for logs and JSON assertions."""
+        normalized = _sort_conflicts(conflicts)
+        return {
+            "count": len(normalized),
+            "records": [
+                {
+                    "table": item.get("table"),
+                    "record_id": item.get("record_id"),
+                    "operation": item.get("operation"),
+                    "error": str(item.get("error") or ""),
+                    "payload_hash": item.get("payload_hash", ""),
+                }
+                for item in normalized
+            ],
+        }
+
     def _pull_poison_key(op):
         """Build a stable key for a failed pull operation."""
         table = str(op.get("table") or "")
@@ -682,6 +710,7 @@ def cmd_sync(args, k: "Kernle"):
         pending_count = k._storage.get_pending_sync_count()
         last_sync = k._storage.get_last_sync_time()
         is_online = k._storage.is_online()
+        pull_poison_pending = len(_load_pull_poison_records())
 
         # Check backend connection
         backend_connected, connection_msg = check_backend_connection(httpx)
@@ -696,6 +725,7 @@ def cmd_sync(args, k: "Kernle"):
                 "namespaced_stack_id": namespaced_id if user_id else None,
                 "user_id": user_id,
                 "pending_operations": pending_count,
+                "pull_recovery_queue": pull_poison_pending,
                 "last_sync_time": format_datetime(last_sync),
                 "local_storage_online": is_online,
                 "backend_url": backend_url or "(not configured)",
@@ -760,6 +790,10 @@ def cmd_sync(args, k: "Kernle"):
             elif not backend_connected:
                 print("💡 Check backend connection or run `kernle auth login`")
 
+            if pull_poison_pending > 0:
+                print(f"⚠️  Pull recovery queue: {pull_poison_pending} operation(s) pending retry")
+                print("   Run `kernle sync pull` to recover pending operations")
+
     elif args.sync_action == "push":
         httpx = get_http_client()
 
@@ -808,6 +842,7 @@ def cmd_sync(args, k: "Kernle"):
                 normalized_conflicts = [
                     _normalize_push_conflict(conflict, operations) for conflict in conflicts
                 ]
+                normalized_conflicts = _sort_conflicts(normalized_conflicts)
                 acknowledged_changes = _resolve_acked_changes(
                     result, operations, op_identity_to_change
                 )
@@ -829,13 +864,14 @@ def cmd_sync(args, k: "Kernle"):
                     result["local_project"] = local_project
                     result["namespaced_id"] = get_namespaced_stack_id()
                     result["conflicts"] = normalized_conflicts
+                    result["conflict_snapshot"] = _conflict_snapshot(normalized_conflicts)
                     print(json.dumps(result, indent=2, default=str))
                 else:
                     namespaced = get_namespaced_stack_id()
                     print(f"✓ Pushed {synced} changes")
                     if user_id:
                         print(f"  Synced as: {namespaced}")
-                if conflicts:
+                if not args.json and conflicts:
                     print(f"⚠️  {len(conflicts)} conflicts:")
                     for c in normalized_conflicts[:5]:
                         print(
@@ -848,6 +884,7 @@ def cmd_sync(args, k: "Kernle"):
                                 hash_prefix=str(c.get("payload_hash", ""))[:16],
                             )
                         )
+                    print("   ℹ️  Re-run sync after resolving server-side conflicts")
             elif response.status_code == 401:
                 print("✗ Authentication failed")
                 print("  Run `kernle auth login` to re-authenticate")
@@ -859,6 +896,7 @@ def cmd_sync(args, k: "Kernle"):
 
         except Exception as e:
             print(f"✗ Push failed: {e}")
+            print("  Tip: changes are queued locally and will be pushed on next `kernle sync push`")
             sys.exit(1)
 
     elif args.sync_action == "pull":
@@ -921,11 +959,20 @@ def cmd_sync(args, k: "Kernle"):
                 applied = applied_now + recovered_from_poison
                 conflicts = len(failed_ops)
                 poison_pending = len(poison_records)
+                if conflicts or recovered_from_poison > 0:
+                    logger.warning(
+                        "sync pull partial completion: pulled=%s conflicts=%s recovered=%s pending=%s",
+                        applied,
+                        conflicts,
+                        recovered_from_poison,
+                        poison_pending,
+                    )
 
                 if not operations and applied == 0:
                     print("✓ Already up to date")
                     if poison_pending > 0:
                         print(f"⚠️  {poison_pending} pull operations remain quarantined for retry")
+                        print("   Run `kernle sync pull` again to recover pending operations")
                     return
 
                 if args.json:
@@ -938,15 +985,22 @@ def cmd_sync(args, k: "Kernle"):
                                 "envelope": failed.get("envelope"),
                             }
                         )
+                    serialized_failed_ops = _sort_conflicts(serialized_failed_ops)
+                    conflict_envelopes = [f.get("envelope") for f in serialized_failed_ops]
                     print(
                         json.dumps(
                             {
                                 "pulled": applied,
                                 "conflicts": conflicts,
-                                "conflict_envelopes": [f.get("envelope") for f in failed_ops],
+                                "conflict_envelopes": conflict_envelopes,
+                                "conflict_snapshot": _conflict_snapshot(conflict_envelopes),
                                 "has_more": has_more,
                                 "poisoned_new": newly_poisoned,
                                 "poisoned_pending": poison_pending,
+                                "recovered_from_quarantine": recovered_from_poison,
+                                "recovery_state": (
+                                    "partial" if (conflicts or recovered_from_poison > 0) else "ok"
+                                ),
                                 "failed_operations": serialized_failed_ops,
                                 "local_project": local_project,
                                 "namespaced_id": get_namespaced_stack_id(),
@@ -958,9 +1012,11 @@ def cmd_sync(args, k: "Kernle"):
                     print(f"✓ Pulled {applied} changes")
                     if user_id:
                         print(f"  From: {get_namespaced_stack_id()}")
+                    if recovered_from_poison:
+                        print(f"   ✅ {recovered_from_poison} quarantined operations recovered")
                     if conflicts > 0:
                         print(f"⚠️  {conflicts} conflicts during apply")
-                        for failed in failed_ops[:5]:
+                        for failed in _sort_conflicts(failed_ops)[:5]:
                             envelope = failed.get("envelope") or {}
                             hash_value = envelope.get("payload_hash", "")
                             print(
@@ -977,6 +1033,9 @@ def cmd_sync(args, k: "Kernle"):
                             )
                     if poison_pending > 0:
                         print(f"⚠️  {poison_pending} pull operations quarantined for retry")
+                        print("   Run `kernle sync pull` again to retry recoverable operations")
+                    elif conflicts > 0:
+                        print("   ℹ️  Conflicts are recoverable and can be retried on next pull")
                     if has_more:
                         print("ℹ️  More changes available - run `kernle sync pull` again")
 
@@ -991,6 +1050,7 @@ def cmd_sync(args, k: "Kernle"):
 
         except Exception as e:
             print(f"✗ Pull failed: {e}")
+            print("  Tip: check network connectivity, then retry with `kernle sync pull`")
             sys.exit(1)
 
     elif args.sync_action == "full":
@@ -1021,6 +1081,8 @@ def cmd_sync(args, k: "Kernle"):
         pull_has_more = False
         pull_conflict_envelopes = []
         pull_newly_poisoned = 0
+        pull_recovered_from_poison = 0
+        pull_poison_pending = 0
         try:
             response = httpx.post(
                 f"{backend_url.rstrip('/')}/sync/pull",
@@ -1039,6 +1101,7 @@ def cmd_sync(args, k: "Kernle"):
 
                 poison_records = _load_pull_poison_records()
                 _, recovered_from_poison = _retry_poisoned_pull_operations(poison_records)
+                pull_recovered_from_poison = recovered_from_poison
                 pulled_now = 0
                 failed_ops = []
                 newly_poisoned = 0
@@ -1055,6 +1118,7 @@ def cmd_sync(args, k: "Kernle"):
                 pulled_failed_ops = failed_ops
                 pull_conflict_envelopes = [f.get("envelope") for f in failed_ops]
                 pull_newly_poisoned = newly_poisoned
+                pull_poison_pending = len(poison_records)
                 _save_pull_poison_records(poison_records)
             else:
                 print(f"  ⚠️  Pull returned status {response.status_code}")
@@ -1062,9 +1126,21 @@ def cmd_sync(args, k: "Kernle"):
             print(f"  ⚠️  Pull failed: {e}")
 
         print(f"  ✓ Pulled {pulled} changes")
+        if pull_conflicts > 0 or pull_recovered_from_poison > 0:
+            logger.warning(
+                "sync full pull phase partial completion: pulled=%s conflicts=%s recovered=%s pending=%s",
+                pulled,
+                pull_conflicts,
+                pull_recovered_from_poison,
+                pull_poison_pending,
+            )
+        if pull_newly_poisoned > 0:
+            print(f"  ⚠️  {pull_newly_poisoned} new pull conflicts were quarantined")
+        if pull_recovered_from_poison > 0:
+            print(f"  ✅ {pull_recovered_from_poison} quarantined operations recovered this pass")
         if pull_conflicts > 0:
             print(f"  ⚠️  {pull_conflicts} conflicts during apply")
-            for failed in pulled_failed_ops[:5]:
+            for failed in _sort_conflicts(pulled_failed_ops)[:5]:
                 envelope = failed.get("envelope") or {}
                 print(
                     "  - {table}:{record_id} {op}: {error} "
@@ -1078,6 +1154,10 @@ def cmd_sync(args, k: "Kernle"):
                 )
         if pull_has_more:
             print("  ℹ️  More changes available - run `kernle sync pull` again")
+        if pull_conflict_envelopes:
+            print("  ℹ️  Re-run `kernle sync pull` to retry quarantined pull operations")
+        if pull_poison_pending > 0:
+            print(f"  ⚠️  {pull_poison_pending} pull operations still pending recovery")
 
         # Step 2: Push local changes
         print("Step 2: Pushing local changes...")
@@ -1117,6 +1197,7 @@ def cmd_sync(args, k: "Kernle"):
                 normalized_conflicts = [
                     _normalize_push_conflict(conflict, operations) for conflict in conflicts
                 ]
+                normalized_conflicts = _sort_conflicts(normalized_conflicts)
                 acknowledged_changes = _resolve_acked_changes(
                     result, operations, op_identity_to_change
                 )
@@ -1132,6 +1213,12 @@ def cmd_sync(args, k: "Kernle"):
                     conn.commit()
                 print(f"  ✓ Pushed {synced} changes")
                 if normalized_conflicts:
+                    logger.warning(
+                        "sync full push partial completion: synced=%s conflicts=%s",
+                        synced,
+                        len(normalized_conflicts),
+                    )
+                if normalized_conflicts:
                     print(f"  ⚠️  {len(normalized_conflicts)} conflicts:")
                     for c in normalized_conflicts[:5]:
                         print(
@@ -1144,6 +1231,7 @@ def cmd_sync(args, k: "Kernle"):
                                 hash_prefix=str(c.get("payload_hash", ""))[:16],
                             )
                         )
+                    print("  ℹ️  Run `kernle sync full` again after resolving push conflicts")
             else:
                 print(f"  ⚠️  Push returned status {response.status_code}")
         except Exception as e:
@@ -1153,8 +1241,16 @@ def cmd_sync(args, k: "Kernle"):
         print()
         print("✓ Full sync complete")
         print(f"  pulled conflict envelopes: {len(pull_conflict_envelopes)}")
+        if pull_conflict_envelopes:
+            print(
+                f"  pull conflict envelopes (deterministic): {len(_sort_conflicts(pull_conflict_envelopes))}"
+            )
+        if pull_poison_pending > 0:
+            print(f"  ⚠️  {pull_poison_pending} pull operations pending recovery")
         if pull_newly_poisoned > 0:
             print(f"  ⚠️  {pull_newly_poisoned} pull conflicts were quarantined")
+        if not pull_conflict_envelopes and not pull_newly_poisoned and not pull_poison_pending:
+            print("  ✅ Pull phase had no quarantined conflicts")
 
         remaining = k._storage.get_pending_sync_count()
         if remaining > 0:

@@ -1,6 +1,7 @@
 """Handlers for sync/suggestion tools: sync, suggestion_list/accept/dismiss/extract."""
 
 import json
+import logging
 from typing import Any, Dict
 
 from kernle.core import Kernle
@@ -10,6 +11,70 @@ from kernle.mcp.sanitize import (
     validate_number,
 )
 from kernle.types import VALID_SUGGESTION_STATUSES
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Sync error categories
+# ---------------------------------------------------------------------------
+
+SYNC_ERROR_CONFLICT = "conflict"
+SYNC_ERROR_APPLY = "apply_failed"
+SYNC_ERROR_NETWORK = "network"
+SYNC_ERROR_VALIDATION = "validation"
+
+
+def _classify_sync_error(error) -> str:
+    """Classify a sync error into a category."""
+    err_str = str(error).lower() if error else ""
+    if "conflict" in err_str:
+        return SYNC_ERROR_CONFLICT
+    if "network" in err_str or "connection" in err_str or "timeout" in err_str:
+        return SYNC_ERROR_NETWORK
+    if "valid" in err_str or "schema" in err_str or "required" in err_str:
+        return SYNC_ERROR_VALIDATION
+    return SYNC_ERROR_APPLY
+
+
+def _conflict_count(conflicts):
+    """Normalize conflict count across list/dict/int representations."""
+    if isinstance(conflicts, list):
+        return len(conflicts)
+    if isinstance(conflicts, int):
+        return conflicts
+    return 0
+
+
+def _error_count(errors):
+    """Normalize sync error list handling."""
+    if isinstance(errors, list):
+        return len(errors), errors
+    if isinstance(errors, tuple):
+        return len(errors), list(errors)
+    return 0, []
+
+
+def _format_conflict_snapshot(conflicts):
+    """Build compact conflict summaries without leaking raw payload."""
+    if not isinstance(conflicts, list):
+        return []
+
+    snapshots = []
+    for item in conflicts[:3]:
+        if isinstance(item, dict):
+            table = str(item.get("table") or "unknown")
+            record_id = str(item.get("record_id") or item.get("id") or "unknown")
+            resolution = str(item.get("resolution") or "unknown")
+        else:
+            table = str(getattr(item, "table", "unknown"))
+            record_id = str(getattr(item, "record_id", getattr(item, "id", "unknown")))
+            resolution = str(getattr(item, "resolution", "unknown"))
+        snapshots.append(f"{table}:{record_id} [{resolution}]")
+    remaining = len(conflicts) - 3
+    if remaining > 0:
+        snapshots.append(f"... and {remaining} more")
+    return snapshots
+
 
 # ---------------------------------------------------------------------------
 # Validators
@@ -117,15 +182,40 @@ def validate_suggestion_extract(arguments: Dict[str, Any]) -> Dict[str, Any]:
 
 def handle_memory_sync(args: Dict[str, Any], k: Kernle) -> str:
     sync_result = k.sync()
+    conflicts = sync_result.get("conflicts", [])
+    conflict_count = _conflict_count(conflicts)
+    error_count, errors = _error_count(sync_result.get("errors", []))
+    partial_state = bool(conflict_count or error_count)
+
     lines = ["Sync complete:"]
     lines.append(f"  Pushed: {sync_result.get('pushed', 0)}")
     lines.append(f"  Pulled: {sync_result.get('pulled', 0)}")
-    if sync_result.get("conflicts"):
-        lines.append(f"  Conflicts: {sync_result['conflicts']}")
-    if sync_result.get("errors"):
-        lines.append(f"  Errors: {len(sync_result['errors'])}")
-        for err in sync_result["errors"][:3]:
-            lines.append(f"    - {err}")
+    if conflict_count:
+        lines.append(f"  Conflicts: {conflict_count}")
+        conflict_snapshot = _format_conflict_snapshot(conflicts)
+        for snippet in conflict_snapshot:
+            lines.append(f"    - {snippet}")
+    if errors:
+        lines.append(f"  Errors: {error_count}")
+        for err in errors[:3]:
+            category = _classify_sync_error(err)
+            lines.append(f"    - {category}: {err}")
+
+    if partial_state:
+        lines.append("  Recovery state: partial")
+        logger.warning(
+            "memory_sync partial completion: pushed=%s pulled=%s conflicts=%s errors=%s",
+            sync_result.get("pushed", 0),
+            sync_result.get("pulled", 0),
+            conflict_count,
+            error_count,
+        )
+        lines.append(
+            "  Tip: retry `kernle sync pull` for pull-side recovery and re-run sync for queued pushes."
+        )
+    else:
+        lines.append("  Recovery state: ok")
+
     return "\n".join(lines)
 
 

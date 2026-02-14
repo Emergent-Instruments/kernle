@@ -23,6 +23,10 @@ from kernle.protocols import (
 class AnthropicModelError(KernleError):
     """Raised when the Anthropic SDK reports an error."""
 
+    def __init__(self, error_class: str, message: str) -> None:
+        super().__init__(message)
+        self.error_class = error_class
+
 
 class AnthropicModel:
     """ModelProtocol implementation backed by the Anthropic API.
@@ -108,7 +112,7 @@ class AnthropicModel:
         try:
             response = self._client.messages.create(**kwargs)
         except Exception as exc:
-            raise AnthropicModelError(f"Anthropic API error: {exc}") from exc
+            raise self._classify_error(exc, "Anthropic API error") from exc
 
         return self._parse_response(response)
 
@@ -152,7 +156,7 @@ class AnthropicModel:
                     usage=usage,
                 )
         except Exception as exc:
-            raise AnthropicModelError(f"Anthropic streaming error: {exc}") from exc
+            raise self._classify_error(exc, "Anthropic streaming error") from exc
 
     # ---- Internal helpers ----
 
@@ -212,6 +216,32 @@ class AnthropicModel:
                 for t in tools
             ]
         return kwargs
+
+    @staticmethod
+    def _classify_error(exc: Exception, prefix: str) -> AnthropicModelError:
+        """Classify an Anthropic SDK exception into an error class.
+
+        Uses defensive attribute access so this works even when the
+        anthropic package is mocked or partially available.
+        """
+        import anthropic as _anthropic
+
+        _checks: list[tuple[str, str, str]] = [
+            ("RateLimitError", "rate_limit", "rate limited"),
+            ("AuthenticationError", "auth", "auth failed"),
+            ("APITimeoutError", "timeout", "timeout"),
+        ]
+        for attr, cls, label in _checks:
+            exc_type = getattr(_anthropic, attr, None)
+            if exc_type is not None and isinstance(exc, exc_type):
+                return AnthropicModelError(cls, f"{prefix}: {label}: {exc}")
+
+        api_status = getattr(_anthropic, "APIStatusError", None)
+        if api_status is not None and isinstance(exc, api_status):
+            code = getattr(exc, "status_code", "?")
+            return AnthropicModelError("server", f"{prefix}: API error ({code}): {exc}")
+
+        return AnthropicModelError("unknown", f"{prefix}: {exc}")
 
     def _parse_response(self, response: Any) -> ModelResponse:
         """Convert an Anthropic response to ModelResponse."""

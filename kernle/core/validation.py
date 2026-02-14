@@ -1,10 +1,54 @@
-"""Input validation methods for Kernle."""
+"""Input validation methods for Kernle.
+
+Provides both the ``ValidationMixin`` (instance methods used by
+:class:`~kernle.core.Kernle`) and standalone ``sanitize_string`` used
+by CLI and MCP layers for consistent input sanitization.
+"""
 
 import logging
+import re
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def sanitize_string(
+    value: Any, field_name: str, max_length: int = 1000, required: bool = True
+) -> str:
+    """Sanitize and validate string inputs.
+
+    Canonical implementation shared by CLI (as ``validate_input``) and
+    MCP (as ``sanitize_string``) layers.
+
+    Args:
+        value: The value to sanitize.
+        field_name: Name of the field for error messages.
+        max_length: Maximum allowed string length.
+        required: If True, empty strings are rejected.
+
+    Returns:
+        Sanitized string.
+
+    Raises:
+        ValueError: If validation fails.
+    """
+    if value is None and not required:
+        return ""
+
+    if not isinstance(value, str):
+        raise ValueError(f"{field_name} must be a string, got {type(value).__name__}")
+
+    if required and not value.strip():
+        raise ValueError(f"{field_name} cannot be empty")
+
+    if len(value) > max_length:
+        raise ValueError(f"{field_name} too long (max {max_length} characters, got {len(value)})")
+
+    # Remove null bytes and control characters except newlines and tabs
+    sanitized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", value)
+
+    return sanitized
 
 
 class ValidationMixin:

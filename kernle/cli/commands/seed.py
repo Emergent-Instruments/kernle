@@ -1,5 +1,6 @@
 """Corpus seeding commands for Kernle CLI."""
 
+import hashlib
 import json
 from typing import TYPE_CHECKING
 
@@ -10,6 +11,17 @@ if TYPE_CHECKING:
 def cmd_seed(args, k: "Kernle"):
     """Handle seed subcommands (repo, docs, status)."""
     from kernle.corpus import CorpusIngestor
+
+    def _status_snapshot(raw_status):
+        snapshot = {
+            "total_corpus_entries": int(raw_status.get("total_corpus_entries", 0)),
+            "repo_entries": int(raw_status.get("repo_entries", 0)),
+            "docs_entries": int(raw_status.get("docs_entries", 0)),
+        }
+        digest = hashlib.sha256(
+            json.dumps(snapshot, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+        ).hexdigest()
+        return snapshot, digest
 
     ingestor = CorpusIngestor(k)
 
@@ -98,7 +110,13 @@ def cmd_seed(args, k: "Kernle"):
         status = ingestor.get_status()
 
         if getattr(args, "json", False):
-            print(json.dumps(status, indent=2))
+            snapshot, snapshot_hash = _status_snapshot(status)
+            payload = {
+                "status": status,
+                "status_snapshot": snapshot,
+                "status_snapshot_sha256": snapshot_hash,
+            }
+            print(json.dumps(payload, indent=2))
         else:
             print("Corpus Ingestion Status")
             print("=" * 40)

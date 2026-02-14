@@ -15,8 +15,8 @@ Usage:
 import argparse
 import importlib
 import logging
-import re
 import sys
+from functools import partial
 from pathlib import Path
 
 from kernle import Kernle
@@ -77,18 +77,10 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
-def validate_input(value: str, field_name: str, max_length: int = 1000) -> str:
-    """Validate and sanitize CLI inputs."""
-    if not isinstance(value, str):
-        raise ValueError(f"{field_name} must be a string")
+from kernle.core.validation import sanitize_string  # noqa: E402 — after Kernle import
 
-    if len(value) > max_length:
-        raise ValueError(f"{field_name} too long (max {max_length} characters)")
-
-    # Remove null bytes and control characters except newlines
-    sanitized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", value)
-
-    return sanitized
+# Thin wrapper keeping the existing call contract (required=True, no `required` kwarg)
+validate_input = partial(sanitize_string, required=True)
 
 
 def _import_devtools(module_path: str, symbol: str):
@@ -455,7 +447,18 @@ def cmd_mcp(args):
     from kernle.mcp.server import main as mcp_main
 
     # Get stack_id from --stack flag
-    stack_id = getattr(args, "stack", None) or "default"
+    stack = getattr(args, "stack", None)
+    if stack is None:
+        stack_id = "default"
+    else:
+        if not isinstance(stack, str) or not stack.strip():
+            print("✗ Invalid stack: stack must not be empty", file=sys.stderr)
+            raise SystemExit(2)
+        try:
+            stack_id = validate_input(stack, "stack", 200)
+        except (ValueError, TypeError) as e:
+            print(f"✗ Invalid stack: {e}", file=sys.stderr)
+            raise SystemExit(2)
 
     print(f"Starting Kernle MCP server for stack: {stack_id}", file=sys.stderr)
     mcp_main(stack_id=stack_id)

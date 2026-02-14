@@ -208,10 +208,7 @@ def _validate_plugin_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[st
 
     schema = _plugin_schemas.get(name)
     if not isinstance(schema, dict):
-        raise ValueError(
-            f"Plugin tool metadata missing for '{name}'. "
-            "Registration must include a JSON schema before invocation."
-        )
+        raise ValueError(f"plugin tool metadata missing for: {name}")
 
     if _HAS_JSONSCHEMA:
         validator = _plugin_schema_validators.get(name)
@@ -233,6 +230,10 @@ def _validate_plugin_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[st
 def validate_tool_input(name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
     """Validate and sanitize MCP tool inputs."""
     try:
+        if not isinstance(name, str):
+            raise ValueError(f"tool name must be a string, got {type(name).__name__}")
+        if not name:
+            raise ValueError("tool name must not be empty")
         if not isinstance(arguments, dict):
             raise ValueError(f"arguments must be an object, got {type(arguments).__name__}")
 

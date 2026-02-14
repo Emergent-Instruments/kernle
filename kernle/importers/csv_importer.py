@@ -316,9 +316,13 @@ def _import_csv_item(item: CsvImportItem, k: "Kernle", skip_duplicates: bool = T
             if existing:
                 return False
 
+        belief_type = data.get("belief_type", data.get("type", "fact"))
+        if belief_type == "belief":
+            belief_type = "fact"
+
         k.belief(
             statement=statement,
-            type=data.get("type", "fact"),
+            type=belief_type,
             confidence=data.get("confidence", 0.8),
         )
         return True
