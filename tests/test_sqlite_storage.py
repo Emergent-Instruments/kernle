@@ -142,21 +142,10 @@ class TestEmbeddingCacheResilience:
         vec_id = f"{storage.stack_id}:episodes:{record_id}"
         stale_hash = "0000stale"
 
-        conn = sqlite3.connect(storage.db_path)
-        conn.row_factory = sqlite3.Row
+        # Use _get_conn() instead of raw sqlite3.connect() so the vec0
+        # extension is loaded — the tables are vec0 virtual tables.
+        conn = storage._get_conn()
         try:
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS vec_embeddings (id TEXT PRIMARY KEY, embedding BLOB)"
-            )
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS embedding_meta (
-                    id TEXT PRIMARY KEY,
-                    table_name TEXT,
-                    record_id TEXT,
-                    content_hash TEXT,
-                    created_at TEXT
-                )
-                """)
             conn.execute(
                 "INSERT INTO vec_embeddings (id, embedding) VALUES (?, X'00')",
                 (vec_id,),
