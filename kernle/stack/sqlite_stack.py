@@ -278,6 +278,24 @@ class SQLiteStack(
         for component in components:
             self.add_component(component)
 
+        # Bootstrap self-trust if missing (e.g. after migration creates the table)
+        self._ensure_self_trust()
+
+    def _ensure_self_trust(self) -> None:
+        """Bootstrap self-trust assessment if missing after migration."""
+        existing = self._backend.get_trust_assessment("identity")
+        if not existing:
+            assessment = TrustAssessment(
+                id=str(uuid.uuid4()),
+                stack_id=self.stack_id,
+                entity="identity",
+                dimensions={"general": {"score": 1.0}},
+                authority=[{"scope": "all"}],
+                evidence_episode_ids=[],
+                created_at=datetime.now(timezone.utc),
+            )
+            self._backend.save_trust_assessment(assessment)
+
     # ---- Properties ----
 
     @property
@@ -1467,6 +1485,8 @@ class SQLiteStack(
             excluded_record = {
                 "memory_type": memory_type,
                 "memory_id": getattr(record, "id", None),
+                "record": record,
+                "priority": priority,
             }
             if budget_exhausted:
                 excluded.append(excluded_record)

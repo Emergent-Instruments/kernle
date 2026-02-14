@@ -1773,3 +1773,109 @@ class TestImportItemDataclass:
         """JsonImportItem has sensible defaults."""
         item = JsonImportItem(type="test")
         assert item.data == {}
+
+
+# ============================================================================
+# Markdown Importer Origin Metadata Tests
+# ============================================================================
+
+
+class TestMarkdownImportMeta:
+    """Tests for origin tracking metadata on parsed markdown items."""
+
+    def test_parsed_items_include_origin_file(self):
+        """Parsed items include _import_meta with origin_file when file_path is provided."""
+        content = """
+## Beliefs
+
+- Testing is important
+"""
+        items = parse_markdown(content, origin_file="/path/to/memory.md")
+        assert len(items) == 1
+        assert "_import_meta" in items[0].metadata
+        assert items[0].metadata["_import_meta"]["origin_file"] == "/path/to/memory.md"
+
+    def test_origin_section_matches_section_header(self):
+        """origin_section matches the original section header text."""
+        content = """
+## Beliefs
+
+- Testing is important
+
+## Episodes
+
+- Fixed a bug -> Always test first
+"""
+        items = parse_markdown(content, origin_file="/path/to/memory.md")
+        assert len(items) == 2
+
+        belief_item = next(i for i in items if i.type == "belief")
+        assert belief_item.metadata["_import_meta"]["origin_section"] == "Beliefs"
+
+        episode_item = next(i for i in items if i.type == "episode")
+        assert episode_item.metadata["_import_meta"]["origin_section"] == "Episodes"
+
+    def test_preamble_items_have_preamble_section(self):
+        """Preamble items have origin_section set to 'preamble'."""
+        content = """
+Just a thought before any sections.
+
+## Beliefs
+
+- Something
+"""
+        items = parse_markdown(content, origin_file="/tmp/test.md")
+        preamble_items = [i for i in items if i.source == "preamble"]
+        assert len(preamble_items) >= 1
+        assert preamble_items[0].metadata["_import_meta"]["origin_section"] == "preamble"
+
+    def test_no_origin_file_means_no_import_meta(self):
+        """When origin_file is not provided, items have no _import_meta."""
+        content = """
+## Beliefs
+
+- Testing is important
+"""
+        items = parse_markdown(content)
+        assert len(items) == 1
+        assert "_import_meta" not in items[0].metadata
+
+    def test_markdown_importer_class_sets_origin_file(self, tmp_path):
+        """MarkdownImporter.parse() sets origin_file from its file_path."""
+        md_file = tmp_path / "test_origin.md"
+        md_file.write_text("""
+## Notes
+
+- A note about origin tracking
+""")
+        importer = MarkdownImporter(str(md_file))
+        items = importer.parse()
+        assert len(items) == 1
+        assert "_import_meta" in items[0].metadata
+        assert items[0].metadata["_import_meta"]["origin_file"] == str(md_file)
+        assert items[0].metadata["_import_meta"]["origin_section"] == "Notes"
+
+    def test_import_meta_does_not_break_import(self, tmp_path, kernle_instance):
+        """Extra _import_meta in metadata does not break actual import."""
+        md_file = tmp_path / "test_meta_import.md"
+        md_file.write_text("""
+## Beliefs
+
+- Import meta belief (90%)
+
+## Notes
+
+- Import meta note
+""")
+        k, storage = kernle_instance
+        importer = MarkdownImporter(str(md_file))
+        result = importer.import_to(k, dry_run=False)
+
+        assert result["belief"] == 1
+        assert result["note"] == 1
+
+        # Verify the data was actually stored
+        beliefs = storage.get_beliefs()
+        assert len(beliefs) == 1
+        notes = storage.get_notes()
+        assert len(notes) == 1

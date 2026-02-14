@@ -251,6 +251,11 @@ class TestGoalTypeForgetting:
         storage.save_goal(task_goal)
         storage.save_goal(aspiration_goal)
 
+        # Record at least one access so salience uses decay formula
+        # (unaccessed memories have a 0.5 floor that masks decay differences)
+        storage.record_access("goal", task_goal.id)
+        storage.record_access("goal", aspiration_goal.id)
+
         task_salience = kernle.calculate_salience("goal", task_goal.id)
         aspiration_salience = kernle.calculate_salience("goal", aspiration_goal.id)
 

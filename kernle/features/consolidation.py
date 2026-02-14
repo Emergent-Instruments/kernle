@@ -40,6 +40,15 @@ ENTITY_MODEL_MIN_ENTITIES = 2
 ENTITY_MODEL_MIN_EPISODES = 2
 
 
+# Safety caps for consolidation input sizes to prevent runaway loops.
+# Consolidation processes data in memory with nested iteration, so large
+# inputs can cause excessive CPU time without proportional insight gain.
+# These caps paginate the work; future cycles will process the next batch.
+MAX_CONSOLIDATION_EPISODES = 500
+MAX_CONSOLIDATION_BELIEFS = 500
+MAX_CONSOLIDATION_MODELS = 200
+
+
 class ConsolidationMixin:
     """Mixin providing advanced consolidation scaffold capabilities."""
 
@@ -62,6 +71,8 @@ class ConsolidationMixin:
             - patterns: list of cross-domain pattern dicts
             - scaffold: formatted text scaffold for reflection
         """
+        # Cap the limit to prevent excessive in-memory processing
+        limit = min(limit, MAX_CONSOLIDATION_EPISODES)
         episodes = self._storage.get_episodes(limit=limit)
         episodes = [ep for ep in episodes if ep.strength > 0.0]
 
@@ -276,7 +287,7 @@ class ConsolidationMixin:
             - candidates: list of promotion candidate dicts
             - scaffold: formatted text scaffold for reflection
         """
-        beliefs = self._storage.get_beliefs(limit=500, include_inactive=False)
+        beliefs = self._storage.get_beliefs(limit=MAX_CONSOLIDATION_BELIEFS, include_inactive=False)
         beliefs = [b for b in beliefs if b.is_active and b.strength > 0.0]
 
         # Also get existing values for dedup checking
@@ -414,7 +425,7 @@ class ConsolidationMixin:
             - generalizations: list of potential generalization dicts
             - scaffold: formatted text scaffold for reflection
         """
-        models = self._storage.get_entity_models(limit=200)
+        models = self._storage.get_entity_models(limit=MAX_CONSOLIDATION_MODELS)
         if not models:
             return {
                 "models_scanned": 0,
@@ -510,6 +521,10 @@ class ConsolidationMixin:
         """
         if not models:
             return []
+
+        # Cap input to avoid O(n^2) blowup in the greedy clustering loop.
+        # Remaining models will be processed in future consolidation cycles.
+        models = models[:MAX_CONSOLIDATION_MODELS]
 
         # Extract keywords from each observation
         stop_words = {

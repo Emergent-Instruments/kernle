@@ -51,7 +51,7 @@ class TestSalienceCalculation:
         assert salience > 0.1  # Some reinforcement
 
     def test_salience_old_memory_decays(self, kernle_instance):
-        """Old memories without access should have lower salience."""
+        """Old memories that have been accessed should decay over time."""
         kernle, storage = kernle_instance
 
         # Create an old episode by manipulating created_at
@@ -65,14 +65,15 @@ class TestSalienceCalculation:
             outcome="success",
             outcome_type="success",
             created_at=old_date,
+            last_accessed=old_date,
             confidence=0.8,
-            times_accessed=0,
+            times_accessed=1,  # Accessed once -- no unaccessed floor protection
         )
         storage.save_episode(episode)
 
         salience = kernle.calculate_salience("episode", "test-old-episode")
 
-        # Old memory should have low salience
+        # Old, accessed memory should have low salience due to decay
         assert salience < 0.3  # Below typical threshold
 
     def test_salience_returns_negative_for_missing(self, kernle_instance):
@@ -81,6 +82,85 @@ class TestSalienceCalculation:
 
         salience = kernle.calculate_salience("episode", "nonexistent-id")
         assert salience == -1.0
+
+
+class TestUnaccesedSalienceFloor:
+    """Test that never-accessed memories are protected from premature forgetting.
+
+    Regression tests for GitHub issue #727: freshly created memories with
+    times_accessed=0 produced a salience of ~0.08, well below the 0.3
+    forgetting threshold, making them eligible for forgetting before anyone
+    had ever seen them.
+    """
+
+    def test_fresh_memory_salience_above_threshold(self, kernle_instance):
+        """A freshly created memory (times_accessed=0) must have salience above the forgetting threshold."""
+        kernle, _ = kernle_instance
+
+        ep_id = kernle.episode(
+            objective="Brand new memory, never accessed",
+            outcome="success",
+        )
+
+        salience = kernle.calculate_salience("episode", ep_id)
+
+        # The default forgetting threshold is 0.3.
+        # With the fix, unaccessed memories get a floor of 0.5.
+        assert salience >= 0.5, (
+            f"Unaccessed memory salience {salience} is below the 0.5 floor; "
+            "it would be eligible for forgetting before anyone sees it"
+        )
+
+    def test_accessed_memory_with_low_recency_can_be_forgotten(self, kernle_instance):
+        """A memory with times_accessed >= 1 and low recency CAN be eligible for forgetting."""
+        kernle, storage = kernle_instance
+
+        old_date = datetime.now(timezone.utc) - timedelta(days=120)
+
+        episode = Episode(
+            id="accessed-but-old",
+            stack_id=kernle.stack_id,
+            objective="Accessed once long ago",
+            outcome="meh",
+            outcome_type="partial",
+            created_at=old_date,
+            last_accessed=old_date,
+            confidence=0.3,
+            times_accessed=1,  # Has been accessed -- floor should NOT apply
+        )
+        storage.save_episode(episode)
+
+        salience = kernle.calculate_salience("episode", "accessed-but-old")
+
+        # With times_accessed=1, confidence=0.3, and 120 days old:
+        #   reinforcement_weight = log(2) ~ 0.693
+        #   age_factor = 120/30 = 4.0
+        #   salience = 0.3 * (0.693 + 0.1) / (4.0 + 1) = 0.0476
+        # This should be below the 0.3 threshold -- no floor protection.
+        assert (
+            salience < 0.3
+        ), f"Accessed memory salience {salience} should be below 0.3 so it can be forgotten"
+
+    def test_explicit_forget_works_regardless_of_access_count(self, kernle_instance):
+        """Explicit forget() must succeed even for never-accessed memories."""
+        kernle, storage = kernle_instance
+
+        ep_id = kernle.episode(
+            objective="Explicitly forget me",
+            outcome="partial",
+        )
+
+        # Verify it has never been accessed
+        episode = storage.get_episode(ep_id)
+        assert (episode.times_accessed or 0) == 0
+
+        # Explicit forget should succeed regardless of salience floor
+        success = kernle.forget("episode", ep_id, reason="User requested removal")
+        assert success
+
+        # Verify it is tombstoned
+        episode = storage.get_episode(ep_id)
+        assert episode.strength == 0.0
 
 
 class TestForgettingCandidates:
@@ -379,6 +459,33 @@ class TestForgettingCycle:
         # Episode should be forgotten
         episode = storage.get_episode("live-run-test")
         assert episode.strength == 0.0
+
+    def test_forgetting_cycle_respects_limit(self, kernle_instance):
+        """Forgetting cycle should process at most `limit` candidates."""
+        kernle, storage = kernle_instance
+
+        old_date = datetime.now(timezone.utc) - timedelta(days=120)
+
+        # Create more candidates than the limit
+        for i in range(5):
+            episode = Episode(
+                id=f"limit-test-{i}",
+                stack_id=kernle.stack_id,
+                objective=f"Limit test episode {i}",
+                outcome="meh",
+                outcome_type="partial",
+                created_at=old_date,
+                confidence=0.1,
+                times_accessed=0,
+                strength=0.1,
+            )
+            storage.save_episode(episode)
+
+        # Run with limit=2 so only 2 should be forgotten
+        result = kernle.run_forgetting_cycle(threshold=0.5, limit=2, dry_run=False)
+
+        assert result["candidate_count"] <= 2
+        assert result["forgotten"] <= 2
 
 
 class TestAccessTracking:

@@ -300,7 +300,11 @@ def _import_json_item(
 
         # Validate confidence
         confidence = data.get("confidence", 0.8)
-        if isinstance(confidence, (int, float)):
+        if isinstance(confidence, bool):
+            if strict:
+                return False
+            confidence = 0.8
+        elif isinstance(confidence, (int, float)):
             confidence, rejected = _validate_range(
                 float(confidence),
                 0.0,
@@ -329,8 +333,17 @@ def _import_json_item(
 
         # Validate priority if it's numeric
         priority = data.get("priority", 50)
-        if isinstance(priority, (int, float)) and not isinstance(priority, str):
-            try:
+        if isinstance(priority, bool):
+            if strict:
+                return False
+            priority = 50
+        elif isinstance(priority, (int, float)):
+            # Check NaN/Inf before int() conversion (int(float('nan')) raises)
+            if isinstance(priority, float) and (math.isnan(priority) or math.isinf(priority)):
+                if strict:
+                    return False
+                priority = 50
+            else:
                 int_priority = int(priority)
                 int_priority, rejected = _validate_range(
                     float(int_priority),
@@ -343,8 +356,6 @@ def _import_json_item(
                 if rejected:
                     return False
                 priority = int(int_priority)
-            except (ValueError, TypeError):
-                pass
 
         k.value(
             name=name,
@@ -377,7 +388,11 @@ def _import_json_item(
 
         # Validate intensity
         intensity = data.get("intensity", 0.5)
-        if isinstance(intensity, (int, float)):
+        if isinstance(intensity, bool):
+            if strict:
+                return False
+            intensity = 0.5
+        elif isinstance(intensity, (int, float)):
             intensity, rejected = _validate_range(
                 float(intensity),
                 0.0,
@@ -409,7 +424,11 @@ def _import_json_item(
         sentiment = data.get("sentiment", 0.0)
 
         # Validate sentiment
-        if isinstance(sentiment, (int, float)):
+        if isinstance(sentiment, bool):
+            if strict:
+                return False
+            sentiment = 0.0
+        elif isinstance(sentiment, (int, float)):
             sentiment, rejected = _validate_range(
                 float(sentiment),
                 -1.0,

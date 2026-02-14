@@ -537,3 +537,211 @@ belief,Permissive test,bad_value
         importer = JsonImporter(str(json_file))
         result = importer.import_to(k, dry_run=False, skip_duplicates=False)
         assert result["imported"]["drive"] == 1
+
+
+# ============================================================================
+# Boolean / NaN / Infinity strict-mode validation (#723)
+# ============================================================================
+
+
+class TestBooleanNaNInfinityImportValidation:
+    """Booleans, NaN, and Infinity must not bypass numeric validation."""
+
+    # --- CLI _validate_import_numeric ---
+
+    def test_validate_import_numeric_rejects_bool_strict(self):
+        """Boolean True should be rejected in strict mode."""
+        from kernle.cli.commands.import_cmd import _validate_import_numeric
+
+        val, rejected = _validate_import_numeric(True, 0.0, 1.0, 0.8, strict=True)
+        assert rejected is True
+
+    def test_validate_import_numeric_rejects_false_strict(self):
+        """Boolean False should be rejected in strict mode."""
+        from kernle.cli.commands.import_cmd import _validate_import_numeric
+
+        val, rejected = _validate_import_numeric(False, 0.0, 1.0, 0.8, strict=True)
+        assert rejected is True
+
+    def test_validate_import_numeric_defaults_bool_permissive(self):
+        """Boolean True returns default in permissive mode."""
+        from kernle.cli.commands.import_cmd import _validate_import_numeric
+
+        val, rejected = _validate_import_numeric(True, 0.0, 1.0, 0.8, strict=False)
+        assert rejected is False
+        assert val == 0.8
+
+    def test_validate_import_numeric_rejects_nan_strict(self):
+        """NaN should be rejected in strict mode."""
+        from kernle.cli.commands.import_cmd import _validate_import_numeric
+
+        val, rejected = _validate_import_numeric(float("nan"), 0.0, 1.0, 0.8, strict=True)
+        assert rejected is True
+
+    def test_validate_import_numeric_rejects_inf_strict(self):
+        """Infinity should be rejected in strict mode."""
+        from kernle.cli.commands.import_cmd import _validate_import_numeric
+
+        val, rejected = _validate_import_numeric(float("inf"), 0.0, 1.0, 0.8, strict=True)
+        assert rejected is True
+
+    def test_validate_import_numeric_rejects_neg_inf_strict(self):
+        """-Infinity should be rejected in strict mode."""
+        from kernle.cli.commands.import_cmd import _validate_import_numeric
+
+        val, rejected = _validate_import_numeric(float("-inf"), 0.0, 1.0, 0.8, strict=True)
+        assert rejected is True
+
+    # --- JSON Importer: Boolean confidence ---
+
+    def test_json_belief_bool_confidence_strict_rejected(self, kernle_instance):
+        """Boolean confidence in strict mode should reject the belief."""
+        k, storage = kernle_instance
+        item = JsonImportItem(
+            type="belief",
+            data={"statement": "Bool confidence", "confidence": True},
+        )
+        result = _import_json_item(item, k, skip_duplicates=False, strict=True)
+        assert result is False
+
+    def test_json_belief_bool_confidence_permissive_defaults(self, kernle_instance):
+        """Boolean confidence in permissive mode defaults to 0.8."""
+        k, storage = kernle_instance
+        item = JsonImportItem(
+            type="belief",
+            data={"statement": "Bool confidence permissive", "confidence": True},
+        )
+        result = _import_json_item(item, k, skip_duplicates=False, strict=False)
+        assert result is True
+        beliefs = storage.get_beliefs()
+        assert any(b.confidence == pytest.approx(0.8) for b in beliefs)
+
+    # --- JSON Importer: Boolean intensity ---
+
+    def test_json_drive_bool_intensity_strict_rejected(self, kernle_instance):
+        """Boolean intensity in strict mode should reject the drive."""
+        k, storage = kernle_instance
+        item = JsonImportItem(
+            type="drive",
+            data={"drive_type": "bool_drive", "intensity": True},
+        )
+        result = _import_json_item(item, k, skip_duplicates=False, strict=True)
+        assert result is False
+
+    # --- JSON Importer: Boolean sentiment ---
+
+    def test_json_relationship_bool_sentiment_strict_rejected(self, kernle_instance):
+        """Boolean sentiment in strict mode should reject the relationship."""
+        k, storage = kernle_instance
+        item = JsonImportItem(
+            type="relationship",
+            data={"entity_name": "bool_entity", "sentiment": True},
+        )
+        result = _import_json_item(item, k, skip_duplicates=False, strict=True)
+        assert result is False
+
+    # --- JSON Importer: Boolean priority ---
+
+    def test_json_value_bool_priority_strict_rejected(self, kernle_instance):
+        """Boolean priority in strict mode should reject the value."""
+        k, storage = kernle_instance
+        item = JsonImportItem(
+            type="value",
+            data={"name": "Bool Priority", "statement": "Test", "priority": True},
+        )
+        result = _import_json_item(item, k, skip_duplicates=False, strict=True)
+        assert result is False
+
+    def test_json_value_bool_priority_permissive_defaults(self, kernle_instance):
+        """Boolean priority in permissive mode defaults to 50."""
+        k, storage = kernle_instance
+        item = JsonImportItem(
+            type="value",
+            data={"name": "Bool Priority Default", "statement": "Test", "priority": False},
+        )
+        result = _import_json_item(item, k, skip_duplicates=False, strict=False)
+        assert result is True
+        values = storage.get_values()
+        matching = [v for v in values if v.name == "Bool Priority Default"]
+        assert len(matching) == 1
+        assert matching[0].priority == 50
+
+    # --- JSON Importer: NaN priority (was crashing with int(float('nan'))) ---
+
+    def test_json_value_nan_priority_strict_rejected(self, kernle_instance):
+        """NaN priority in strict mode should reject, not crash."""
+        k, storage = kernle_instance
+        item = JsonImportItem(
+            type="value",
+            data={"name": "NaN Priority", "statement": "Test", "priority": float("nan")},
+        )
+        result = _import_json_item(item, k, skip_duplicates=False, strict=True)
+        assert result is False
+
+    def test_json_value_nan_priority_permissive_defaults(self, kernle_instance):
+        """NaN priority in permissive mode should default to 50, not crash."""
+        k, storage = kernle_instance
+        item = JsonImportItem(
+            type="value",
+            data={"name": "NaN Default", "statement": "Test", "priority": float("nan")},
+        )
+        result = _import_json_item(item, k, skip_duplicates=False, strict=False)
+        assert result is True
+        values = storage.get_values()
+        matching = [v for v in values if v.name == "NaN Default"]
+        assert len(matching) == 1
+        assert matching[0].priority == 50
+
+    def test_json_value_inf_priority_strict_rejected(self, kernle_instance):
+        """Infinity priority in strict mode should reject."""
+        k, storage = kernle_instance
+        item = JsonImportItem(
+            type="value",
+            data={"name": "Inf Priority", "statement": "Test", "priority": float("inf")},
+        )
+        result = _import_json_item(item, k, skip_duplicates=False, strict=True)
+        assert result is False
+
+    # --- JSON Importer: NaN/Inf confidence ---
+
+    def test_json_belief_nan_confidence_strict_rejected(self, kernle_instance):
+        """NaN confidence should be rejected via _validate_range."""
+        k, storage = kernle_instance
+        item = JsonImportItem(
+            type="belief",
+            data={"statement": "NaN belief", "confidence": float("nan")},
+        )
+        result = _import_json_item(item, k, skip_duplicates=False, strict=True)
+        assert result is False
+
+    def test_json_drive_inf_intensity_strict_rejected(self, kernle_instance):
+        """Infinity intensity should be rejected via _validate_range."""
+        k, storage = kernle_instance
+        item = JsonImportItem(
+            type="drive",
+            data={"drive_type": "inf_drive", "intensity": float("inf")},
+        )
+        result = _import_json_item(item, k, skip_duplicates=False, strict=True)
+        assert result is False
+
+    # --- CSV Importer: NaN in confidence ---
+
+    def test_csv_nan_confidence_strict_rejected(self):
+        """CSV with NaN confidence should be rejected in strict mode."""
+        items = parse_csv(
+            """type,statement,confidence
+belief,NaN belief,nan
+""",
+            strict=True,
+        )
+        assert len(items) == 0
+
+    def test_csv_inf_confidence_strict_rejected(self):
+        """CSV with inf confidence should be rejected in strict mode."""
+        items = parse_csv(
+            """type,statement,confidence
+belief,Inf belief,inf
+""",
+            strict=True,
+        )
+        assert len(items) == 0

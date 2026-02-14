@@ -119,13 +119,13 @@ class TestTokenMatchScore:
 class TestBuildTokenFilter:
     def test_single_token_single_column(self):
         sql, params = SQLiteStorage._build_token_filter(["hello"], ["content"])
-        assert sql == "(content LIKE ?)"
+        assert sql == "(content LIKE ? ESCAPE '\\')"
         assert params == ["%hello%"]
 
     def test_multiple_tokens_multiple_columns(self):
         sql, params = SQLiteStorage._build_token_filter(["hello", "world"], ["content", "title"])
-        assert "content LIKE ?" in sql
-        assert "title LIKE ?" in sql
+        assert "content LIKE ? ESCAPE '\\'" in sql
+        assert "title LIKE ? ESCAPE '\\'" in sql
         assert " OR " in sql
         assert len(params) == 4
         assert params == ["%hello%", "%hello%", "%world%", "%world%"]

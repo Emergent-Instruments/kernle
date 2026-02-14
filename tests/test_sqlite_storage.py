@@ -135,30 +135,25 @@ class TestNotes:
 
 class TestEmbeddingCacheResilience:
     def test_save_embedding_failure_cleans_stale_cache(self, storage):
-        """Transient embedding writes should remove stale vector cache entries."""
+        """Transient embedding writes should remove stale vector cache entries.
+
+        Scenario: embedding_meta has a stale content hash (no vec entry yet).
+        _save_embedding computes a new embedding and inserts into vec_embeddings
+        successfully, but the metadata write fails. The cleanup path should
+        delete both the new vec entry and the stale metadata entry.
+        """
+        if not storage._has_vec:
+            pytest.skip("sqlite-vec not available in this environment")
         record_id = "ep-cache-stale"
         vec_id = f"{storage.stack_id}:episodes:{record_id}"
         stale_hash = "0000stale"
 
-        conn = sqlite3.connect(storage.db_path)
-        conn.row_factory = sqlite3.Row
+        # Use _get_conn() so vec0 extension is loaded for virtual tables.
+        conn = storage._get_conn()
         try:
-            conn.execute(
-                "CREATE TABLE IF NOT EXISTS vec_embeddings (id TEXT PRIMARY KEY, embedding BLOB)"
-            )
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS embedding_meta (
-                    id TEXT PRIMARY KEY,
-                    table_name TEXT,
-                    record_id TEXT,
-                    content_hash TEXT,
-                    created_at TEXT
-                )
-                """)
-            conn.execute(
-                "INSERT INTO vec_embeddings (id, embedding) VALUES (?, X'00')",
-                (vec_id,),
-            )
+            # Only pre-insert stale metadata (NOT into vec_embeddings).
+            # vec0 virtual tables don't support INSERT OR REPLACE, so the
+            # vec_embeddings entry must not exist before _save_embedding runs.
             conn.execute(
                 "INSERT INTO embedding_meta (id, table_name, record_id, content_hash, created_at) "
                 "VALUES (?, 'episodes', ?, ?, '2000-01-01T00:00:00+00:00')",

@@ -240,6 +240,9 @@ class TestAuthRegister:
         assert saved["user_id"] == "new-user-1"
         assert saved["api_key"] == "test-secret"
         assert saved["backend_url"] == "https://api.test.com"
+        # Register must use "auth_token" (not "token") to match login flow
+        assert saved["auth_token"] == "jwt-new"
+        assert "token" not in saved, "Register should write 'auth_token', not 'token'"
 
     def test_register_masks_secret_in_output(self, k, capsys, tmp_path):
         """Registration output should always mask secret values."""
@@ -454,6 +457,48 @@ class TestAuthRegister:
                         k,
                     )
                 assert exc_info.value.code == 1
+
+    def test_register_credential_schema_matches_login(self, k, tmp_path):
+        """Register and login must write the same credential field names.
+
+        Regression test for issue #720: register wrote "token" while login
+        wrote "auth_token", causing readers to rely on a fallback chain.
+        Both paths must now write "auth_token" for schema consistency.
+        """
+        reg_resp = _make_response(
+            201,
+            json_data={
+                "user_id": "schema-user",
+                "secret": "schema-secret",
+                "access_token": "jwt-schema",
+                "expires_in": 3600,
+            },
+        )
+        mock_httpx = MagicMock()
+        mock_httpx.post.return_value = reg_resp
+        mock_httpx.ConnectError = ConnectionError
+
+        with patch.dict(os.environ, {"KERNLE_DATA_DIR": str(tmp_path)}):
+            with patch.dict("sys.modules", {"httpx": mock_httpx}):
+                cmd_auth(
+                    _args(
+                        auth_action="register",
+                        backend_url="https://api.test.com",
+                        email="schema@test.com",
+                    ),
+                    k,
+                )
+
+        saved = json.loads((tmp_path / "credentials.json").read_text())
+
+        # Both register and login must use exactly these field names
+        expected_fields = {"user_id", "api_key", "backend_url", "auth_token", "token_expires"}
+        assert expected_fields == set(saved.keys()), (
+            f"Register credential fields {set(saved.keys())} "
+            f"do not match expected schema {expected_fields}"
+        )
+        # The legacy "token" field must NOT appear in new writes
+        assert "token" not in saved
 
 
 # ============================================================================

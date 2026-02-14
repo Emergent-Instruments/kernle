@@ -138,3 +138,75 @@ def get_health_check_stats(connect_fn: Callable, stack_id: str) -> Dict[str, Any
             "checks_by_source": checks_by_source,
             "checks_by_trigger": checks_by_trigger,
         }
+
+
+def check_relation_table_health(connect_fn: Callable, stack_id: str) -> Dict[str, Any]:
+    """Check cross-table consistency for relationship data.
+
+    Detects orphaned relationship_history entries whose relationship_id
+    no longer exists in the relationships table.
+
+    Args:
+        connect_fn: Callable that returns a DB connection context manager.
+        stack_id: The stack identifier.
+
+    Returns:
+        Dict with:
+        - total_relationships: Count of relationships
+        - total_history: Count of history entries
+        - orphaned_history_count: History entries with no matching relationship
+        - healthy: True if no orphans found
+    """
+    with connect_fn() as conn:
+        # Check whether the required tables exist
+        tables = {
+            row[0]
+            for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+        }
+
+        has_relationships = "relationships" in tables
+        has_history = "relationship_history" in tables
+
+        if not has_relationships:
+            return {
+                "total_relationships": 0,
+                "total_history": 0,
+                "orphaned_history_count": 0,
+                "healthy": True,
+                "note": "relationships table does not exist",
+            }
+
+        total_rels = conn.execute(
+            "SELECT COUNT(*) FROM relationships WHERE stack_id = ?", (stack_id,)
+        ).fetchone()[0]
+
+        if not has_history:
+            return {
+                "total_relationships": total_rels,
+                "total_history": 0,
+                "orphaned_history_count": 0,
+                "healthy": True,
+                "note": "relationship_history table does not exist",
+            }
+
+        total_hist = conn.execute(
+            "SELECT COUNT(*) FROM relationship_history WHERE stack_id = ?",
+            (stack_id,),
+        ).fetchone()[0]
+
+        orphaned = conn.execute(
+            """SELECT COUNT(*) FROM relationship_history h
+               WHERE h.stack_id = ?
+               AND NOT EXISTS (
+                   SELECT 1 FROM relationships r
+                   WHERE r.id = h.relationship_id AND r.stack_id = h.stack_id
+               )""",
+            (stack_id,),
+        ).fetchone()[0]
+
+        return {
+            "total_relationships": total_rels,
+            "total_history": total_hist,
+            "orphaned_history_count": orphaned,
+            "healthy": orphaned == 0,
+        }

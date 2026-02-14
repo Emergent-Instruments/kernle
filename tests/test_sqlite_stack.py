@@ -547,7 +547,10 @@ class TestLoad:
         assert excluded, "expected some excluded candidates when budget is constrained"
         for entry in excluded:
             assert isinstance(entry, dict)
-            assert set(entry.keys()) == {"memory_type", "memory_id"}
+            assert "memory_type" in entry
+            assert "memory_id" in entry
+            assert "record" in entry
+            assert "priority" in entry
             assert isinstance(entry["memory_id"], str)
             assert entry["memory_type"] == "episode"
 

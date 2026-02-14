@@ -149,6 +149,45 @@ def sanitize_list(
     return sanitized
 
 
+def validate_backend_url(url: str, *, allow_localhost_http: bool = True) -> "str | None":
+    """Validate a backend URL for safe credential transmission.
+
+    Canonical implementation shared by CLI sync and cloud storage layers.
+    Rejects non-http/https schemes, URLs with no host, and remote HTTP
+    endpoints (only localhost/127.0.0.1 are allowed over plaintext HTTP).
+
+    Args:
+        url: The backend URL to validate.
+        allow_localhost_http: If True (default), permit ``http://localhost``
+            and ``http://127.0.0.1``.  When False, *all* HTTP URLs are
+            rejected regardless of host.
+
+    Returns:
+        The URL unchanged if valid, or ``None`` if rejected (with a
+        warning logged for each rejection reason).
+    """
+    if not url:
+        return None
+    from urllib.parse import urlparse
+
+    parsed = urlparse(url)
+    if parsed.scheme not in {"https", "http"}:
+        logger.warning("Invalid backend_url scheme; only http/https allowed.")
+        return None
+    if not parsed.netloc:
+        logger.warning("Invalid backend_url; missing host.")
+        return None
+    if parsed.scheme == "http":
+        if not allow_localhost_http:
+            logger.warning("HTTP not allowed in this context.")
+            return None
+        host = parsed.hostname or ""
+        if host not in {"localhost", "127.0.0.1"}:
+            logger.warning("Refusing non-local http backend_url for security.")
+            return None
+    return url
+
+
 class ValidationMixin:
     """Input validation operations for Kernle."""
 
