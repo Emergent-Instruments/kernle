@@ -219,6 +219,59 @@ class TestEmbedTextFallback:
         finally:
             s.close()
 
+    def test_fallback_logs_model_status_with_degraded(self, tmp_db, caplog):
+        """When preferred embedder fails and fallback is used, ModelStatus is logged with degraded=True."""
+        from kernle.protocols import ModelStatus
+
+        mock_preferred = MagicMock(spec=EmbeddingProvider)
+        mock_preferred.dimension = 384
+        mock_preferred.embed.side_effect = RuntimeError("API timeout")
+        type(mock_preferred).__name__ = "MockEmbedder"
+
+        s = SQLiteStorage(stack_id="test-status-degraded", db_path=tmp_db, embedder=mock_preferred)
+        try:
+            with caplog.at_level(logging.WARNING, logger="kernle.storage.sqlite"):
+                s._embed_text("test text", context="status-test")
+
+            # Verify ModelStatus was constructed and passed in log extra
+            assert len(caplog.records) >= 1
+            record = caplog.records[0]
+            status = record.model_status
+            assert isinstance(status, ModelStatus)
+            assert status.provider == "MockEmbedder"
+            assert status.available is False
+            assert status.degraded is True
+            assert status.error_message == "API timeout"
+        finally:
+            s.close()
+
+    def test_no_fallback_logs_model_status_without_degraded(self, tmp_db, caplog):
+        """When preferred fails with no fallback, ModelStatus.degraded is False."""
+        from kernle.protocols import ModelStatus
+
+        mock_preferred = MagicMock(spec=EmbeddingProvider)
+        mock_preferred.dimension = 384
+        mock_preferred.embed.side_effect = RuntimeError("API error")
+        type(mock_preferred).__name__ = "MockEmbedder"
+
+        s = SQLiteStorage(
+            stack_id="test-status-no-fallback", db_path=tmp_db, embedder=mock_preferred
+        )
+        try:
+            s._embedder_fallback = None
+
+            with caplog.at_level(logging.WARNING, logger="kernle.storage.sqlite"):
+                s._embed_text("test text", context="no-fallback-status")
+
+            assert len(caplog.records) >= 1
+            record = caplog.records[0]
+            status = record.model_status
+            assert isinstance(status, ModelStatus)
+            assert status.degraded is False
+            assert status.available is False
+        finally:
+            s.close()
+
 
 # =============================================================================
 # _maybe_restore_preferred_embedder

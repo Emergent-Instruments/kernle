@@ -33,6 +33,10 @@ def strict_kernle_no_stack():
     The _write_backend property raises ValueError when strict=True and
     the stack property returns None (which happens when the underlying
     storage is not SQLiteStorage).
+
+    This IS the real runtime failure path — it fires when a caller
+    passes a custom storage backend (not SQLiteStorage) while requesting
+    strict=True. There is no other way stack returns None with Kernle.
     """
     with tempfile.TemporaryDirectory() as tmp:
         mock_storage = MagicMock()
@@ -45,11 +49,21 @@ def strict_kernle_no_stack():
             checkpoint_dir=Path(tmp) / "cp",
             strict=True,
         )
+        # Verify the precondition: stack IS None with non-SQLite storage
+        assert k.stack is None
         yield k
 
 
 class TestStrictModeGuardFailures:
-    """Verify that write operations raise ValueError when strict=True and no stack is available."""
+    """Verify that write operations raise ValueError when strict=True and no stack is available.
+
+    This covers the real runtime path: strict mode with non-SQLite storage.
+    """
+
+    def test_write_backend_property_raises_directly(self, strict_kernle_no_stack):
+        """The _write_backend property itself raises ValueError."""
+        with pytest.raises(ValueError, match="strict=True requires"):
+            _ = strict_kernle_no_stack._write_backend
 
     def test_update_episode_raises_without_stack(self, strict_kernle_no_stack):
         with pytest.raises(ValueError, match="strict=True requires"):
@@ -70,6 +84,60 @@ class TestStrictModeGuardFailures:
     def test_satisfy_drive_raises_without_stack(self, strict_kernle_no_stack):
         with pytest.raises(ValueError, match="strict=True requires"):
             strict_kernle_no_stack.satisfy_drive("curiosity")
+
+
+class TestStrictModeWithRealSQLite:
+    """Verify strict mode works end-to-end with real SQLiteStorage.
+
+    When strict=True with SQLiteStorage, _write_backend returns a real
+    SQLiteStack. Writes should succeed and route through the stack.
+    """
+
+    def test_strict_mode_creates_stack_with_real_storage(self, tmp_path):
+        """strict=True + SQLiteStorage auto-creates a SQLiteStack."""
+        from kernle.stack.sqlite_stack import SQLiteStack
+        from kernle.storage.sqlite import SQLiteStorage
+
+        storage = SQLiteStorage(stack_id="test-real-strict", db_path=tmp_path / "test.db")
+        try:
+            k = Kernle(
+                stack_id="test-real-strict",
+                storage=storage,
+                checkpoint_dir=tmp_path / "cp",
+                strict=True,
+            )
+            assert k.stack is not None
+            assert isinstance(k.stack, SQLiteStack)
+            assert k._write_backend is k.stack
+        finally:
+            storage.close()
+
+    def test_strict_mode_episode_writes_through_stack(self, tmp_path):
+        """Episode writes succeed and go through the stack enforcement layer."""
+        from kernle.storage.sqlite import SQLiteStorage
+
+        storage = SQLiteStorage(stack_id="test-real-strict", db_path=tmp_path / "test.db")
+        try:
+            k = Kernle(
+                stack_id="test-real-strict",
+                storage=storage,
+                checkpoint_dir=tmp_path / "cp",
+                strict=True,
+            )
+            # First save a raw entry to satisfy provenance requirements
+            raw_id = storage.save_raw("test content for provenance", source="test")
+
+            ep_id = k.episode(
+                objective="verify strict write path",
+                outcome="episode saved through stack",
+                derived_from=[f"raw:{raw_id}"],
+            )
+            assert ep_id is not None
+            # Verify it was persisted
+            episodes = storage.get_episodes(limit=10)
+            assert any(e.id == ep_id for e in episodes)
+        finally:
+            storage.close()
 
 
 def _uid():

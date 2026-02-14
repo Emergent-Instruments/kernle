@@ -104,21 +104,75 @@ class TestPartialFailureLogShape:
 
 
 class TestSyncRecoveryGuidance:
-    """CLI sync partial-failure output includes recovery guidance."""
+    """CLI sync partial-failure output includes recovery guidance.
 
-    def test_push_failure_includes_tip(self, capsys):
-        """Push failure output includes tip about local queuing."""
-        # Import the print statements directly — we just verify the message format
-        print("✗ Push failed: connection refused")
-        print("  Tip: changes are queued locally and will be pushed on next `kernle sync push`")
+    Tests verify the real cmd_sync exception handlers emit recovery tips
+    by triggering failures at the HTTP operation level.
+    """
+
+    def test_push_failure_includes_tip(self, capsys, monkeypatch):
+        """Push failure through real cmd_sync emits recovery tip."""
+        from argparse import Namespace
+        from unittest.mock import patch
+
+        from kernle.cli.commands.sync import cmd_sync
+
+        args = Namespace(sync_action="push", json=False, force=False, limit=1000)
+        mock_k = MagicMock()
+        mock_k.stack_id = "test-push-tip"
+        mock_k._storage = MagicMock()
+
+        # Build a mock change with real-enough attributes for _build_push_operations
+        mock_change = MagicMock()
+        mock_change.payload = '{"content": "test data"}'
+        mock_change.operation = "insert"
+        mock_change.table_name = "notes"
+        mock_change.record_id = "test-push-123"
+        mock_change.queued_at = "2025-01-01T00:00:00"
+        mock_change.id = 1
+        mock_k._storage.get_queued_changes.return_value = [mock_change]
+
+        monkeypatch.setenv("KERNLE_BACKEND_URL", "https://fake-backend.example.com")
+        monkeypatch.setenv("KERNLE_AUTH_TOKEN", "fake-token")
+        monkeypatch.setenv("KERNLE_USER_ID", "fake-user")
+
+        # Mock httpx so that post() raises inside the try block (after _build_push_operations)
+        mock_httpx = MagicMock()
+        mock_httpx.post.side_effect = ConnectionError("connection refused")
+
+        with patch.dict("sys.modules", {"httpx": mock_httpx}):
+            with pytest.raises(SystemExit):
+                cmd_sync(args, mock_k)
+
         captured = capsys.readouterr()
         assert "Tip:" in captured.out
         assert "kernle sync push" in captured.out
 
-    def test_pull_failure_includes_tip(self, capsys):
-        """Pull failure output includes tip about retry."""
-        print("✗ Pull failed: timeout")
-        print("  Tip: check network connectivity, then retry with `kernle sync pull`")
+    def test_pull_failure_includes_tip(self, capsys, monkeypatch):
+        """Pull failure through real cmd_sync emits recovery tip."""
+        from argparse import Namespace
+        from unittest.mock import patch
+
+        from kernle.cli.commands.sync import cmd_sync
+
+        args = Namespace(sync_action="pull", json=False, force=False, full=False)
+        mock_k = MagicMock()
+        mock_k.stack_id = "test-pull-tip"
+        mock_k._storage = MagicMock()
+        mock_k._storage.get_last_sync_time.return_value = None
+
+        monkeypatch.setenv("KERNLE_BACKEND_URL", "https://fake-backend.example.com")
+        monkeypatch.setenv("KERNLE_AUTH_TOKEN", "fake-token")
+        monkeypatch.setenv("KERNLE_USER_ID", "fake-user")
+
+        # Mock httpx import that raises on post (pull uses httpx.post too)
+        mock_httpx = MagicMock()
+        mock_httpx.post.side_effect = TimeoutError("request timed out")
+
+        with patch.dict("sys.modules", {"httpx": mock_httpx}):
+            with pytest.raises(SystemExit):
+                cmd_sync(args, mock_k)
+
         captured = capsys.readouterr()
         assert "Tip:" in captured.out
         assert "kernle sync pull" in captured.out

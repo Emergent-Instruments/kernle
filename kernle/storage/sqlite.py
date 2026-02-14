@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
+from kernle.protocols import ModelStatus
 from kernle.types import VALID_SOURCE_TYPE_VALUES, SourceType
 from kernle.utils import get_kernle_home
 
@@ -327,22 +328,42 @@ class SQLiteStorage:
                 return None
 
             error_class = getattr(exc, "error_class", "unknown")
+            provider_name = type(self._embedder).__name__
             if self._embedder_fallback is None:
+                status = ModelStatus(
+                    provider=provider_name,
+                    available=False,
+                    error_class=error_class,
+                    error_message=str(exc),
+                    degraded=False,
+                )
                 logger.warning(
                     "Embedding provider failed for %s and no fallback is configured: %s",
                     context,
                     exc,
-                    extra={"error_class": error_class, "provider": type(self._embedder).__name__},
+                    extra={
+                        "model_status": status,
+                        "error_class": error_class,
+                        "provider": provider_name,
+                    },
                 )
                 return None
 
+            status = ModelStatus(
+                provider=provider_name,
+                available=False,
+                error_class=error_class,
+                error_message=str(exc),
+                degraded=True,
+            )
             logger.warning(
                 "Preferred embedding provider failed for %s; falling back to hash embeddings until retry: %s",
                 context,
                 exc,
                 extra={
+                    "model_status": status,
                     "error_class": error_class,
-                    "provider": type(self._embedder).__name__,
+                    "provider": provider_name,
                     "degraded": True,
                 },
             )

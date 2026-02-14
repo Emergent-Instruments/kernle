@@ -1,11 +1,17 @@
 """Input validation methods for Kernle.
 
 Provides both the ``ValidationMixin`` (instance methods used by
-:class:`~kernle.core.Kernle`) and standalone ``sanitize_string`` used
+:class:`~kernle.core.Kernle`) and standalone validation helpers used
 by CLI and MCP layers for consistent input sanitization.
+
+Canonical helpers (used via import or re-export):
+- ``sanitize_string`` — string validation + control-char stripping
+- ``sanitize_number`` — numeric validation + NaN/Infinity rejection
+- ``sanitize_list`` — array validation + null-item rejection
 """
 
 import logging
+import math
 import re
 from pathlib import Path
 from typing import Any, List, Optional
@@ -47,6 +53,95 @@ def sanitize_string(
 
     # Remove null bytes and control characters except newlines and tabs
     sanitized = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", value)
+
+    return sanitized
+
+
+def sanitize_number(
+    value: Any,
+    field_name: str,
+    min_val: Optional[float] = None,
+    max_val: Optional[float] = None,
+    default: Optional[float] = None,
+) -> float:
+    """Validate numeric inputs, rejecting NaN and Infinity.
+
+    Canonical implementation shared by MCP layer (as ``validate_number``).
+
+    Args:
+        value: The value to validate.
+        field_name: Name of the field for error messages.
+        min_val: Minimum allowed value (inclusive).
+        max_val: Maximum allowed value (inclusive).
+        default: Default value if *value* is None.
+
+    Returns:
+        Validated float.
+
+    Raises:
+        ValueError: If validation fails.
+    """
+    if value is None:
+        if default is not None:
+            return default
+        raise ValueError(f"{field_name} is required")
+
+    if not isinstance(value, (int, float)):
+        raise ValueError(f"{field_name} must be a number, got {type(value).__name__}")
+
+    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+        raise ValueError(f"{field_name} must be a finite number, got {value}")
+
+    if min_val is not None and value < min_val:
+        raise ValueError(f"{field_name} must be >= {min_val}, got {value}")
+
+    if max_val is not None and value > max_val:
+        raise ValueError(f"{field_name} must be <= {max_val}, got {value}")
+
+    return float(value)
+
+
+def sanitize_list(
+    value: Any,
+    field_name: str,
+    item_max_length: int = 500,
+    max_items: int = 100,
+) -> List[str]:
+    """Validate and sanitize list/array inputs.
+
+    Canonical implementation shared by MCP layer (as ``sanitize_array``).
+
+    Args:
+        value: The array to validate.
+        field_name: Name of the field for error messages.
+        item_max_length: Maximum length for each string item.
+        max_items: Maximum number of items allowed.
+
+    Returns:
+        List of sanitized strings (empty items removed).
+
+    Raises:
+        ValueError: If validation fails.
+    """
+    if value is None:
+        return []
+
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be an array, got {type(value).__name__}")
+
+    if len(value) > max_items:
+        raise ValueError(f"{field_name} too many items (max {max_items}, got {len(value)})")
+
+    if any(item is None for item in value):
+        raise ValueError(f"{field_name} must not contain null items")
+
+    sanitized = []
+    for i, item in enumerate(value):
+        sanitized_item = sanitize_string(
+            item, f"{field_name}[{i}]", item_max_length, required=False
+        )
+        if sanitized_item:
+            sanitized.append(sanitized_item)
 
     return sanitized
 

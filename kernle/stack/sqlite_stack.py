@@ -557,7 +557,7 @@ class SQLiteStack(
             try:
                 self._persist_decay_updates(strength_updates)
             except Exception as e:
-                logger.warning("Failed to persist lazy decay updates: %s", e)
+                self._log_partial_failure("lazy_decay", "persist_updates", e)
 
         return records
 
@@ -1279,7 +1279,7 @@ class SQLiteStack(
                 try:
                     self._persist_decay_updates(decay_updates)
                 except Exception as e:
-                    logger.warning("Failed to persist lazy decay updates in search: %s", e)
+                    self._log_partial_failure("lazy_decay", "persist_search_updates", e)
 
         results = []
         for sr in storage_results:
