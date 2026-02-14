@@ -279,6 +279,7 @@ def check_seed_beliefs(k: "Kernle") -> Tuple[ComplianceCheck, dict]:
             )
 
     except Exception as e:
+        logger.debug("Seed beliefs compliance check failed: %s", e)
         return (
             ComplianceCheck(
                 name="seed_beliefs",
@@ -369,6 +370,7 @@ def check_openclaw_hook() -> ComplianceCheck:
                 category="recommended",
             )
     except Exception as e:
+        logger.debug("OpenClaw hook config check failed: %s", e)
         return ComplianceCheck(
             name="openclaw_hook",
             passed=False,

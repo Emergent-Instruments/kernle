@@ -17,6 +17,16 @@ ANXIETY_LEVELS = {
     (86, 100): ("critical", "Critical"),
 }
 
+# Per-level hysteresis thresholds: (enter_threshold, exit_threshold)
+# enter_threshold = score required to transition UP into this level
+# exit_threshold  = score below which we drop DOWN out of this level
+LEVEL_HYSTERESIS = {
+    "aware": (35, 25),  # enter aware at 35, exit back to calm at 25
+    "elevated": (55, 45),  # enter elevated at 55, exit back to aware at 45
+    "high": (75, 65),  # enter high at 75, exit back to elevated at 65
+    "critical": (90, 80),  # enter critical at 90, exit back to high at 80
+}
+
 
 def get_anxiety_level(score: int) -> Tuple[str, str]:
     """Get (key, label) for an anxiety score."""
@@ -192,8 +202,6 @@ def score_with_confidence(score: int, sample_count: int) -> Dict[str, Any]:
 def apply_hysteresis(
     current_score: int,
     previous_level: Optional[str],
-    enter_threshold: int = 75,
-    exit_threshold: int = 60,
 ) -> str:
     """Apply hysteresis to prevent oscillation near thresholds.
 
@@ -202,13 +210,15 @@ def apply_hysteresis(
     exit thresholds so that a higher score is needed to *enter* the next
     level than is needed to *stay* there.
 
+    Per-level thresholds are defined in :data:`LEVEL_HYSTERESIS`. Each
+    level boundary has its own enter/exit pair, so transitions between
+    calm/aware, aware/elevated, elevated/high, and high/critical are all
+    handled independently.
+
     Args:
         current_score: The current numeric anxiety score (0-100).
         previous_level: The last computed level key (e.g. "elevated").
             Pass ``None`` on first call or when no history is available.
-        enter_threshold: Score required to move *up* into the higher level.
-        exit_threshold: Score below which the system drops *down* to the
-            lower level.
 
     Returns:
         The level key string (e.g. "calm", "aware", "elevated", "high",
@@ -224,22 +234,41 @@ def apply_hysteresis(
     level_order = ["calm", "aware", "elevated", "high", "critical"]
 
     prev_idx = level_order.index(previous_level) if previous_level in level_order else -1
-    std_idx = level_order.index(standard_key) if standard_key in level_order else -1
 
     if prev_idx < 0:
         return standard_key
 
-    # Trying to move UP: require score >= enter_threshold for that boundary
-    if std_idx > prev_idx:
-        if current_score >= enter_threshold:
-            return standard_key
+    std_idx = level_order.index(standard_key)
+
+    # Same level -- no transition needed
+    if std_idx == prev_idx:
         return previous_level
 
-    # Trying to move DOWN: require score < exit_threshold for that boundary
+    # Trying to move UP: walk one level at a time from the previous level.
+    # Each step requires the score to meet the enter_threshold for that level.
+    if std_idx > prev_idx:
+        result_idx = prev_idx
+        for step in range(prev_idx + 1, len(level_order)):
+            target_level = level_order[step]
+            enter_thresh, _ = LEVEL_HYSTERESIS.get(target_level, (0, 0))
+            if current_score >= enter_thresh:
+                result_idx = step
+            else:
+                break
+        return level_order[result_idx]
+
+    # Trying to move DOWN: walk one level at a time from the previous level.
+    # Each step requires the score to be below the exit_threshold for that level.
     if std_idx < prev_idx:
-        if current_score < exit_threshold:
-            return standard_key
-        return previous_level
+        result_idx = prev_idx
+        for step in range(prev_idx, 0, -1):
+            current_level = level_order[step]
+            _, exit_thresh = LEVEL_HYSTERESIS.get(current_level, (0, 0))
+            if current_score < exit_thresh:
+                result_idx = step - 1
+            else:
+                break
+        return level_order[result_idx]
 
     return previous_level
 

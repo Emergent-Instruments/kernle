@@ -20,6 +20,7 @@ from kernle.protocols import ModelStatus
 from kernle.types import VALID_SOURCE_TYPE_VALUES, SourceType
 from kernle.utils import get_kernle_home
 
+from . import beliefs_crud as _beliefs_crud
 from .base import (
     Belief,
     DiagnosticReport,
@@ -1358,261 +1359,48 @@ class SQLiteStorage:
     # === Beliefs ===
 
     def save_belief(self, belief: Belief) -> str:
-        """Save a belief."""
-        if not belief.id:
-            belief.id = str(uuid.uuid4())
-
-        if belief.derived_from:
-            check_derived_from_cycle(self, "belief", belief.id, belief.derived_from)
-
-        now = self._now()
-
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO beliefs
-                (id, stack_id, statement, belief_type, confidence, created_at,
-                 source_type, source_episodes, derived_from,
-                 last_verified, verification_count, confidence_history,
-                 supersedes, superseded_by, times_reinforced, is_active,
-                 strength,
-                 context, context_tags, source_entity, subject_ids, access_grants, consent_grants,
-                 processed,
-                 belief_scope, source_domain, cross_domain_applications, abstraction_level,
-                 epoch_id,
-                 local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    belief.id,
-                    self.stack_id,
-                    belief.statement,
-                    belief.belief_type,
-                    belief.confidence,
-                    belief.created_at.isoformat() if belief.created_at else now,
-                    belief.source_type,
-                    self._to_json(belief.source_episodes),
-                    self._to_json(belief.derived_from),
-                    belief.last_verified.isoformat() if belief.last_verified else None,
-                    belief.verification_count,
-                    self._to_json(belief.confidence_history),
-                    belief.supersedes,
-                    belief.superseded_by,
-                    belief.times_reinforced,
-                    1 if belief.is_active else 0,
-                    belief.strength,
-                    belief.context,
-                    self._to_json(belief.context_tags),
-                    getattr(belief, "source_entity", None),
-                    self._to_json(getattr(belief, "subject_ids", None)),
-                    self._to_json(getattr(belief, "access_grants", None)),
-                    self._to_json(getattr(belief, "consent_grants", None)),
-                    1 if belief.processed else 0,
-                    getattr(belief, "belief_scope", "world"),
-                    getattr(belief, "source_domain", None),
-                    self._to_json(getattr(belief, "cross_domain_applications", None)),
-                    getattr(belief, "abstraction_level", "specific"),
-                    belief.epoch_id,
-                    now,
-                    belief.cloud_synced_at.isoformat() if belief.cloud_synced_at else None,
-                    belief.version,
-                    1 if belief.deleted else 0,
-                ),
-            )
-            # Queue for sync with record data
-            belief_data = self._to_json(self._record_to_dict(belief))
-            self._queue_sync(conn, "beliefs", belief.id, "upsert", data=belief_data)
-
-            # Save embedding for search
-            self._save_embedding(conn, "beliefs", belief.id, belief.statement)
-
-            conn.commit()
-
-        # Sync to flat file
-        self._sync_beliefs_to_file()
-
-        return belief.id
+        """Save a belief. Delegates to beliefs_crud."""
+        return _beliefs_crud.save_belief(
+            self._connect,
+            self.stack_id,
+            belief,
+            self._now,
+            self._to_json,
+            self._record_to_dict,
+            self._queue_sync,
+            self._save_embedding,
+            self._sync_beliefs_to_file,
+            lineage_checker=lambda t, i, d: check_derived_from_cycle(self, t, i, d),
+        )
 
     def update_belief_atomic(self, belief: Belief, expected_version: Optional[int] = None) -> bool:
-        """Update a belief with optimistic concurrency control.
-
-        Args:
-            belief: The belief with updated fields
-            expected_version: The version we expect the record to have.
-                             If None, uses belief.version.
-
-        Returns:
-            True if update succeeded
-
-        Raises:
-            VersionConflictError: If the record's version doesn't match expected
-        """
-        if expected_version is None:
-            expected_version = belief.version
-
-        now = self._now()
-
-        with self._connect() as conn:
-            # Check current version
-            current = conn.execute(
-                "SELECT version FROM beliefs WHERE id = ? AND stack_id = ?",
-                (belief.id, self.stack_id),
-            ).fetchone()
-
-            if not current:
-                return False
-
-            current_version = current["version"]
-            if current_version != expected_version:
-                raise VersionConflictError("beliefs", belief.id, expected_version, current_version)
-
-            # Atomic update with version increment
-            cursor = conn.execute(
-                """
-                UPDATE beliefs SET
-                    statement = ?,
-                    belief_type = ?,
-                    confidence = ?,
-                    source_type = ?,
-                    source_episodes = ?,
-                    derived_from = ?,
-                    last_verified = ?,
-                    verification_count = ?,
-                    confidence_history = ?,
-                    supersedes = ?,
-                    superseded_by = ?,
-                    times_reinforced = ?,
-                    is_active = ?,
-                    context = ?,
-                    context_tags = ?,
-                    belief_scope = ?,
-                    source_domain = ?,
-                    cross_domain_applications = ?,
-                    abstraction_level = ?,
-                    local_updated_at = ?,
-                    deleted = ?,
-                    version = version + 1
-                WHERE id = ? AND stack_id = ? AND version = ?
-                """,
-                (
-                    belief.statement,
-                    belief.belief_type,
-                    belief.confidence,
-                    belief.source_type,
-                    self._to_json(belief.source_episodes),
-                    self._to_json(belief.derived_from),
-                    belief.last_verified.isoformat() if belief.last_verified else None,
-                    belief.verification_count,
-                    self._to_json(belief.confidence_history),
-                    belief.supersedes,
-                    belief.superseded_by,
-                    belief.times_reinforced,
-                    1 if belief.is_active else 0,
-                    belief.context,
-                    self._to_json(belief.context_tags),
-                    getattr(belief, "belief_scope", "world"),
-                    getattr(belief, "source_domain", None),
-                    self._to_json(getattr(belief, "cross_domain_applications", None)),
-                    getattr(belief, "abstraction_level", "specific"),
-                    now,
-                    1 if belief.deleted else 0,
-                    belief.id,
-                    self.stack_id,
-                    expected_version,
-                ),
-            )
-
-            if cursor.rowcount == 0:
-                conn.rollback()
-                new_current = conn.execute(
-                    "SELECT version FROM beliefs WHERE id = ? AND stack_id = ?",
-                    (belief.id, self.stack_id),
-                ).fetchone()
-                actual = new_current["version"] if new_current else -1
-                raise VersionConflictError("beliefs", belief.id, expected_version, actual)
-
-            # Queue for sync
-            belief.version = expected_version + 1
-            belief_data = self._to_json(self._record_to_dict(belief))
-            self._queue_sync(conn, "beliefs", belief.id, "upsert", data=belief_data)
-
-            # Update embedding
-            self._save_embedding(conn, "beliefs", belief.id, belief.statement)
-
-            conn.commit()
-
-        # Sync to flat file
-        self._sync_beliefs_to_file()
-
-        return True
+        """Update a belief with optimistic concurrency control. Delegates to beliefs_crud."""
+        return _beliefs_crud.update_belief_atomic(
+            self._connect,
+            self.stack_id,
+            belief,
+            self._now,
+            self._to_json,
+            self._record_to_dict,
+            self._queue_sync,
+            self._save_embedding,
+            self._sync_beliefs_to_file,
+            expected_version=expected_version,
+        )
 
     def save_beliefs_batch(self, beliefs: List[Belief]) -> List[str]:
-        """Save multiple beliefs in a single transaction."""
-        if not beliefs:
-            return []
-        now = self._now()
-        ids = []
-        with self._connect() as conn:
-            for belief in beliefs:
-                if not belief.id:
-                    belief.id = str(uuid.uuid4())
-                ids.append(belief.id)
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO beliefs
-                    (id, stack_id, statement, belief_type, confidence, created_at,
-                     source_type, source_episodes, derived_from,
-                     last_verified, verification_count, confidence_history,
-                     supersedes, superseded_by, times_reinforced, is_active,
-                     times_accessed, last_accessed, is_protected, strength,
-                     context, context_tags, processed,
-                     belief_scope, source_domain, cross_domain_applications, abstraction_level,
-                     epoch_id,
-                     local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        belief.id,
-                        self.stack_id,
-                        belief.statement,
-                        belief.belief_type,
-                        belief.confidence,
-                        belief.created_at.isoformat() if belief.created_at else now,
-                        belief.source_type,
-                        self._to_json(belief.source_episodes),
-                        self._to_json(belief.derived_from),
-                        belief.last_verified.isoformat() if belief.last_verified else None,
-                        belief.verification_count,
-                        self._to_json(belief.confidence_history),
-                        belief.supersedes,
-                        belief.superseded_by,
-                        belief.times_reinforced,
-                        1 if belief.is_active else 0,
-                        belief.times_accessed,
-                        belief.last_accessed.isoformat() if belief.last_accessed else None,
-                        1 if belief.is_protected else 0,
-                        belief.strength,
-                        belief.context,
-                        self._to_json(belief.context_tags),
-                        1 if belief.processed else 0,
-                        getattr(belief, "belief_scope", "world"),
-                        getattr(belief, "source_domain", None),
-                        self._to_json(getattr(belief, "cross_domain_applications", None)),
-                        getattr(belief, "abstraction_level", "specific"),
-                        belief.epoch_id,
-                        now,
-                        belief.cloud_synced_at.isoformat() if belief.cloud_synced_at else None,
-                        belief.version,
-                        1 if belief.deleted else 0,
-                    ),
-                )
-                belief_data = self._to_json(self._record_to_dict(belief))
-                self._queue_sync(conn, "beliefs", belief.id, "upsert", data=belief_data)
-                self._save_embedding(conn, "beliefs", belief.id, belief.statement)
-            conn.commit()
-        # Sync to flat file (once, after all saves)
-        self._sync_beliefs_to_file()
-        return ids
+        """Save multiple beliefs in a single transaction. Delegates to beliefs_crud."""
+        return _beliefs_crud.save_beliefs_batch(
+            self._connect,
+            self.stack_id,
+            beliefs,
+            self._now,
+            self._to_json,
+            self._record_to_dict,
+            self._queue_sync,
+            self._save_embedding,
+            self._sync_beliefs_to_file,
+        )
 
     def _sync_beliefs_to_file(self) -> None:
         """Write all active beliefs to flat file."""
@@ -1627,60 +1415,32 @@ class SQLiteStorage:
         requesting_entity: Optional[str] = None,
         processed: Optional[bool] = None,
     ) -> List[Belief]:
-        """Get beliefs.
-
-        Args:
-            limit: Maximum number of beliefs to return
-            include_inactive: If True, include superseded/archived beliefs
-            requesting_entity: If provided, filter by access_grants. None = self-access (see all).
-            processed: If True, only processed; if False, only unprocessed; None = all
-        """
-        access_filter, access_params = self._build_access_filter(requesting_entity)
-        processed_filter = ""
-        processed_params: List[Any] = []
-        if processed is not None:
-            processed_filter = " AND processed = ?"
-            processed_params = [1 if processed else 0]
-        with self._connect() as conn:
-            if include_inactive:
-                rows = conn.execute(
-                    f"SELECT * FROM beliefs WHERE stack_id = ? AND deleted = 0{access_filter}{processed_filter} ORDER BY created_at DESC LIMIT ?",
-                    [self.stack_id] + access_params + processed_params + [limit],
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    f"SELECT * FROM beliefs WHERE stack_id = ? AND deleted = 0 AND (is_active = 1 OR is_active IS NULL){access_filter}{processed_filter} ORDER BY created_at DESC LIMIT ?",
-                    [self.stack_id] + access_params + processed_params + [limit],
-                ).fetchall()
-
-        return [self._row_to_belief(row) for row in rows]
+        """Get beliefs. Delegates to beliefs_crud."""
+        return _beliefs_crud.get_beliefs(
+            self._connect,
+            self.stack_id,
+            self._build_access_filter,
+            limit=limit,
+            include_inactive=include_inactive,
+            requesting_entity=requesting_entity,
+            processed=processed,
+        )
 
     def find_belief(self, statement: str) -> Optional[Belief]:
-        """Find a belief by statement."""
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM beliefs WHERE stack_id = ? AND statement = ? AND deleted = 0",
-                (self.stack_id, statement),
-            ).fetchone()
-
-        return self._row_to_belief(row) if row else None
+        """Find a belief by statement. Delegates to beliefs_crud."""
+        return _beliefs_crud.find_belief(self._connect, self.stack_id, statement)
 
     def get_belief(
         self, belief_id: str, requesting_entity: Optional[str] = None
     ) -> Optional[Belief]:
-        """Get a specific belief by ID."""
-        query = "SELECT * FROM beliefs WHERE id = ? AND stack_id = ?"
-        params: List[Any] = [belief_id, self.stack_id]
-
-        # Apply privacy filter
-        access_filter, access_params = self._build_access_filter(requesting_entity)
-        query += access_filter
-        params.extend(access_params)
-
-        with self._connect() as conn:
-            row = conn.execute(query, params).fetchone()
-
-        return self._row_to_belief(row) if row else None
+        """Get a specific belief by ID. Delegates to beliefs_crud."""
+        return _beliefs_crud.get_belief(
+            self._connect,
+            self.stack_id,
+            belief_id,
+            self._build_access_filter,
+            requesting_entity=requesting_entity,
+        )
 
     def _row_to_belief(self, row: sqlite3.Row) -> Belief:
         """Convert row to Belief. Delegates to memory_crud._row_to_belief()."""
@@ -4644,13 +4404,8 @@ class SQLiteStorage:
         return getter() if getter else None
 
     def _get_belief_by_id(self, belief_id: str) -> Optional[Belief]:
-        """Get a belief by ID."""
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM beliefs WHERE id = ? AND stack_id = ? AND deleted = 0",
-                (belief_id, self.stack_id),
-            ).fetchone()
-        return self._row_to_belief(row) if row else None
+        """Get a belief by ID. Delegates to beliefs_crud."""
+        return _beliefs_crud.get_belief_by_id(self._connect, self.stack_id, belief_id)
 
     def _get_value_by_id(self, value_id: str) -> Optional[Value]:
         """Get a value by ID."""

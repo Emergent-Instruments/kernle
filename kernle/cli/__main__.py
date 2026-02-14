@@ -403,6 +403,7 @@ def cmd_init(args, k: Kernle):
                 print("  ✓ Seeded: memory_sovereignty (priority 90)")
                 print("  ✓ Seeded: continuous_learning (priority 85)")
         except Exception as e:
+            logger.debug("Could not seed values during setup: %s", e)
             print(f"  Warning: Could not seed values: {e}")
         print()
 
@@ -418,6 +419,7 @@ def cmd_init(args, k: Kernle):
         )
         print("  ✓ Checkpoint saved")
     except Exception as e:
+        logger.debug("Could not create initial checkpoint: %s", e)
         print(f"  Warning: Could not create checkpoint: {e}")
     print()
 
@@ -2386,6 +2388,12 @@ Beliefs already present in the agent's memory will be skipped.
                 k.entity.load_plugin(plugin)
                 activated = True
             except Exception as e:
+                logger.warning(
+                    "Failed to activate plugin '%s' for command '%s': %s",
+                    plugin.name,
+                    args.command,
+                    e,
+                )
                 print(
                     f"Failed to activate plugin '{plugin.name}' for "
                     f"command '{args.command}': {e}"

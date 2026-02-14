@@ -115,6 +115,7 @@ def cmd_sync(args, k: "Kernle"):
                 return True, "Connected"
             return False, f"Backend returned status {response.status_code}"
         except Exception as e:
+            logger.debug("Sync connectivity check failed: %s", e)
             return False, f"Connection failed: {e}"
 
     def get_headers():
@@ -309,7 +310,10 @@ def cmd_sync(args, k: "Kernle"):
         """Serialize to stable JSON for metadata storage/fingerprinting."""
         try:
             return json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
-        except Exception:
+        except Exception as exc:
+            logger.debug(
+                "Swallowed %s in _serialize_json, using fallback: %s", type(exc).__name__, exc
+            )
             return json.dumps(str(value))
 
     def _operation_payload_hash(operation):
@@ -907,6 +911,7 @@ def cmd_sync(args, k: "Kernle"):
                 sys.exit(1)
 
         except Exception as e:
+            logger.warning("Push failed: %s", e)
             print(f"✗ Push failed: {e}")
             print("  Tip: changes are queued locally and will be pushed on next `kernle sync push`")
             sys.exit(1)
@@ -1062,6 +1067,7 @@ def cmd_sync(args, k: "Kernle"):
                 sys.exit(1)
 
         except Exception as e:
+            logger.warning("Pull failed: %s", e)
             print(f"✗ Pull failed: {e}")
             print("  Tip: check network connectivity, then retry with `kernle sync pull`")
             sys.exit(1)

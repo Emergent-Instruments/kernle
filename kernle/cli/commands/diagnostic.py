@@ -120,7 +120,7 @@ def cmd_resume(args, k: "Kernle"):
 
     # Check anxiety level
     try:
-        anxiety = k.get_anxiety()
+        anxiety = k.anxiety()
         anxiety_score = anxiety.get("overall_score", 0)
         if anxiety_score > 60:
             anxiety_indicator = " 🔴"

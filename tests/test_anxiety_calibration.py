@@ -10,6 +10,7 @@ import pytest
 
 from kernle import Kernle
 from kernle.anxiety_core import (
+    LEVEL_HYSTERESIS,
     apply_hysteresis,
     compute_raw_aging_score,
     compute_raw_aging_score_weighted,
@@ -206,49 +207,152 @@ class TestScoreWithConfidence:
 class TestHysteresis:
     """apply_hysteresis prevents oscillation near thresholds."""
 
-    def test_hysteresis_prevents_oscillation(self):
-        """Score at 72: was 'elevated' stays 'elevated'; score at 76: transitions to 'high'."""
-        # Score of 72 with previous level "elevated" should stay elevated
-        # because 72 < enter_threshold (75)
-        level = apply_hysteresis(72, "elevated", enter_threshold=75, exit_threshold=60)
-        assert level == "elevated"
+    # -- No previous level (first call) --------------------------------
 
-        # Score of 76 should transition to "high"
-        level = apply_hysteresis(76, "elevated", enter_threshold=75, exit_threshold=60)
-        assert level == "high"
-
-    def test_hysteresis_exit_threshold(self):
-        """Score drops from 'high' to 65: stays 'high'; drops to 55: transitions to 'elevated'."""
-        # Score 65 with previous "high" should stay high
-        # because 65 > exit_threshold (60)
-        level = apply_hysteresis(65, "high", enter_threshold=75, exit_threshold=60)
-        assert level == "high"
-
-        # Score 55 should transition to "elevated"
-        level = apply_hysteresis(55, "high", enter_threshold=75, exit_threshold=60)
-        assert level == "elevated"
-
-    def test_hysteresis_no_previous_level(self):
+    def test_no_previous_level_uses_standard(self):
         """No previous level should use standard threshold logic."""
-        # Score 68 maps to "elevated" (51-70 range)
-        level = apply_hysteresis(68, None, enter_threshold=75, exit_threshold=60)
-        assert level == "elevated"
+        assert apply_hysteresis(15, None) == "calm"
+        assert apply_hysteresis(40, None) == "aware"
+        assert apply_hysteresis(60, None) == "elevated"
+        assert apply_hysteresis(80, None) == "high"
+        assert apply_hysteresis(95, None) == "critical"
 
-        level = apply_hysteresis(80, None, enter_threshold=75, exit_threshold=60)
-        assert level == "high"
+    # -- calm -> aware boundary (enter=35, exit=25) --------------------
 
-    def test_hysteresis_critical_stays_critical_above_exit(self):
-        """Critical level should stay critical until score drops below exit."""
-        level = apply_hysteresis(88, "critical", enter_threshold=90, exit_threshold=80)
-        assert level == "critical"
+    def test_calm_to_aware_enters_at_threshold(self):
+        """Score of 35 transitions calm -> aware."""
+        assert apply_hysteresis(35, "calm") == "aware"
 
-        level = apply_hysteresis(75, "critical", enter_threshold=90, exit_threshold=80)
-        assert level == "high"
+    def test_calm_to_aware_below_enter_stays_calm(self):
+        """Score of 34 with previous calm stays calm (below enter=35)."""
+        assert apply_hysteresis(34, "calm") == "calm"
 
-    def test_hysteresis_calm_range(self):
-        """Calm level should stay calm if score stays below exit threshold."""
-        level = apply_hysteresis(25, "calm", enter_threshold=35, exit_threshold=25)
-        assert level == "calm"
+    def test_aware_to_calm_exits_below_threshold(self):
+        """Score of 24 drops aware -> calm (below exit=25)."""
+        assert apply_hysteresis(24, "aware") == "calm"
+
+    def test_aware_stays_in_hysteresis_band(self):
+        """Score of 30 with previous aware stays aware (above exit=25)."""
+        assert apply_hysteresis(30, "aware") == "aware"
+
+    # -- aware -> elevated boundary (enter=55, exit=45) ----------------
+
+    def test_aware_to_elevated_enters_at_threshold(self):
+        """Score of 55 transitions aware -> elevated."""
+        assert apply_hysteresis(55, "aware") == "elevated"
+
+    def test_aware_to_elevated_below_enter_stays_aware(self):
+        """Score of 54 with previous aware stays aware (below enter=55)."""
+        assert apply_hysteresis(54, "aware") == "aware"
+
+    def test_elevated_to_aware_exits_below_threshold(self):
+        """Score of 44 drops elevated -> aware (below exit=45)."""
+        assert apply_hysteresis(44, "elevated") == "aware"
+
+    def test_elevated_stays_in_hysteresis_band(self):
+        """Score of 50 with previous elevated stays elevated (above exit=45)."""
+        assert apply_hysteresis(50, "elevated") == "elevated"
+
+    # -- elevated -> high boundary (enter=75, exit=65) -----------------
+
+    def test_elevated_to_high_enters_at_threshold(self):
+        """Score of 75 transitions elevated -> high."""
+        assert apply_hysteresis(75, "elevated") == "high"
+
+    def test_elevated_to_high_below_enter_stays_elevated(self):
+        """Score of 74 with previous elevated stays elevated (below enter=75)."""
+        assert apply_hysteresis(74, "elevated") == "elevated"
+
+    def test_high_to_elevated_exits_below_threshold(self):
+        """Score of 64 drops high -> elevated (below exit=65)."""
+        assert apply_hysteresis(64, "high") == "elevated"
+
+    def test_high_stays_in_hysteresis_band(self):
+        """Score of 70 with previous high stays high (above exit=65)."""
+        assert apply_hysteresis(70, "high") == "high"
+
+    # -- high -> critical boundary (enter=90, exit=80) -----------------
+
+    def test_high_to_critical_enters_at_threshold(self):
+        """Score of 90 transitions high -> critical."""
+        assert apply_hysteresis(90, "high") == "critical"
+
+    def test_high_to_critical_below_enter_stays_high(self):
+        """Score of 89 with previous high stays high (below enter=90)."""
+        assert apply_hysteresis(89, "high") == "high"
+
+    def test_critical_to_high_exits_below_threshold(self):
+        """Score of 79 drops critical -> high (below exit=80)."""
+        assert apply_hysteresis(79, "critical") == "high"
+
+    def test_critical_stays_in_hysteresis_band(self):
+        """Score of 85 with previous critical stays critical (above exit=80)."""
+        assert apply_hysteresis(85, "critical") == "critical"
+
+    # -- Multi-level transitions ---------------------------------------
+
+    def test_multi_level_jump_up(self):
+        """Score of 90 from calm should jump through all levels to critical."""
+        assert apply_hysteresis(90, "calm") == "critical"
+
+    def test_multi_level_jump_down(self):
+        """Score of 10 from critical should drop through all levels to calm."""
+        assert apply_hysteresis(10, "critical") == "calm"
+
+    def test_multi_level_partial_up(self):
+        """Score of 60 from calm: passes aware enter (35) and elevated enter (55),
+        but not high enter (75), so lands at elevated."""
+        assert apply_hysteresis(60, "calm") == "elevated"
+
+    def test_multi_level_partial_down(self):
+        """Score of 50 from critical: below critical exit (80) and high exit (65),
+        but not below elevated exit (45), so lands at elevated."""
+        assert apply_hysteresis(50, "critical") == "elevated"
+
+    # -- Boundary and edge cases ---------------------------------------
+
+    def test_same_level_stays(self):
+        """When standard level matches previous level, no change."""
+        assert apply_hysteresis(15, "calm") == "calm"
+        assert apply_hysteresis(40, "aware") == "aware"
+        assert apply_hysteresis(60, "elevated") == "elevated"
+        assert apply_hysteresis(75, "high") == "high"
+        assert apply_hysteresis(95, "critical") == "critical"
+
+    def test_unknown_previous_level_uses_standard(self):
+        """Unknown previous level falls back to standard."""
+        assert apply_hysteresis(60, "unknown") == "elevated"
+
+    def test_level_hysteresis_constant_has_all_non_calm_levels(self):
+        """LEVEL_HYSTERESIS should have entries for all levels except calm."""
+        assert "aware" in LEVEL_HYSTERESIS
+        assert "elevated" in LEVEL_HYSTERESIS
+        assert "high" in LEVEL_HYSTERESIS
+        assert "critical" in LEVEL_HYSTERESIS
+        assert "calm" not in LEVEL_HYSTERESIS
+
+    def test_enter_thresholds_are_above_exit_thresholds(self):
+        """Sanity check: enter > exit for all levels."""
+        for level, (enter, exit_) in LEVEL_HYSTERESIS.items():
+            assert enter > exit_, f"{level}: enter ({enter}) must be > exit ({exit_})"
+
+    # -- Downward step-by-step transitions -----------------------------
+
+    def test_critical_to_high_boundary(self):
+        """Score in high range but above critical exit stays critical."""
+        assert apply_hysteresis(82, "critical") == "critical"
+
+    def test_high_to_elevated_boundary(self):
+        """Score in elevated range but above high exit stays high."""
+        assert apply_hysteresis(67, "high") == "high"
+
+    def test_elevated_to_aware_boundary(self):
+        """Score in aware range but above elevated exit stays elevated."""
+        assert apply_hysteresis(47, "elevated") == "elevated"
+
+    def test_aware_to_calm_boundary(self):
+        """Score in calm range but above aware exit stays aware."""
+        assert apply_hysteresis(27, "aware") == "aware"
 
 
 # ---------------------------------------------------------------------------

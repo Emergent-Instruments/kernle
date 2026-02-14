@@ -155,6 +155,7 @@ class JsonImporter:
                 else:
                     counts[item.type] = counts.get(item.type, 0) + 1
             except Exception as e:
+                logger.debug("JSON import item %s failed: %s", item.type, e)
                 errors.append(f"{item.type}: {str(e)[:50]}")
 
         return {

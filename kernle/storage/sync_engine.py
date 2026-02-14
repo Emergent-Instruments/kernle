@@ -844,19 +844,86 @@ class SyncEngine:
             return replace(winner, **updates)
         return winner
 
+    def _mark_synced_and_cleanup_queue(self, table: str, record_id: str):
+        """Atomically mark a record as synced and remove its sync queue entry.
+
+        This consolidates the mark-synced + queue-delete into a single transaction
+        to close the race window where a crash between save and cleanup could leave
+        orphaned queue entries that cause duplicate syncs on recovery.
+        """
+        with self._host._connect() as conn:
+            self._mark_synced(conn, table, record_id)
+            conn.execute(
+                "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
+                (table, record_id),
+            )
+            conn.commit()
+
+    def _record_already_applied(self, table: str, cloud_record: Any) -> bool:
+        """Check if a cloud record has already been applied locally.
+
+        Detects the recovery scenario where save_fn() completed but queue cleanup
+        failed (crash between save and cleanup). If the local record exists with
+        matching version data, the save can be skipped to prevent re-queuing.
+
+        Returns True if the record exists locally with matching content, meaning
+        the previous sync application succeeded and only cleanup is needed.
+        """
+        self._validate_table_name(table)
+        with self._host._connect() as conn:
+            row = conn.execute(
+                f"SELECT version, cloud_synced_at FROM {table} WHERE id = ? AND stack_id = ?",
+                (cloud_record.id, self._host.stack_id),
+            ).fetchone()
+
+        if not row:
+            return False
+
+        local_version = row["version"]
+        cloud_version = getattr(cloud_record, "version", None)
+
+        # If the local record has the same version as the cloud record,
+        # the save was already applied (recovery scenario).
+        if cloud_version is not None and local_version == cloud_version:
+            # Also check cloud_synced_at is set, which confirms it was a sync save
+            if row["cloud_synced_at"] is not None:
+                return True
+
+        return False
+
     def _merge_generic(
         self, table: str, cloud_record: Any, local_record: Optional[Any], save_fn
     ) -> tuple[int, Optional[SyncConflict]]:
-        """Generic merge logic with last-write-wins for scalar fields, set union for arrays."""
+        """Generic merge logic with last-write-wins for scalar fields, set union for arrays.
+
+        Race window mitigation: save_fn() and queue cleanup cannot share a single
+        transaction because save_fn is an opaque callable that manages its own
+        connection. To handle the crash-between-save-and-cleanup scenario:
+
+        1. Before calling save_fn(), check if the record was already applied
+           (recovery from a previous interrupted sync). If so, skip save_fn()
+           and proceed directly to queue cleanup.
+
+        2. After save_fn() completes, atomically mark synced and clean the queue
+           in a single transaction via _mark_synced_and_cleanup_queue().
+
+        This ensures that:
+        - Duplicate saves are detected and skipped (idempotent replay)
+        - Queue cleanup is atomic with the synced-at marker update
+        - No orphaned queue entries survive across crash recovery
+        """
         if local_record is None:
-            save_fn()
-            with self._host._connect() as conn:
-                self._mark_synced(conn, table, cloud_record.id)
-                conn.execute(
-                    "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
-                    (table, cloud_record.id),
+            # Check if this is a recovery scenario: record was saved previously
+            # but queue cleanup failed. If so, skip save to avoid re-queuing.
+            if self._record_already_applied(table, cloud_record):
+                logger.info(
+                    f"Duplicate sync detected for {table}:{cloud_record.id} "
+                    f"(v{getattr(cloud_record, 'version', '?')}), "
+                    f"skipping save — cleaning up queue only"
                 )
-                conn.commit()
+            else:
+                save_fn()
+            self._mark_synced_and_cleanup_queue(table, cloud_record.id)
             return (1, None)
 
         cloud_time = cloud_record.cloud_synced_at or cloud_record.local_updated_at
@@ -874,13 +941,7 @@ class SyncEngine:
                     policy_decision="newer_cloud_timestamp",
                 )
                 self._save_from_cloud(table, merged_record)
-                with self._host._connect() as conn:
-                    self._mark_synced(conn, table, cloud_record.id)
-                    conn.execute(
-                        "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
-                        (table, cloud_record.id),
-                    )
-                    conn.commit()
+                self._mark_synced_and_cleanup_queue(table, cloud_record.id)
                 self.save_sync_conflict(conflict)
                 return (1, conflict)
 
@@ -896,13 +957,7 @@ class SyncEngine:
                     "local_wins_arrays_merged",
                     policy_decision="older_local_timestamp",
                 )
-                with self._host._connect() as conn:
-                    self._mark_synced(conn, table, cloud_record.id)
-                    conn.execute(
-                        "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
-                        (table, cloud_record.id),
-                    )
-                    conn.commit()
+                self._mark_synced_and_cleanup_queue(table, cloud_record.id)
                 self.save_sync_conflict(conflict)
                 return (0, conflict)
 
@@ -910,13 +965,7 @@ class SyncEngine:
             if self._build_record_snapshot(cloud_record) == self._build_record_snapshot(
                 local_record
             ):
-                with self._host._connect() as conn:
-                    self._mark_synced(conn, table, cloud_record.id)
-                    conn.execute(
-                        "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
-                        (table, cloud_record.id),
-                    )
-                    conn.commit()
+                self._mark_synced_and_cleanup_queue(table, cloud_record.id)
                 return (0, None)
 
             policy_decision = self._choose_tie_break_policy(local_record, cloud_record)
@@ -939,21 +988,21 @@ class SyncEngine:
                 resolution,
                 policy_decision=policy_decision,
             )
-            with self._host._connect() as conn:
-                self._mark_synced(conn, table, cloud_record.id)
-                conn.execute(
-                    "DELETE FROM sync_queue WHERE table_name = ? AND record_id = ?",
-                    (table, cloud_record.id),
-                )
-                conn.commit()
+            self._mark_synced_and_cleanup_queue(table, cloud_record.id)
             self.save_sync_conflict(conflict)
             return (0, conflict)
 
         if cloud_time:
-            save_fn()
-            with self._host._connect() as conn:
-                self._mark_synced(conn, table, cloud_record.id)
-                conn.commit()
+            # Check for recovery scenario before calling save_fn
+            if self._record_already_applied(table, cloud_record):
+                logger.info(
+                    f"Duplicate sync detected for {table}:{cloud_record.id} "
+                    f"(v{getattr(cloud_record, 'version', '?')}), "
+                    f"skipping save — cleaning up queue only"
+                )
+            else:
+                save_fn()
+            self._mark_synced_and_cleanup_queue(table, cloud_record.id)
             return (1, None)
 
         return (0, None)
@@ -1006,7 +1055,8 @@ class SyncEngine:
             return hashlib.sha256(
                 json.dumps(record, sort_keys=True, default=str).encode("utf-8")
             ).hexdigest()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Swallowed %s in _build_record_hash: %s", type(exc).__name__, exc)
             return None
 
     def _build_conflict_hash(
@@ -1018,7 +1068,8 @@ class SyncEngine:
             return hashlib.sha256(
                 json.dumps(payload, sort_keys=True, default=str).encode("utf-8")
             ).hexdigest()
-        except Exception:
+        except Exception as exc:
+            logger.debug("Swallowed %s in _build_conflict_hash: %s", type(exc).__name__, exc)
             return None
 
     def _choose_tie_break_policy(self, local_record: Any, cloud_record: Any) -> str:

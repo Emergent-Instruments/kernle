@@ -28,11 +28,14 @@ an error occurs (validation failure, storage error, corrupted input, etc.):
 """
 
 import json
+import logging
 import os
 import re
 import sys
 from pathlib import Path
 from typing import Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 MEMORY_PATTERNS = [
     re.compile(r"^memory/"),
@@ -115,7 +118,8 @@ def _read_last_messages(
                 break
 
         return (last_user or "Session ended", last_assistant)
-    except Exception:
+    except Exception as exc:
+        logger.debug("Swallowed %s in _read_last_messages: %s", type(exc).__name__, exc)
         return ("Session ended", None)
 
 
@@ -202,9 +206,9 @@ def cmd_hook_session_start(args) -> None:
                 }
             }
             json.dump(output, sys.stdout)
-    except Exception:
+    except Exception as exc:
         # FAIL-OPEN: swallow all errors, produce no output
-        pass
+        logger.debug("Swallowed %s in SessionStart hook: %s", type(exc).__name__, exc)
 
     sys.exit(0)
 
@@ -253,6 +257,7 @@ def cmd_hook_pre_tool_use(args) -> None:
     except Exception as e:
         # FAIL-CLOSED: emit deny using hookSpecificOutput schema
         # MUST use same schema as normal deny and exit(0) per hook contract
+        logger.warning("PreToolUse hook FAIL-CLOSED due to %s: %s", type(e).__name__, e)
         deny_output = {
             "hookSpecificOutput": {
                 "hookEventName": "PreToolUse",
@@ -262,8 +267,11 @@ def cmd_hook_pre_tool_use(args) -> None:
         }
         try:
             json.dump(deny_output, sys.stdout)
-        except Exception:
-            pass  # stdout itself is broken; still exit(0) per contract
+        except Exception as exc2:
+            logger.debug(
+                "Swallowed %s writing deny output in PreToolUse: %s", type(exc2).__name__, exc2
+            )
+            # stdout itself is broken; still exit(0) per contract
 
     sys.exit(0)
 
@@ -286,9 +294,9 @@ def cmd_hook_pre_compact(args) -> None:
         k = Kernle(stack_id=stack_id)
         task, context = _read_last_messages(transcript_path)
         k.checkpoint(f"[pre-compact] {task}", context=context)
-    except Exception:
+    except Exception as exc:
         # FAIL-OPEN: swallow all errors, skip checkpoint
-        pass
+        logger.debug("Swallowed %s in PreCompact hook: %s", type(exc).__name__, exc)
 
     sys.exit(0)
 
@@ -314,15 +322,15 @@ def cmd_hook_session_end(args) -> None:
         # Save both (ignore individual failures -- FAIL-OPEN per-operation)
         try:
             k.checkpoint(task, context=context)
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Swallowed %s in SessionEnd checkpoint: %s", type(exc).__name__, exc)
         try:
             k.raw(f"Session ended. Task: {task}", source="hook")
-        except Exception:
-            pass
-    except Exception:
+        except Exception as exc:
+            logger.debug("Swallowed %s in SessionEnd raw capture: %s", type(exc).__name__, exc)
+    except Exception as exc:
         # FAIL-OPEN: swallow all errors, skip all operations
-        pass
+        logger.debug("Swallowed %s in SessionEnd hook: %s", type(exc).__name__, exc)
 
     sys.exit(0)
 

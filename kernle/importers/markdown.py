@@ -9,10 +9,13 @@ Parses markdown files with sections like:
 - ## Raw / ## Thoughts
 """
 
+import logging
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from kernle import Kernle
@@ -93,6 +96,7 @@ class MarkdownImporter:
                     _import_item(item, k)
                 counts[item.type] = counts.get(item.type, 0) + 1
             except Exception as e:
+                logger.debug("Markdown import item %s failed: %s", item.type, e)
                 errors.append(f"{item.type}: {str(e)[:50]}")
 
         return counts

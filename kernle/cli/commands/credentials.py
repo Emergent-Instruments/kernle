@@ -1,11 +1,14 @@
 """Credential management helpers for Kernle CLI."""
 
 import json
+import logging
 import sys
 from pathlib import Path
 from urllib.parse import urlparse
 
 from kernle.utils import get_kernle_home
+
+logger = logging.getLogger(__name__)
 
 
 def get_credentials_path() -> Path:
@@ -54,7 +57,8 @@ def _is_local_http(url: str) -> bool:
         parsed = urlparse(url)
         hostname = parsed.hostname  # Strips port, userinfo, etc.
         return hostname in ("localhost", "127.0.0.1")
-    except Exception:
+    except Exception as exc:
+        logger.debug("Swallowed %s in _is_local_http: %s", type(exc).__name__, exc)
         return False
 
 

@@ -164,6 +164,7 @@ class CsvImporter:
                 else:
                     counts[item.type] = counts.get(item.type, 0) + 1
             except Exception as e:
+                logger.debug("CSV import row %d (%s) failed: %s", i + 2, item.type, e)
                 errors.append(f"Row {i + 2}: {item.type}: {str(e)[:50]}")
 
         return {

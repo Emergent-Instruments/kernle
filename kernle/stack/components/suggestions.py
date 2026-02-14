@@ -169,7 +169,10 @@ class SuggestionComponent:
         for suggestion in existing:
             try:
                 signatures.add(self._suggestion_signature(raw_id, suggestion))
-            except Exception:
+            except Exception as exc:
+                logger.debug(
+                    "Swallowed %s computing suggestion signature: %s", type(exc).__name__, exc
+                )
                 continue
         return signatures
 

@@ -1,11 +1,14 @@
 """Handlers for memory processing tools: process, process_status."""
 
+import logging
 from typing import Any, Dict
 
 from kernle.core import Kernle
 from kernle.mcp.sanitize import (
     sanitize_string,
 )
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Validators
@@ -168,6 +171,7 @@ def handle_memory_process_status(args: Dict[str, Any], k: Kernle) -> str:
                 status = "READY" if would_fire else "waiting"
                 lines.append(f"  {transition_name}: {count}/{cfg.quantity_threshold} ({status})")
     except Exception as e:
+        logger.warning("Error gathering processing status: %s", e)
         lines.append(f"\nError gathering status: {e}")
 
     return "\n".join(lines)
