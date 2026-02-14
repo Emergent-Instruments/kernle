@@ -765,7 +765,9 @@ CREATE TABLE IF NOT EXISTS embedding_meta (
     table_name TEXT NOT NULL,
     record_id TEXT NOT NULL,
     content_hash TEXT NOT NULL,  -- To detect when re-embedding needed
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    embedding_provider TEXT,     -- Provider that generated this embedding
+    fallback_used INTEGER DEFAULT 0  -- 1 if fallback embedder was used
 );
 CREATE INDEX IF NOT EXISTS idx_embedding_meta_record ON embedding_meta(table_name, record_id);
 
@@ -1857,5 +1859,26 @@ def migrate_schema(conn: sqlite3.Connection, stack_id: str) -> None:
                 logger.info("v25: Created compound index idx_raw_captured_at")
         except Exception as e:
             logger.warning(f"v25: Index rebuild failed: {e}")
+
+    # v26: Add embedding observability columns to embedding_meta
+    if "embedding_meta" in table_names:
+        emb_cols = get_columns("embedding_meta")
+        if "embedding_provider" not in emb_cols:
+            try:
+                conn.execute("ALTER TABLE embedding_meta ADD COLUMN embedding_provider TEXT")
+                logger.info("v26: Added embedding_provider column to embedding_meta")
+            except Exception as e:
+                if "duplicate column" not in str(e).lower():
+                    logger.warning(f"v26: Failed to add embedding_provider: {e}")
+        if "fallback_used" not in emb_cols:
+            try:
+                conn.execute(
+                    "ALTER TABLE embedding_meta ADD COLUMN fallback_used INTEGER DEFAULT 0"
+                )
+                logger.info("v26: Added fallback_used column to embedding_meta")
+            except Exception as e:
+                if "duplicate column" not in str(e).lower():
+                    logger.warning(f"v26: Failed to add fallback_used: {e}")
+        conn.commit()
 
         conn.commit()

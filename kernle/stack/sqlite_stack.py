@@ -819,6 +819,28 @@ class SQLiteStack(
         self._dispatch_on_save("relationship", result_id, relationship)
         return result_id
 
+    def update_goal_atomic(self, goal: Goal):
+        self._validate_provenance("goal", goal.derived_from, getattr(goal, "source_entity", None))
+        self._validate_source_type("goal", goal.source_type)
+        self._backend.update_goal_atomic(goal)
+        self._dispatch_on_save("goal", goal.id, goal)
+
+    def update_drive_atomic(self, drive: Drive):
+        self._validate_provenance(
+            "drive", drive.derived_from, getattr(drive, "source_entity", None)
+        )
+        self._validate_source_type("drive", drive.source_type)
+        self._backend.update_drive_atomic(drive)
+        self._dispatch_on_save("drive", drive.id, drive)
+
+    def update_relationship_atomic(self, relationship: Relationship):
+        self._validate_provenance(
+            "relationship", relationship.derived_from, getattr(relationship, "source_entity", None)
+        )
+        self._validate_source_type("relationship", relationship.source_type)
+        self._backend.update_relationship_atomic(relationship)
+        self._dispatch_on_save("relationship", relationship.id, relationship)
+
     def save_raw(self, raw: RawEntry) -> str:
         self._validate_provenance("raw", None)  # Raw entries need no provenance
         result_id = self._backend.save_raw(

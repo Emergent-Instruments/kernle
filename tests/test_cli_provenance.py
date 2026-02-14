@@ -431,6 +431,6 @@ class TestCoreDerivedFrom:
             derived_from=["episode:ep-collaboration"],
         )
 
-        storage.save_relationship.assert_called_once()
-        saved_rel = storage.save_relationship.call_args[0][0]
+        storage.update_relationship_atomic.assert_called_once()
+        saved_rel = storage.update_relationship_atomic.call_args[0][0]
         assert saved_rel.derived_from == ["episode:ep-collaboration"]

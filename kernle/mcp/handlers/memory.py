@@ -132,8 +132,6 @@ def validate_memory_auto_capture(arguments: Dict[str, Any]) -> Dict[str, Any]:
         sanitize_source_metadata(
             arguments,
             VALID_SOURCE_TYPES,
-            source_max_length=100,
-            context_max_length=1000,
             coalesce_empty_to_none=False,
         )
     )

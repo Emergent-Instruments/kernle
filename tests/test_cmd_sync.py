@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import sqlite3
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
@@ -929,7 +930,7 @@ class TestSyncPull:
         def flaky_save(note):
             calls["count"] += 1
             if calls["count"] == 1:
-                raise RuntimeError("transient write failure")
+                raise sqlite3.OperationalError("database is locked")
             return original_save_note(note)
 
         with patch.object(k._storage, "save_note", side_effect=flaky_save):

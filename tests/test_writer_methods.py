@@ -430,8 +430,8 @@ class TestDriveMethods:
 
         # Should return the existing drive's ID (not a new one)
         assert result_id == existing_drive.id
-        mock_wb.save_drive.assert_called_once()
-        saved_drive = mock_wb.save_drive.call_args[0][0]
+        mock_wb.update_drive_atomic.assert_called_once()
+        saved_drive = mock_wb.update_drive_atomic.call_args[0][0]
         assert saved_drive.intensity == pytest.approx(0.8)
         assert saved_drive.focus_areas == ["coding"]
 
@@ -464,8 +464,8 @@ class TestDriveMethods:
         saved_drive = mock_wb.save_drive.call_args[0][0]
         assert saved_drive.intensity == 0.0
 
-    def test_version_incremented_on_update(self, mocked_kernle):
-        """drive() should increment the version when updating an existing drive."""
+    def test_passes_original_version_for_atomic_update(self, mocked_kernle):
+        """drive() passes the original version for optimistic concurrency control."""
         k, mock_wb, _ = mocked_kernle
 
         existing_drive = Drive(
@@ -482,8 +482,9 @@ class TestDriveMethods:
 
         k.drive("connection", intensity=0.6)
 
-        saved_drive = mock_wb.save_drive.call_args[0][0]
-        assert saved_drive.version == 4
+        # Atomic method receives the drive with original version (SQL handles increment)
+        saved_drive = mock_wb.update_drive_atomic.call_args[0][0]
+        assert saved_drive.version == 3
 
 
 # =========================================================================

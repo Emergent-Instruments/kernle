@@ -147,3 +147,65 @@ class TestSanitizeArrayNullItems:
 
     def test_accepts_array_without_none(self):
         assert sanitize_array(["a", "b"], "tags") == ["a", "b"]
+
+
+# ============================================================================
+# Context constraint consistency (#709)
+# ============================================================================
+
+
+class TestContextConstraintConsistency:
+    """All MCP validators must accept the same context/source length range.
+
+    Addresses: #709 (FIND-MCP-03)
+    """
+
+    def test_context_default_allows_1000_chars(self):
+        """Default context_max_length is 1000 — matches auto_capture."""
+        long_context = "x" * 1000
+        result = sanitize_source_metadata(
+            {"context": long_context},
+        )
+        assert result["context"] == long_context
+
+    def test_context_rejects_over_1000_chars(self):
+        """Context longer than 1000 chars is rejected."""
+        too_long = "x" * 1001
+        with pytest.raises(ValueError, match="context"):
+            sanitize_source_metadata({"context": too_long})
+
+    def test_auto_capture_context_accepted_by_episode_validator(self):
+        """A context created via auto_capture is accepted by episode validators.
+
+        This is the scenario from #709: auto_capture allows context up to 1000,
+        but other validators previously capped at 500.
+        """
+        from kernle.mcp.handlers.memory import validate_memory_episode
+
+        long_context = "project:myorg/myrepo " + "x" * 800
+
+        # auto_capture accepts it
+        auto_result = validate_memory_auto_capture({"text": "some text", "context": long_context})
+        assert auto_result["context"] == long_context
+
+        # episode also accepts the same context
+        ep_result = validate_memory_episode(
+            {
+                "objective": "test objective",
+                "outcome": "test outcome",
+                "context": long_context,
+            }
+        )
+        assert ep_result["context"] == long_context
+
+    def test_source_default_allows_500_chars(self):
+        """Default source_max_length is 500 for all validators."""
+        long_source = "s" * 500
+        result = sanitize_source_metadata({"source": long_source})
+        assert result["source"] == long_source
+
+    def test_auto_capture_source_uses_default_500(self):
+        """auto_capture no longer overrides source_max_length to 100."""
+        source_300 = "s" * 300
+        result = validate_memory_auto_capture({"text": "some text", "source": source_300})
+        assert result["source"] == source_300

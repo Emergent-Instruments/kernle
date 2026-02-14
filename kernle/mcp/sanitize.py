@@ -62,7 +62,7 @@ def sanitize_source_metadata(
     arguments: Dict[str, Any],
     source_type_values: Optional[List[str]] = None,
     *,
-    context_max_length: int = 500,
+    context_max_length: int = 1000,
     coalesce_empty_to_none: bool = True,
     context_tags_item_max_length: int = 100,
     context_tags_max_items: int = 20,

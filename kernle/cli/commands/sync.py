@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+import sqlite3
 import sys
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
@@ -66,7 +67,7 @@ def cmd_sync(args, k: "Kernle"):
                 # Support multiple auth token field names
                 auth_token = creds.get("auth_token") or creds.get("token") or creds.get("api_key")
                 user_id = creds.get("user_id")
-        except Exception as e:
+        except (json.JSONDecodeError, OSError, KeyError, ValueError) as e:
             logger.debug(f"Failed to load credentials file: {e}")
             # Fall through to env vars
 
@@ -88,7 +89,7 @@ def cmd_sync(args, k: "Kernle"):
                 config = json_module.load(f)
                 backend_url = backend_url or config.get("backend_url")
                 auth_token = auth_token or config.get("auth_token")
-        except Exception as e:
+        except (json.JSONDecodeError, OSError, KeyError, ValueError) as e:
             logger.debug(f"Failed to load legacy config file: {e}")
 
     # Validate backend URL security
@@ -477,22 +478,33 @@ def cmd_sync(args, k: "Kernle"):
             op, error=error, resolution="pull_apply_failed", stage="pull_apply"
         )
         summary = f"pull apply failed: {error}"[:200]
+        local_version = {"payload": op}
+        cloud_version = {"operation": op, "conflict_envelope": envelope}
+        diff_payload = json.dumps(
+            {"local": local_version, "cloud": cloud_version}, sort_keys=True, default=str
+        )
+        diff_hash = hashlib.sha256(diff_payload.encode("utf-8")).hexdigest()
         conflict = SyncConflict(
             id=str(uuid4()),
             table=table,
             record_id=record_id,
-            local_version={"payload": op},
-            cloud_version={"operation": op, "conflict_envelope": envelope},
+            local_version=local_version,
+            cloud_version=cloud_version,
             resolution="pull_apply_failed",
             resolved_at=datetime.now(timezone.utc),
             local_summary="apply failed",
             cloud_summary=summary,
+            diff_hash=diff_hash,
         )
         try:
             k._storage.save_sync_conflict(conflict)
-        except Exception as exc:
-            logger.debug(
-                "Failed to persist pull apply conflict for %s:%s: %s", table, record_id, exc
+        except (sqlite3.Error, OSError) as exc:
+            logger.warning(
+                "Failed to persist pull apply conflict for %s:%s: %s",
+                table,
+                record_id,
+                exc,
+                extra={"table": table, "record_id": record_id, "error_type": type(exc).__name__},
             )
 
     def _save_push_apply_conflict(envelope):
@@ -504,35 +516,49 @@ def cmd_sync(args, k: "Kernle"):
         operation = str(envelope.get("operation") or "unknown")
         error = str(envelope.get("error") or "backend rejected")
 
+        local_version = {
+            "operation": {
+                "table": table,
+                "record_id": envelope.get("record_id"),
+                "operation": operation,
+            },
+            "payload_hash": envelope.get("payload_hash"),
+            "payload_snapshot": envelope.get("payload_snapshot"),
+            "operation_identity": envelope.get("operation_identity"),
+            "timestamp": envelope.get("timestamp"),
+        }
+        cloud_version = {
+            "backend_payload": envelope.get("backend_payload"),
+            "error": error,
+        }
+        diff_payload = json.dumps(
+            {"local": local_version, "cloud": cloud_version}, sort_keys=True, default=str
+        )
+        diff_hash = hashlib.sha256(diff_payload.encode("utf-8")).hexdigest()
+
         conflict = SyncConflict(
             id=str(uuid4()),
             table=table,
             record_id=record_id,
-            local_version={
-                "operation": {
-                    "table": table,
-                    "record_id": envelope.get("record_id"),
-                    "operation": operation,
-                },
-                "payload_hash": envelope.get("payload_hash"),
-                "payload_snapshot": envelope.get("payload_snapshot"),
-                "operation_identity": envelope.get("operation_identity"),
-                "timestamp": envelope.get("timestamp"),
-            },
-            cloud_version={
-                "backend_payload": envelope.get("backend_payload"),
-                "error": error,
-            },
+            local_version=local_version,
+            cloud_version=cloud_version,
             resolution="backend_rejected",
             resolved_at=datetime.now(timezone.utc),
             local_summary=f"{table}:{record_id} {operation}",
             cloud_summary=error,
+            diff_hash=diff_hash,
         )
 
         try:
             k._storage.save_sync_conflict(conflict)
-        except Exception as exc:
-            logger.debug("Failed to persist push conflict for %s:%s: %s", table, record_id, exc)
+        except (sqlite3.Error, OSError) as exc:
+            logger.warning(
+                "Failed to persist push conflict for %s:%s: %s",
+                table,
+                record_id,
+                exc,
+                extra={"table": table, "record_id": record_id, "error_type": type(exc).__name__},
+            )
 
     def _apply_single_pull_operation(op):
         """Apply a single pulled operation; return (applied, error_message)."""
@@ -598,8 +624,8 @@ def cmd_sync(args, k: "Kernle"):
 
             return False, f"unhandled pull operation for table={table}"
 
-        except Exception as e:
-            return False, str(e)
+        except (sqlite3.Error, KeyError, ValueError, TypeError, json.JSONDecodeError) as e:
+            return False, f"{type(e).__name__}: {e}"
 
     def _retry_poisoned_pull_operations(poison_records):
         """Retry previously quarantined pull operations."""
@@ -1122,7 +1148,7 @@ def cmd_sync(args, k: "Kernle"):
                 _save_pull_poison_records(poison_records)
             else:
                 print(f"  ⚠️  Pull returned status {response.status_code}")
-        except Exception as e:
+        except (ConnectionError, TimeoutError, OSError, ValueError) as e:
             print(f"  ⚠️  Pull failed: {e}")
 
         print(f"  ✓ Pulled {pulled} changes")
@@ -1234,7 +1260,7 @@ def cmd_sync(args, k: "Kernle"):
                     print("  ℹ️  Run `kernle sync full` again after resolving push conflicts")
             else:
                 print(f"  ⚠️  Push returned status {response.status_code}")
-        except Exception as e:
+        except (ConnectionError, TimeoutError, OSError, ValueError) as e:
             print(f"  ⚠️  Push failed: {e}")
 
         # Show final status

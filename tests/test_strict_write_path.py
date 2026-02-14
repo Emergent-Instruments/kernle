@@ -291,7 +291,7 @@ class TestUpdateGoalStrictPath:
         mock_storage.get_goals.assert_not_called()
 
     def test_save_goes_through_write_backend(self, mocked_kernle):
-        """update_goal saves the modified goal via _write_backend.save_goal."""
+        """update_goal saves the modified goal via _write_backend.update_goal_atomic."""
         k, mock_wb, mock_storage = mocked_kernle
 
         goal_id = _uid()
@@ -310,7 +310,7 @@ class TestUpdateGoalStrictPath:
         result = k.update_goal(goal_id, status="completed")
 
         assert result is True
-        mock_wb.save_goal.assert_called_once()
+        mock_wb.update_goal_atomic.assert_called_once()
         mock_storage.save_goal.assert_not_called()
 
 
@@ -406,7 +406,7 @@ class TestDriveStrictPath:
         assert result_id == existing_drive.id
         mock_wb.get_drives.assert_called_once()
         mock_storage.get_drive.assert_not_called()
-        mock_wb.save_drive.assert_called_once()
+        mock_wb.update_drive_atomic.assert_called_once()
 
     def test_filters_by_drive_type(self, mocked_kernle):
         """drive() correctly filters by drive_type when multiple drives exist."""
@@ -436,7 +436,7 @@ class TestDriveStrictPath:
 
         assert result_id == target_drive.id
         # Should update the target, not create new
-        mock_wb.save_drive.assert_called_once()
+        mock_wb.update_drive_atomic.assert_called_once()
 
 
 # =========================================================================
@@ -497,8 +497,8 @@ class TestSatisfyDriveStrictPath:
 
         k.satisfy_drive("existence", amount=0.2)
 
-        mock_wb.save_drive.assert_called_once()
-        saved_drive = mock_wb.save_drive.call_args[0][0]
+        mock_wb.update_drive_atomic.assert_called_once()
+        saved_drive = mock_wb.update_drive_atomic.call_args[0][0]
         assert saved_drive.intensity == pytest.approx(0.4)
 
 

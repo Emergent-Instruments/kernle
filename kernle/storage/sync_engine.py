@@ -352,8 +352,17 @@ class SyncEngine:
         ]
 
     def save_sync_conflict(self, conflict: SyncConflict) -> str:
-        """Save a sync conflict record."""
+        """Save a sync conflict record. Deduplicates by diff_hash when available."""
         with self._host._connect() as conn:
+            # Deduplicate by diff_hash if available
+            if conflict.diff_hash:
+                existing = conn.execute(
+                    "SELECT id FROM sync_conflicts WHERE diff_hash = ?",
+                    (conflict.diff_hash,),
+                ).fetchone()
+                if existing:
+                    return existing["id"]  # Already recorded
+
             conn.execute(
                 """INSERT INTO sync_conflicts
                    (id, table_name, record_id, local_version, cloud_version,

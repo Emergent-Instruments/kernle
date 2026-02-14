@@ -483,6 +483,38 @@ def list_raw(
     return [row_to_raw_entry(row) for row in rows]
 
 
+def find_by_id_prefix(
+    conn: sqlite3.Connection,
+    stack_id: str,
+    prefix: str,
+    limit: int = 10,
+) -> List[RawEntry]:
+    """Find raw entries whose ID starts with the given prefix.
+
+    Uses database-level LIKE query for efficiency. Handles LIKE-special
+    characters (%, _) by escaping them.
+
+    Args:
+        conn: Database connection.
+        stack_id: Stack identifier.
+        prefix: ID prefix to search for.
+        limit: Maximum matches to return.
+
+    Returns:
+        List of matching RawEntry objects.
+    """
+    # Escape LIKE-special characters in the prefix
+    escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    pattern = f"{escaped}%"
+
+    rows = conn.execute(
+        "SELECT * FROM raw_entries WHERE id LIKE ? ESCAPE '\\' AND stack_id = ? AND deleted = 0 "
+        "ORDER BY captured_at DESC LIMIT ?",
+        (pattern, stack_id, limit),
+    ).fetchall()
+    return [row_to_raw_entry(row) for row in rows]
+
+
 def search_raw_fts(
     conn: sqlite3.Connection,
     stack_id: str,

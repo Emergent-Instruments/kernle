@@ -1004,9 +1004,7 @@ class WritersMixin:
             description = self._validate_string_input(description, "description", 1000)
             existing.description = description
 
-        # TODO: Add update_goal_atomic for optimistic concurrency control
-        existing.version += 1
-        self._write_backend.save_goal(existing)
+        self._write_backend.update_goal_atomic(existing)
         return True
 
     # =========================================================================
@@ -1073,8 +1071,6 @@ class WritersMixin:
             existing.intensity = max(0.0, min(1.0, intensity))
             existing.focus_areas = focus_areas or []
             existing.updated_at = now
-            # TODO: Add update_drive_atomic for optimistic concurrency control
-            existing.version += 1
             if context is not None:
                 existing.context = context
             if context_tags is not None:
@@ -1082,7 +1078,7 @@ class WritersMixin:
             existing.source_type = self._normalize_source_type(source_type_val)
             if derived_from_value:
                 existing.derived_from = derived_from_value
-            self._write_backend.save_drive(existing)
+            self._write_backend.update_drive_atomic(existing)
             return existing.id
         else:
             drive_id = str(uuid.uuid4())
@@ -1113,9 +1109,7 @@ class WritersMixin:
             new_intensity = max(0.1, existing.intensity - amount)
             existing.intensity = new_intensity
             existing.updated_at = datetime.now(timezone.utc)
-            # TODO: Add update_drive_atomic for optimistic concurrency control
-            existing.version += 1
-            self._write_backend.save_drive(existing)
+            self._write_backend.update_drive_atomic(existing)
             return True
         return False
 
@@ -1159,8 +1153,7 @@ class WritersMixin:
                 existing.derived_from = derived_from
             existing.interaction_count += 1
             existing.last_interaction = now
-            existing.version += 1
-            self._write_backend.save_relationship(existing)
+            self._write_backend.update_relationship_atomic(existing)
             return existing.id
         else:
             rel_id = str(uuid.uuid4())

@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 def resolve_raw_id(k: "Kernle", partial_id: str) -> str:
     """Resolve a partial raw entry ID to full ID.
 
-    Tries exact match first, then prefix match.
+    Tries exact match first, then database-level prefix match.
     Returns full ID or raises ValueError if not found or ambiguous.
     """
     # First try exact match
@@ -22,20 +22,25 @@ def resolve_raw_id(k: "Kernle", partial_id: str) -> str:
     if entry:
         return partial_id
 
-    # Try prefix match by listing all entries
-    entries = k.list_raw(limit=1000)  # Get enough to search
-    matches = [e for e in entries if e["id"].startswith(partial_id)]
+    # Try prefix match via database LIKE query (scalable for large stacks)
+    if hasattr(k._storage, "find_raw_by_prefix"):
+        matches = k._storage.find_raw_by_prefix(partial_id, limit=6)
+    else:
+        # Fallback for non-SQLite backends
+        entries = k.list_raw(limit=1000)
+        matches = [e for e in entries if e["id"].startswith(partial_id)]
 
     if len(matches) == 0:
         raise ValueError(f"Raw entry '{partial_id}' not found")
     elif len(matches) == 1:
-        return matches[0]["id"]
+        return matches[0].id if hasattr(matches[0], "id") else matches[0]["id"]
     else:
-        # Multiple matches - show them
-        match_ids = [m["id"][:12] for m in matches[:5]]
-        suffix = "..." if len(matches) > 5 else ""
+        # Multiple matches — show up to 5
+        match_ids = [(m.id[:12] if hasattr(m, "id") else m["id"][:12]) for m in matches[:5]]
+        total = len(matches)
+        suffix = "..." if total > 5 else ""
         raise ValueError(
-            f"Ambiguous ID '{partial_id}' matches {len(matches)} entries: {', '.join(match_ids)}{suffix}"
+            f"Ambiguous ID '{partial_id}' matches {total}+ entries: {', '.join(match_ids)}{suffix}"
         )
 
 
