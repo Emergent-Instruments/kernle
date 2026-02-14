@@ -135,24 +135,25 @@ class TestNotes:
 
 class TestEmbeddingCacheResilience:
     def test_save_embedding_failure_cleans_stale_cache(self, storage):
-        """Transient embedding writes should remove stale vector cache entries."""
+        """Transient embedding writes should remove stale vector cache entries.
+
+        Scenario: embedding_meta has a stale content hash (no vec entry yet).
+        _save_embedding computes a new embedding and inserts into vec_embeddings
+        successfully, but the metadata write fails. The cleanup path should
+        delete both the new vec entry and the stale metadata entry.
+        """
         if not storage._has_vec:
             pytest.skip("sqlite-vec not available in this environment")
         record_id = "ep-cache-stale"
         vec_id = f"{storage.stack_id}:episodes:{record_id}"
         stale_hash = "0000stale"
 
-        # Use _get_conn() instead of raw sqlite3.connect() so the vec0
-        # extension is loaded — the tables are vec0 virtual tables.
+        # Use _get_conn() so vec0 extension is loaded for virtual tables.
         conn = storage._get_conn()
         try:
-            # vec0 virtual tables require valid float32 blobs (dimension * 4 bytes).
-            dim = storage._embedder.dimension
-            zero_vec = b"\x00" * (dim * 4)
-            conn.execute(
-                "INSERT INTO vec_embeddings (id, embedding) VALUES (?, ?)",
-                (vec_id, zero_vec),
-            )
+            # Only pre-insert stale metadata (NOT into vec_embeddings).
+            # vec0 virtual tables don't support INSERT OR REPLACE, so the
+            # vec_embeddings entry must not exist before _save_embedding runs.
             conn.execute(
                 "INSERT INTO embedding_meta (id, table_name, record_id, content_hash, created_at) "
                 "VALUES (?, 'episodes', ?, ?, '2000-01-01T00:00:00+00:00')",
