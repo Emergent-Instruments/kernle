@@ -166,6 +166,8 @@ Kernle tracks "memory anxiety" across 7 dimensions to assess memory health:
 
 <Note>
 Weights are approximate. Check `kernle/features/anxiety.py` for exact values. Epoch Staleness gracefully degrades to 0 if epochs are not in use. Emotional salience also factors into episode priority scoring: `0.55 * type_weight + 0.35 * record_factors + 0.10 * emotional_salience`.
+
+**Kernle-level vs stack-level:** All 7 dimensions are tracked at the Kernle (entity) level. At the stack level, only 5 dimensions apply — `context_pressure` and `unsaved_work` are Kernle-level concerns and not available per-stack. Stack anxiety uses renormalized 5-dimension weights (`FIVE_DIM_WEIGHTS`). The example output below shows a stack-level report with 5 dimensions.
 </Note>
 
 ### Check Anxiety Level

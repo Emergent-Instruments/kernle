@@ -397,6 +397,8 @@ Kernle tracks "memory anxiety" — a measure of memory system health. This helps
 
 <Note>
 Weights are approximate. Check `kernle/features/anxiety.py` for exact values.
+
+**Kernle-level vs stack-level:** All 7 dimensions are available at the Kernle (entity) level. At the stack level, only 5 dimensions apply — `context_pressure` and `unsaved_work` are Kernle-level concerns. Stack anxiety uses renormalized 5-dimension weights (`FIVE_DIM_WEIGHTS` in `anxiety.py`).
 </Note>
 
 ### Levels
