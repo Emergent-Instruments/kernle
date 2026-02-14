@@ -1722,7 +1722,7 @@ class TestMergeGenericEdgeCases:
         assert len(save_called) == 1
 
     def test_neither_has_time_saves_cloud_as_fallback(self, storage_with_cloud):
-        """When neither cloud nor local has time, cloud record is saved as fallback."""
+        """When neither cloud nor local has time, cloud is saved with conflict record."""
         engine = storage_with_cloud._sync_engine
 
         # Both records have no timestamps
@@ -1740,13 +1740,10 @@ class TestMergeGenericEdgeCases:
             cloud_synced_at=None,
             local_updated_at=None,
         )
-        save_called = []
-        count, conflict = engine._merge_generic(
-            "notes", cloud, local, lambda: save_called.append(True)
-        )
+        count, conflict = engine._merge_generic("notes", cloud, local, lambda: None)
         assert count == 1
-        assert conflict is None
-        assert len(save_called) == 1  # save_fn IS called as fallback
+        assert conflict is not None  # conflict-aware merge when local exists
+        assert conflict.policy_decision == "no_timestamps_fallback"
 
     def test_equal_timestamp_and_matching_snapshot_deduplicates(self, storage):
         """When timestamps and payloads match, no merge/callback is performed."""

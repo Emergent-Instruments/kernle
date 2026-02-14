@@ -1012,13 +1012,37 @@ class SyncEngine:
             self._mark_synced_and_cleanup_queue(table, cloud_record.id)
             return (1, None)
 
-        # Fallback: both timestamps missing — save cloud record with warning
+        # Fallback: both timestamps missing — apply cloud record with warning
         logger.warning(
             "Sync merge for %s:%s has no timestamps — applying cloud record as fallback",
             table,
             cloud_record.id,
         )
-        save_fn()
+        if self._record_already_applied(table, cloud_record):
+            logger.info(
+                "Duplicate sync detected for %s:%s (no-timestamp fallback), "
+                "skipping save — cleaning up queue only",
+                table,
+                cloud_record.id,
+            )
+        elif local_record is not None:
+            # Both sides exist but lack timestamps — merge arrays and record conflict
+            merged_record = self._merge_array_fields(table, cloud_record, local_record)
+            if not self._record_already_applied(table, cloud_record):
+                self._save_from_cloud(table, merged_record)
+            conflict = self._create_conflict(
+                table,
+                cloud_record.id,
+                local_record,
+                cloud_record,
+                "cloud_wins_arrays_merged",
+                policy_decision="no_timestamps_fallback",
+            )
+            self._mark_synced_and_cleanup_queue(table, cloud_record.id)
+            self.save_sync_conflict(conflict)
+            return (1, conflict)
+        else:
+            save_fn()
         self._mark_synced_and_cleanup_queue(table, cloud_record.id)
         return (1, None)
 
