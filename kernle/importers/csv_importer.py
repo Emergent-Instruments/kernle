@@ -6,12 +6,15 @@ Supports bulk import of memories in tabular format.
 
 import csv
 import io
+import logging
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple, Union, overload
 
 if TYPE_CHECKING:
     from kernle import Kernle
+
+logger = logging.getLogger(__name__)
 
 
 # Column name mappings for each memory type
@@ -78,16 +81,25 @@ class CsvImporter:
     ```
     """
 
-    def __init__(self, file_path: str, memory_type: Optional[str] = None):
+    def __init__(
+        self,
+        file_path: str,
+        memory_type: Optional[str] = None,
+        strict: bool = False,
+    ):
         """Initialize with path to CSV file.
 
         Args:
             file_path: Path to the CSV file to import
             memory_type: If set, treat all rows as this type (overrides 'type' column)
+            strict: If True, reject rows with malformed values instead of coercing
         """
         self.file_path = Path(file_path).expanduser()
         self.items: List[CsvImportItem] = []
         self.memory_type = memory_type
+        self.strict = strict
+        self.coercion_warnings: List[Dict[str, Any]] = []
+        self.rejections: List[Dict[str, Any]] = []
 
     def parse(self) -> List[CsvImportItem]:
         """Parse the CSV file and return importable items.
@@ -103,7 +115,7 @@ class CsvImporter:
             raise FileNotFoundError(f"File not found: {self.file_path}")
 
         content = self.file_path.read_text(encoding="utf-8")
-        self.items = parse_csv(content, self.memory_type)
+        self.items = parse_csv(content, self.memory_type, strict=self.strict)
         return self.items
 
     def import_to(
@@ -125,6 +137,7 @@ class CsvImporter:
         counts: Dict[str, int] = {}
         skipped: Dict[str, int] = {}
         errors: List[str] = []
+        rejections: List[Dict[str, Any]] = list(self.rejections)
 
         for i, item in enumerate(self.items):
             try:
@@ -134,6 +147,13 @@ class CsvImporter:
                         counts[item.type] = counts.get(item.type, 0) + 1
                     else:
                         skipped[item.type] = skipped.get(item.type, 0) + 1
+                        rejections.append(
+                            {
+                                "row": i + 2,
+                                "type": item.type,
+                                "reason": "missing required field or duplicate",
+                            }
+                        )
                 else:
                     counts[item.type] = counts.get(item.type, 0) + 1
             except Exception as e:
@@ -143,23 +163,75 @@ class CsvImporter:
             "imported": counts,
             "skipped": skipped,
             "errors": errors,
+            "coercion_warnings": list(self.coercion_warnings),
+            "rejections": rejections,
         }
 
 
-def parse_csv(content: str, memory_type: Optional[str] = None) -> List[CsvImportItem]:
+@overload
+def parse_csv(
+    content: str,
+    memory_type: Optional[str] = None,
+    *,
+    strict: bool = False,
+    return_warnings: bool = False,
+    return_rejections: bool = False,
+) -> List[CsvImportItem]: ...
+
+
+@overload
+def parse_csv(
+    content: str,
+    memory_type: Optional[str] = None,
+    *,
+    strict: bool = False,
+    return_warnings: bool = True,
+    return_rejections: bool = False,
+) -> Tuple[List[CsvImportItem], List[Dict[str, Any]]]: ...
+
+
+@overload
+def parse_csv(
+    content: str,
+    memory_type: Optional[str] = None,
+    *,
+    strict: bool = False,
+    return_warnings: bool = True,
+    return_rejections: bool = True,
+) -> Tuple[List[CsvImportItem], List[Dict[str, Any]], List[Dict[str, Any]]]: ...
+
+
+def parse_csv(
+    content: str,
+    memory_type: Optional[str] = None,
+    *,
+    strict: bool = False,
+    return_warnings: bool = False,
+    return_rejections: bool = False,
+) -> Union[
+    List[CsvImportItem],
+    Tuple[List[CsvImportItem], List[Dict[str, Any]]],
+    Tuple[List[CsvImportItem], List[Dict[str, Any]], List[Dict[str, Any]]],
+]:
     """Parse CSV content into importable items.
 
     Args:
         content: CSV content string
         memory_type: If set, treat all rows as this type
+        strict: If True, reject rows with malformed values instead of coercing
+        return_warnings: If True, return (items, warnings) tuple
+        return_rejections: If True, return (items, warnings, rejections) tuple
+            (requires return_warnings=True)
 
     Returns:
-        List of CsvImportItem objects
+        List of CsvImportItem objects, or tuple with warnings/rejections
 
     Raises:
         ValueError: If the CSV format is invalid
     """
     items: List[CsvImportItem] = []
+    warnings: List[Dict[str, Any]] = []
+    rejections: List[Dict[str, Any]] = []
 
     reader = csv.DictReader(io.StringIO(content))
     headers = [h.lower().strip() for h in (reader.fieldnames or [])]
@@ -176,7 +248,7 @@ def parse_csv(content: str, memory_type: Optional[str] = None) -> List[CsvImport
             "Valid types: episode, note, belief, value, goal, raw"
         )
 
-    for row in reader:
+    for row_num, row in enumerate(reader, start=2):
         # Normalize keys to lowercase
         row = {k.lower().strip(): v.strip() if v else "" for k, v in row.items()}
 
@@ -194,8 +266,16 @@ def parse_csv(content: str, memory_type: Optional[str] = None) -> List[CsvImport
         if item_type not in COLUMN_MAPPINGS:
             continue  # Skip unknown types
 
-        # Map columns to expected field names
-        data = _map_columns(row, item_type)
+        # Map columns to expected field names with validation
+        data, row_warnings, row_rejected = _map_columns(
+            row, item_type, strict=strict, row_num=row_num
+        )
+
+        warnings.extend(row_warnings)
+
+        if row_rejected:
+            rejections.extend(row_rejected)
+            continue  # Skip this row in strict mode
 
         # Skip empty rows
         if not any(data.values()):
@@ -203,40 +283,210 @@ def parse_csv(content: str, memory_type: Optional[str] = None) -> List[CsvImport
 
         items.append(CsvImportItem(type=item_type, data=data))
 
+    if return_warnings and return_rejections:
+        return items, warnings, rejections
+    elif return_warnings:
+        return items, warnings
     return items
 
 
-def _map_columns(row: Dict[str, str], memory_type: str) -> Dict[str, Any]:
-    """Map CSV columns to memory field names.
+def _map_columns(
+    row: Dict[str, str],
+    memory_type: str,
+    *,
+    strict: bool = False,
+    row_num: int = 0,
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]]]:
+    """Map CSV columns to memory field names with validation.
 
     Args:
         row: The CSV row dict
         memory_type: The type of memory
+        strict: If True, reject rows with malformed values
+        row_num: Row number for warning/rejection reporting
 
     Returns:
-        Dict with normalized field names
+        Tuple of (data dict, coercion warnings, rejections)
     """
     mappings = COLUMN_MAPPINGS.get(memory_type, {})
     result: Dict[str, Any] = {}
+    warnings: List[Dict[str, Any]] = []
+    rejections: List[Dict[str, Any]] = []
 
     for field_name, aliases in mappings.items():
         for alias in aliases:
             if alias in row and row[alias]:
                 value = row[alias]
 
-                # Type conversions
+                # Type conversions with bounds validation
                 if field_name == "confidence":
                     try:
-                        value = float(value)
-                        if value > 1:
-                            value = value / 100
+                        fval = float(value)
                     except ValueError:
-                        value = 0.7
+                        if strict:
+                            rejections.append(
+                                {
+                                    "row": row_num,
+                                    "field": "confidence",
+                                    "value": value,
+                                    "reason": f"non-numeric confidence value: {value!r}",
+                                }
+                            )
+                            break
+                        else:
+                            warnings.append(
+                                {
+                                    "row": row_num,
+                                    "field": "confidence",
+                                    "original": value,
+                                    "coerced_to": 0.7,
+                                    "reason": f"non-numeric confidence value: {value!r}, defaulting to 0.7",
+                                }
+                            )
+                            value = 0.7
+                            result[field_name] = value
+                            break
+
+                    # Auto-scale percentage values (1 < x <= 100)
+                    if fval > 1:
+                        fval = fval / 100
+
+                    # Validate bounds after scaling
+                    if fval < 0 or fval > 1:
+                        if strict:
+                            rejections.append(
+                                {
+                                    "row": row_num,
+                                    "field": "confidence",
+                                    "value": value,
+                                    "reason": f"confidence out of range [0.0, 1.0] after scaling: {fval}",
+                                }
+                            )
+                            break
+                        else:
+                            original = fval
+                            fval = max(0.0, min(1.0, fval))
+                            warnings.append(
+                                {
+                                    "row": row_num,
+                                    "field": "confidence",
+                                    "original": value,
+                                    "coerced_to": fval,
+                                    "reason": f"confidence clamped from {original} to {fval}",
+                                }
+                            )
+
+                    value = fval
+
                 elif field_name == "priority" and memory_type == "value":
                     try:
-                        value = int(value)
+                        ival = int(value)
                     except ValueError:
-                        value = 50
+                        if strict:
+                            rejections.append(
+                                {
+                                    "row": row_num,
+                                    "field": "priority",
+                                    "value": value,
+                                    "reason": f"non-numeric priority value: {value!r}",
+                                }
+                            )
+                            break
+                        else:
+                            warnings.append(
+                                {
+                                    "row": row_num,
+                                    "field": "priority",
+                                    "original": value,
+                                    "coerced_to": 50,
+                                    "reason": f"non-numeric priority value: {value!r}, defaulting to 50",
+                                }
+                            )
+                            value = 50
+                            result[field_name] = value
+                            break
+
+                    # Clamp to valid range
+                    if ival < 0 or ival > 100:
+                        if strict:
+                            rejections.append(
+                                {
+                                    "row": row_num,
+                                    "field": "priority",
+                                    "value": value,
+                                    "reason": f"priority out of range [0, 100]: {ival}",
+                                }
+                            )
+                            break
+                        else:
+                            original = ival
+                            ival = max(0, min(100, ival))
+                            warnings.append(
+                                {
+                                    "row": row_num,
+                                    "field": "priority",
+                                    "original": value,
+                                    "coerced_to": ival,
+                                    "reason": f"priority clamped from {original} to {ival}",
+                                }
+                            )
+
+                    value = ival
+
+                elif field_name == "intensity":
+                    try:
+                        fval = float(value)
+                    except ValueError:
+                        if strict:
+                            rejections.append(
+                                {
+                                    "row": row_num,
+                                    "field": "intensity",
+                                    "value": value,
+                                    "reason": f"non-numeric intensity value: {value!r}",
+                                }
+                            )
+                            break
+                        else:
+                            warnings.append(
+                                {
+                                    "row": row_num,
+                                    "field": "intensity",
+                                    "original": value,
+                                    "coerced_to": 0.5,
+                                    "reason": f"non-numeric intensity value: {value!r}, defaulting to 0.5",
+                                }
+                            )
+                            value = 0.5
+                            result[field_name] = value
+                            break
+
+                    if fval < 0 or fval > 1:
+                        if strict:
+                            rejections.append(
+                                {
+                                    "row": row_num,
+                                    "field": "intensity",
+                                    "value": value,
+                                    "reason": f"intensity out of range [0.0, 1.0]: {fval}",
+                                }
+                            )
+                            break
+                        else:
+                            original = fval
+                            fval = max(0.0, min(1.0, fval))
+                            warnings.append(
+                                {
+                                    "row": row_num,
+                                    "field": "intensity",
+                                    "original": value,
+                                    "coerced_to": fval,
+                                    "reason": f"intensity clamped from {original} to {fval}",
+                                }
+                            )
+
+                    value = fval
+
                 elif field_name in ("tags", "lessons"):
                     # Split comma-separated values
                     value = [v.strip() for v in value.split(",") if v.strip()]
@@ -244,7 +494,7 @@ def _map_columns(row: Dict[str, str], memory_type: str) -> Dict[str, Any]:
                 result[field_name] = value
                 break
 
-    return result
+    return result, warnings, rejections
 
 
 def _import_csv_item(item: CsvImportItem, k: "Kernle", skip_duplicates: bool = True) -> bool:

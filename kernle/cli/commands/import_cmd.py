@@ -343,15 +343,18 @@ def cmd_import(args: "argparse.Namespace", k: "Kernle") -> None:
     target_layer = getattr(args, "layer", None)
     skip_duplicates = getattr(args, "skip_duplicates", True)
     derived_from = getattr(args, "derived_from", None)
+    strict = getattr(args, "strict", False)
 
     chunk_size = getattr(args, "chunk_size", 2000)
 
     if file_format == "markdown":
         _import_markdown(file_path, k, dry_run, interactive, target_layer, derived_from)
     elif file_format == "json":
-        _import_json(file_path, k, dry_run, skip_duplicates, derived_from)
+        _import_json(file_path, k, dry_run, skip_duplicates, derived_from, strict=strict)
     elif file_format == "csv":
-        _import_csv(file_path, k, dry_run, target_layer, skip_duplicates, derived_from)
+        _import_csv(
+            file_path, k, dry_run, target_layer, skip_duplicates, derived_from, strict=strict
+        )
     elif file_format == "pdf":
         _import_pdf(file_path, k, dry_run, skip_duplicates, derived_from, chunk_size)
 
@@ -416,6 +419,8 @@ def _import_json(
     dry_run: bool,
     skip_duplicates: bool,
     derived_from: Optional[List[str]] = None,
+    *,
+    strict: bool = False,
 ) -> None:
     """Import from a Kernle JSON export file."""
     try:
@@ -764,6 +769,8 @@ def _import_csv(
     target_layer: Optional[str],
     skip_duplicates: bool,
     derived_from: Optional[List[str]] = None,
+    *,
+    strict: bool = False,
 ) -> None:
     """Import from a CSV file."""
     import csv

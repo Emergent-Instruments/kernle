@@ -13,10 +13,12 @@ from typing import Any, Dict, List, Optional
 
 from kernle.anxiety_core import (
     FIVE_DIM_WEIGHTS,
+    apply_hysteresis,
     compute_consolidation_score,
     compute_epoch_staleness_score,
     compute_identity_coherence_score,
     compute_memory_uncertainty_score,
+    score_with_confidence,
 )
 from kernle.anxiety_core import get_anxiety_level as _get_anxiety_level
 from kernle.protocols import InferenceService, SearchResult
@@ -47,6 +49,7 @@ class AnxietyComponent:
         self._stack_id: Optional[str] = None
         self._inference: Optional[InferenceService] = None
         self._storage: Optional[Any] = None
+        self._previous_level: Optional[str] = None
 
     def attach(self, stack_id: str, inference: Optional[InferenceService] = None) -> None:
         self._stack_id = stack_id
@@ -111,8 +114,10 @@ class AnxietyComponent:
         ]
         unreflected_count = len(unreflected)
         consolidation_score = compute_consolidation_score(unreflected_count)
+        cons_conf = score_with_confidence(min(100, consolidation_score), unreflected_count)
         dimensions["consolidation_debt"] = {
-            "score": min(100, consolidation_score),
+            "score": cons_conf["score"],
+            "confidence": cons_conf["confidence"],
             "detail": f"{unreflected_count} unreflected episodes",
         }
 
@@ -120,8 +125,10 @@ class AnxietyComponent:
         beliefs = self._storage.get_beliefs(limit=100)
         low_conf = [b for b in beliefs if b.confidence < 0.5]
         uncertainty_score = compute_memory_uncertainty_score(len(low_conf))
+        unc_conf = score_with_confidence(min(100, uncertainty_score), len(beliefs))
         dimensions["memory_uncertainty"] = {
-            "score": min(100, uncertainty_score),
+            "score": unc_conf["score"],
+            "confidence": unc_conf["confidence"],
             "detail": f"{len(low_conf)} low-confidence beliefs",
         }
 
@@ -137,14 +144,17 @@ class AnxietyComponent:
             count += 1
         identity_confidence = total_conf / count if count > 0 else 0.0
         identity_anxiety = compute_identity_coherence_score(identity_confidence)
+        id_conf = score_with_confidence(identity_anxiety, count)
         dimensions["identity_coherence"] = {
-            "score": identity_anxiety,
+            "score": id_conf["score"],
+            "confidence": id_conf["confidence"],
             "detail": f"{identity_confidence:.0%} identity confidence",
         }
 
         # Raw aging
         raw_aging_score = 0
         raw_aging_detail = "No unprocessed raw entries"
+        raw_sample_count = 0
         try:
             if hasattr(self._storage, "list_raw"):
                 from kernle.anxiety_core import compute_raw_aging_score
@@ -152,6 +162,7 @@ class AnxietyComponent:
                 raw_entries = self._storage.list_raw(processed=False, limit=100)
                 now = datetime.now(timezone.utc)
                 total_unprocessed = len(raw_entries)
+                raw_sample_count = total_unprocessed
                 aging_count = 0
                 oldest_hours = 0.0
                 for entry in raw_entries:
@@ -183,13 +194,16 @@ class AnxietyComponent:
                     raw_aging_detail = f"{aging_count}/{total_unprocessed} entries >24h old"
         except Exception:
             pass
+        raw_conf = score_with_confidence(raw_aging_score, raw_sample_count)
         dimensions["raw_aging"] = {
-            "score": raw_aging_score,
+            "score": raw_conf["score"],
+            "confidence": raw_conf["confidence"],
             "detail": raw_aging_detail,
         }
 
         # Epoch staleness
         epoch_staleness_score = 0
+        epoch_sample_count = 0
         try:
             current_epoch = self._storage.get_current_epoch()
             if current_epoch and current_epoch.started_at:
@@ -199,10 +213,13 @@ class AnxietyComponent:
                 now = datetime.now(timezone.utc)
                 months = (now - started).total_seconds() / (30.44 * 86400)
                 epoch_staleness_score = compute_epoch_staleness_score(months)
+                epoch_sample_count = 1
         except Exception:
             pass
+        epoch_conf = score_with_confidence(min(100, epoch_staleness_score), epoch_sample_count)
         dimensions["epoch_staleness"] = {
-            "score": min(100, epoch_staleness_score),
+            "score": epoch_conf["score"],
+            "confidence": epoch_conf["confidence"],
             "detail": "Epoch staleness",
         }
 
@@ -213,6 +230,18 @@ class AnxietyComponent:
         overall_score = int(overall_score)
 
         _, overall_level = _get_anxiety_level(overall_score)
+
+        # Apply hysteresis to prevent level oscillation
+        hysteresis_level = apply_hysteresis(overall_score, self._previous_level)
+        self._previous_level = hysteresis_level
+        _key_to_label = {
+            "calm": "Calm",
+            "aware": "Aware",
+            "elevated": "Elevated",
+            "high": "High",
+            "critical": "Critical",
+        }
+        overall_level = _key_to_label.get(hysteresis_level, overall_level)
 
         return {
             "overall_score": overall_score,

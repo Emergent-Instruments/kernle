@@ -2,6 +2,7 @@
 checkpoint, and writers to maintain 80%+ coverage after fragmentation."""
 
 import json
+import sqlite3
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -168,7 +169,7 @@ class TestCheckpointEdgeCases:
             cp_dir = Path(tmp) / "cp"
             k = Kernle(stack_id="test", checkpoint_dir=cp_dir, strict=False)
             # Mock _write_backend.save_episode to fail
-            k._storage.save_episode = MagicMock(side_effect=Exception("DB error"))
+            k._storage.save_episode = MagicMock(side_effect=sqlite3.OperationalError("DB error"))
             result = k.checkpoint("test task")
             # Should still succeed (episode save is best-effort)
             assert result["current_task"] == "test task"
@@ -182,7 +183,7 @@ class TestCheckpointEdgeCases:
             k.checkpoint("setup")
 
             # Now mock _export_boot_file to fail
-            with patch.object(k, "_export_boot_file", side_effect=Exception("IO error")):
+            with patch.object(k, "_export_boot_file", side_effect=OSError("IO error")):
                 result = k.checkpoint("test task 2")
                 assert result["current_task"] == "test task 2"
 

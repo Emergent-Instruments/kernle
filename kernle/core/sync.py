@@ -70,9 +70,13 @@ class SyncMixin:
                     f"Sync before load: {len(pull_result.errors)} errors: {pull_result.errors[:3]}"
                 )
 
-        except Exception as e:
-            # Don't fail the load on sync errors
-            logger.warning(f"Sync before load failed (continuing with local data): {e}")
+        except (ConnectionError, TimeoutError, OSError, ValueError, TypeError, AttributeError) as e:
+            logger.warning(
+                f"Sync before load failed (continuing with local data): {e}",
+                extra={"operation": "sync_before_load", "error_type": type(e).__name__},
+            )
+            if self._strict:
+                raise
             result["errors"].append(str(e))
 
         return result
@@ -113,9 +117,13 @@ class SyncMixin:
                     f"Sync after checkpoint: {len(sync_result.errors)} errors: {sync_result.errors[:3]}"
                 )
 
-        except Exception as e:
-            # Don't fail the checkpoint on sync errors
-            logger.warning(f"Sync after checkpoint failed (local save succeeded): {e}")
+        except (ConnectionError, TimeoutError, OSError, ValueError, TypeError, AttributeError) as e:
+            logger.warning(
+                f"Sync after checkpoint failed (local save succeeded): {e}",
+                extra={"operation": "sync_after_checkpoint", "error_type": type(e).__name__},
+            )
+            if self._strict:
+                raise
             result["errors"].append(str(e))
 
         return result

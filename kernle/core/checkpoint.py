@@ -2,6 +2,7 @@
 
 import json
 import logging
+import sqlite3
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
@@ -90,15 +91,24 @@ class CheckpointMixin:
                 created_at=datetime.now(timezone.utc),
             )
             self._write_backend.save_episode(episode)
-        except Exception as e:
-            logger.warning(f"Failed to save checkpoint to database: {e}")
-            # Local save is sufficient, continue
+        except (sqlite3.Error, OSError, IOError) as e:
+            logger.warning(
+                f"Failed to save checkpoint to database: {e}",
+                extra={"operation": "checkpoint_episode_save", "error_type": type(e).__name__},
+            )
+            if self._strict:
+                raise
 
         # Auto-export boot file on checkpoint (keeps boot.md in sync)
         try:
             self._export_boot_file()
-        except Exception as e:
-            logger.warning(f"Failed to export boot file on checkpoint: {e}")
+        except (OSError, IOError) as e:
+            logger.warning(
+                f"Failed to export boot file on checkpoint: {e}",
+                extra={"operation": "checkpoint_boot_export", "error_type": type(e).__name__},
+            )
+            if self._strict:
+                raise
 
         # Sync after checkpoint if enabled
         should_sync = sync if sync is not None else self._auto_sync

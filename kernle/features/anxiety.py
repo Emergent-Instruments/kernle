@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 from kernle.anxiety_core import (
     SEVEN_DIM_WEIGHTS,
+    apply_hysteresis,
     compute_consolidation_score,
     compute_context_pressure_score,
     compute_epoch_staleness_score,
@@ -17,6 +18,7 @@ from kernle.anxiety_core import (
     compute_memory_uncertainty_score,
     compute_raw_aging_score,
     compute_unsaved_work_score,
+    score_with_confidence,
 )
 
 if TYPE_CHECKING:
@@ -202,8 +204,10 @@ class AnxietyMixin:
 
         context_score = compute_context_pressure_score(context_pressure_pct)
 
+        context_conf = score_with_confidence(min(100, context_score), 1)
         dimensions["context_pressure"] = {
-            "score": min(100, context_score),
+            "score": context_conf["score"],
+            "confidence": context_conf["confidence"],
             "raw_value": context_pressure_pct,
             "detail": context_detail,
             "emoji": self._get_anxiety_level(context_score)[0],
@@ -219,8 +223,12 @@ class AnxietyMixin:
         else:
             unsaved_detail = f"{checkpoint_age} min since checkpoint (STALE)"
 
+        unsaved_conf = score_with_confidence(
+            min(100, unsaved_score), 1 if checkpoint_age is not None else 0
+        )
         dimensions["unsaved_work"] = {
-            "score": min(100, unsaved_score),
+            "score": unsaved_conf["score"],
+            "confidence": unsaved_conf["confidence"],
             "raw_value": checkpoint_age,
             "detail": unsaved_detail,
             "emoji": self._get_anxiety_level(unsaved_score)[0],
@@ -240,8 +248,10 @@ class AnxietyMixin:
         else:
             consolidation_detail = f"{unreflected_count} unreflected episodes (URGENT)"
 
+        consolidation_conf = score_with_confidence(min(100, consolidation_score), unreflected_count)
         dimensions["consolidation_debt"] = {
-            "score": min(100, consolidation_score),
+            "score": consolidation_conf["score"],
+            "confidence": consolidation_conf["confidence"],
             "raw_value": unreflected_count,
             "detail": consolidation_detail,
             "emoji": self._get_anxiety_level(consolidation_score)[0],
@@ -258,8 +268,14 @@ class AnxietyMixin:
         else:
             identity_detail = f"{identity_confidence:.0%} identity confidence (WEAK)"
 
+        # Count data points that contributed to identity confidence
+        _id_sample_count = len(self._storage.get_values(limit=10)) + min(
+            20, len(self._storage.get_beliefs(limit=100))
+        )
+        identity_conf = score_with_confidence(identity_anxiety, _id_sample_count)
         dimensions["identity_coherence"] = {
-            "score": identity_anxiety,
+            "score": identity_conf["score"],
+            "confidence": identity_conf["confidence"],
             "raw_value": identity_confidence,
             "detail": identity_detail,
             "emoji": self._get_anxiety_level(identity_anxiety)[0],
@@ -288,8 +304,10 @@ class AnxietyMixin:
                 f"{len(low_conf_beliefs)} low-confidence beliefs (HIGH uncertainty)"
             )
 
+        uncertainty_conf = score_with_confidence(min(100, uncertainty_score), total_beliefs)
         dimensions["memory_uncertainty"] = {
-            "score": min(100, uncertainty_score),
+            "score": uncertainty_conf["score"],
+            "confidence": uncertainty_conf["confidence"],
             "raw_value": len(low_conf_beliefs),
             "detail": uncertainty_detail,
             "emoji": self._get_anxiety_level(uncertainty_score)[0],
@@ -314,8 +332,10 @@ class AnxietyMixin:
                 f"{aging_count} entries STALE (oldest: {oldest_days}d) - review needed"
             )
 
+        raw_aging_conf = score_with_confidence(min(100, raw_aging_score), total_unprocessed)
         dimensions["raw_aging"] = {
-            "score": min(100, raw_aging_score),
+            "score": raw_aging_conf["score"],
+            "confidence": raw_aging_conf["confidence"],
             "raw_value": aging_count,
             "detail": raw_aging_detail,
             "emoji": self._get_anxiety_level(raw_aging_score)[0],
@@ -340,8 +360,11 @@ class AnxietyMixin:
         else:
             epoch_staleness_detail = f"{epoch_months:.1f} months (likely overdue for epoch review)"
 
+        epoch_sample_count = 1 if epoch_months is not None else 0
+        epoch_conf = score_with_confidence(min(100, epoch_staleness_score), epoch_sample_count)
         dimensions["epoch_staleness"] = {
-            "score": min(100, epoch_staleness_score),
+            "score": epoch_conf["score"],
+            "confidence": epoch_conf["confidence"],
             "raw_value": epoch_months,
             "detail": epoch_staleness_detail,
             "emoji": self._get_anxiety_level(epoch_staleness_score)[0],
@@ -355,10 +378,36 @@ class AnxietyMixin:
 
         overall_emoji, overall_level = self._get_anxiety_level(overall_score)
 
+        # Apply hysteresis to prevent level oscillation near boundaries
+        previous_level = getattr(self, "_previous_anxiety_level", None)
+        hysteresis_level = apply_hysteresis(overall_score, previous_level)
+        # Update the stored previous level for next call
+        self._previous_anxiety_level = hysteresis_level  # type: ignore[attr-defined]
+        # Translate key back to display label
+        _key_to_label = {
+            "calm": "Calm",
+            "aware": "Aware",
+            "elevated": "Elevated",
+            "high": "High",
+            "critical": "Critical",
+        }
+        overall_level = _key_to_label.get(hysteresis_level, overall_level)
+        overall_emoji = _LEVEL_EMOJIS.get(hysteresis_level, overall_emoji)
+
+        # Compute overall confidence (weighted average of dimension confidences)
+        total_conf_weight = 0.0
+        total_conf_sum = 0.0
+        for dim_name, weight in self.ANXIETY_WEIGHTS.items():
+            dim_confidence = dimensions[dim_name].get("confidence", 0.5)
+            total_conf_sum += dim_confidence * weight
+            total_conf_weight += weight
+        overall_confidence = total_conf_sum / total_conf_weight if total_conf_weight > 0 else 0.0
+
         report = {
             "overall_score": overall_score,
             "overall_level": overall_level,
             "overall_emoji": overall_emoji,
+            "overall_confidence": round(overall_confidence, 2),
             "dimensions": dimensions,
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "stack_id": self.stack_id,

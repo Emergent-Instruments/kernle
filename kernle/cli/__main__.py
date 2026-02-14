@@ -2006,6 +2006,12 @@ Typical usage:
         dest="chunk_size",
         help="Max chunk size in characters for PDF imports (default: 2000)",
     )
+    p_import.add_argument(
+        "--strict",
+        action="store_true",
+        default=False,
+        help="Reject malformed values instead of coercing (e.g., invalid confidence, out-of-range priority)",
+    )
 
     # migrate - migrate from other platforms
     p_migrate = subparsers.add_parser("migrate", help="Migrate memory from other platforms")

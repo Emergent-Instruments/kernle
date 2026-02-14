@@ -185,7 +185,7 @@ class TestMapColumns:
     def test_map_columns_belief(self):
         """Map belief columns correctly."""
         row = {"statement": "Test belief", "confidence": "0.9", "type": "fact"}
-        result = _map_columns(row, "belief")
+        result, _, _ = _map_columns(row, "belief")
         assert result["statement"] == "Test belief"
         assert result["confidence"] == 0.9
         assert result["type"] == "fact"
@@ -193,44 +193,44 @@ class TestMapColumns:
     def test_map_columns_with_aliases(self):
         """Map using column aliases."""
         row = {"text": "Test belief", "conf": "0.85"}
-        result = _map_columns(row, "belief")
+        result, _, _ = _map_columns(row, "belief")
         assert result["statement"] == "Test belief"
         assert result["confidence"] == 0.85
 
     def test_map_columns_confidence_percentage(self):
         """Confidence values > 1 are normalized to 0-1 range."""
         row = {"statement": "Test", "confidence": "90"}
-        result = _map_columns(row, "belief")
+        result, _, _ = _map_columns(row, "belief")
         assert result["confidence"] == 0.9
 
     def test_map_columns_confidence_invalid(self):
         """Invalid confidence values default to 0.7."""
         row = {"statement": "Test", "confidence": "invalid"}
-        result = _map_columns(row, "belief")
+        result, _, _ = _map_columns(row, "belief")
         assert result["confidence"] == 0.7
 
     def test_map_columns_priority_int_conversion(self):
         """Priority values are converted to int for values."""
         row = {"name": "Quality", "priority": "75"}
-        result = _map_columns(row, "value")
+        result, _, _ = _map_columns(row, "value")
         assert result["priority"] == 75
 
     def test_map_columns_priority_invalid(self):
         """Invalid priority values default to 50."""
         row = {"name": "Quality", "priority": "high"}
-        result = _map_columns(row, "value")
+        result, _, _ = _map_columns(row, "value")
         assert result["priority"] == 50
 
     def test_map_columns_tags_split(self):
         """Tags are split by comma."""
         row = {"content": "Test note", "tags": "tag1, tag2, tag3"}
-        result = _map_columns(row, "note")
+        result, _, _ = _map_columns(row, "note")
         assert result["tags"] == ["tag1", "tag2", "tag3"]
 
     def test_map_columns_lessons_split(self):
         """Lessons are split by comma."""
         row = {"objective": "Task", "lessons": "lesson1, lesson2"}
-        result = _map_columns(row, "episode")
+        result, _, _ = _map_columns(row, "episode")
         assert result["lessons"] == ["lesson1", "lesson2"]
 
 

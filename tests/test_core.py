@@ -978,7 +978,7 @@ class TestSyncHooks:
     def test_sync_before_load_handles_exception(self):
         storage = self._make_storage()
         storage.is_online.return_value = True
-        storage.pull_changes.side_effect = RuntimeError("pull boom")
+        storage.pull_changes.side_effect = ConnectionError("pull boom")
         kernle = Kernle("test-agent", storage=storage, strict=False)
 
         result = kernle._sync_before_load()
@@ -1021,7 +1021,7 @@ class TestSyncHooks:
     def test_sync_after_checkpoint_handles_exception(self):
         storage = self._make_storage()
         storage.is_online.return_value = True
-        storage.sync.side_effect = RuntimeError("sync boom")
+        storage.sync.side_effect = ConnectionError("sync boom")
         kernle = Kernle("test-agent", storage=storage, strict=False)
 
         result = kernle._sync_after_checkpoint()

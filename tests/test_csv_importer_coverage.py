@@ -178,56 +178,56 @@ class TestMapColumnsTypeConversions:
     def test_confidence_float_conversion(self):
         """Confidence should be converted to a float."""
         row = {"statement": "Test", "confidence": "0.85"}
-        result = _map_columns(row, "belief")
+        result, _, _ = _map_columns(row, "belief")
 
         assert result["confidence"] == pytest.approx(0.85)
 
     def test_confidence_percentage_conversion(self):
         """Confidence values > 1 should be treated as percentages and divided by 100."""
         row = {"statement": "Test", "confidence": "90"}
-        result = _map_columns(row, "belief")
+        result, _, _ = _map_columns(row, "belief")
 
         assert result["confidence"] == pytest.approx(0.9)
 
     def test_confidence_invalid_defaults_to_0_7(self):
         """Non-numeric confidence values should default to 0.7."""
         row = {"statement": "Test", "confidence": "very high"}
-        result = _map_columns(row, "belief")
+        result, _, _ = _map_columns(row, "belief")
 
         assert result["confidence"] == pytest.approx(0.7)
 
     def test_priority_int_conversion_for_values(self):
         """Priority for values should be converted to an integer."""
         row = {"name": "Test Value", "priority": "75"}
-        result = _map_columns(row, "value")
+        result, _, _ = _map_columns(row, "value")
 
         assert result["priority"] == 75
 
     def test_priority_invalid_defaults_to_50(self):
         """Non-numeric priority should default to 50."""
         row = {"name": "Test Value", "priority": "high"}
-        result = _map_columns(row, "value")
+        result, _, _ = _map_columns(row, "value")
 
         assert result["priority"] == 50
 
     def test_tags_split_by_comma(self):
         """Tags should be split by comma into a list."""
         row = {"objective": "Test", "tags": "python, testing, tdd"}
-        result = _map_columns(row, "episode")
+        result, _, _ = _map_columns(row, "episode")
 
         assert result["tags"] == ["python", "testing", "tdd"]
 
     def test_lessons_split_by_comma(self):
         """Lessons should be split by comma into a list."""
         row = {"objective": "Test", "lessons": "Use mocks, Write clean code"}
-        result = _map_columns(row, "episode")
+        result, _, _ = _map_columns(row, "episode")
 
         assert result["lessons"] == ["Use mocks", "Write clean code"]
 
     def test_empty_tags_filtered_out(self):
         """Empty strings from comma splitting should be filtered out."""
         row = {"objective": "Test", "tags": "python,,, testing,"}
-        result = _map_columns(row, "episode")
+        result, _, _ = _map_columns(row, "episode")
 
         assert result["tags"] == ["python", "testing"]
 
