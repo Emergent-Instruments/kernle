@@ -146,9 +146,12 @@ class TestEmbeddingCacheResilience:
         # extension is loaded — the tables are vec0 virtual tables.
         conn = storage._get_conn()
         try:
+            # vec0 virtual tables require valid float32 blobs (dimension * 4 bytes).
+            dim = storage._embedder.dimension
+            zero_vec = b"\x00" * (dim * 4)
             conn.execute(
-                "INSERT INTO vec_embeddings (id, embedding) VALUES (?, X'00')",
-                (vec_id,),
+                "INSERT INTO vec_embeddings (id, embedding) VALUES (?, ?)",
+                (vec_id, zero_vec),
             )
             conn.execute(
                 "INSERT INTO embedding_meta (id, table_name, record_id, content_hash, created_at) "
