@@ -224,7 +224,10 @@ class AnthropicModel:
         Uses defensive attribute access so this works even when the
         anthropic package is mocked or partially available.
         """
-        import anthropic as _anthropic
+        try:
+            import anthropic as _anthropic
+        except (ImportError, ModuleNotFoundError):
+            return AnthropicModelError("unknown", f"{prefix}: {exc}")
 
         _checks: list[tuple[str, str, str]] = [
             ("RateLimitError", "rate_limit", "rate limited"),

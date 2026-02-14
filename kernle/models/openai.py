@@ -263,7 +263,10 @@ class OpenAIModel:
         Uses defensive attribute access so this works even when the
         openai package is mocked or partially available.
         """
-        import openai as _openai
+        try:
+            import openai as _openai
+        except (ImportError, ModuleNotFoundError):
+            return OpenAIModelError("unknown", f"{prefix}: {exc}")
 
         _checks: list[tuple[str, str, str]] = [
             ("RateLimitError", "rate_limit", "rate limited"),
