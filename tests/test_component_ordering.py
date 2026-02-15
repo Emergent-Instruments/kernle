@@ -104,15 +104,15 @@ class TestComponentOrdering:
         first_name = list(stack.components.keys())[0]
         assert first_name == "embedding-ngram", f"Expected embedding-ngram first, got {first_name}"
 
-    def test_forgetting_runs_last(self, tmp_db):
-        """ForgettingComponent (priority 300) should be last in the registry."""
+    def test_playbooks_runs_last(self, tmp_db):
+        """PlaybookComponent (priority 400) should be last in the registry."""
         stack = SQLiteStack(
             stack_id="test-ordering",
             db_path=tmp_db,
             enforce_provenance=False,
         )
         last_name = list(stack.components.keys())[-1]
-        assert last_name == "forgetting", f"Expected forgetting last, got {last_name}"
+        assert last_name == "playbooks", f"Expected playbooks last, got {last_name}"
 
     def test_add_component_maintains_order(self, tmp_db):
         """Adding a component re-sorts the registry by priority."""

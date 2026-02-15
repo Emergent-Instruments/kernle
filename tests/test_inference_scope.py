@@ -89,11 +89,11 @@ class TestInferenceScope:
                     ), f"{c.name} has scope 'none' but needs_inference=True"
 
     def test_all_default_components_have_scope(self):
-        """All 8 default components should have inference_scope."""
+        """All 11 default components should have inference_scope."""
         from kernle.stack.components import get_default_components
 
         components = get_default_components()
-        assert len(components) == 8
+        assert len(components) == 11
         for c in components:
             assert hasattr(c, "inference_scope"), f"Component {c.name} missing inference_scope"
             assert (

@@ -11,7 +11,6 @@ import hashlib
 import json
 import logging
 import sqlite3
-import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
@@ -21,6 +20,21 @@ from kernle.types import VALID_SOURCE_TYPE_VALUES, SourceType
 from kernle.utils import get_kernle_home
 
 from . import beliefs_crud as _beliefs_crud
+from . import diagnostic_crud as _diagnostic_crud
+from . import drives_crud as _drives_crud
+from . import episodes_crud as _episodes_crud
+from . import epoch_crud as _epoch_crud
+from . import goals_crud as _goals_crud
+from . import meta_memory_ops as _meta_memory_ops
+from . import narrative_summary_crud as _narrative_summary_crud
+from . import notes_crud as _notes_crud
+from . import playbooks_crud as _playbooks_crud
+from . import relationships_crud as _relationships_crud
+from . import search_impl as _search_impl
+from . import stats_ops as _stats_ops
+from . import suggestions_crud as _suggestions_crud
+from . import trust_crud as _trust_crud
+from . import values_crud as _values_crud
 from .base import (
     Belief,
     DiagnosticReport,
@@ -865,294 +879,53 @@ class SQLiteStorage:
     # === Episodes ===
 
     def save_episode(self, episode: Episode) -> str:
-        """Save an episode."""
-        if not episode.id:
-            episode.id = str(uuid.uuid4())
-
-        if episode.derived_from:
-            check_derived_from_cycle(self, "episode", episode.id, episode.derived_from)
-
-        now = self._now()
-        episode.local_updated_at = self._parse_datetime(now)
-
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO episodes
-                (id, stack_id, objective, outcome, outcome_type, lessons, tags,
-                 emotional_valence, emotional_arousal, emotional_tags,
-                 confidence, source_type, source_episodes, derived_from,
-                 last_verified, verification_count, confidence_history,
-                 times_accessed, last_accessed, is_protected, strength,
-                 processed, context, context_tags,
-                 source_entity, subject_ids, access_grants, consent_grants,
-                 epoch_id, repeat, avoid,
-                 created_at, local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    episode.id,
-                    self.stack_id,
-                    episode.objective,
-                    episode.outcome,
-                    episode.outcome_type,
-                    self._to_json(episode.lessons),
-                    self._to_json(episode.tags),
-                    episode.emotional_valence,
-                    episode.emotional_arousal,
-                    self._to_json(episode.emotional_tags),
-                    episode.confidence,
-                    episode.source_type,
-                    self._to_json(episode.source_episodes),
-                    self._to_json(episode.derived_from),
-                    episode.last_verified.isoformat() if episode.last_verified else None,
-                    episode.verification_count,
-                    self._to_json(episode.confidence_history),
-                    episode.times_accessed,
-                    episode.last_accessed.isoformat() if episode.last_accessed else None,
-                    1 if episode.is_protected else 0,
-                    episode.strength,
-                    1 if episode.processed else 0,
-                    episode.context,
-                    self._to_json(episode.context_tags),
-                    getattr(episode, "source_entity", None),
-                    self._to_json(getattr(episode, "subject_ids", None)),
-                    self._to_json(getattr(episode, "access_grants", None)),
-                    self._to_json(getattr(episode, "consent_grants", None)),
-                    episode.epoch_id,
-                    self._to_json(episode.repeat),
-                    self._to_json(episode.avoid),
-                    episode.created_at.isoformat() if episode.created_at else now,
-                    now,
-                    episode.cloud_synced_at.isoformat() if episode.cloud_synced_at else None,
-                    episode.version,
-                    1 if episode.deleted else 0,
-                ),
-            )
-            # Queue for sync with record data
-            episode_data = self._to_json(self._record_to_dict(episode))
-            self._queue_sync(conn, "episodes", episode.id, "upsert", data=episode_data)
-
-            # Save embedding for search
-            content = self._get_searchable_content("episode", episode)
-            self._save_embedding(conn, "episodes", episode.id, content)
-
-            conn.commit()
-
-        return episode.id
+        """Save an episode. Delegates to episodes_crud."""
+        return _episodes_crud.save_episode(
+            self._connect,
+            self.stack_id,
+            episode,
+            self._now,
+            self._parse_datetime,
+            self._to_json,
+            self._record_to_dict,
+            self._queue_sync,
+            self._save_embedding,
+            self._get_searchable_content,
+            lineage_checker=lambda t, i, d: check_derived_from_cycle(self, t, i, d),
+        )
 
     def update_episode_atomic(
         self, episode: Episode, expected_version: Optional[int] = None
     ) -> bool:
-        """Update an episode with optimistic concurrency control.
-
-        This method performs an atomic update that:
-        1. Checks if the current version matches expected_version
-        2. Increments the version atomically
-        3. Updates all other fields
-
-        Security: Provenance fields have special handling:
-        - source_type: Write-once (preserved from original)
-        - derived_from: Append-only (merged with original)
-        - confidence_history: Append-only (merged with original)
-
-        Args:
-            episode: The episode with updated fields
-            expected_version: The version we expect the record to have.
-                             If None, uses episode.version.
-
-        Returns:
-            True if update succeeded
-
-        Raises:
-            VersionConflictError: If the record's version doesn't match expected
-        """
-        if expected_version is None:
-            expected_version = episode.version
-
-        now = self._now()
-
-        with self._connect() as conn:
-            # First check current version and get original provenance fields
-            current = conn.execute(
-                """SELECT version, source_type, derived_from, confidence_history
-                   FROM episodes WHERE id = ? AND stack_id = ?""",
-                (episode.id, self.stack_id),
-            ).fetchone()
-
-            if not current:
-                return False  # Record doesn't exist
-
-            current_version = current["version"]
-            if current_version != expected_version:
-                raise VersionConflictError(
-                    "episodes", episode.id, expected_version, current_version
-                )
-
-            # Security: Preserve provenance fields (write-once / append-only)
-            # source_type is write-once - always use original
-            original_source_type = current["source_type"] or episode.source_type
-
-            # derived_from is append-only - merge lists
-            original_derived = self._from_json(current["derived_from"]) or []
-            new_derived = episode.derived_from or []
-            merged_derived = list(set(original_derived) | set(new_derived))
-
-            # confidence_history is append-only - merge lists
-            original_history = self._from_json(current["confidence_history"]) or []
-            new_history = episode.confidence_history or []
-            # For history, append new entries that aren't already present
-            merged_history = original_history + [
-                h for h in new_history if h not in original_history
-            ]
-
-            # Atomic update with version increment
-            cursor = conn.execute(
-                """
-                UPDATE episodes SET
-                    objective = ?,
-                    outcome = ?,
-                    outcome_type = ?,
-                    lessons = ?,
-                    tags = ?,
-                    emotional_valence = ?,
-                    emotional_arousal = ?,
-                    emotional_tags = ?,
-                    confidence = ?,
-                    source_type = ?,
-                    source_episodes = ?,
-                    derived_from = ?,
-                    last_verified = ?,
-                    verification_count = ?,
-                    confidence_history = ?,
-                    times_accessed = ?,
-                    last_accessed = ?,
-                    is_protected = ?,
-                    strength = ?,
-                    context = ?,
-                    context_tags = ?,
-                    local_updated_at = ?,
-                    version = version + 1
-                WHERE id = ? AND stack_id = ? AND version = ?
-                """,
-                (
-                    episode.objective,
-                    episode.outcome,
-                    episode.outcome_type,
-                    self._to_json(episode.lessons),
-                    self._to_json(episode.tags),
-                    episode.emotional_valence,
-                    episode.emotional_arousal,
-                    self._to_json(episode.emotional_tags),
-                    episode.confidence,
-                    original_source_type,  # Write-once: preserve original
-                    self._to_json(episode.source_episodes),
-                    self._to_json(merged_derived),  # Append-only: merged
-                    episode.last_verified.isoformat() if episode.last_verified else None,
-                    episode.verification_count,
-                    self._to_json(merged_history),  # Append-only: merged
-                    episode.times_accessed,
-                    episode.last_accessed.isoformat() if episode.last_accessed else None,
-                    1 if episode.is_protected else 0,
-                    episode.strength,
-                    episode.context,
-                    self._to_json(episode.context_tags),
-                    now,
-                    episode.id,
-                    self.stack_id,
-                    expected_version,
-                ),
-            )
-
-            if cursor.rowcount == 0:
-                # Version changed between check and update (rare but possible)
-                conn.rollback()
-                new_current = conn.execute(
-                    "SELECT version FROM episodes WHERE id = ? AND stack_id = ?",
-                    (episode.id, self.stack_id),
-                ).fetchone()
-                actual = new_current["version"] if new_current else -1
-                raise VersionConflictError("episodes", episode.id, expected_version, actual)
-
-            # Queue for sync
-            episode.version = expected_version + 1
-            episode_data = self._to_json(self._record_to_dict(episode))
-            self._queue_sync(conn, "episodes", episode.id, "upsert", data=episode_data)
-
-            # Update embedding
-            content = self._get_searchable_content("episode", episode)
-            self._save_embedding(conn, "episodes", episode.id, content)
-
-            conn.commit()
-
-        return True
+        """Update an episode with optimistic concurrency control. Delegates to episodes_crud."""
+        return _episodes_crud.update_episode_atomic(
+            self._connect,
+            self.stack_id,
+            episode,
+            self._now,
+            self._to_json,
+            self._from_json,
+            self._record_to_dict,
+            self._queue_sync,
+            self._save_embedding,
+            self._get_searchable_content,
+            expected_version=expected_version,
+        )
 
     def save_episodes_batch(self, episodes: List[Episode]) -> List[str]:
-        """Save multiple episodes in a single transaction."""
-        if not episodes:
-            return []
-        now = self._now()
-        ids = []
-        with self._connect() as conn:
-            for episode in episodes:
-                if not episode.id:
-                    episode.id = str(uuid.uuid4())
-                ids.append(episode.id)
-                episode.local_updated_at = self._parse_datetime(now)
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO episodes
-                    (id, stack_id, objective, outcome, outcome_type, lessons, tags,
-                     emotional_valence, emotional_arousal, emotional_tags,
-                     confidence, source_type, source_episodes, derived_from,
-                     last_verified, verification_count, confidence_history,
-                     times_accessed, last_accessed, is_protected, strength,
-                     processed, context, context_tags,
-                     epoch_id, repeat, avoid,
-                     created_at, local_updated_at, cloud_synced_at, version, deleted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        episode.id,
-                        self.stack_id,
-                        episode.objective,
-                        episode.outcome,
-                        episode.outcome_type,
-                        self._to_json(episode.lessons),
-                        self._to_json(episode.tags),
-                        episode.emotional_valence,
-                        episode.emotional_arousal,
-                        self._to_json(episode.emotional_tags),
-                        episode.confidence,
-                        episode.source_type,
-                        self._to_json(episode.source_episodes),
-                        self._to_json(episode.derived_from),
-                        episode.last_verified.isoformat() if episode.last_verified else None,
-                        episode.verification_count,
-                        self._to_json(episode.confidence_history),
-                        episode.times_accessed,
-                        episode.last_accessed.isoformat() if episode.last_accessed else None,
-                        1 if episode.is_protected else 0,
-                        episode.strength,
-                        1 if episode.processed else 0,
-                        episode.context,
-                        self._to_json(episode.context_tags),
-                        episode.epoch_id,
-                        self._to_json(episode.repeat),
-                        self._to_json(episode.avoid),
-                        episode.created_at.isoformat() if episode.created_at else now,
-                        now,
-                        episode.cloud_synced_at.isoformat() if episode.cloud_synced_at else None,
-                        episode.version,
-                        1 if episode.deleted else 0,
-                    ),
-                )
-                episode_data = self._to_json(self._record_to_dict(episode))
-                self._queue_sync(conn, "episodes", episode.id, "upsert", data=episode_data)
-                content = self._get_searchable_content("episode", episode)
-                self._save_embedding(conn, "episodes", episode.id, content)
-            conn.commit()
-        return ids
+        """Save multiple episodes in a single transaction. Delegates to episodes_crud."""
+        return _episodes_crud.save_episodes_batch(
+            self._connect,
+            self.stack_id,
+            episodes,
+            self._now,
+            self._parse_datetime,
+            self._to_json,
+            self._record_to_dict,
+            self._queue_sync,
+            self._save_embedding,
+            self._get_searchable_content,
+        )
 
     def get_episodes(
         self,
@@ -1162,136 +935,63 @@ class SQLiteStorage:
         requesting_entity: Optional[str] = None,
         processed: Optional[bool] = None,
     ) -> List[Episode]:
-        """Get episodes."""
-        query = "SELECT * FROM episodes WHERE stack_id = ? AND deleted = 0"
-        params: List[Any] = [self.stack_id]
-
-        # Apply privacy filter
-        access_filter, access_params = self._build_access_filter(requesting_entity)
-        query += access_filter
-        params.extend(access_params)
-
-        if since:
-            query += " AND created_at >= ?"
-            params.append(since.isoformat())
-
-        if processed is not None:
-            query += " AND processed = ?"
-            params.append(1 if processed else 0)
-
-        query += " ORDER BY created_at DESC LIMIT ?"
-        params.append(limit)
-
-        with self._connect() as conn:
-            rows = conn.execute(query, params).fetchall()
-
-        episodes = [self._row_to_episode(row) for row in rows]
-
-        # Filter by tags in Python (SQLite JSON support is limited)
-        if tags:
-            episodes = [e for e in episodes if e.tags and any(t in e.tags for t in tags)]
-
-        return episodes
+        """Get episodes. Delegates to episodes_crud."""
+        return _episodes_crud.get_episodes(
+            self._connect,
+            self.stack_id,
+            self._build_access_filter,
+            limit=limit,
+            since=since,
+            tags=tags,
+            requesting_entity=requesting_entity,
+            processed=processed,
+        )
 
     def memory_exists(self, memory_type: str, memory_id: str) -> bool:
-        """Check if a memory record exists in the stack.
-
-        Args:
-            memory_type: Type of memory (episode, belief, note, raw, etc.)
-            memory_id: ID of the memory record
-
-        Returns:
-            True if the record exists and is not deleted
-        """
-        table_map = {
-            "episode": "episodes",
-            "belief": "beliefs",
-            "value": "agent_values",
-            "goal": "goals",
-            "note": "notes",
-            "drive": "drives",
-            "relationship": "relationships",
-            "raw": "raw_entries",
-            "playbook": "playbooks",
-        }
-        table = table_map.get(memory_type)
-        if not table:
-            return False
+        """Check if a memory record exists in the stack. Delegates to meta_memory_ops."""
         with self._connect() as conn:
-            row = conn.execute(
-                f"SELECT 1 FROM {table} WHERE id = ? AND stack_id = ? AND deleted = 0",
-                (memory_id, self.stack_id),
-            ).fetchone()
-        return row is not None
+            return _meta_memory_ops.memory_exists(conn, self.stack_id, memory_type, memory_id)
 
     def get_episode(
         self, episode_id: str, requesting_entity: Optional[str] = None
     ) -> Optional[Episode]:
-        """Get a specific episode."""
-        query = "SELECT * FROM episodes WHERE id = ? AND stack_id = ?"
-        params: List[Any] = [episode_id, self.stack_id]
-
-        # Apply privacy filter
-        access_filter, access_params = self._build_access_filter(requesting_entity)
-        query += access_filter
-        params.extend(access_params)
-
-        with self._connect() as conn:
-            row = conn.execute(query, params).fetchone()
-
-        return self._row_to_episode(row) if row else None
+        """Get a specific episode. Delegates to episodes_crud."""
+        return _episodes_crud.get_episode(
+            self._connect,
+            self.stack_id,
+            episode_id,
+            self._build_access_filter,
+            requesting_entity=requesting_entity,
+        )
 
     def _row_to_episode(self, row: sqlite3.Row) -> Episode:
         """Convert row to Episode. Delegates to memory_crud._row_to_episode()."""
         return _mc_row_to_episode(row)
 
     def get_episodes_by_source_entity(self, source_entity: str, limit: int = 500) -> List[Episode]:
-        """Get episodes associated with a source entity for trust computation."""
-        query = """
-            SELECT * FROM episodes
-            WHERE stack_id = ? AND source_entity = ? AND deleted = 0 AND strength > 0.0
-            ORDER BY created_at DESC LIMIT ?
-        """
-        with self._connect() as conn:
-            rows = conn.execute(query, (self.stack_id, source_entity, limit)).fetchall()
-        return [self._row_to_episode(row) for row in rows]
+        """Get episodes associated with a source entity. Delegates to episodes_crud."""
+        return _episodes_crud.get_episodes_by_source_entity(
+            self._connect,
+            self.stack_id,
+            source_entity,
+            limit,
+        )
 
     def update_episode_emotion(
         self, episode_id: str, valence: float, arousal: float, tags: Optional[List[str]] = None
     ) -> bool:
-        """Update emotional associations for an episode.
-
-        Args:
-            episode_id: The episode to update
-            valence: Emotional valence (-1.0 to 1.0)
-            arousal: Emotional arousal (0.0 to 1.0)
-            tags: Emotional tags (e.g., ["joy", "excitement"])
-
-        Returns:
-            True if updated, False if episode not found
-        """
-        # Clamp values to valid ranges
-        valence = max(-1.0, min(1.0, valence))
-        arousal = max(0.0, min(1.0, arousal))
-
-        now = self._now()
-
-        with self._connect() as conn:
-            cursor = conn.execute(
-                """UPDATE episodes SET
-                   emotional_valence = ?,
-                   emotional_arousal = ?,
-                   emotional_tags = ?,
-                   local_updated_at = ?,
-                   version = version + 1
-                   WHERE id = ? AND stack_id = ? AND deleted = 0""",
-                (valence, arousal, self._to_json(tags), now, episode_id, self.stack_id),
-            )
-            if cursor.rowcount > 0:
-                self._queue_sync(conn, "episodes", episode_id, "upsert")
-                conn.commit()
-                return True
-        return False
+        """Update emotional associations for an episode. Delegates to episodes_crud."""
+        return _episodes_crud.update_episode_emotion(
+            self._connect,
+            self.stack_id,
+            episode_id,
+            valence,
+            arousal,
+            self._now,
+            self._to_json,
+            self._queue_sync,
+            tags=tags,
+        )
 
     def search_by_emotion(
         self,
@@ -1300,69 +1000,24 @@ class SQLiteStorage:
         tags: Optional[List[str]] = None,
         limit: int = 10,
     ) -> List[Episode]:
-        """Find episodes matching emotional criteria.
-
-        Args:
-            valence_range: (min, max) valence filter, e.g. (0.5, 1.0) for positive
-            arousal_range: (min, max) arousal filter, e.g. (0.7, 1.0) for high arousal
-            tags: Emotional tags to match (any match)
-            limit: Maximum results
-
-        Returns:
-            List of matching episodes
-        """
-        query = "SELECT * FROM episodes WHERE stack_id = ? AND deleted = 0"
-        params: List[Any] = [self.stack_id]
-
-        if valence_range:
-            query += " AND emotional_valence >= ? AND emotional_valence <= ?"
-            params.extend([valence_range[0], valence_range[1]])
-
-        if arousal_range:
-            query += " AND emotional_arousal >= ? AND emotional_arousal <= ?"
-            params.extend([arousal_range[0], arousal_range[1]])
-
-        query += " ORDER BY created_at DESC LIMIT ?"
-        params.append(limit * 2 if tags else limit)  # Get more if we need to filter by tags
-
-        with self._connect() as conn:
-            rows = conn.execute(query, params).fetchall()
-
-        episodes = [self._row_to_episode(row) for row in rows]
-
-        # Filter by emotional tags in Python
-        if tags:
-            episodes = [
-                e for e in episodes if e.emotional_tags and any(t in e.emotional_tags for t in tags)
-            ][:limit]
-
-        return episodes
+        """Find episodes matching emotional criteria. Delegates to episodes_crud."""
+        return _episodes_crud.search_by_emotion(
+            self._connect,
+            self.stack_id,
+            valence_range=valence_range,
+            arousal_range=arousal_range,
+            tags=tags,
+            limit=limit,
+        )
 
     def get_emotional_episodes(self, days: int = 7, limit: int = 100) -> List[Episode]:
-        """Get episodes with emotional data for summary calculations.
-
-        Args:
-            days: Number of days to look back
-            limit: Maximum episodes to retrieve
-
-        Returns:
-            Episodes with non-zero emotional data
-        """
-        from datetime import timedelta
-
-        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
-
-        query = """SELECT * FROM episodes
-                   WHERE stack_id = ? AND deleted = 0
-                   AND created_at >= ?
-                   AND (emotional_valence != 0.0 OR emotional_arousal != 0.0 OR emotional_tags IS NOT NULL)
-                   ORDER BY created_at DESC
-                   LIMIT ?"""
-
-        with self._connect() as conn:
-            rows = conn.execute(query, (self.stack_id, cutoff, limit)).fetchall()
-
-        return [self._row_to_episode(row) for row in rows]
+        """Get episodes with emotional data. Delegates to episodes_crud."""
+        return _episodes_crud.get_emotional_episodes(
+            self._connect,
+            self.stack_id,
+            days=days,
+            limit=limit,
+        )
 
     # === Beliefs ===
 
@@ -1457,85 +1112,33 @@ class SQLiteStorage:
     # === Values ===
 
     def save_value(self, value: Value) -> str:
-        """Save a value."""
-        if not value.id:
-            value.id = str(uuid.uuid4())
-
-        if value.derived_from:
-            check_derived_from_cycle(self, "value", value.id, value.derived_from)
-
-        now = self._now()
-
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO agent_values
-                (id, stack_id, name, statement, priority, created_at,
-                 confidence, source_type, source_episodes, derived_from,
-                 last_verified, verification_count, confidence_history,
-                 strength,
-                 context, context_tags,
-                 subject_ids, access_grants, consent_grants,
-                 epoch_id,
-                 local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    value.id,
-                    self.stack_id,
-                    value.name,
-                    value.statement,
-                    value.priority,
-                    value.created_at.isoformat() if value.created_at else now,
-                    value.confidence,
-                    value.source_type,
-                    self._to_json(value.source_episodes),
-                    self._to_json(value.derived_from),
-                    value.last_verified.isoformat() if value.last_verified else None,
-                    value.verification_count,
-                    self._to_json(value.confidence_history),
-                    value.strength,
-                    value.context,
-                    self._to_json(value.context_tags),
-                    self._to_json(getattr(value, "subject_ids", None)),
-                    self._to_json(getattr(value, "access_grants", None)),
-                    self._to_json(getattr(value, "consent_grants", None)),
-                    value.epoch_id,
-                    now,
-                    value.cloud_synced_at.isoformat() if value.cloud_synced_at else None,
-                    value.version,
-                    1 if value.deleted else 0,
-                ),
-            )
-            # Queue for sync with record data
-            value_data = self._to_json(self._record_to_dict(value))
-            self._queue_sync(conn, "agent_values", value.id, "upsert", data=value_data)
-
-            # Save embedding for search
-            content = f"{value.name}: {value.statement}"
-            self._save_embedding(conn, "agent_values", value.id, content)
-
-            conn.commit()
-
-        # Sync to flat file
-        self._sync_values_to_file()
-
-        return value.id
+        """Save a value. Delegates to values_crud."""
+        return _values_crud.save_value(
+            self._connect,
+            self.stack_id,
+            value,
+            self._now,
+            self._to_json,
+            self._record_to_dict,
+            self._queue_sync,
+            self._save_embedding,
+            self._sync_values_to_file,
+            lineage_checker=lambda t, i, d: check_derived_from_cycle(self, t, i, d),
+        )
 
     def _sync_values_to_file(self) -> None:
         """Write all values to flat file."""
         sync_values_to_file(self._values_file, self.get_values(limit=100), self._now())
 
     def get_values(self, limit: int = 100, requesting_entity: Optional[str] = None) -> List[Value]:
-        """Get values ordered by priority."""
-        access_filter, access_params = self._build_access_filter(requesting_entity)
-        with self._connect() as conn:
-            rows = conn.execute(
-                f"SELECT * FROM agent_values WHERE stack_id = ? AND deleted = 0{access_filter} ORDER BY priority DESC LIMIT ?",
-                [self.stack_id] + access_params + [limit],
-            ).fetchall()
-
-        return [self._row_to_value(row) for row in rows]
+        """Get values ordered by priority. Delegates to values_crud."""
+        return _values_crud.get_values(
+            self._connect,
+            self.stack_id,
+            self._build_access_filter,
+            limit=limit,
+            requesting_entity=requesting_entity,
+        )
 
     def _row_to_value(self, row: sqlite3.Row) -> Value:
         """Convert row to Value. Delegates to memory_crud._row_to_value()."""
@@ -1544,178 +1147,34 @@ class SQLiteStorage:
     # === Goals ===
 
     def save_goal(self, goal: Goal) -> str:
-        """Save a goal."""
-        if not goal.id:
-            goal.id = str(uuid.uuid4())
-
-        if goal.derived_from:
-            check_derived_from_cycle(self, "goal", goal.id, goal.derived_from)
-
-        now = self._now()
-
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO goals
-                (id, stack_id, title, description, goal_type, priority, status, created_at,
-                 confidence, source_type, source_episodes, derived_from,
-                 last_verified, verification_count, confidence_history,
-                 strength,
-                 context, context_tags,
-                 subject_ids, access_grants, consent_grants,
-                 epoch_id,
-                 local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    goal.id,
-                    self.stack_id,
-                    goal.title,
-                    goal.description,
-                    goal.goal_type,
-                    goal.priority,
-                    goal.status,
-                    goal.created_at.isoformat() if goal.created_at else now,
-                    goal.confidence,
-                    goal.source_type,
-                    self._to_json(goal.source_episodes),
-                    self._to_json(goal.derived_from),
-                    goal.last_verified.isoformat() if goal.last_verified else None,
-                    goal.verification_count,
-                    self._to_json(goal.confidence_history),
-                    goal.strength,
-                    goal.context,
-                    self._to_json(goal.context_tags),
-                    self._to_json(getattr(goal, "subject_ids", None)),
-                    self._to_json(getattr(goal, "access_grants", None)),
-                    self._to_json(getattr(goal, "consent_grants", None)),
-                    goal.epoch_id,
-                    now,
-                    goal.cloud_synced_at.isoformat() if goal.cloud_synced_at else None,
-                    goal.version,
-                    1 if goal.deleted else 0,
-                ),
-            )
-            # Queue for sync with record data
-            goal_data = self._to_json(self._record_to_dict(goal))
-            self._queue_sync(conn, "goals", goal.id, "upsert", data=goal_data)
-
-            # Save embedding for search
-            content = f"{goal.title} {goal.description or ''}"
-            self._save_embedding(conn, "goals", goal.id, content)
-
-            conn.commit()
-
-        # Sync to flat file
-        self._sync_goals_to_file()
-
-        return goal.id
+        """Save a goal. Delegates to goals_crud."""
+        return _goals_crud.save_goal(
+            self._connect,
+            self.stack_id,
+            goal,
+            self._now,
+            self._to_json,
+            self._record_to_dict,
+            self._queue_sync,
+            self._save_embedding,
+            self._sync_goals_to_file,
+            lineage_checker=lambda t, i, d: check_derived_from_cycle(self, t, i, d),
+        )
 
     def update_goal_atomic(self, goal: Goal, expected_version: Optional[int] = None) -> bool:
-        """Update a goal with optimistic concurrency control.
-
-        Args:
-            goal: The goal with updated fields
-            expected_version: The version we expect the record to have.
-                             If None, uses goal.version.
-
-        Returns:
-            True if update succeeded
-
-        Raises:
-            VersionConflictError: If the record's version doesn't match expected
-        """
-        if expected_version is None:
-            expected_version = goal.version
-
-        now = self._now()
-
-        with self._connect() as conn:
-            # Check current version
-            current = conn.execute(
-                "SELECT version FROM goals WHERE id = ? AND stack_id = ?",
-                (goal.id, self.stack_id),
-            ).fetchone()
-
-            if not current:
-                return False
-
-            current_version = current["version"]
-            if current_version != expected_version:
-                raise VersionConflictError("goals", goal.id, expected_version, current_version)
-
-            # Atomic update with version increment
-            cursor = conn.execute(
-                """
-                UPDATE goals SET
-                    status = ?,
-                    priority = ?,
-                    description = ?,
-                    title = ?,
-                    goal_type = ?,
-                    confidence = ?,
-                    source_type = ?,
-                    source_episodes = ?,
-                    derived_from = ?,
-                    last_verified = ?,
-                    verification_count = ?,
-                    confidence_history = ?,
-                    strength = ?,
-                    context = ?,
-                    context_tags = ?,
-                    local_updated_at = ?,
-                    deleted = ?,
-                    version = version + 1
-                WHERE id = ? AND stack_id = ? AND version = ?
-                """,
-                (
-                    goal.status,
-                    goal.priority,
-                    goal.description,
-                    goal.title,
-                    goal.goal_type,
-                    goal.confidence,
-                    goal.source_type,
-                    self._to_json(goal.source_episodes),
-                    self._to_json(goal.derived_from),
-                    goal.last_verified.isoformat() if goal.last_verified else None,
-                    goal.verification_count,
-                    self._to_json(goal.confidence_history),
-                    goal.strength,
-                    goal.context,
-                    self._to_json(goal.context_tags),
-                    now,
-                    1 if goal.deleted else 0,
-                    goal.id,
-                    self.stack_id,
-                    expected_version,
-                ),
-            )
-
-            if cursor.rowcount == 0:
-                conn.rollback()
-                new_current = conn.execute(
-                    "SELECT version FROM goals WHERE id = ? AND stack_id = ?",
-                    (goal.id, self.stack_id),
-                ).fetchone()
-                actual = new_current["version"] if new_current else -1
-                raise VersionConflictError("goals", goal.id, expected_version, actual)
-
-            # Queue for sync
-            goal.version = expected_version + 1
-            goal_data = self._to_json(self._record_to_dict(goal))
-            self._queue_sync(conn, "goals", goal.id, "upsert", data=goal_data)
-
-            # Update embedding
-            content = f"{goal.title} {goal.description or ''}"
-            self._save_embedding(conn, "goals", goal.id, content)
-
-            conn.commit()
-
-        # Sync to flat file
-        self._sync_goals_to_file()
-
-        return True
+        """Update a goal with optimistic concurrency control. Delegates to goals_crud."""
+        return _goals_crud.update_goal_atomic(
+            self._connect,
+            self.stack_id,
+            goal,
+            self._now,
+            self._to_json,
+            self._record_to_dict,
+            self._queue_sync,
+            self._save_embedding,
+            self._sync_goals_to_file,
+            expected_version=expected_version,
+        )
 
     def _sync_goals_to_file(self) -> None:
         """Write all active goals to flat file."""
@@ -1727,25 +1186,15 @@ class SQLiteStorage:
         limit: int = 100,
         requesting_entity: Optional[str] = None,
     ) -> List[Goal]:
-        """Get goals."""
-        query = "SELECT * FROM goals WHERE stack_id = ? AND deleted = 0"
-        params: List[Any] = [self.stack_id]
-
-        if status:
-            query += " AND status = ?"
-            params.append(status)
-
-        access_filter, access_params = self._build_access_filter(requesting_entity)
-        query += access_filter
-
-        query += " ORDER BY created_at DESC LIMIT ?"
-        params.extend(access_params)
-        params.append(limit)
-
-        with self._connect() as conn:
-            rows = conn.execute(query, params).fetchall()
-
-        return [self._row_to_goal(row) for row in rows]
+        """Get goals. Delegates to goals_crud."""
+        return _goals_crud.get_goals(
+            self._connect,
+            self.stack_id,
+            self._build_access_filter,
+            status=status,
+            limit=limit,
+            requesting_entity=requesting_entity,
+        )
 
     def _row_to_goal(self, row: sqlite3.Row) -> Goal:
         """Convert row to Goal. Delegates to memory_crud._row_to_goal()."""
@@ -1754,128 +1203,31 @@ class SQLiteStorage:
     # === Notes ===
 
     def save_note(self, note: Note) -> str:
-        """Save a note."""
-        if not note.id:
-            note.id = str(uuid.uuid4())
-
-        if note.derived_from:
-            check_derived_from_cycle(self, "note", note.id, note.derived_from)
-
-        now = self._now()
-
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO notes
-                (id, stack_id, content, note_type, speaker, reason, tags, created_at,
-                 confidence, source_type, source_episodes, derived_from,
-                 last_verified, verification_count, confidence_history,
-                 strength,
-                 context, context_tags, source_entity,
-                 subject_ids, access_grants, consent_grants,
-                 epoch_id,
-                 local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    note.id,
-                    self.stack_id,
-                    note.content,
-                    note.note_type,
-                    note.speaker,
-                    note.reason,
-                    self._to_json(note.tags),
-                    note.created_at.isoformat() if note.created_at else now,
-                    note.confidence,
-                    note.source_type,
-                    self._to_json(note.source_episodes),
-                    self._to_json(note.derived_from),
-                    note.last_verified.isoformat() if note.last_verified else None,
-                    note.verification_count,
-                    self._to_json(note.confidence_history),
-                    note.strength,
-                    note.context,
-                    self._to_json(note.context_tags),
-                    getattr(note, "source_entity", None),
-                    self._to_json(getattr(note, "subject_ids", None)),
-                    self._to_json(getattr(note, "access_grants", None)),
-                    self._to_json(getattr(note, "consent_grants", None)),
-                    note.epoch_id,
-                    now,
-                    note.cloud_synced_at.isoformat() if note.cloud_synced_at else None,
-                    note.version,
-                    1 if note.deleted else 0,
-                ),
-            )
-            # Queue for sync with record data
-            note_data = self._to_json(self._record_to_dict(note))
-            self._queue_sync(conn, "notes", note.id, "upsert", data=note_data)
-
-            # Save embedding for search
-            self._save_embedding(conn, "notes", note.id, note.content)
-
-            conn.commit()
-
-        return note.id
+        """Save a note. Delegates to notes_crud."""
+        return _notes_crud.save_note(
+            self._connect,
+            self.stack_id,
+            note,
+            self._now,
+            self._to_json,
+            self._record_to_dict,
+            self._queue_sync,
+            self._save_embedding,
+            lineage_checker=lambda t, i, d: check_derived_from_cycle(self, t, i, d),
+        )
 
     def save_notes_batch(self, notes: List[Note]) -> List[str]:
-        """Save multiple notes in a single transaction."""
-        if not notes:
-            return []
-        now = self._now()
-        ids = []
-        with self._connect() as conn:
-            for note in notes:
-                if not note.id:
-                    note.id = str(uuid.uuid4())
-                ids.append(note.id)
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO notes
-                    (id, stack_id, content, note_type, speaker, reason, tags, created_at,
-                     confidence, source_type, source_episodes, derived_from,
-                     last_verified, verification_count, confidence_history,
-                     times_accessed, last_accessed, is_protected, strength,
-                     processed, context, context_tags,
-                     epoch_id,
-                     local_updated_at, cloud_synced_at, version, deleted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        note.id,
-                        self.stack_id,
-                        note.content,
-                        note.note_type,
-                        note.speaker,
-                        note.reason,
-                        self._to_json(note.tags),
-                        note.created_at.isoformat() if note.created_at else now,
-                        note.confidence,
-                        note.source_type,
-                        self._to_json(note.source_episodes),
-                        self._to_json(note.derived_from),
-                        note.last_verified.isoformat() if note.last_verified else None,
-                        note.verification_count,
-                        self._to_json(note.confidence_history),
-                        note.times_accessed,
-                        note.last_accessed.isoformat() if note.last_accessed else None,
-                        1 if note.is_protected else 0,
-                        note.strength,
-                        1 if note.processed else 0,
-                        note.context,
-                        self._to_json(note.context_tags),
-                        note.epoch_id,
-                        now,
-                        note.cloud_synced_at.isoformat() if note.cloud_synced_at else None,
-                        note.version,
-                        1 if note.deleted else 0,
-                    ),
-                )
-                note_data = self._to_json(self._record_to_dict(note))
-                self._queue_sync(conn, "notes", note.id, "upsert", data=note_data)
-                self._save_embedding(conn, "notes", note.id, note.content)
-            conn.commit()
-        return ids
+        """Save multiple notes in a single transaction. Delegates to notes_crud."""
+        return _notes_crud.save_notes_batch(
+            self._connect,
+            self.stack_id,
+            notes,
+            self._now,
+            self._to_json,
+            self._record_to_dict,
+            self._queue_sync,
+            self._save_embedding,
+        )
 
     def get_notes(
         self,
@@ -1884,29 +1236,16 @@ class SQLiteStorage:
         note_type: Optional[str] = None,
         requesting_entity: Optional[str] = None,
     ) -> List[Note]:
-        """Get notes."""
-        query = "SELECT * FROM notes WHERE stack_id = ? AND deleted = 0"
-        params: List[Any] = [self.stack_id]
-
-        if since:
-            query += " AND created_at >= ?"
-            params.append(since.isoformat())
-
-        if note_type:
-            query += " AND note_type = ?"
-            params.append(note_type)
-
-        access_filter, access_params = self._build_access_filter(requesting_entity)
-        query += access_filter
-
-        query += " ORDER BY created_at DESC LIMIT ?"
-        params.extend(access_params)
-        params.append(limit)
-
-        with self._connect() as conn:
-            rows = conn.execute(query, params).fetchall()
-
-        return [self._row_to_note(row) for row in rows]
+        """Get notes. Delegates to notes_crud."""
+        return _notes_crud.get_notes(
+            self._connect,
+            self.stack_id,
+            self._build_access_filter,
+            limit=limit,
+            since=since,
+            note_type=note_type,
+            requesting_entity=requesting_entity,
+        )
 
     def _row_to_note(self, row: sqlite3.Row) -> Note:
         """Convert row to Note. Delegates to memory_crud._row_to_note()."""
@@ -1915,216 +1254,43 @@ class SQLiteStorage:
     # === Drives ===
 
     def save_drive(self, drive: Drive) -> str:
-        """Save or update a drive."""
-        if not drive.id:
-            drive.id = str(uuid.uuid4())
-
-        if drive.derived_from:
-            check_derived_from_cycle(self, "drive", drive.id, drive.derived_from)
-
-        now = self._now()
-
-        with self._connect() as conn:
-            # Check if exists
-            existing = conn.execute(
-                "SELECT id FROM drives WHERE stack_id = ? AND drive_type = ?",
-                (self.stack_id, drive.drive_type),
-            ).fetchone()
-
-            if existing:
-                drive.id = existing["id"]
-                conn.execute(
-                    """
-                    UPDATE drives SET
-                        intensity = ?, focus_areas = ?, updated_at = ?,
-                        confidence = ?, source_type = ?, source_episodes = ?,
-                        derived_from = ?, last_verified = ?, verification_count = ?,
-                        confidence_history = ?, context = ?, context_tags = ?,
-                        subject_ids = ?, access_grants = ?, consent_grants = ?,
-                        local_updated_at = ?, version = version + 1
-                    WHERE id = ?
-                """,
-                    (
-                        drive.intensity,
-                        self._to_json(drive.focus_areas),
-                        now,
-                        drive.confidence,
-                        drive.source_type,
-                        self._to_json(drive.source_episodes),
-                        self._to_json(drive.derived_from),
-                        drive.last_verified.isoformat() if drive.last_verified else None,
-                        drive.verification_count,
-                        self._to_json(drive.confidence_history),
-                        drive.context,
-                        self._to_json(drive.context_tags),
-                        self._to_json(getattr(drive, "subject_ids", None)),
-                        self._to_json(getattr(drive, "access_grants", None)),
-                        self._to_json(getattr(drive, "consent_grants", None)),
-                        now,
-                        drive.id,
-                    ),
-                )
-            else:
-                conn.execute(
-                    """
-                    INSERT INTO drives
-                    (id, stack_id, drive_type, intensity, focus_areas, created_at, updated_at,
-                     confidence, source_type, source_episodes, derived_from,
-                     last_verified, verification_count, confidence_history,
-                     strength,
-                     context, context_tags,
-                     subject_ids, access_grants, consent_grants,
-                     epoch_id,
-                     local_updated_at, cloud_synced_at, version, deleted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        drive.id,
-                        self.stack_id,
-                        drive.drive_type,
-                        drive.intensity,
-                        self._to_json(drive.focus_areas),
-                        now,
-                        now,
-                        drive.confidence,
-                        drive.source_type,
-                        self._to_json(drive.source_episodes),
-                        self._to_json(drive.derived_from),
-                        drive.last_verified.isoformat() if drive.last_verified else None,
-                        drive.verification_count,
-                        self._to_json(drive.confidence_history),
-                        drive.strength,
-                        drive.context,
-                        self._to_json(drive.context_tags),
-                        self._to_json(getattr(drive, "subject_ids", None)),
-                        self._to_json(getattr(drive, "access_grants", None)),
-                        self._to_json(getattr(drive, "consent_grants", None)),
-                        drive.epoch_id,
-                        now,
-                        None,
-                        1,
-                        0,
-                    ),
-                )
-
-            # Queue for sync with record data
-            drive_data = self._to_json(self._record_to_dict(drive))
-            self._queue_sync(conn, "drives", drive.id, "upsert", data=drive_data)
-            conn.commit()
-
-        return drive.id
+        """Save or update a drive. Delegates to drives_crud."""
+        return _drives_crud.save_drive(
+            self._connect,
+            self.stack_id,
+            drive,
+            self._now,
+            self._to_json,
+            self._record_to_dict,
+            self._queue_sync,
+            lineage_checker=lambda t, i, d: check_derived_from_cycle(self, t, i, d),
+        )
 
     def update_drive_atomic(self, drive: Drive, expected_version: Optional[int] = None) -> bool:
-        """Update a drive with optimistic concurrency control.
-
-        Args:
-            drive: The drive with updated fields
-            expected_version: The version we expect the record to have.
-                             If None, uses drive.version.
-
-        Returns:
-            True if update succeeded
-
-        Raises:
-            VersionConflictError: If the record's version doesn't match expected
-        """
-        if expected_version is None:
-            expected_version = drive.version
-
-        now = self._now()
-
-        with self._connect() as conn:
-            # Check current version
-            current = conn.execute(
-                "SELECT version FROM drives WHERE id = ? AND stack_id = ?",
-                (drive.id, self.stack_id),
-            ).fetchone()
-
-            if not current:
-                return False
-
-            current_version = current["version"]
-            if current_version != expected_version:
-                raise VersionConflictError("drives", drive.id, expected_version, current_version)
-
-            # Atomic update with version increment
-            cursor = conn.execute(
-                """
-                UPDATE drives SET
-                    intensity = ?,
-                    focus_areas = ?,
-                    updated_at = ?,
-                    confidence = ?,
-                    source_type = ?,
-                    source_episodes = ?,
-                    derived_from = ?,
-                    last_verified = ?,
-                    verification_count = ?,
-                    confidence_history = ?,
-                    context = ?,
-                    context_tags = ?,
-                    local_updated_at = ?,
-                    version = version + 1
-                WHERE id = ? AND stack_id = ? AND version = ?
-                """,
-                (
-                    drive.intensity,
-                    self._to_json(drive.focus_areas),
-                    now,
-                    drive.confidence,
-                    drive.source_type,
-                    self._to_json(drive.source_episodes),
-                    self._to_json(drive.derived_from),
-                    drive.last_verified.isoformat() if drive.last_verified else None,
-                    drive.verification_count,
-                    self._to_json(drive.confidence_history),
-                    drive.context,
-                    self._to_json(drive.context_tags),
-                    now,
-                    drive.id,
-                    self.stack_id,
-                    expected_version,
-                ),
-            )
-
-            if cursor.rowcount == 0:
-                conn.rollback()
-                new_current = conn.execute(
-                    "SELECT version FROM drives WHERE id = ? AND stack_id = ?",
-                    (drive.id, self.stack_id),
-                ).fetchone()
-                actual = new_current["version"] if new_current else -1
-                raise VersionConflictError("drives", drive.id, expected_version, actual)
-
-            # Queue for sync
-            drive.version = expected_version + 1
-            drive_data = self._to_json(self._record_to_dict(drive))
-            self._queue_sync(conn, "drives", drive.id, "upsert", data=drive_data)
-
-            conn.commit()
-
-        return True
+        """Update a drive with optimistic concurrency control. Delegates to drives_crud."""
+        return _drives_crud.update_drive_atomic(
+            self._connect,
+            self.stack_id,
+            drive,
+            self._now,
+            self._to_json,
+            self._record_to_dict,
+            self._queue_sync,
+            expected_version=expected_version,
+        )
 
     def get_drives(self, requesting_entity: Optional[str] = None) -> List[Drive]:
-        """Get all drives."""
-        access_filter, access_params = self._build_access_filter(requesting_entity)
-        with self._connect() as conn:
-            rows = conn.execute(
-                f"SELECT * FROM drives WHERE stack_id = ? AND deleted = 0{access_filter}",
-                [self.stack_id] + access_params,
-            ).fetchall()
-
-        return [self._row_to_drive(row) for row in rows]
+        """Get all drives. Delegates to drives_crud."""
+        return _drives_crud.get_drives(
+            self._connect,
+            self.stack_id,
+            self._build_access_filter,
+            requesting_entity=requesting_entity,
+        )
 
     def get_drive(self, drive_type: str) -> Optional[Drive]:
-        """Get a specific drive."""
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM drives WHERE stack_id = ? AND drive_type = ? AND deleted = 0",
-                (self.stack_id, drive_type),
-            ).fetchone()
-
-        return self._row_to_drive(row) if row else None
+        """Get a specific drive. Delegates to drives_crud."""
+        return _drives_crud.get_drive(self._connect, self.stack_id, drive_type)
 
     def _row_to_drive(self, row: sqlite3.Row) -> Drive:
         """Convert row to Drive. Delegates to memory_crud._row_to_drive()."""
@@ -2133,139 +1299,18 @@ class SQLiteStorage:
     # === Relationships ===
 
     def save_relationship(self, relationship: Relationship) -> str:
-        """Save or update a relationship. Logs history on changes."""
-        if not relationship.id:
-            relationship.id = str(uuid.uuid4())
-
-        if relationship.derived_from:
-            check_derived_from_cycle(
-                self, "relationship", relationship.id, relationship.derived_from
-            )
-
-        now = self._now()
-
-        with self._connect() as conn:
-            # Check if exists - fetch full row for change detection
-            existing = conn.execute(
-                "SELECT * FROM relationships WHERE stack_id = ? AND entity_name = ?",
-                (self.stack_id, relationship.entity_name),
-            ).fetchone()
-
-            if existing:
-                relationship.id = existing["id"]
-
-                # Detect changes and log history
-                self._log_relationship_changes(conn, existing, relationship, now)
-
-                conn.execute(
-                    """
-                    UPDATE relationships SET
-                        entity_type = ?, relationship_type = ?, notes = ?,
-                        sentiment = ?, interaction_count = ?, last_interaction = ?,
-                        confidence = ?, source_type = ?, source_episodes = ?,
-                        derived_from = ?, last_verified = ?, verification_count = ?,
-                        confidence_history = ?, context = ?, context_tags = ?,
-                        subject_ids = ?, access_grants = ?, consent_grants = ?,
-                        local_updated_at = ?, version = version + 1
-                    WHERE id = ?
-                """,
-                    (
-                        relationship.entity_type,
-                        relationship.relationship_type,
-                        relationship.notes,
-                        relationship.sentiment,
-                        relationship.interaction_count,
-                        (
-                            relationship.last_interaction.isoformat()
-                            if relationship.last_interaction
-                            else None
-                        ),
-                        relationship.confidence,
-                        relationship.source_type,
-                        self._to_json(relationship.source_episodes),
-                        self._to_json(relationship.derived_from),
-                        (
-                            relationship.last_verified.isoformat()
-                            if relationship.last_verified
-                            else None
-                        ),
-                        relationship.verification_count,
-                        self._to_json(relationship.confidence_history),
-                        relationship.context,
-                        self._to_json(relationship.context_tags),
-                        self._to_json(getattr(relationship, "subject_ids", None)),
-                        self._to_json(getattr(relationship, "access_grants", None)),
-                        self._to_json(getattr(relationship, "consent_grants", None)),
-                        now,
-                        relationship.id,
-                    ),
-                )
-            else:
-                conn.execute(
-                    """
-                    INSERT INTO relationships
-                    (id, stack_id, entity_name, entity_type, relationship_type, notes,
-                     sentiment, interaction_count, last_interaction, created_at,
-                     confidence, source_type, source_episodes, derived_from,
-                     last_verified, verification_count, confidence_history,
-                     strength,
-                     context, context_tags,
-                     subject_ids, access_grants, consent_grants,
-                     epoch_id,
-                     local_updated_at, cloud_synced_at, version, deleted)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        relationship.id,
-                        self.stack_id,
-                        relationship.entity_name,
-                        relationship.entity_type,
-                        relationship.relationship_type,
-                        relationship.notes,
-                        relationship.sentiment,
-                        relationship.interaction_count,
-                        (
-                            relationship.last_interaction.isoformat()
-                            if relationship.last_interaction
-                            else None
-                        ),
-                        now,
-                        relationship.confidence,
-                        relationship.source_type,
-                        self._to_json(relationship.source_episodes),
-                        self._to_json(relationship.derived_from),
-                        (
-                            relationship.last_verified.isoformat()
-                            if relationship.last_verified
-                            else None
-                        ),
-                        relationship.verification_count,
-                        self._to_json(relationship.confidence_history),
-                        relationship.strength,
-                        relationship.context,
-                        self._to_json(relationship.context_tags),
-                        self._to_json(getattr(relationship, "subject_ids", None)),
-                        self._to_json(getattr(relationship, "access_grants", None)),
-                        self._to_json(getattr(relationship, "consent_grants", None)),
-                        relationship.epoch_id,
-                        now,
-                        None,
-                        1,
-                        0,
-                    ),
-                )
-
-            # Queue for sync with record data
-            relationship_data = self._to_json(self._record_to_dict(relationship))
-            self._queue_sync(
-                conn, "relationships", relationship.id, "upsert", data=relationship_data
-            )
-            conn.commit()
-
-        # Sync to flat file
-        self._sync_relationships_to_file()
-
-        return relationship.id
+        """Save or update a relationship. Delegates to relationships_crud."""
+        return _relationships_crud.save_relationship(
+            self._connect,
+            self.stack_id,
+            relationship,
+            self._now,
+            self._to_json,
+            self._record_to_dict,
+            self._queue_sync,
+            self._sync_relationships_to_file,
+            lineage_checker=lambda t, i, d: check_derived_from_cycle(self, t, i, d),
+        )
 
     def update_relationship_atomic(
         self, relationship: Relationship, expected_version: Optional[int] = None
@@ -2399,32 +1444,18 @@ class SQLiteStorage:
     def get_relationships(
         self, entity_type: Optional[str] = None, requesting_entity: Optional[str] = None
     ) -> List[Relationship]:
-        """Get relationships."""
-        query = "SELECT * FROM relationships WHERE stack_id = ? AND deleted = 0"
-        params: List[Any] = [self.stack_id]
-
-        if entity_type:
-            query += " AND entity_type = ?"
-            params.append(entity_type)
-
-        access_filter, access_params = self._build_access_filter(requesting_entity)
-        query += access_filter
-        params.extend(access_params)
-
-        with self._connect() as conn:
-            rows = conn.execute(query, params).fetchall()
-
-        return [self._row_to_relationship(row) for row in rows]
+        """Get relationships. Delegates to relationships_crud."""
+        return _relationships_crud.get_relationships(
+            self._connect,
+            self.stack_id,
+            self._build_access_filter,
+            entity_type=entity_type,
+            requesting_entity=requesting_entity,
+        )
 
     def get_relationship(self, entity_name: str) -> Optional[Relationship]:
-        """Get a specific relationship."""
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM relationships WHERE stack_id = ? AND entity_name = ? AND deleted = 0",
-                (self.stack_id, entity_name),
-            ).fetchone()
-
-        return self._row_to_relationship(row) if row else None
+        """Get a specific relationship. Delegates to relationships_crud."""
+        return _relationships_crud.get_relationship(self._connect, self.stack_id, entity_name)
 
     def _row_to_relationship(self, row: sqlite3.Row) -> Relationship:
         """Convert row to Relationship. Delegates to memory_crud._row_to_relationship()."""
@@ -2433,92 +1464,26 @@ class SQLiteStorage:
     # === Epochs (KEP v3 temporal eras) ===
 
     def save_epoch(self, epoch: Epoch) -> str:
-        """Save an epoch. Returns the epoch ID."""
-
-        if not epoch.id:
-            epoch.id = str(uuid.uuid4())
-
-        now = self._now()
-
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO epochs
-                (id, stack_id, epoch_number, name, started_at, ended_at,
-                 trigger_type, trigger_description, summary,
-                 key_belief_ids, key_relationship_ids,
-                 key_goal_ids, dominant_drive_ids,
-                 local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    epoch.id,
-                    self.stack_id,
-                    epoch.epoch_number,
-                    epoch.name,
-                    epoch.started_at.isoformat() if epoch.started_at else now,
-                    epoch.ended_at.isoformat() if epoch.ended_at else None,
-                    epoch.trigger_type,
-                    epoch.trigger_description,
-                    epoch.summary,
-                    self._to_json(epoch.key_belief_ids),
-                    self._to_json(epoch.key_relationship_ids),
-                    self._to_json(epoch.key_goal_ids),
-                    self._to_json(epoch.dominant_drive_ids),
-                    now,
-                    epoch.cloud_synced_at.isoformat() if epoch.cloud_synced_at else None,
-                    epoch.version,
-                    1 if epoch.deleted else 0,
-                ),
-            )
-            conn.commit()
-
-        return epoch.id
+        """Save an epoch. Delegates to epoch_crud."""
+        return _epoch_crud.save_epoch(self._connect, self.stack_id, epoch, self._now, self._to_json)
 
     def get_epoch(self, epoch_id: str) -> Optional[Epoch]:
-        """Get a specific epoch by ID."""
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM epochs WHERE id = ? AND stack_id = ? AND deleted = 0",
-                (epoch_id, self.stack_id),
-            ).fetchone()
-
-        return self._row_to_epoch(row) if row else None
+        """Get a specific epoch by ID. Delegates to epoch_crud."""
+        return _epoch_crud.get_epoch(self._connect, self.stack_id, epoch_id)
 
     def get_epochs(self, limit: int = 100) -> List[Epoch]:
-        """Get all epochs, ordered by epoch_number DESC."""
-        with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM epochs WHERE stack_id = ? AND deleted = 0 "
-                "ORDER BY epoch_number DESC LIMIT ?",
-                (self.stack_id, limit),
-            ).fetchall()
-
-        return [self._row_to_epoch(row) for row in rows]
+        """Get all epochs. Delegates to epoch_crud."""
+        return _epoch_crud.get_epochs(self._connect, self.stack_id, limit=limit)
 
     def get_current_epoch(self) -> Optional[Epoch]:
-        """Get the currently active (open) epoch, if any."""
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM epochs WHERE stack_id = ? AND ended_at IS NULL AND deleted = 0 "
-                "ORDER BY epoch_number DESC LIMIT 1",
-                (self.stack_id,),
-            ).fetchone()
-
-        return self._row_to_epoch(row) if row else None
+        """Get the currently active epoch. Delegates to epoch_crud."""
+        return _epoch_crud.get_current_epoch(self._connect, self.stack_id)
 
     def close_epoch(self, epoch_id: str, summary: Optional[str] = None) -> bool:
-        """Close an epoch by setting ended_at. Returns True if closed."""
-        now = self._now()
-        with self._connect() as conn:
-            cursor = conn.execute(
-                "UPDATE epochs SET ended_at = ?, summary = COALESCE(?, summary), "
-                "local_updated_at = ?, version = version + 1 "
-                "WHERE id = ? AND stack_id = ? AND ended_at IS NULL AND deleted = 0",
-                (now, summary, now, epoch_id, self.stack_id),
-            )
-            conn.commit()
-        return cursor.rowcount > 0
+        """Close an epoch. Delegates to epoch_crud."""
+        return _epoch_crud.close_epoch(
+            self._connect, self.stack_id, epoch_id, self._now, summary=summary
+        )
 
     def _row_to_epoch(self, row: sqlite3.Row) -> Epoch:
         """Convert row to Epoch. Delegates to memory_crud._row_to_epoch()."""
@@ -2527,70 +1492,18 @@ class SQLiteStorage:
     # === Summaries (Fractal Summarization) ===
 
     def save_summary(self, summary: Summary) -> str:
-        """Save a summary. Returns the summary ID."""
-        if not summary.id:
-            summary.id = str(uuid.uuid4())
-
-        now = self._now()
-
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO summaries
-                (id, stack_id, scope, period_start, period_end, epoch_id,
-                 content, key_themes, supersedes, is_protected,
-                 created_at, updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    summary.id,
-                    self.stack_id,
-                    summary.scope,
-                    summary.period_start,
-                    summary.period_end,
-                    summary.epoch_id,
-                    summary.content,
-                    self._to_json(summary.key_themes),
-                    self._to_json(summary.supersedes),
-                    1 if summary.is_protected else 0,
-                    summary.created_at.isoformat() if summary.created_at else now,
-                    now,
-                    summary.cloud_synced_at.isoformat() if summary.cloud_synced_at else None,
-                    summary.version,
-                    1 if summary.deleted else 0,
-                ),
-            )
-            conn.commit()
-
-        return summary.id
+        """Save a summary. Delegates to narrative_summary_crud."""
+        return _narrative_summary_crud.save_summary(
+            self._connect, self.stack_id, summary, self._now, self._to_json
+        )
 
     def get_summary(self, summary_id: str) -> Optional[Summary]:
-        """Get a specific summary by ID."""
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM summaries WHERE id = ? AND stack_id = ? AND deleted = 0",
-                (summary_id, self.stack_id),
-            ).fetchone()
-
-        return self._row_to_summary(row) if row else None
+        """Get a specific summary by ID. Delegates to narrative_summary_crud."""
+        return _narrative_summary_crud.get_summary(self._connect, self.stack_id, summary_id)
 
     def list_summaries(self, stack_id: str, scope: Optional[str] = None) -> List[Summary]:
-        """Get summaries, optionally filtered by scope."""
-        with self._connect() as conn:
-            if scope:
-                rows = conn.execute(
-                    "SELECT * FROM summaries WHERE stack_id = ? AND scope = ? AND deleted = 0 "
-                    "ORDER BY period_start DESC",
-                    (self.stack_id, scope),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT * FROM summaries WHERE stack_id = ? AND deleted = 0 "
-                    "ORDER BY period_start DESC",
-                    (self.stack_id,),
-                ).fetchall()
-
-        return [self._row_to_summary(row) for row in rows]
+        """Get summaries. Delegates to narrative_summary_crud."""
+        return _narrative_summary_crud.list_summaries(self._connect, self.stack_id, scope=scope)
 
     def _row_to_summary(self, row: sqlite3.Row) -> Summary:
         """Convert row to Summary. Delegates to memory_crud._row_to_summary()."""
@@ -2599,51 +1512,16 @@ class SQLiteStorage:
     # === Self-Narratives (KEP v3) ===
 
     def save_self_narrative(self, narrative: SelfNarrative) -> str:
-        """Save a self-narrative. Returns the narrative ID."""
-        if not narrative.id:
-            narrative.id = str(uuid.uuid4())
-
-        now = self._now()
-
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO self_narratives
-                (id, stack_id, epoch_id, narrative_type, content,
-                 key_themes, unresolved_tensions, is_active, supersedes,
-                 created_at, updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    narrative.id,
-                    self.stack_id,
-                    narrative.epoch_id,
-                    narrative.narrative_type,
-                    narrative.content,
-                    self._to_json(narrative.key_themes),
-                    self._to_json(narrative.unresolved_tensions),
-                    1 if narrative.is_active else 0,
-                    narrative.supersedes,
-                    narrative.created_at.isoformat() if narrative.created_at else now,
-                    now,
-                    narrative.cloud_synced_at.isoformat() if narrative.cloud_synced_at else None,
-                    narrative.version,
-                    1 if narrative.deleted else 0,
-                ),
-            )
-            conn.commit()
-
-        return narrative.id
+        """Save a self-narrative. Delegates to narrative_summary_crud."""
+        return _narrative_summary_crud.save_self_narrative(
+            self._connect, self.stack_id, narrative, self._now, self._to_json
+        )
 
     def get_self_narrative(self, narrative_id: str) -> Optional[SelfNarrative]:
-        """Get a specific self-narrative by ID."""
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM self_narratives WHERE id = ? AND stack_id = ? AND deleted = 0",
-                (narrative_id, self.stack_id),
-            ).fetchone()
-
-        return self._row_to_self_narrative(row) if row else None
+        """Get a specific self-narrative. Delegates to narrative_summary_crud."""
+        return _narrative_summary_crud.get_self_narrative(
+            self._connect, self.stack_id, narrative_id
+        )
 
     def list_self_narratives(
         self,
@@ -2651,37 +1529,16 @@ class SQLiteStorage:
         narrative_type: Optional[str] = None,
         active_only: bool = True,
     ) -> List[SelfNarrative]:
-        """Get self-narratives, optionally filtered."""
-        with self._connect() as conn:
-            conditions = ["stack_id = ?", "deleted = 0"]
-            params: list = [self.stack_id]
-
-            if narrative_type:
-                conditions.append("narrative_type = ?")
-                params.append(narrative_type)
-
-            if active_only:
-                conditions.append("is_active = 1")
-
-            where = " AND ".join(conditions)
-            rows = conn.execute(
-                f"SELECT * FROM self_narratives WHERE {where} ORDER BY updated_at DESC",
-                params,
-            ).fetchall()
-
-        return [self._row_to_self_narrative(row) for row in rows]
+        """Get self-narratives. Delegates to narrative_summary_crud."""
+        return _narrative_summary_crud.list_self_narratives(
+            self._connect, self.stack_id, narrative_type=narrative_type, active_only=active_only
+        )
 
     def deactivate_self_narratives(self, stack_id: str, narrative_type: str) -> int:
-        """Deactivate all active narratives of a given type."""
-        now = self._now()
-        with self._connect() as conn:
-            cursor = conn.execute(
-                "UPDATE self_narratives SET is_active = 0, updated_at = ? "
-                "WHERE stack_id = ? AND narrative_type = ? AND is_active = 1 AND deleted = 0",
-                (now, self.stack_id, narrative_type),
-            )
-            conn.commit()
-            return cursor.rowcount
+        """Deactivate all active narratives of a given type. Delegates to narrative_summary_crud."""
+        return _narrative_summary_crud.deactivate_self_narratives(
+            self._connect, self.stack_id, narrative_type, self._now
+        )
 
     def _row_to_self_narrative(self, row: sqlite3.Row) -> SelfNarrative:
         """Convert row to SelfNarrative. Delegates to memory_crud._row_to_self_narrative()."""
@@ -2690,261 +1547,70 @@ class SQLiteStorage:
     # === Trust Assessments (KEP v3) ===
 
     def save_trust_assessment(self, assessment: TrustAssessment) -> str:
-        """Save or update a trust assessment. Returns the assessment ID."""
-        now = self._now()
-        with self._connect() as conn:
-            existing = conn.execute(
-                "SELECT id FROM trust_assessments "
-                "WHERE stack_id = ? AND entity = ? AND deleted = 0",
-                (self.stack_id, assessment.entity),
-            ).fetchone()
-            if existing:
-                conn.execute(
-                    "UPDATE trust_assessments SET dimensions = ?, authority = ?, "
-                    "evidence_episode_ids = ?, last_updated = ?, local_updated_at = ?, "
-                    "version = version + 1 WHERE id = ?",
-                    (
-                        json.dumps(assessment.dimensions),
-                        json.dumps(assessment.authority or []),
-                        json.dumps(assessment.evidence_episode_ids or []),
-                        now,
-                        now,
-                        existing["id"],
-                    ),
-                )
-                return existing["id"]
-            else:
-                conn.execute(
-                    "INSERT INTO trust_assessments "
-                    "(id, stack_id, entity, dimensions, authority, evidence_episode_ids, "
-                    "last_updated, created_at, local_updated_at, cloud_synced_at, "
-                    "version, deleted) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        assessment.id,
-                        self.stack_id,
-                        assessment.entity,
-                        json.dumps(assessment.dimensions),
-                        json.dumps(assessment.authority or []),
-                        json.dumps(assessment.evidence_episode_ids or []),
-                        now,
-                        now,
-                        now,
-                        None,
-                        1,
-                        0,
-                    ),
-                )
-                return assessment.id
+        """Save or update a trust assessment. Delegates to trust_crud."""
+        return _trust_crud.save_trust_assessment(
+            self._connect, self.stack_id, assessment, self._now
+        )
 
     def get_trust_assessment(self, entity: str) -> Optional[TrustAssessment]:
-        """Get a trust assessment for a specific entity."""
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM trust_assessments "
-                "WHERE stack_id = ? AND entity = ? AND deleted = 0",
-                (self.stack_id, entity),
-            ).fetchone()
-            if not row:
-                return None
-            return TrustAssessment(
-                id=row["id"],
-                stack_id=row["stack_id"],
-                entity=row["entity"],
-                dimensions=json.loads(row["dimensions"]),
-                authority=(json.loads(row["authority"]) if row["authority"] else []),
-                evidence_episode_ids=(
-                    json.loads(row["evidence_episode_ids"]) if row["evidence_episode_ids"] else []
-                ),
-                last_updated=(parse_datetime(row["last_updated"]) if row["last_updated"] else None),
-                created_at=(parse_datetime(row["created_at"]) if row["created_at"] else None),
-                local_updated_at=(
-                    parse_datetime(row["local_updated_at"]) if row["local_updated_at"] else None
-                ),
-                cloud_synced_at=(
-                    parse_datetime(row["cloud_synced_at"]) if row["cloud_synced_at"] else None
-                ),
-                version=row["version"],
-                deleted=bool(row["deleted"]),
-            )
+        """Get a trust assessment. Delegates to trust_crud."""
+        return _trust_crud.get_trust_assessment(self._connect, self.stack_id, entity)
 
     def get_trust_assessments(self) -> List[TrustAssessment]:
-        """Get all trust assessments for the agent."""
-        with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM trust_assessments "
-                "WHERE stack_id = ? AND deleted = 0 ORDER BY entity",
-                (self.stack_id,),
-            ).fetchall()
-            return [
-                TrustAssessment(
-                    id=r["id"],
-                    stack_id=r["stack_id"],
-                    entity=r["entity"],
-                    dimensions=json.loads(r["dimensions"]),
-                    authority=(json.loads(r["authority"]) if r["authority"] else []),
-                    evidence_episode_ids=(
-                        json.loads(r["evidence_episode_ids"]) if r["evidence_episode_ids"] else []
-                    ),
-                    last_updated=(parse_datetime(r["last_updated"]) if r["last_updated"] else None),
-                    created_at=(parse_datetime(r["created_at"]) if r["created_at"] else None),
-                    local_updated_at=(
-                        parse_datetime(r["local_updated_at"]) if r["local_updated_at"] else None
-                    ),
-                    cloud_synced_at=(
-                        parse_datetime(r["cloud_synced_at"]) if r["cloud_synced_at"] else None
-                    ),
-                    version=r["version"],
-                    deleted=bool(r["deleted"]),
-                )
-                for r in rows
-            ]
+        """Get all trust assessments. Delegates to trust_crud."""
+        return _trust_crud.get_trust_assessments(self._connect, self.stack_id)
 
     def delete_trust_assessment(self, entity: str) -> bool:
-        """Delete a trust assessment (soft delete)."""
-        now = self._now()
-        with self._connect() as conn:
-            result = conn.execute(
-                "UPDATE trust_assessments SET deleted = 1, "
-                "local_updated_at = ? "
-                "WHERE stack_id = ? AND entity = ? AND deleted = 0",
-                (now, self.stack_id, entity),
-            )
-            return result.rowcount > 0
+        """Delete a trust assessment. Delegates to trust_crud."""
+        return _trust_crud.delete_trust_assessment(self._connect, self.stack_id, entity, self._now)
 
     # === Diagnostic Sessions & Reports ===
 
     def save_diagnostic_session(self, session: DiagnosticSession) -> str:
-        """Save a diagnostic session. Returns the session ID."""
-        now = self._now()
-        with self._connect() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO diagnostic_sessions "
-                "(id, stack_id, session_type, access_level, status, consent_given, "
-                "started_at, completed_at, local_updated_at, cloud_synced_at, "
-                "version, deleted) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    session.id,
-                    self.stack_id,
-                    session.session_type,
-                    session.access_level,
-                    session.status,
-                    1 if session.consent_given else 0,
-                    (session.started_at.isoformat() if session.started_at else now),
-                    (session.completed_at.isoformat() if session.completed_at else None),
-                    now,
-                    None,
-                    session.version,
-                    1 if session.deleted else 0,
-                ),
-            )
-        return session.id
+        """Save a diagnostic session. Delegates to diagnostic_crud."""
+        return _diagnostic_crud.save_diagnostic_session(
+            self._connect, self.stack_id, session, self._now
+        )
 
     def get_diagnostic_session(self, session_id: str) -> Optional[DiagnosticSession]:
-        """Get a specific diagnostic session by ID."""
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM diagnostic_sessions "
-                "WHERE id = ? AND stack_id = ? AND deleted = 0",
-                (session_id, self.stack_id),
-            ).fetchone()
-            if not row:
-                return None
-            return self._row_to_diagnostic_session(row)
+        """Get a specific diagnostic session. Delegates to diagnostic_crud."""
+        return _diagnostic_crud.get_diagnostic_session(self._connect, self.stack_id, session_id)
 
     def get_diagnostic_sessions(
         self,
         status: Optional[str] = None,
         limit: int = 100,
     ) -> List[DiagnosticSession]:
-        """Get diagnostic sessions, optionally filtered by status."""
-        with self._connect() as conn:
-            if status:
-                rows = conn.execute(
-                    "SELECT * FROM diagnostic_sessions "
-                    "WHERE stack_id = ? AND status = ? AND deleted = 0 "
-                    "ORDER BY started_at DESC LIMIT ?",
-                    (self.stack_id, status, limit),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT * FROM diagnostic_sessions "
-                    "WHERE stack_id = ? AND deleted = 0 "
-                    "ORDER BY started_at DESC LIMIT ?",
-                    (self.stack_id, limit),
-                ).fetchall()
-            return [self._row_to_diagnostic_session(r) for r in rows]
+        """Get diagnostic sessions. Delegates to diagnostic_crud."""
+        return _diagnostic_crud.get_diagnostic_sessions(
+            self._connect, self.stack_id, status=status, limit=limit
+        )
 
     def complete_diagnostic_session(self, session_id: str) -> bool:
-        """Mark a diagnostic session as completed. Returns True if updated."""
-        now = self._now()
-        with self._connect() as conn:
-            result = conn.execute(
-                "UPDATE diagnostic_sessions SET status = 'completed', "
-                "completed_at = ?, local_updated_at = ?, version = version + 1 "
-                "WHERE id = ? AND stack_id = ? AND deleted = 0 AND status = 'active'",
-                (now, now, session_id, self.stack_id),
-            )
-            return result.rowcount > 0
+        """Mark a diagnostic session as completed. Delegates to diagnostic_crud."""
+        return _diagnostic_crud.complete_diagnostic_session(
+            self._connect, self.stack_id, session_id, self._now
+        )
 
     def save_diagnostic_report(self, report: DiagnosticReport) -> str:
-        """Save a diagnostic report. Returns the report ID."""
-        now = self._now()
-        with self._connect() as conn:
-            conn.execute(
-                "INSERT OR REPLACE INTO diagnostic_reports "
-                "(id, stack_id, session_id, findings, summary, "
-                "created_at, local_updated_at, cloud_synced_at, version, deleted) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (
-                    report.id,
-                    self.stack_id,
-                    report.session_id,
-                    json.dumps(report.findings) if report.findings is not None else None,
-                    report.summary,
-                    (report.created_at.isoformat() if report.created_at else now),
-                    now,
-                    None,
-                    report.version,
-                    1 if report.deleted else 0,
-                ),
-            )
-        return report.id
+        """Save a diagnostic report. Delegates to diagnostic_crud."""
+        return _diagnostic_crud.save_diagnostic_report(
+            self._connect, self.stack_id, report, self._now
+        )
 
     def get_diagnostic_report(self, report_id: str) -> Optional[DiagnosticReport]:
-        """Get a specific diagnostic report by ID."""
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM diagnostic_reports " "WHERE id = ? AND stack_id = ? AND deleted = 0",
-                (report_id, self.stack_id),
-            ).fetchone()
-            if not row:
-                return None
-            return self._row_to_diagnostic_report(row)
+        """Get a specific diagnostic report. Delegates to diagnostic_crud."""
+        return _diagnostic_crud.get_diagnostic_report(self._connect, self.stack_id, report_id)
 
     def get_diagnostic_reports(
         self,
         session_id: Optional[str] = None,
         limit: int = 100,
     ) -> List[DiagnosticReport]:
-        """Get diagnostic reports, optionally filtered by session."""
-        with self._connect() as conn:
-            if session_id:
-                rows = conn.execute(
-                    "SELECT * FROM diagnostic_reports "
-                    "WHERE stack_id = ? AND session_id = ? AND deleted = 0 "
-                    "ORDER BY created_at DESC LIMIT ?",
-                    (self.stack_id, session_id, limit),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT * FROM diagnostic_reports "
-                    "WHERE stack_id = ? AND deleted = 0 "
-                    "ORDER BY created_at DESC LIMIT ?",
-                    (self.stack_id, limit),
-                ).fetchall()
-            return [self._row_to_diagnostic_report(r) for r in rows]
+        """Get diagnostic reports. Delegates to diagnostic_crud."""
+        return _diagnostic_crud.get_diagnostic_reports(
+            self._connect, self.stack_id, session_id=session_id, limit=limit
+        )
 
     def _row_to_diagnostic_session(self, row: sqlite3.Row) -> DiagnosticSession:
         """Convert row to DiagnosticSession. Delegates to memory_crud._row_to_diagnostic_session()."""
@@ -2963,162 +1629,18 @@ class SQLiteStorage:
         new_rel: Relationship,
         now: str,
     ) -> None:
-        """Detect changes between existing and new relationship, log history entries."""
-        rel_id = existing_row["id"]
-        entity_name = existing_row["entity_name"]
-
-        # Check sentiment/trust change
-        old_sentiment = existing_row["sentiment"]
-        if new_rel.sentiment != old_sentiment:
-            entry_id = str(uuid.uuid4())
-            conn.execute(
-                """
-                INSERT INTO relationship_history
-                (id, stack_id, relationship_id, entity_name, event_type,
-                 old_value, new_value, notes, created_at,
-                 local_updated_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    entry_id,
-                    self.stack_id,
-                    rel_id,
-                    entity_name,
-                    "trust_change",
-                    json.dumps({"sentiment": old_sentiment}),
-                    json.dumps({"sentiment": new_rel.sentiment}),
-                    None,
-                    now,
-                    now,
-                    1,
-                    0,
-                ),
-            )
-
-        # Check relationship_type change
-        old_type = existing_row["relationship_type"]
-        if new_rel.relationship_type != old_type:
-            entry_id = str(uuid.uuid4())
-            conn.execute(
-                """
-                INSERT INTO relationship_history
-                (id, stack_id, relationship_id, entity_name, event_type,
-                 old_value, new_value, notes, created_at,
-                 local_updated_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    entry_id,
-                    self.stack_id,
-                    rel_id,
-                    entity_name,
-                    "type_change",
-                    json.dumps({"relationship_type": old_type}),
-                    json.dumps({"relationship_type": new_rel.relationship_type}),
-                    None,
-                    now,
-                    now,
-                    1,
-                    0,
-                ),
-            )
-
-        # Check notes change
-        old_notes = existing_row["notes"]
-        if new_rel.notes != old_notes and new_rel.notes is not None:
-            entry_id = str(uuid.uuid4())
-            conn.execute(
-                """
-                INSERT INTO relationship_history
-                (id, stack_id, relationship_id, entity_name, event_type,
-                 old_value, new_value, notes, created_at,
-                 local_updated_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    entry_id,
-                    self.stack_id,
-                    rel_id,
-                    entity_name,
-                    "note",
-                    json.dumps({"notes": old_notes}) if old_notes else None,
-                    json.dumps({"notes": new_rel.notes}),
-                    None,
-                    now,
-                    now,
-                    1,
-                    0,
-                ),
-            )
-
-        # Check interaction count change (log interaction event)
-        old_count = existing_row["interaction_count"]
-        if new_rel.interaction_count > old_count:
-            entry_id = str(uuid.uuid4())
-            conn.execute(
-                """
-                INSERT INTO relationship_history
-                (id, stack_id, relationship_id, entity_name, event_type,
-                 old_value, new_value, notes, created_at,
-                 local_updated_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    entry_id,
-                    self.stack_id,
-                    rel_id,
-                    entity_name,
-                    "interaction",
-                    json.dumps({"interaction_count": old_count}),
-                    json.dumps({"interaction_count": new_rel.interaction_count}),
-                    None,
-                    now,
-                    now,
-                    1,
-                    0,
-                ),
-            )
+        """Detect changes between existing and new relationship. Delegates to relationships_crud."""
+        _relationships_crud._log_relationship_changes(
+            conn, self.stack_id, existing_row, new_rel, now
+        )
 
     # === Relationship History ===
 
     def save_relationship_history(self, entry: RelationshipHistoryEntry) -> str:
-        """Save a relationship history entry."""
-        if not entry.id:
-            entry.id = str(uuid.uuid4())
-
-        now = self._now()
-        if not entry.created_at:
-            entry.created_at = datetime.now(timezone.utc)
-
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT INTO relationship_history
-                (id, stack_id, relationship_id, entity_name, event_type,
-                 old_value, new_value, episode_id, notes, created_at,
-                 local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    entry.id,
-                    self.stack_id,
-                    entry.relationship_id,
-                    entry.entity_name,
-                    entry.event_type,
-                    entry.old_value,
-                    entry.new_value,
-                    entry.episode_id,
-                    entry.notes,
-                    entry.created_at.isoformat() if entry.created_at else now,
-                    now,
-                    None,
-                    1,
-                    0,
-                ),
-            )
-            conn.commit()
-
-        return entry.id
+        """Save a relationship history entry. Delegates to relationships_crud."""
+        return _relationships_crud.save_relationship_history(
+            self._connect, self.stack_id, entry, self._now
+        )
 
     def get_relationship_history(
         self,
@@ -3126,24 +1648,10 @@ class SQLiteStorage:
         event_type: Optional[str] = None,
         limit: int = 50,
     ) -> List[RelationshipHistoryEntry]:
-        """Get history entries for a relationship."""
-        query = (
-            "SELECT * FROM relationship_history "
-            "WHERE stack_id = ? AND entity_name = ? AND deleted = 0"
+        """Get history entries for a relationship. Delegates to relationships_crud."""
+        return _relationships_crud.get_relationship_history(
+            self._connect, self.stack_id, entity_name, event_type=event_type, limit=limit
         )
-        params: List[Any] = [self.stack_id, entity_name]
-
-        if event_type:
-            query += " AND event_type = ?"
-            params.append(event_type)
-
-        query += " ORDER BY created_at DESC LIMIT ?"
-        params.append(limit)
-
-        with self._connect() as conn:
-            rows = conn.execute(query, params).fetchall()
-
-        return [self._row_to_relationship_history(row) for row in rows]
 
     def _row_to_relationship_history(self, row: sqlite3.Row) -> RelationshipHistoryEntry:
         """Convert row to RelationshipHistoryEntry. Delegates to memory_crud._row_to_relationship_history()."""
@@ -3152,48 +1660,10 @@ class SQLiteStorage:
     # === Entity Models ===
 
     def save_entity_model(self, model: EntityModel) -> str:
-        """Save an entity model."""
-        if not model.id:
-            model.id = str(uuid.uuid4())
-
-        now = self._now()
-
-        # Auto-populate subject_ids from entity_name
-        if not model.subject_ids:
-            model.subject_ids = [model.entity_name]
-
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO entity_models
-                (id, stack_id, entity_name, model_type, observation, confidence,
-                 source_episodes, created_at, updated_at,
-                 subject_ids, access_grants, consent_grants,
-                 local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    model.id,
-                    self.stack_id,
-                    model.entity_name,
-                    model.model_type,
-                    model.observation,
-                    model.confidence,
-                    self._to_json(model.source_episodes),
-                    (model.created_at.isoformat() if model.created_at else now),
-                    now,
-                    self._to_json(model.subject_ids),
-                    self._to_json(model.access_grants),
-                    self._to_json(model.consent_grants),
-                    now,
-                    None,
-                    model.version,
-                    0,
-                ),
-            )
-            conn.commit()
-
-        return model.id
+        """Save an entity model. Delegates to relationships_crud."""
+        return _relationships_crud.save_entity_model(
+            self._connect, self.stack_id, model, self._now, self._to_json
+        )
 
     def get_entity_models(
         self,
@@ -3201,34 +1671,18 @@ class SQLiteStorage:
         model_type: Optional[str] = None,
         limit: int = 100,
     ) -> List[EntityModel]:
-        """Get entity models, optionally filtered."""
-        query = "SELECT * FROM entity_models WHERE stack_id = ? AND deleted = 0"
-        params: List[Any] = [self.stack_id]
-
-        if entity_name:
-            query += " AND entity_name = ?"
-            params.append(entity_name)
-        if model_type:
-            query += " AND model_type = ?"
-            params.append(model_type)
-
-        query += " ORDER BY created_at DESC LIMIT ?"
-        params.append(limit)
-
-        with self._connect() as conn:
-            rows = conn.execute(query, params).fetchall()
-
-        return [self._row_to_entity_model(row) for row in rows]
+        """Get entity models, optionally filtered. Delegates to relationships_crud."""
+        return _relationships_crud.get_entity_models(
+            self._connect,
+            self.stack_id,
+            entity_name=entity_name,
+            model_type=model_type,
+            limit=limit,
+        )
 
     def get_entity_model(self, model_id: str) -> Optional[EntityModel]:
-        """Get a specific entity model by ID."""
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM entity_models WHERE id = ? AND stack_id = ? AND deleted = 0",
-                (model_id, self.stack_id),
-            ).fetchone()
-
-        return self._row_to_entity_model(row) if row else None
+        """Get a specific entity model by ID. Delegates to relationships_crud."""
+        return _relationships_crud.get_entity_model(self._connect, self.stack_id, model_id)
 
     def _row_to_entity_model(self, row: sqlite3.Row) -> EntityModel:
         """Convert row to EntityModel. Delegates to memory_crud._row_to_entity_model()."""
@@ -3237,71 +1691,21 @@ class SQLiteStorage:
     # === Playbooks (Procedural Memory) ===
 
     def save_playbook(self, playbook: Playbook) -> str:
-        """Save a playbook. Returns the playbook ID."""
-        now = self._now()
-
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO playbooks
-                (id, stack_id, name, description, trigger_conditions, steps, failure_modes,
-                 recovery_steps, mastery_level, times_used, success_rate, source_episodes, tags,
-                 confidence, last_used, created_at,
-                 subject_ids, access_grants, consent_grants,
-                 local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    playbook.id,
-                    self.stack_id,
-                    playbook.name,
-                    playbook.description,
-                    self._to_json(playbook.trigger_conditions),
-                    self._to_json(playbook.steps),
-                    self._to_json(playbook.failure_modes),
-                    self._to_json(playbook.recovery_steps),
-                    playbook.mastery_level,
-                    playbook.times_used,
-                    playbook.success_rate,
-                    self._to_json(playbook.source_episodes),
-                    self._to_json(playbook.tags),
-                    playbook.confidence,
-                    playbook.last_used.isoformat() if playbook.last_used else None,
-                    playbook.created_at.isoformat() if playbook.created_at else now,
-                    self._to_json(getattr(playbook, "subject_ids", None)),
-                    self._to_json(getattr(playbook, "access_grants", None)),
-                    self._to_json(getattr(playbook, "consent_grants", None)),
-                    now,
-                    None,  # cloud_synced_at
-                    playbook.version,
-                    0,  # deleted
-                ),
-            )
-
-            # Queue for sync with record data
-            playbook_data = self._to_json(self._record_to_dict(playbook))
-            self._queue_sync(conn, "playbooks", playbook.id, "upsert", data=playbook_data)
-
-            # Add embedding for search
-            content = (
-                f"{playbook.name} {playbook.description} {' '.join(playbook.trigger_conditions)}"
-            )
-            self._save_embedding(conn, "playbooks", playbook.id, content)
-
-            conn.commit()
-
-        return playbook.id
+        """Save a playbook. Delegates to playbooks_crud."""
+        return _playbooks_crud.save_playbook(
+            self._connect,
+            self.stack_id,
+            playbook,
+            self._now,
+            self._to_json,
+            self._record_to_dict,
+            self._queue_sync,
+            self._save_embedding,
+        )
 
     def get_playbook(self, playbook_id: str) -> Optional[Playbook]:
-        """Get a specific playbook by ID."""
-        with self._connect() as conn:
-            cur = conn.execute(
-                "SELECT * FROM playbooks WHERE id = ? AND stack_id = ? AND deleted = 0",
-                (playbook_id, self.stack_id),
-            )
-            row = cur.fetchone()
-
-        return self._row_to_playbook(row) if row else None
+        """Get a specific playbook by ID. Delegates to playbooks_crud."""
+        return _playbooks_crud.get_playbook(self._connect, self.stack_id, playbook_id)
 
     def list_playbooks(
         self,
@@ -3309,162 +1713,44 @@ class SQLiteStorage:
         limit: int = 100,
         requesting_entity: Optional[str] = None,
     ) -> List[Playbook]:
-        """Get playbooks, optionally filtered by tags."""
-        access_filter, access_params = self._build_access_filter(requesting_entity)
-        with self._connect() as conn:
-            query = f"""
-                SELECT * FROM playbooks
-                WHERE stack_id = ? AND deleted = 0{access_filter}
-                ORDER BY times_used DESC, created_at DESC
-                LIMIT ?
-            """
-            cur = conn.execute(query, [self.stack_id] + access_params + [limit])
-            rows = cur.fetchall()
-
-        playbooks = [self._row_to_playbook(row) for row in rows]
-
-        # Filter by tags if provided
-        if tags:
-            tags_set = set(tags)
-            playbooks = [p for p in playbooks if p.tags and tags_set.intersection(p.tags)]
-
-        return playbooks
+        """Get playbooks. Delegates to playbooks_crud."""
+        return _playbooks_crud.list_playbooks(
+            self._connect,
+            self.stack_id,
+            self._build_access_filter,
+            tags=tags,
+            limit=limit,
+            requesting_entity=requesting_entity,
+        )
 
     def search_playbooks(self, query: str, limit: int = 10) -> List[Playbook]:
-        """Search playbooks by name, description, or triggers using semantic search."""
-        if self._has_vec:
-            # Use vector search
-            embedding = self._embed_text(query, context="playbook-search")
-            if not embedding:
-                return []
-            packed = pack_embedding(embedding)
-
-            # Support both new format (stack_id:playbooks:id) and legacy (playbooks:id)
-            new_prefix = f"{self.stack_id}:playbooks:"
-            legacy_prefix = "playbooks:"
-
-            with self._connect() as conn:
-                cur = conn.execute(
-                    """
-                    SELECT e.id, e.embedding, distance
-                    FROM vec_embeddings e
-                    WHERE (e.id LIKE ? OR e.id LIKE ?)
-                    ORDER BY distance
-                    LIMIT ?
-                """.replace("distance", f"vec_distance_L2(e.embedding, X'{packed.hex()}')"),
-                    (f"{new_prefix}%", f"{legacy_prefix}%", limit * 2),
-                )
-
-                vec_results = cur.fetchall()
-
-            # Extract playbook IDs from both formats
-            playbook_ids = []
-            for r in vec_results:
-                vec_id = r[0]
-                if vec_id.startswith(new_prefix):
-                    playbook_ids.append(vec_id[len(new_prefix) :])
-                elif vec_id.startswith(legacy_prefix):
-                    playbook_ids.append(vec_id[len(legacy_prefix) :])
-
-            playbooks = []
-            for pid in playbook_ids:
-                playbook = self.get_playbook(pid)
-                if playbook:
-                    playbooks.append(playbook)
-                if len(playbooks) >= limit:
-                    break
-
-            return playbooks
-        else:
-            # Fall back to tokenized text search
-            tokens = self._tokenize_query(query)
-            columns = ["name", "description", "trigger_conditions"]
-            with self._connect() as conn:
-                if tokens:
-                    filt, filt_params = self._build_token_filter(tokens, columns)
-                else:
-                    # All words too short, use full-phrase match
-                    escaped_query = escape_like_pattern(query)
-                    search_pattern = f"%{escaped_query}%"
-                    filt = "(name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\' OR trigger_conditions LIKE ? ESCAPE '\\')"
-                    filt_params = [search_pattern, search_pattern, search_pattern]
-                cur = conn.execute(
-                    f"""
-                    SELECT * FROM playbooks
-                    WHERE stack_id = ? AND deleted = 0
-                    AND {filt}
-                    ORDER BY times_used DESC
-                    LIMIT ?
-                """,
-                    [self.stack_id] + filt_params + [limit],
-                )
-                rows = cur.fetchall()
-
-            playbooks = [self._row_to_playbook(row) for row in rows]
-            if tokens:
-                # Sort by token match score
-                def _score(pb: "Playbook") -> float:
-                    triggers = " ".join(pb.trigger_conditions) if pb.trigger_conditions else ""
-                    combined = f"{pb.name or ''} {pb.description or ''} {triggers}"
-                    return self._token_match_score(combined, tokens)
-
-                playbooks.sort(key=_score, reverse=True)
-            return playbooks
+        """Search playbooks. Delegates to playbooks_crud."""
+        return _playbooks_crud.search_playbooks(
+            self._connect,
+            self.stack_id,
+            query,
+            limit=limit,
+            has_vec=self._has_vec,
+            embed_text=self._embed_text,
+            pack_embedding_fn=pack_embedding,
+            get_playbook_fn=self.get_playbook,
+            tokenize_query=self._tokenize_query,
+            build_token_filter=self._build_token_filter,
+            token_match_score=self._token_match_score,
+            escape_like_pattern=escape_like_pattern,
+        )
 
     def update_playbook_usage(self, playbook_id: str, success: bool) -> bool:
-        """Update playbook usage statistics."""
-        playbook = self.get_playbook(playbook_id)
-        if not playbook:
-            return False
-
-        now = self._now()
-
-        # Calculate new success rate
-        new_times_used = playbook.times_used + 1
-        if playbook.times_used == 0:
-            new_success_rate = 1.0 if success else 0.0
-        else:
-            # Running average
-            total_successes = playbook.success_rate * playbook.times_used
-            total_successes += 1.0 if success else 0.0
-            new_success_rate = total_successes / new_times_used
-
-        # Update mastery level based on usage and success rate
-        new_mastery = playbook.mastery_level
-        if new_times_used >= 20 and new_success_rate >= 0.9:
-            new_mastery = "expert"
-        elif new_times_used >= 10 and new_success_rate >= 0.8:
-            new_mastery = "proficient"
-        elif new_times_used >= 5 and new_success_rate >= 0.7:
-            new_mastery = "competent"
-
-        with self._connect() as conn:
-            conn.execute(
-                """
-                UPDATE playbooks SET
-                    times_used = ?,
-                    success_rate = ?,
-                    mastery_level = ?,
-                    last_used = ?,
-                    local_updated_at = ?,
-                    version = version + 1
-                WHERE id = ? AND stack_id = ?
-            """,
-                (
-                    new_times_used,
-                    new_success_rate,
-                    new_mastery,
-                    now,
-                    now,
-                    playbook_id,
-                    self.stack_id,
-                ),
-            )
-
-            self._queue_sync(conn, "playbooks", playbook_id, "upsert")
-            conn.commit()
-
-        return True
+        """Update playbook usage statistics. Delegates to playbooks_crud."""
+        return _playbooks_crud.update_playbook_usage(
+            self._connect,
+            self.stack_id,
+            playbook_id,
+            success,
+            self._now,
+            self._queue_sync,
+            self.get_playbook,
+        )
 
     def _row_to_playbook(self, row: sqlite3.Row) -> Playbook:
         """Convert row to Playbook. Delegates to memory_crud._row_to_playbook()."""
@@ -3697,51 +1983,14 @@ class SQLiteStorage:
     # === Memory Suggestions ===
 
     def save_suggestion(self, suggestion: MemorySuggestion) -> str:
-        """Save a memory suggestion. Returns the suggestion ID."""
-        suggestion_id = suggestion.id or str(uuid.uuid4())
-        now = self._now()
-
-        with self._connect() as conn:
-            conn.execute(
-                """
-                INSERT OR REPLACE INTO memory_suggestions
-                (id, stack_id, memory_type, content, confidence, source_raw_ids,
-                 status, created_at, resolved_at, resolution_reason, promoted_to,
-                 local_updated_at, cloud_synced_at, version, deleted)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    suggestion_id,
-                    self.stack_id,
-                    suggestion.memory_type,
-                    self._to_json(suggestion.content),
-                    suggestion.confidence,
-                    self._to_json(suggestion.source_raw_ids),
-                    suggestion.status,
-                    suggestion.created_at.isoformat() if suggestion.created_at else now,
-                    suggestion.resolved_at.isoformat() if suggestion.resolved_at else None,
-                    suggestion.resolution_reason,
-                    suggestion.promoted_to,
-                    now,
-                    None,
-                    suggestion.version,
-                    0,
-                ),
-            )
-            self._queue_sync(conn, "memory_suggestions", suggestion_id, "upsert")
-            conn.commit()
-
-        return suggestion_id
+        """Save a memory suggestion. Delegates to suggestions_crud."""
+        return _suggestions_crud.save_suggestion(
+            self._connect, self.stack_id, suggestion, self._now, self._to_json, self._queue_sync
+        )
 
     def get_suggestion(self, suggestion_id: str) -> Optional[MemorySuggestion]:
-        """Get a specific suggestion by ID."""
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM memory_suggestions WHERE id = ? AND stack_id = ? AND deleted = 0",
-                (suggestion_id, self.stack_id),
-            ).fetchone()
-
-        return self._row_to_suggestion(row) if row else None
+        """Get a specific suggestion. Delegates to suggestions_crud."""
+        return _suggestions_crud.get_suggestion(self._connect, self.stack_id, suggestion_id)
 
     def get_suggestions(
         self,
@@ -3752,49 +2001,17 @@ class SQLiteStorage:
         max_age_hours: Optional[float] = None,
         source_raw_id: Optional[str] = None,
     ) -> List[MemorySuggestion]:
-        """Get suggestions, optionally filtered.
-
-        Args:
-            status: Filter by status (pending, promoted, modified, rejected, dismissed, expired)
-            memory_type: Filter by type (episode, belief, note)
-            limit: Maximum suggestions to return
-            min_confidence: Minimum confidence threshold
-            max_age_hours: Only return suggestions created within this many hours
-            source_raw_id: Filter to suggestions derived from this raw entry ID
-        """
-        query = "SELECT * FROM memory_suggestions WHERE stack_id = ? AND deleted = 0"
-        params: List[Any] = [self.stack_id]
-
-        if status is not None:
-            query += " AND status = ?"
-            params.append(status)
-
-        if memory_type is not None:
-            query += " AND memory_type = ?"
-            params.append(memory_type)
-
-        if min_confidence is not None:
-            query += " AND confidence >= ?"
-            params.append(min_confidence)
-
-        if max_age_hours is not None:
-            cutoff = (datetime.now(timezone.utc) - timedelta(hours=max_age_hours)).isoformat()
-            query += " AND created_at >= ?"
-            params.append(cutoff)
-
-        if source_raw_id is not None:
-            # source_raw_ids is stored as JSON array; use LIKE for containment
-            escaped_raw_id = escape_like_pattern(source_raw_id)
-            query += " AND source_raw_ids LIKE ? ESCAPE '\\'"
-            params.append(f'%"{escaped_raw_id}"%')
-
-        query += " ORDER BY created_at DESC LIMIT ?"
-        params.append(limit)
-
-        with self._connect() as conn:
-            rows = conn.execute(query, params).fetchall()
-
-        return [self._row_to_suggestion(row) for row in rows]
+        """Get suggestions. Delegates to suggestions_crud."""
+        return _suggestions_crud.get_suggestions(
+            self._connect,
+            self.stack_id,
+            status=status,
+            memory_type=memory_type,
+            limit=limit,
+            min_confidence=min_confidence,
+            max_age_hours=max_age_hours,
+            source_raw_id=source_raw_id,
+        )
 
     def expire_suggestions(
         self,
@@ -3847,49 +2064,23 @@ class SQLiteStorage:
         resolution_reason: Optional[str] = None,
         promoted_to: Optional[str] = None,
     ) -> bool:
-        """Update the status of a suggestion."""
-        now = self._now()
-
-        with self._connect() as conn:
-            cursor = conn.execute(
-                """
-                UPDATE memory_suggestions SET
-                    status = ?,
-                    resolved_at = ?,
-                    resolution_reason = ?,
-                    promoted_to = ?,
-                    local_updated_at = ?,
-                    version = version + 1
-                WHERE id = ? AND stack_id = ? AND deleted = 0
-            """,
-                (status, now, resolution_reason, promoted_to, now, suggestion_id, self.stack_id),
-            )
-            if cursor.rowcount > 0:
-                self._queue_sync(conn, "memory_suggestions", suggestion_id, "upsert")
-                conn.commit()
-                return True
-        return False
+        """Update the status of a suggestion. Delegates to suggestions_crud."""
+        return _suggestions_crud.update_suggestion_status(
+            self._connect,
+            self.stack_id,
+            suggestion_id,
+            status,
+            self._now,
+            self._queue_sync,
+            resolution_reason=resolution_reason,
+            promoted_to=promoted_to,
+        )
 
     def delete_suggestion(self, suggestion_id: str) -> bool:
-        """Delete a suggestion (soft delete)."""
-        now = self._now()
-
-        with self._connect() as conn:
-            cursor = conn.execute(
-                """
-                UPDATE memory_suggestions SET
-                    deleted = 1,
-                    local_updated_at = ?,
-                    version = version + 1
-                WHERE id = ? AND stack_id = ? AND deleted = 0
-            """,
-                (now, suggestion_id, self.stack_id),
-            )
-            if cursor.rowcount > 0:
-                self._queue_sync(conn, "memory_suggestions", suggestion_id, "delete")
-                conn.commit()
-                return True
-        return False
+        """Delete a suggestion. Delegates to suggestions_crud."""
+        return _suggestions_crud.delete_suggestion(
+            self._connect, self.stack_id, suggestion_id, self._now, self._queue_sync
+        )
 
     def _row_to_suggestion(self, row: sqlite3.Row) -> MemorySuggestion:
         """Convert row to MemorySuggestion. Delegates to memory_crud._row_to_suggestion()."""
@@ -4075,189 +2266,48 @@ class SQLiteStorage:
 
     @staticmethod
     def _tokenize_query(query: str) -> List[str]:
-        """Split a search query into meaningful tokens (words with 3+ chars)."""
-        return [w for w in query.split() if len(w) >= 3]
+        """Split a search query into meaningful tokens. Delegates to search_impl."""
+        return _search_impl.tokenize_query(query)
 
     @staticmethod
     def _build_token_filter(tokens: List[str], columns: List[str]) -> tuple:
-        """Build a tokenized OR filter for multiple columns.
-
-        Returns (sql_fragment, params) where sql_fragment is a parenthesized
-        OR expression matching any token in any column, and params is the
-        list of LIKE pattern values. Tokens are escaped to prevent LIKE
-        metacharacter injection.
-        """
-        clauses = []
-        params: list = []
-        for token in tokens:
-            escaped = escape_like_pattern(token)
-            pattern = f"%{escaped}%"
-            for col in columns:
-                clauses.append(f"{col} LIKE ? ESCAPE '\\'")
-                params.append(pattern)
-        sql = f"({' OR '.join(clauses)})"
-        return sql, params
+        """Build a tokenized OR filter. Delegates to search_impl."""
+        return _search_impl.build_token_filter(tokens, columns)
 
     @staticmethod
     def _token_match_score(text: str, tokens: List[str]) -> float:
-        """Score a text by fraction of query tokens it contains (case-insensitive)."""
-        if not tokens:
-            return 1.0
-        lower = text.lower()
-        hits = sum(1 for t in tokens if t.lower() in lower)
-        return hits / len(tokens)
+        """Score text by token match. Delegates to search_impl."""
+        return _search_impl.token_match_score(text, tokens)
 
     def _text_search(
         self, query: str, limit: int, types: List[str], requesting_entity: Optional[str] = None
     ) -> List[SearchResult]:
-        """Fallback text-based search using tokenized LIKE matching."""
-        results = []
-        tokens = self._tokenize_query(query)
-        access_filter, access_params = self._build_access_filter(requesting_entity)
-
-        # If no meaningful tokens, fall back to full-phrase match
-        if not tokens:
-            escaped_query = escape_like_pattern(query)
-            search_term = f"%{escaped_query}%"
-        else:
-            search_term = None
-
+        """Fallback text-based search. Delegates to search_impl."""
+        row_converters = {
+            "episode": self._row_to_episode,
+            "note": self._row_to_note,
+            "belief": self._row_to_belief,
+            "value": self._row_to_value,
+            "goal": self._row_to_goal,
+        }
         with self._connect() as conn:
-            if "episode" in types:
-                columns = ["objective", "outcome", "lessons"]
-                if tokens:
-                    filt, filt_params = self._build_token_filter(tokens, columns)
-                else:
-                    filt = "(objective LIKE ? ESCAPE '\\' OR outcome LIKE ? ESCAPE '\\' OR lessons LIKE ? ESCAPE '\\')"
-                    filt_params = [search_term, search_term, search_term]
-                rows = conn.execute(
-                    f"""SELECT * FROM episodes
-                       WHERE stack_id = ? AND deleted = 0 AND COALESCE(strength, 1.0) > 0.0
-                       AND {filt}{access_filter}
-                       LIMIT ?""",
-                    [self.stack_id] + filt_params + access_params + [limit],
-                ).fetchall()
-                for row in rows:
-                    ep = self._row_to_episode(row)
-                    combined = f"{ep.objective or ''} {ep.outcome or ''} {ep.lessons or ''}"
-                    score = self._token_match_score(combined, tokens) if tokens else 1.0
-                    results.append(SearchResult(record=ep, record_type="episode", score=score))
-
-            if "note" in types:
-                columns = ["content"]
-                if tokens:
-                    filt, filt_params = self._build_token_filter(tokens, columns)
-                else:
-                    filt = "content LIKE ? ESCAPE '\\'"
-                    filt_params = [search_term]
-                rows = conn.execute(
-                    f"""SELECT * FROM notes
-                       WHERE stack_id = ? AND deleted = 0 AND COALESCE(strength, 1.0) > 0.0
-                       AND {filt}{access_filter}
-                       LIMIT ?""",
-                    [self.stack_id] + filt_params + access_params + [limit],
-                ).fetchall()
-                for row in rows:
-                    note = self._row_to_note(row)
-                    score = self._token_match_score(note.content or "", tokens) if tokens else 1.0
-                    results.append(SearchResult(record=note, record_type="note", score=score))
-
-            if "belief" in types:
-                columns = ["statement"]
-                if tokens:
-                    filt, filt_params = self._build_token_filter(tokens, columns)
-                else:
-                    filt = "statement LIKE ? ESCAPE '\\'"
-                    filt_params = [search_term]
-                rows = conn.execute(
-                    f"""SELECT * FROM beliefs
-                       WHERE stack_id = ? AND deleted = 0 AND COALESCE(strength, 1.0) > 0.0
-                       AND {filt}{access_filter}
-                       LIMIT ?""",
-                    [self.stack_id] + filt_params + access_params + [limit],
-                ).fetchall()
-                for row in rows:
-                    belief = self._row_to_belief(row)
-                    score = (
-                        self._token_match_score(belief.statement or "", tokens) if tokens else 1.0
-                    )
-                    results.append(SearchResult(record=belief, record_type="belief", score=score))
-
-            if "value" in types:
-                columns = ["name", "statement"]
-                if tokens:
-                    filt, filt_params = self._build_token_filter(tokens, columns)
-                else:
-                    filt = "(name LIKE ? ESCAPE '\\' OR statement LIKE ? ESCAPE '\\')"
-                    filt_params = [search_term, search_term]
-                rows = conn.execute(
-                    f"""SELECT * FROM agent_values
-                       WHERE stack_id = ? AND deleted = 0 AND COALESCE(strength, 1.0) > 0.0
-                       AND {filt}{access_filter}
-                       LIMIT ?""",
-                    [self.stack_id] + filt_params + access_params + [limit],
-                ).fetchall()
-                for row in rows:
-                    val = self._row_to_value(row)
-                    combined = f"{val.name or ''} {val.statement or ''}"
-                    score = self._token_match_score(combined, tokens) if tokens else 1.0
-                    results.append(SearchResult(record=val, record_type="value", score=score))
-
-            if "goal" in types:
-                columns = ["title", "description"]
-                if tokens:
-                    filt, filt_params = self._build_token_filter(tokens, columns)
-                else:
-                    filt = "(title LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')"
-                    filt_params = [search_term, search_term]
-                rows = conn.execute(
-                    f"""SELECT * FROM goals
-                       WHERE stack_id = ? AND deleted = 0 AND COALESCE(strength, 1.0) > 0.0
-                       AND {filt}{access_filter}
-                       LIMIT ?""",
-                    [self.stack_id] + filt_params + access_params + [limit],
-                ).fetchall()
-                for row in rows:
-                    goal = self._row_to_goal(row)
-                    combined = f"{goal.title or ''} {goal.description or ''}"
-                    score = self._token_match_score(combined, tokens) if tokens else 1.0
-                    results.append(SearchResult(record=goal, record_type="goal", score=score))
-
-        # Sort by token match score descending
-        results.sort(key=lambda r: r.score, reverse=True)
-        return results[:limit]
+            return _search_impl.text_search(
+                conn,
+                self.stack_id,
+                query,
+                limit,
+                types,
+                row_converters,
+                self._build_access_filter,
+                requesting_entity=requesting_entity,
+            )
 
     # === Stats ===
 
     def get_stats(self) -> Dict[str, int]:
-        """Get counts of each record type."""
+        """Get counts of each record type. Delegates to stats_ops."""
         with self._connect() as conn:
-            stats = {}
-            for table, key in [
-                ("episodes", "episodes"),
-                ("beliefs", "beliefs"),
-                ("agent_values", "values"),
-                ("goals", "goals"),
-                ("notes", "notes"),
-                ("drives", "drives"),
-                ("relationships", "relationships"),
-                ("raw_entries", "raw"),
-                ("memory_suggestions", "suggestions"),
-            ]:
-                count = conn.execute(
-                    f"SELECT COUNT(*) FROM {table} WHERE stack_id = ? AND deleted = 0",
-                    (self.stack_id,),
-                ).fetchone()[0]
-                stats[key] = count
-
-            # Add count of pending suggestions specifically
-            pending_count = conn.execute(
-                "SELECT COUNT(*) FROM memory_suggestions WHERE stack_id = ? AND status = 'pending' AND deleted = 0",
-                (self.stack_id,),
-            ).fetchone()[0]
-            stats["pending_suggestions"] = pending_count
-
-        return stats
+            return _stats_ops.get_stats(conn, self.stack_id)
 
     # === Batch Loading ===
 
@@ -4273,145 +2323,49 @@ class SQLiteStorage:
         relationships_limit: Optional[int] = None,
         epoch_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Load all memory types in a single database connection.
-
-        This optimizes the common pattern of loading working memory context
-        by batching all queries into a single connection, avoiding N+1 query
-        patterns where each memory type requires a separate connection.
-
-        Args:
-            values_limit: Max values to load (None = 1000 for budget loading)
-            beliefs_limit: Max beliefs to load (None = 1000 for budget loading)
-            goals_limit: Max goals to load (None = 1000 for budget loading)
-            goals_status: Goal status filter ("active", "all", etc.)
-            episodes_limit: Max episodes to load (None = 1000 for budget loading)
-            notes_limit: Max notes to load (None = 1000 for budget loading)
-            drives_limit: Max drives to load (None = all drives)
-            relationships_limit: Max relationships to load (None = all relationships)
-            epoch_id: If set, filter candidates to this epoch only
-
-        Returns:
-            Dict with keys: values, beliefs, goals, drives, episodes, notes, relationships
-        """
-        # Use high limit (1000) when None is passed - for budget-based loading
-        high_limit = 1000
-        _values_limit = values_limit if values_limit is not None else high_limit
-        _beliefs_limit = beliefs_limit if beliefs_limit is not None else high_limit
-        _goals_limit = goals_limit if goals_limit is not None else high_limit
-        _episodes_limit = episodes_limit if episodes_limit is not None else high_limit
-        _notes_limit = notes_limit if notes_limit is not None else high_limit
-
-        result = {
-            "values": [],
-            "beliefs": [],
-            "goals": [],
-            "drives": [],
-            "episodes": [],
-            "notes": [],
-            "relationships": [],
+        """Load all memory types in a single database connection. Delegates to stats_ops."""
+        row_converters = {
+            "value": self._row_to_value,
+            "belief": self._row_to_belief,
+            "goal": self._row_to_goal,
+            "drive": self._row_to_drive,
+            "episode": self._row_to_episode,
+            "note": self._row_to_note,
+            "relationship": self._row_to_relationship,
         }
-
-        # Build epoch filter clause
-        epoch_clause = ""
-        epoch_params: tuple = ()
-        if epoch_id:
-            epoch_clause = " AND epoch_id = ?"
-            epoch_params = (epoch_id,)
-
         with self._connect() as conn:
-            # Values - ordered by priority, exclude forgotten
-            rows = conn.execute(
-                f"SELECT * FROM agent_values WHERE stack_id = ? AND deleted = 0 AND strength > 0.0{epoch_clause} ORDER BY priority DESC LIMIT ?",
-                (self.stack_id, *epoch_params, _values_limit),
-            ).fetchall()
-            result["values"] = [self._row_to_value(row) for row in rows]
-
-            # Beliefs - ordered by confidence, exclude forgotten
-            rows = conn.execute(
-                f"SELECT * FROM beliefs WHERE stack_id = ? AND deleted = 0 AND strength > 0.0 AND (is_active = 1 OR is_active IS NULL){epoch_clause} ORDER BY confidence DESC LIMIT ?",
-                (self.stack_id, *epoch_params, _beliefs_limit),
-            ).fetchall()
-            result["beliefs"] = [self._row_to_belief(row) for row in rows]
-
-            # Goals - filtered by status, exclude forgotten
-            if goals_status and goals_status != "all":
-                rows = conn.execute(
-                    f"SELECT * FROM goals WHERE stack_id = ? AND deleted = 0 AND strength > 0.0 AND status = ?{epoch_clause} ORDER BY created_at DESC LIMIT ?",
-                    (self.stack_id, goals_status, *epoch_params, _goals_limit),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    f"SELECT * FROM goals WHERE stack_id = ? AND deleted = 0 AND strength > 0.0{epoch_clause} ORDER BY created_at DESC LIMIT ?",
-                    (self.stack_id, *epoch_params, _goals_limit),
-                ).fetchall()
-            result["goals"] = [self._row_to_goal(row) for row in rows]
-
-            # Drives - all for agent (or limited), exclude forgotten
-            if drives_limit is not None:
-                rows = conn.execute(
-                    f"SELECT * FROM drives WHERE stack_id = ? AND deleted = 0 AND strength > 0.0{epoch_clause} LIMIT ?",
-                    (self.stack_id, *epoch_params, drives_limit),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    f"SELECT * FROM drives WHERE stack_id = ? AND deleted = 0 AND strength > 0.0{epoch_clause}",
-                    (self.stack_id, *epoch_params),
-                ).fetchall()
-            result["drives"] = [self._row_to_drive(row) for row in rows]
-
-            # Episodes - most recent, exclude forgotten
-            rows = conn.execute(
-                f"SELECT * FROM episodes WHERE stack_id = ? AND deleted = 0 AND strength > 0.0{epoch_clause} ORDER BY created_at DESC LIMIT ?",
-                (self.stack_id, *epoch_params, _episodes_limit),
-            ).fetchall()
-            result["episodes"] = [self._row_to_episode(row) for row in rows]
-
-            # Notes - most recent, exclude forgotten
-            rows = conn.execute(
-                f"SELECT * FROM notes WHERE stack_id = ? AND deleted = 0 AND strength > 0.0{epoch_clause} ORDER BY created_at DESC LIMIT ?",
-                (self.stack_id, *epoch_params, _notes_limit),
-            ).fetchall()
-            result["notes"] = [self._row_to_note(row) for row in rows]
-
-            # Relationships - all for agent (or limited), exclude forgotten
-            if relationships_limit is not None:
-                rows = conn.execute(
-                    f"SELECT * FROM relationships WHERE stack_id = ? AND deleted = 0 AND strength > 0.0{epoch_clause} LIMIT ?",
-                    (self.stack_id, *epoch_params, relationships_limit),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    f"SELECT * FROM relationships WHERE stack_id = ? AND deleted = 0 AND strength > 0.0{epoch_clause}",
-                    (self.stack_id, *epoch_params),
-                ).fetchall()
-            result["relationships"] = [self._row_to_relationship(row) for row in rows]
-
-        return result
+            return _stats_ops.load_all(
+                conn,
+                self.stack_id,
+                row_converters,
+                values_limit=values_limit,
+                beliefs_limit=beliefs_limit,
+                goals_limit=goals_limit,
+                goals_status=goals_status,
+                episodes_limit=episodes_limit,
+                notes_limit=notes_limit,
+                drives_limit=drives_limit,
+                relationships_limit=relationships_limit,
+                epoch_id=epoch_id,
+            )
 
     # === Meta-Memory ===
 
     def get_memory(self, memory_type: str, memory_id: str) -> Optional[Any]:
-        """Get a memory by type and ID.
-
-        Args:
-            memory_type: Type of memory (episode, belief, value, goal, note, drive, relationship)
-            memory_id: ID of the memory
-
-        Returns:
-            The memory record or None if not found
-        """
-        getters = {
-            "episode": lambda: self.get_episode(memory_id),
-            "belief": lambda: self._get_belief_by_id(memory_id),
-            "value": lambda: self._get_value_by_id(memory_id),
-            "goal": lambda: self._get_goal_by_id(memory_id),
-            "note": lambda: self._get_note_by_id(memory_id),
-            "drive": lambda: self._get_drive_by_id(memory_id),
-            "relationship": lambda: self._get_relationship_by_id(memory_id),
+        """Get a memory by type and ID. Delegates to meta_memory_ops."""
+        row_converters = {
+            "episode": ("episodes", self._row_to_episode),
+            "belief": ("beliefs", self._row_to_belief),
+            "value": ("agent_values", self._row_to_value),
+            "goal": ("goals", self._row_to_goal),
+            "note": ("notes", self._row_to_note),
+            "drive": ("drives", self._row_to_drive),
+            "relationship": ("relationships", self._row_to_relationship),
         }
-
-        getter = getters.get(memory_type)
-        return getter() if getter else None
+        with self._connect() as conn:
+            return _meta_memory_ops.get_memory(
+                conn, self.stack_id, memory_type, memory_id, row_converters
+            )
 
     def _get_belief_by_id(self, belief_id: str) -> Optional[Belief]:
         """Get a belief by ID. Delegates to beliefs_crud."""
@@ -4474,93 +2428,26 @@ class SQLiteStorage:
         verification_count: Optional[int] = None,
         confidence_history: Optional[List[Dict[str, Any]]] = None,
     ) -> bool:
-        """Update meta-memory fields for a memory.
-
-        Args:
-            memory_type: Type of memory
-            memory_id: ID of the memory
-            confidence: New confidence value
-            source_type: New source type
-            source_episodes: New source episodes list
-            derived_from: New derived_from list
-            last_verified: New verification timestamp
-            verification_count: New verification count
-            confidence_history: New confidence history
-
-        Returns:
-            True if updated, False if memory not found
-        """
-        table_map = {
-            "episode": "episodes",
-            "belief": "beliefs",
-            "value": "agent_values",
-            "goal": "goals",
-            "note": "notes",
-            "drive": "drives",
-            "relationship": "relationships",
-        }
-
-        table = table_map.get(memory_type)
-        if not table:
-            return False
-        validate_table_name(table)
-
-        # Build update query dynamically
-        updates = []
-        params = []
-
-        if confidence is not None:
-            updates.append("confidence = ?")
-            params.append(confidence)
-        if source_type is not None:
-            source_type = _normalize_source_type(source_type)
-            updates.append("source_type = ?")
-            params.append(source_type)
-        if source_episodes is not None:
-            updates.append("source_episodes = ?")
-            params.append(self._to_json(source_episodes))
-        if derived_from is not None:
-            check_derived_from_cycle(self, memory_type, memory_id, derived_from)
-            updates.append("derived_from = ?")
-            params.append(self._to_json(derived_from))
-        if last_verified is not None:
-            updates.append("last_verified = ?")
-            params.append(last_verified.isoformat())
-        if verification_count is not None:
-            updates.append("verification_count = ?")
-            params.append(verification_count)
-        if confidence_history is not None:
-            # Cap confidence_history to prevent unbounded growth
-            max_confidence_history = 100
-            if len(confidence_history) > max_confidence_history:
-                confidence_history = confidence_history[-max_confidence_history:]
-            updates.append("confidence_history = ?")
-            params.append(self._to_json(confidence_history))
-
-        if not updates:
-            return False
-
-        # Also update local_updated_at
-        updates.append("local_updated_at = ?")
-        params.append(self._now())
-
-        # Add version increment
-        updates.append("version = version + 1")
-
-        # Add WHERE clause params
-        params.extend([memory_id, self.stack_id])
-
-        query = (
-            f"UPDATE {table} SET {', '.join(updates)} WHERE id = ? AND stack_id = ? AND deleted = 0"
-        )
-
+        """Update meta-memory fields. Delegates to meta_memory_ops."""
         with self._connect() as conn:
-            cursor = conn.execute(query, params)
-            if cursor.rowcount > 0:
-                self._queue_sync(conn, table, memory_id, "upsert")
-                conn.commit()
-                return True
-        return False
+            return _meta_memory_ops.update_memory_meta(
+                conn,
+                self.stack_id,
+                memory_type,
+                memory_id,
+                self._to_json,
+                self._now,
+                self._queue_sync,
+                _normalize_source_type,
+                lambda t, i, d: check_derived_from_cycle(self, t, i, d),
+                confidence=confidence,
+                source_type=source_type,
+                source_episodes=source_episodes,
+                derived_from=derived_from,
+                last_verified=last_verified,
+                verification_count=verification_count,
+                confidence_history=confidence_history,
+            )
 
     def get_memories_by_confidence(
         self,
@@ -4569,30 +2456,8 @@ class SQLiteStorage:
         memory_types: Optional[List[str]] = None,
         limit: int = 100,
     ) -> List[SearchResult]:
-        """Get memories filtered by confidence threshold.
-
-        Args:
-            threshold: Confidence threshold
-            below: If True, get memories below threshold; if False, above
-            memory_types: Filter by type (episode, belief, etc.)
-            limit: Maximum results
-
-        Returns:
-            List of matching memories with their types
-        """
-        results = []
-        op = "<" if below else ">="
-        types = memory_types or [
-            "episode",
-            "belief",
-            "value",
-            "goal",
-            "note",
-            "drive",
-            "relationship",
-        ]
-
-        table_map = {
+        """Get memories filtered by confidence. Delegates to meta_memory_ops."""
+        row_converters = {
             "episode": ("episodes", self._row_to_episode),
             "belief": ("beliefs", self._row_to_belief),
             "value": ("agent_values", self._row_to_value),
@@ -4601,39 +2466,17 @@ class SQLiteStorage:
             "drive": ("drives", self._row_to_drive),
             "relationship": ("relationships", self._row_to_relationship),
         }
-
         with self._connect() as conn:
-            for memory_type in types:
-                if memory_type not in table_map:
-                    continue
-
-                table, converter = table_map[memory_type]
-                validate_table_name(table)  # Security: validate before SQL use
-                query = f"""
-                    SELECT * FROM {table}
-                    WHERE stack_id = ? AND deleted = 0
-                    AND confidence {op} ?
-                    ORDER BY confidence {"ASC" if below else "DESC"}
-                    LIMIT ?
-                """
-
-                try:
-                    rows = conn.execute(query, (self.stack_id, threshold, limit)).fetchall()
-                    for row in rows:
-                        results.append(
-                            SearchResult(
-                                record=converter(row),
-                                record_type=memory_type,
-                                score=self._safe_get(row, "confidence", 0.8),
-                            )
-                        )
-                except Exception as e:
-                    # Column might not exist in old schema
-                    logger.debug(f"Could not query {table} by confidence: {e}", exc_info=True)
-
-        # Sort by confidence
-        results.sort(key=lambda x: x.score, reverse=not below)
-        return results[:limit]
+            return _meta_memory_ops.get_memories_by_confidence(
+                conn,
+                self.stack_id,
+                threshold,
+                row_converters,
+                self._safe_get,
+                below=below,
+                memory_types=memory_types,
+                limit=limit,
+            )
 
     def get_memories_by_source(
         self,
@@ -4641,28 +2484,8 @@ class SQLiteStorage:
         memory_types: Optional[List[str]] = None,
         limit: int = 100,
     ) -> List[SearchResult]:
-        """Get memories filtered by source type.
-
-        Args:
-            source_type: Source type to filter by
-            memory_types: Filter by memory type
-            limit: Maximum results
-
-        Returns:
-            List of matching memories
-        """
-        results = []
-        types = memory_types or [
-            "episode",
-            "belief",
-            "value",
-            "goal",
-            "note",
-            "drive",
-            "relationship",
-        ]
-
-        table_map = {
+        """Get memories filtered by source type. Delegates to meta_memory_ops."""
+        row_converters = {
             "episode": ("episodes", self._row_to_episode),
             "belief": ("beliefs", self._row_to_belief),
             "value": ("agent_values", self._row_to_value),
@@ -4671,37 +2494,16 @@ class SQLiteStorage:
             "drive": ("drives", self._row_to_drive),
             "relationship": ("relationships", self._row_to_relationship),
         }
-
         with self._connect() as conn:
-            for memory_type in types:
-                if memory_type not in table_map:
-                    continue
-
-                table, converter = table_map[memory_type]
-                validate_table_name(table)  # Security: validate before SQL use
-                query = f"""
-                    SELECT * FROM {table}
-                    WHERE stack_id = ? AND deleted = 0
-                    AND source_type = ?
-                    ORDER BY created_at DESC
-                    LIMIT ?
-                """
-
-                try:
-                    rows = conn.execute(query, (self.stack_id, source_type, limit)).fetchall()
-                    for row in rows:
-                        results.append(
-                            SearchResult(
-                                record=converter(row),
-                                record_type=memory_type,
-                                score=self._safe_get(row, "confidence", 0.8),
-                            )
-                        )
-                except Exception as e:
-                    # Column might not exist in old schema
-                    logger.debug(f"Could not query {table} by source_type: {e}", exc_info=True)
-
-        return results[:limit]
+            return _meta_memory_ops.get_memories_by_source(
+                conn,
+                self.stack_id,
+                source_type,
+                row_converters,
+                self._safe_get,
+                memory_types=memory_types,
+                limit=limit,
+            )
 
     # === Forgetting ===
 
@@ -4811,85 +2613,16 @@ class SQLiteStorage:
         return total_updated
 
     def update_strength(self, memory_type: str, memory_id: str, strength: float) -> bool:
-        """Update the strength field of a memory.
-
-        Args:
-            memory_type: Type of memory
-            memory_id: ID of the memory
-            strength: New strength value (clamped to 0.0-1.0)
-
-        Returns:
-            True if updated, False if memory not found
-        """
-        table_map = {
-            "episode": "episodes",
-            "belief": "beliefs",
-            "value": "agent_values",
-            "goal": "goals",
-            "note": "notes",
-            "drive": "drives",
-            "relationship": "relationships",
-        }
-        table = table_map.get(memory_type)
-        if not table:
-            return False
-
-        strength = max(0.0, min(1.0, strength))
-        now = self._now()
-
+        """Update the strength field of a memory. Delegates to meta_memory_ops."""
         with self._connect() as conn:
-            cursor = conn.execute(
-                f"""UPDATE {table}
-                   SET strength = ?,
-                       local_updated_at = ?
-                   WHERE id = ? AND stack_id = ? AND deleted = 0""",
-                (strength, now, memory_id, self.stack_id),
+            return _meta_memory_ops.update_strength(
+                conn, self.stack_id, memory_type, memory_id, strength, self._now
             )
-            conn.commit()
-            return cursor.rowcount > 0
 
     def update_strength_batch(self, updates: list[tuple[str, str, float]]) -> int:
-        """Update strength for multiple memories in a single transaction.
-
-        Args:
-            updates: List of (memory_type, memory_id, new_strength) tuples
-
-        Returns:
-            Number of memories successfully updated
-        """
-        if not updates:
-            return 0
-
-        table_map = {
-            "episode": "episodes",
-            "belief": "beliefs",
-            "value": "agent_values",
-            "goal": "goals",
-            "note": "notes",
-            "drive": "drives",
-            "relationship": "relationships",
-        }
-
-        now = self._now()
-        total_updated = 0
-
+        """Update strength for multiple memories. Delegates to meta_memory_ops."""
         with self._connect() as conn:
-            for memory_type, memory_id, strength in updates:
-                table = table_map.get(memory_type)
-                if not table:
-                    continue
-                strength = max(0.0, min(1.0, strength))
-                cursor = conn.execute(
-                    f"""UPDATE {table}
-                       SET strength = ?,
-                           local_updated_at = ?
-                       WHERE id = ? AND stack_id = ? AND deleted = 0""",
-                    (strength, now, memory_id, self.stack_id),
-                )
-                total_updated += cursor.rowcount
-            conn.commit()
-
-        return total_updated
+            return _meta_memory_ops.update_strength_batch(conn, self.stack_id, updates, self._now)
 
     def get_all_active_memories(
         self, memory_types: Optional[list[str]] = None

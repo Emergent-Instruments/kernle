@@ -6,10 +6,10 @@ from datetime import datetime, timezone
 import pytest
 
 from kernle.core import Kernle
-from kernle.storage import SQLiteStorage
-from kernle.storage.base import (
+from kernle.storage import (
     DiagnosticReport,
     DiagnosticSession,
+    SQLiteStorage,
 )
 
 

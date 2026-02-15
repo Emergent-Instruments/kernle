@@ -15,7 +15,7 @@ import pytest
 
 from kernle import Kernle
 from kernle.core import MEMORY_TYPE_PRIORITIES, compute_priority_score
-from kernle.storage.base import Summary
+from kernle.storage import Summary
 
 
 @pytest.fixture

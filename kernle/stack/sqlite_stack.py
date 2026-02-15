@@ -451,7 +451,30 @@ class SQLiteStack(
                 self._log_partial_failure(name, "on_save", e)
 
     def _persist_on_save_metadata(self, memory_type: str, memory_id: str, metadata: dict) -> None:
-        """Persist metadata returned by on_save components."""
+        """Persist metadata returned by on_save components.
+
+        Handles two categories of component output:
+        1. Schema-mapped fields (e.g., emotional_valence on episodes) are
+           persisted directly to the record's row.
+        2. Advisory metadata (e.g., trust_warning, contradictions) is logged
+           for observability but not written to storage since there are no
+           corresponding schema columns.
+        """
+        # Advisory keys that components return for observability.
+        # These are logged rather than persisted to schema columns.
+        advisory_keys = {"trust_warning", "trust_level", "contradictions", "domain"}
+
+        # Log advisory metadata so it's observable (not silently dropped)
+        advisory = {k: v for k, v in metadata.items() if k in advisory_keys}
+        if advisory:
+            logger.info(
+                "Component advisory on save (%s:%s): %s",
+                memory_type,
+                memory_id[:12],
+                advisory,
+            )
+
+        # Persist schema-mapped fields
         table_map = {
             "episode": "episodes",
             "belief": "beliefs",

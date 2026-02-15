@@ -15,7 +15,7 @@ import pytest
 
 from kernle import Kernle
 from kernle.core import MEMORY_TYPE_PRIORITIES, compute_priority_score
-from kernle.storage.base import SelfNarrative
+from kernle.storage import SelfNarrative
 
 
 @pytest.fixture
@@ -232,7 +232,7 @@ class TestPriorityScoring:
         n = SelfNarrative(id="n1", stack_id="a1", content="I am curious.")
         narrative_score = compute_priority_score("self_narrative", n)
 
-        from kernle.storage.base import Belief
+        from kernle.storage import Belief
 
         b = Belief(id="b1", stack_id="a1", statement="Python is useful.", confidence=0.8)
         belief_score = compute_priority_score("belief", b)

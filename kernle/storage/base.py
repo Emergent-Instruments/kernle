@@ -12,8 +12,9 @@ from abc import abstractmethod
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Protocol, runtime_checkable
 
-# Re-export all shared types from kernle.types for backwards compatibility.
-# Consumers can import from either kernle.types or kernle.storage.base.
+# DEPRECATED: Re-exports for backwards compatibility only.
+# Import from kernle.types (canonical) or kernle.storage (convenience) instead.
+# These re-exports will be removed in a future version.
 from kernle.types import (  # noqa: F401
     DEFAULT_TRUST,
     SEED_TRUST,
@@ -52,17 +53,12 @@ from kernle.types import (  # noqa: F401
     utc_now,
 )
 
+# === Sub-protocols ===
+
 
 @runtime_checkable
-class Storage(Protocol):
-    """Protocol defining the storage interface for Kernle.
-
-    All storage backends (SQLite, Supabase, etc.) must implement this interface.
-    """
-
-    stack_id: str
-
-    # === Episodes ===
+class EpisodeStorage(Protocol):
+    """Storage interface for episodes and emotional memory."""
 
     @abstractmethod
     def save_episode(self, episode: Episode) -> str:
@@ -91,8 +87,6 @@ class Storage(Protocol):
     def get_episode(self, episode_id: str) -> Optional[Episode]:
         """Get a specific episode by ID."""
         ...
-
-    # === Emotional Memory ===
 
     @abstractmethod
     def update_episode_emotion(
@@ -145,7 +139,10 @@ class Storage(Protocol):
         """
         ...
 
-    # === Beliefs ===
+
+@runtime_checkable
+class BeliefStorage(Protocol):
+    """Storage interface for beliefs."""
 
     @abstractmethod
     def save_belief(self, belief: Belief) -> str:
@@ -173,7 +170,10 @@ class Storage(Protocol):
         """Find a belief by statement (for deduplication)."""
         ...
 
-    # === Values ===
+
+@runtime_checkable
+class ValueStorage(Protocol):
+    """Storage interface for values."""
 
     @abstractmethod
     def save_value(self, value: Value) -> str:
@@ -185,7 +185,10 @@ class Storage(Protocol):
         """Get values, ordered by priority."""
         ...
 
-    # === Goals ===
+
+@runtime_checkable
+class GoalStorage(Protocol):
+    """Storage interface for goals."""
 
     @abstractmethod
     def save_goal(self, goal: Goal) -> str:
@@ -197,7 +200,10 @@ class Storage(Protocol):
         """Get goals, optionally filtered by status."""
         ...
 
-    # === Notes ===
+
+@runtime_checkable
+class NoteStorage(Protocol):
+    """Storage interface for notes."""
 
     @abstractmethod
     def save_note(self, note: Note) -> str:
@@ -211,7 +217,10 @@ class Storage(Protocol):
         """Get notes, optionally filtered."""
         ...
 
-    # === Drives ===
+
+@runtime_checkable
+class DriveStorage(Protocol):
+    """Storage interface for drives."""
 
     @abstractmethod
     def save_drive(self, drive: Drive) -> str:
@@ -228,7 +237,10 @@ class Storage(Protocol):
         """Get a specific drive by type."""
         ...
 
-    # === Relationships ===
+
+@runtime_checkable
+class RelationshipStorage(Protocol):
+    """Storage interface for relationships, relationship history, and entity models."""
 
     @abstractmethod
     def save_relationship(self, relationship: Relationship) -> str:
@@ -318,7 +330,10 @@ class Storage(Protocol):
         """
         return None
 
-    # === Trust Assessments (KEP v3) ===
+
+@runtime_checkable
+class TrustStorage(Protocol):
+    """Storage interface for trust assessments."""
 
     def save_trust_assessment(self, assessment: "TrustAssessment") -> str:
         """Save or update a trust assessment. Returns the assessment ID."""
@@ -336,51 +351,10 @@ class Storage(Protocol):
         """Delete a trust assessment (soft delete)."""
         return False
 
-    # === Diagnostic Sessions (KEP v3) ===
 
-    def save_diagnostic_session(self, session: "DiagnosticSession") -> str:
-        """Save a diagnostic session. Returns the session ID."""
-        return session.id
-
-    def get_diagnostic_session(self, session_id: str) -> Optional["DiagnosticSession"]:
-        """Get a specific diagnostic session by ID."""
-        return None
-
-    def get_diagnostic_sessions(
-        self,
-        status: Optional[str] = None,
-        limit: int = 100,
-    ) -> List["DiagnosticSession"]:
-        """Get diagnostic sessions, optionally filtered by status."""
-        return []
-
-    def complete_diagnostic_session(self, session_id: str) -> bool:
-        """Mark a diagnostic session as completed. Returns True if updated."""
-        return False
-
-    def save_diagnostic_report(self, report: "DiagnosticReport") -> str:
-        """Save a diagnostic report. Returns the report ID."""
-        return report.id
-
-    def get_diagnostic_report(self, report_id: str) -> Optional["DiagnosticReport"]:
-        """Get a specific diagnostic report by ID."""
-        return None
-
-    def get_diagnostic_reports(
-        self,
-        session_id: Optional[str] = None,
-        limit: int = 100,
-    ) -> List["DiagnosticReport"]:
-        """Get diagnostic reports, optionally filtered by session."""
-        return []
-
-    def get_episodes_by_source_entity(
-        self, source_entity: str, limit: int = 500
-    ) -> List["Episode"]:
-        """Get episodes associated with a source entity for trust computation."""
-        return []
-
-    # === Playbooks (Procedural Memory) ===
+@runtime_checkable
+class PlaybookStorage(Protocol):
+    """Storage interface for playbooks (procedural memory)."""
 
     @abstractmethod
     def save_playbook(self, playbook: "Playbook") -> str:
@@ -419,7 +393,10 @@ class Storage(Protocol):
         """
         ...
 
-    # === Raw Entries ===
+
+@runtime_checkable
+class RawStorage(Protocol):
+    """Storage interface for raw entries."""
 
     @abstractmethod
     def save_raw(
@@ -455,7 +432,10 @@ class Storage(Protocol):
         """
         ...
 
-    # === Memory Suggestions ===
+
+@runtime_checkable
+class SuggestionStorage(Protocol):
+    """Storage interface for memory suggestions."""
 
     def save_suggestion(self, suggestion: MemorySuggestion) -> str:
         """Save a memory suggestion. Returns the suggestion ID.
@@ -528,85 +508,10 @@ class Storage(Protocol):
         """
         return False
 
-    # === Summaries (Fractal Summarization) ===
 
-    def save_summary(self, summary: "Summary") -> str:
-        """Save a summary. Returns the summary ID."""
-        return summary.id
-
-    def get_summary(self, summary_id: str) -> Optional["Summary"]:
-        """Get a specific summary by ID."""
-        return None
-
-    def list_summaries(self, stack_id: str, scope: Optional[str] = None) -> List["Summary"]:
-        """Get summaries, optionally filtered by scope."""
-        return []
-
-    # === Self-Narratives (KEP v3) ===
-
-    def save_self_narrative(self, narrative: "SelfNarrative") -> str:
-        """Save a self-narrative. Returns the narrative ID."""
-        return narrative.id  # Default no-op
-
-    def get_self_narrative(self, narrative_id: str) -> Optional["SelfNarrative"]:
-        """Get a specific self-narrative by ID."""
-        return None
-
-    def list_self_narratives(
-        self,
-        stack_id: str,
-        narrative_type: Optional[str] = None,
-        active_only: bool = True,
-    ) -> List["SelfNarrative"]:
-        """Get self-narratives, optionally filtered.
-
-        Args:
-            stack_id: Stack ID to filter by
-            narrative_type: Filter by type (identity, developmental, aspirational)
-            active_only: If True, only return active narratives
-
-        Returns:
-            List of matching self-narratives
-        """
-        return []
-
-    def deactivate_self_narratives(self, stack_id: str, narrative_type: str) -> int:
-        """Deactivate all active narratives of a given type.
-
-        Used before saving a new narrative to ensure only one is active per type.
-
-        Args:
-            stack_id: Agent ID
-            narrative_type: Narrative type to deactivate
-
-        Returns:
-            Number of narratives deactivated
-        """
-        return 0
-
-    # === Epochs ===
-
-    def save_epoch(self, epoch: "Epoch") -> str:
-        """Save an epoch. Returns the epoch ID."""
-        return epoch.id  # Default no-op
-
-    def get_epoch(self, epoch_id: str) -> Optional["Epoch"]:
-        """Get a specific epoch by ID."""
-        return None
-
-    def get_epochs(self, limit: int = 100) -> List["Epoch"]:
-        """Get all epochs, ordered by epoch_number DESC."""
-        return []
-
-    def get_current_epoch(self) -> Optional["Epoch"]:
-        """Get the currently active (open) epoch, if any."""
-        return None
-
-    def close_epoch(self, epoch_id: str, summary: Optional[str] = None) -> bool:
-        """Close an epoch by setting ended_at. Returns True if closed."""
-        return False
-
-    # === Search ===
+@runtime_checkable
+class SearchStorage(Protocol):
+    """Storage interface for search and cloud search."""
 
     @abstractmethod
     def search(
@@ -635,8 +540,6 @@ class Storage(Protocol):
         """
         ...
 
-    # === Cloud Search ===
-
     def has_cloud_credentials(self) -> bool:
         """Check if cloud credentials are available for hybrid search.
 
@@ -662,143 +565,10 @@ class Storage(Protocol):
             "error": "Cloud search not supported by this storage backend",
         }
 
-    # === Stats ===
 
-    @abstractmethod
-    def get_stats(self) -> Dict[str, int]:
-        """Get counts of each record type."""
-        ...
-
-    # === Batch Insertion ===
-
-    def save_episodes_batch(self, episodes: List[Episode]) -> List[str]:
-        """Save multiple episodes in a single transaction.
-
-        This is an optional optimization that storage backends can implement
-        to batch multiple database writes into a single transaction, improving
-        performance when processing large codebases or bulk imports.
-
-        Default implementation falls back to individual saves.
-
-        Args:
-            episodes: List of Episode objects to save
-
-        Returns:
-            List of episode IDs (in the same order as input)
-        """
-        return [self.save_episode(ep) for ep in episodes]
-
-    def save_beliefs_batch(self, beliefs: List[Belief]) -> List[str]:
-        """Save multiple beliefs in a single transaction.
-
-        This is an optional optimization that storage backends can implement
-        to batch multiple database writes into a single transaction, improving
-        performance when processing large codebases or bulk imports.
-
-        Default implementation falls back to individual saves.
-
-        Args:
-            beliefs: List of Belief objects to save
-
-        Returns:
-            List of belief IDs (in the same order as input)
-        """
-        return [self.save_belief(b) for b in beliefs]
-
-    def save_notes_batch(self, notes: List[Note]) -> List[str]:
-        """Save multiple notes in a single transaction.
-
-        This is an optional optimization that storage backends can implement
-        to batch multiple database writes into a single transaction, improving
-        performance when processing large codebases or bulk imports.
-
-        Default implementation falls back to individual saves.
-
-        Args:
-            notes: List of Note objects to save
-
-        Returns:
-            List of note IDs (in the same order as input)
-        """
-        return [self.save_note(n) for n in notes]
-
-    # === Batch Loading ===
-
-    def load_all(
-        self,
-        values_limit: Optional[int] = 10,
-        beliefs_limit: Optional[int] = 20,
-        goals_limit: Optional[int] = 10,
-        goals_status: str = "active",
-        episodes_limit: Optional[int] = 20,
-        notes_limit: Optional[int] = 5,
-        drives_limit: Optional[int] = None,
-        relationships_limit: Optional[int] = None,
-        epoch_id: Optional[str] = None,
-    ) -> Optional[Dict[str, Any]]:
-        """Load all memory types in a single operation (optional optimization).
-
-        This is an optional method that storage backends can implement to
-        batch multiple queries into a single database connection, avoiding
-        N+1 query patterns.
-
-        Default implementation returns None, indicating the caller should
-        fall back to individual get_* methods.
-
-        Args:
-            values_limit: Max values to load (None = use high limit for budget loading)
-            beliefs_limit: Max beliefs to load (None = use high limit for budget loading)
-            goals_limit: Max goals to load (None = use high limit for budget loading)
-            goals_status: Goal status filter
-            episodes_limit: Max episodes to load (None = use high limit for budget loading)
-            notes_limit: Max notes to load (None = use high limit for budget loading)
-            drives_limit: Max drives to load (None = all drives)
-            relationships_limit: Max relationships to load (None = all relationships)
-            epoch_id: If set, filter candidates to this epoch only
-
-        Returns:
-            Dict with keys: values, beliefs, goals, drives, episodes, notes, relationships
-            Or None if not implemented (caller should use individual methods)
-        """
-        return None  # Default: not implemented, use individual methods
-
-    # === Sync ===
-
-    @abstractmethod
-    def sync(self) -> SyncResult:
-        """Sync local changes with cloud.
-
-        For cloud-only storage, this is a no-op.
-        For local storage, this pushes/pulls changes.
-        """
-        ...
-
-    @abstractmethod
-    def pull_changes(self, since: Optional[datetime] = None) -> SyncResult:
-        """Pull changes from cloud since the given timestamp.
-
-        Args:
-            since: Pull changes since this time. If None, uses last sync time.
-
-        Returns:
-            SyncResult with pulled count and any conflicts.
-        """
-        ...
-
-    @abstractmethod
-    def get_pending_sync_count(self) -> int:
-        """Get count of records pending sync."""
-        ...
-
-    @abstractmethod
-    def is_online(self) -> bool:
-        """Check if cloud storage is reachable.
-
-        Returns True if connected, False if offline.
-        """
-        ...
-
-    # === Meta-Memory ===
+@runtime_checkable
+class MetaMemoryStorage(Protocol):
+    """Storage interface for meta-memory operations."""
 
     @abstractmethod
     def get_memory(self, memory_type: str, memory_id: str) -> Optional[Any]:
@@ -911,7 +681,10 @@ class Storage(Protocol):
         """
         ...
 
-    # === Forgetting ===
+
+@runtime_checkable
+class ForgettingStorage(Protocol):
+    """Storage interface for forgetting, memory access tracking, and audit logging."""
 
     @abstractmethod
     def record_access(self, memory_type: str, memory_id: str) -> bool:
@@ -1104,6 +877,45 @@ class Storage(Protocol):
         """
         ...
 
+
+@runtime_checkable
+class SyncStorage(Protocol):
+    """Storage interface for sync operations."""
+
+    @abstractmethod
+    def sync(self) -> SyncResult:
+        """Sync local changes with cloud.
+
+        For cloud-only storage, this is a no-op.
+        For local storage, this pushes/pulls changes.
+        """
+        ...
+
+    @abstractmethod
+    def pull_changes(self, since: Optional[datetime] = None) -> SyncResult:
+        """Pull changes from cloud since the given timestamp.
+
+        Args:
+            since: Pull changes since this time. If None, uses last sync time.
+
+        Returns:
+            SyncResult with pulled count and any conflicts.
+        """
+        ...
+
+    @abstractmethod
+    def get_pending_sync_count(self) -> int:
+        """Get count of records pending sync."""
+        ...
+
+    @abstractmethod
+    def is_online(self) -> bool:
+        """Check if cloud storage is reachable.
+
+        Returns True if connected, False if offline.
+        """
+        ...
+
     # === Sync Queue Methods (for CLI sync commands) ===
 
     def _now(self) -> str:
@@ -1171,3 +983,278 @@ class Storage(Protocol):
     def _get_record_for_push(self, table: str, record_id: str) -> Optional[Dict[str, Any]]:
         """Get a record formatted for push sync."""
         return None
+
+
+@runtime_checkable
+class StatsStorage(Protocol):
+    """Storage interface for statistics."""
+
+    @abstractmethod
+    def get_stats(self) -> Dict[str, int]:
+        """Get counts of each record type."""
+        ...
+
+
+@runtime_checkable
+class BatchStorage(Protocol):
+    """Storage interface for batch operations."""
+
+    def save_episodes_batch(self, episodes: List[Episode]) -> List[str]:
+        """Save multiple episodes in a single transaction.
+
+        This is an optional optimization that storage backends can implement
+        to batch multiple database writes into a single transaction, improving
+        performance when processing large codebases or bulk imports.
+
+        Default implementation falls back to individual saves.
+
+        Args:
+            episodes: List of Episode objects to save
+
+        Returns:
+            List of episode IDs (in the same order as input)
+        """
+        return [self.save_episode(ep) for ep in episodes]
+
+    def save_beliefs_batch(self, beliefs: List[Belief]) -> List[str]:
+        """Save multiple beliefs in a single transaction.
+
+        This is an optional optimization that storage backends can implement
+        to batch multiple database writes into a single transaction, improving
+        performance when processing large codebases or bulk imports.
+
+        Default implementation falls back to individual saves.
+
+        Args:
+            beliefs: List of Belief objects to save
+
+        Returns:
+            List of belief IDs (in the same order as input)
+        """
+        return [self.save_belief(b) for b in beliefs]
+
+    def save_notes_batch(self, notes: List[Note]) -> List[str]:
+        """Save multiple notes in a single transaction.
+
+        This is an optional optimization that storage backends can implement
+        to batch multiple database writes into a single transaction, improving
+        performance when processing large codebases or bulk imports.
+
+        Default implementation falls back to individual saves.
+
+        Args:
+            notes: List of Note objects to save
+
+        Returns:
+            List of note IDs (in the same order as input)
+        """
+        return [self.save_note(n) for n in notes]
+
+    def load_all(
+        self,
+        values_limit: Optional[int] = 10,
+        beliefs_limit: Optional[int] = 20,
+        goals_limit: Optional[int] = 10,
+        goals_status: str = "active",
+        episodes_limit: Optional[int] = 20,
+        notes_limit: Optional[int] = 5,
+        drives_limit: Optional[int] = None,
+        relationships_limit: Optional[int] = None,
+        epoch_id: Optional[str] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Load all memory types in a single operation (optional optimization).
+
+        This is an optional method that storage backends can implement to
+        batch multiple queries into a single database connection, avoiding
+        N+1 query patterns.
+
+        Default implementation returns None, indicating the caller should
+        fall back to individual get_* methods.
+
+        Args:
+            values_limit: Max values to load (None = use high limit for budget loading)
+            beliefs_limit: Max beliefs to load (None = use high limit for budget loading)
+            goals_limit: Max goals to load (None = use high limit for budget loading)
+            goals_status: Goal status filter
+            episodes_limit: Max episodes to load (None = use high limit for budget loading)
+            notes_limit: Max notes to load (None = use high limit for budget loading)
+            drives_limit: Max drives to load (None = all drives)
+            relationships_limit: Max relationships to load (None = all relationships)
+            epoch_id: If set, filter candidates to this epoch only
+
+        Returns:
+            Dict with keys: values, beliefs, goals, drives, episodes, notes, relationships
+            Or None if not implemented (caller should use individual methods)
+        """
+        return None  # Default: not implemented, use individual methods
+
+
+@runtime_checkable
+class DiagnosticStorage(Protocol):
+    """Storage interface for diagnostic sessions and reports."""
+
+    def save_diagnostic_session(self, session: "DiagnosticSession") -> str:
+        """Save a diagnostic session. Returns the session ID."""
+        return session.id
+
+    def get_diagnostic_session(self, session_id: str) -> Optional["DiagnosticSession"]:
+        """Get a specific diagnostic session by ID."""
+        return None
+
+    def get_diagnostic_sessions(
+        self,
+        status: Optional[str] = None,
+        limit: int = 100,
+    ) -> List["DiagnosticSession"]:
+        """Get diagnostic sessions, optionally filtered by status."""
+        return []
+
+    def complete_diagnostic_session(self, session_id: str) -> bool:
+        """Mark a diagnostic session as completed. Returns True if updated."""
+        return False
+
+    def save_diagnostic_report(self, report: "DiagnosticReport") -> str:
+        """Save a diagnostic report. Returns the report ID."""
+        return report.id
+
+    def get_diagnostic_report(self, report_id: str) -> Optional["DiagnosticReport"]:
+        """Get a specific diagnostic report by ID."""
+        return None
+
+    def get_diagnostic_reports(
+        self,
+        session_id: Optional[str] = None,
+        limit: int = 100,
+    ) -> List["DiagnosticReport"]:
+        """Get diagnostic reports, optionally filtered by session."""
+        return []
+
+    def get_episodes_by_source_entity(
+        self, source_entity: str, limit: int = 500
+    ) -> List["Episode"]:
+        """Get episodes associated with a source entity for trust computation."""
+        return []
+
+
+@runtime_checkable
+class SummaryStorage(Protocol):
+    """Storage interface for fractal summarization."""
+
+    def save_summary(self, summary: "Summary") -> str:
+        """Save a summary. Returns the summary ID."""
+        return summary.id
+
+    def get_summary(self, summary_id: str) -> Optional["Summary"]:
+        """Get a specific summary by ID."""
+        return None
+
+    def list_summaries(self, stack_id: str, scope: Optional[str] = None) -> List["Summary"]:
+        """Get summaries, optionally filtered by scope."""
+        return []
+
+
+@runtime_checkable
+class NarrativeStorage(Protocol):
+    """Storage interface for self-narratives."""
+
+    def save_self_narrative(self, narrative: "SelfNarrative") -> str:
+        """Save a self-narrative. Returns the narrative ID."""
+        return narrative.id  # Default no-op
+
+    def get_self_narrative(self, narrative_id: str) -> Optional["SelfNarrative"]:
+        """Get a specific self-narrative by ID."""
+        return None
+
+    def list_self_narratives(
+        self,
+        stack_id: str,
+        narrative_type: Optional[str] = None,
+        active_only: bool = True,
+    ) -> List["SelfNarrative"]:
+        """Get self-narratives, optionally filtered.
+
+        Args:
+            stack_id: Stack ID to filter by
+            narrative_type: Filter by type (identity, developmental, aspirational)
+            active_only: If True, only return active narratives
+
+        Returns:
+            List of matching self-narratives
+        """
+        return []
+
+    def deactivate_self_narratives(self, stack_id: str, narrative_type: str) -> int:
+        """Deactivate all active narratives of a given type.
+
+        Used before saving a new narrative to ensure only one is active per type.
+
+        Args:
+            stack_id: Agent ID
+            narrative_type: Narrative type to deactivate
+
+        Returns:
+            Number of narratives deactivated
+        """
+        return 0
+
+
+@runtime_checkable
+class EpochStorage(Protocol):
+    """Storage interface for epochs."""
+
+    def save_epoch(self, epoch: "Epoch") -> str:
+        """Save an epoch. Returns the epoch ID."""
+        return epoch.id  # Default no-op
+
+    def get_epoch(self, epoch_id: str) -> Optional["Epoch"]:
+        """Get a specific epoch by ID."""
+        return None
+
+    def get_epochs(self, limit: int = 100) -> List["Epoch"]:
+        """Get all epochs, ordered by epoch_number DESC."""
+        return []
+
+    def get_current_epoch(self) -> Optional["Epoch"]:
+        """Get the currently active (open) epoch, if any."""
+        return None
+
+    def close_epoch(self, epoch_id: str, summary: Optional[str] = None) -> bool:
+        """Close an epoch by setting ended_at. Returns True if closed."""
+        return False
+
+
+# === Composite Storage Protocol ===
+
+
+@runtime_checkable
+class Storage(
+    EpisodeStorage,
+    BeliefStorage,
+    ValueStorage,
+    GoalStorage,
+    NoteStorage,
+    DriveStorage,
+    RelationshipStorage,
+    TrustStorage,
+    PlaybookStorage,
+    RawStorage,
+    SuggestionStorage,
+    SearchStorage,
+    MetaMemoryStorage,
+    ForgettingStorage,
+    SyncStorage,
+    StatsStorage,
+    BatchStorage,
+    DiagnosticStorage,
+    SummaryStorage,
+    NarrativeStorage,
+    EpochStorage,
+    Protocol,
+):
+    """Full storage interface — backwards compatible composite.
+
+    All storage backends must implement this interface.
+    Sub-protocols can be used independently for type narrowing.
+    """
+
+    stack_id: str

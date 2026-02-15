@@ -775,7 +775,7 @@ def cmd_doctor_structural(args, k: "Kernle"):
             lines.append(f"  [{f.severity}] {f.check}: {f.memory_type}:{f.memory_id[:12]}")
         note_content = "\n".join(lines)
 
-        from kernle.storage.base import Note as NoteModel
+        from kernle.types import Note as NoteModel
 
         note = NoteModel(
             id=str(uuid.uuid4()),

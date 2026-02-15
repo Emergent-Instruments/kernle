@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from kernle.storage.base import (
+from kernle.types import (
     DEFAULT_TRUST,
     SEED_TRUST,
     SELF_TRUST_FLOOR,

@@ -120,7 +120,7 @@ class ManagersMixin:
         Returns:
             The new epoch's ID
         """
-        from kernle.storage.base import Epoch
+        from kernle.types import Epoch
 
         name = self._validate_string_input(name, "name", 200)
         if trigger_type not in ("declared", "detected", "system"):
@@ -445,7 +445,7 @@ class ManagersMixin:
         Returns:
             The entity model ID
         """
-        from kernle.storage.base import EntityModel
+        from kernle.types import EntityModel
 
         entity_name = self._validate_string_input(entity_name, "entity_name", 200)
         observation = self._validate_string_input(observation, "observation", 2000)

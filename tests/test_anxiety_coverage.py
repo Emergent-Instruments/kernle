@@ -158,7 +158,7 @@ class TestEpochStalenessStringTimestamps:
 
     def test_string_started_at_parsed(self, k):
         """String started_at should be parsed correctly (line 124)."""
-        from kernle.storage.base import Epoch
+        from kernle.storage import Epoch
 
         # Create an epoch with string started_at
         epoch = Epoch(
@@ -191,7 +191,7 @@ class TestEpochStalenessStringTimestamps:
 
     def test_string_ended_at_parsed(self, k):
         """String ended_at should be parsed correctly (line 139)."""
-        from kernle.storage.base import Epoch
+        from kernle.storage import Epoch
 
         # Create a closed epoch with ended_at
         epoch = Epoch(
@@ -354,7 +354,7 @@ class TestEpochStalenessElevated:
 
     def test_14_month_old_epoch(self, k):
         """14-month old epoch should be in elevated range (70-90)."""
-        from kernle.storage.base import Epoch
+        from kernle.storage import Epoch
 
         old_start = datetime.now(timezone.utc) - timedelta(days=425)  # ~14 months
         k._storage.save_epoch(
@@ -601,7 +601,7 @@ class TestEpochStalenessException:
 
     def test_closed_epoch_without_ended_at_returns_none(self, k):
         """Closed epoch with no ended_at should return None (line 144)."""
-        from kernle.storage.base import Epoch
+        from kernle.storage import Epoch
 
         # Create an epoch without ended_at
         mock_epoch = Epoch(

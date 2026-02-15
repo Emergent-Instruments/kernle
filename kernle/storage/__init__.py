@@ -7,9 +7,11 @@ Local-first storage using SQLite.
 from .base import (
     # Dynamic trust constants
     DEFAULT_TRUST,
+    SEED_TRUST,
     SELF_TRUST_FLOOR,
     TRUST_DECAY_RATE,
     TRUST_DEPTH_DECAY,
+    TRUST_THRESHOLDS,
     Belief,
     ConfidenceChange,
     DiagnosticReport,
@@ -79,8 +81,10 @@ __all__ = [
     "DiagnosticReport",
     # Dynamic trust constants
     "DEFAULT_TRUST",
+    "SEED_TRUST",
     "TRUST_DECAY_RATE",
     "TRUST_DEPTH_DECAY",
+    "TRUST_THRESHOLDS",
     "SELF_TRUST_FLOOR",
     # Meta-memory types
     "SourceType",

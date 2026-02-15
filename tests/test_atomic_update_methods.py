@@ -12,8 +12,7 @@ from datetime import datetime, timezone
 import pytest
 
 from kernle.core import Kernle
-from kernle.storage import SQLiteStorage, VersionConflictError
-from kernle.storage.base import Drive, Goal, Relationship
+from kernle.storage import Drive, Goal, Relationship, SQLiteStorage, VersionConflictError
 
 # ---------------------------------------------------------------------------
 # Helpers

@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from kernle.storage.base import Goal
+from kernle.storage import Goal
 
 # === Dataclass Tests ===
 
@@ -267,7 +267,7 @@ class TestGoalTypeForgetting:
         kernle, storage = kernle_instance
 
         episode_id = str(uuid.uuid4())
-        from kernle.storage.base import Episode
+        from kernle.storage import Episode
 
         ep = Episode(
             id=episode_id,

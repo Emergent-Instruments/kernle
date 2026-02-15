@@ -6,7 +6,7 @@ before being persisted, preventing infinite loops in lineage traversal.
 
 import pytest
 
-from kernle.storage.base import Belief, Episode, Note
+from kernle.storage import Belief, Episode, Note
 from kernle.storage.lineage import MAX_DERIVATION_DEPTH, check_derived_from_cycle
 from kernle.storage.sqlite import SQLiteStorage
 

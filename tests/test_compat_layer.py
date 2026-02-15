@@ -13,8 +13,7 @@ import pytest
 from kernle.core import Kernle
 from kernle.entity import Entity
 from kernle.stack.sqlite_stack import SQLiteStack
-from kernle.storage import SQLiteStorage
-from kernle.storage.base import Note
+from kernle.storage import Note, SQLiteStorage
 
 
 @pytest.fixture

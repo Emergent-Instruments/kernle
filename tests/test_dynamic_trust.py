@@ -6,13 +6,13 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from kernle.core import Kernle
-from kernle.storage import SQLiteStorage
-from kernle.storage.base import (
+from kernle.storage import (
     DEFAULT_TRUST,
     SELF_TRUST_FLOOR,
     TRUST_DECAY_RATE,
     TRUST_DEPTH_DECAY,
     Episode,
+    SQLiteStorage,
     TrustAssessment,
 )
 

@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from kernle import Kernle
-from kernle.storage.base import (
+from kernle.storage import (
     Belief,
     Drive,
     Episode,

@@ -21,7 +21,8 @@ from kernle.protocols import (
     ProcessingTransition,
     SearchRecordType,
     StackComponentProtocol,
-    StackProtocol,
+    StackExportProtocol,
+    StackProcessingProtocol,
     SuggestionMemoryType,
     SuggestionStatus,
 )
@@ -63,9 +64,11 @@ class TestProtocolTypeConstraints:
         set_cfg_hints = get_type_hints(CoreProtocol.__dict__["belief"])
         assert set_cfg_hints["type"] is BeliefType
 
-        assert get_type_hints(StackProtocol.__dict__["dump"])["format"] is DumpFormat
+        assert get_type_hints(StackExportProtocol.__dict__["dump"])["format"] is DumpFormat
         assert (
-            get_type_hints(StackProtocol.__dict__["set_processing_config"])["layer_transition"]
+            get_type_hints(StackProcessingProtocol.__dict__["set_processing_config"])[
+                "layer_transition"
+            ]
             is ProcessingTransition
         )
 

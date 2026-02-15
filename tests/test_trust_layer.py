@@ -5,8 +5,7 @@ import uuid
 import pytest
 
 from kernle.core import Kernle
-from kernle.storage import SQLiteStorage
-from kernle.storage.base import SEED_TRUST, TRUST_THRESHOLDS, TrustAssessment
+from kernle.storage import SEED_TRUST, TRUST_THRESHOLDS, SQLiteStorage, TrustAssessment
 
 
 @pytest.fixture

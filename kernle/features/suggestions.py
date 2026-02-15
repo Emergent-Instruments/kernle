@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
-from kernle.storage.base import MemorySuggestion, RawEntry
+from kernle.types import MemorySuggestion, RawEntry
 
 if TYPE_CHECKING:
     from kernle.core import Kernle

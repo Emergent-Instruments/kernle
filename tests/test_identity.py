@@ -7,7 +7,7 @@ Updated to use SQLite storage abstraction.
 import uuid
 from datetime import datetime, timedelta, timezone
 
-from kernle.storage.base import Belief, Episode, Value
+from kernle.storage import Belief, Episode, Value
 
 
 class TestSynthesizeIdentity:

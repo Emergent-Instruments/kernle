@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from kernle.core import Kernle
-from kernle.storage.base import Belief, EntityModel, Episode
+from kernle.storage import Belief, EntityModel, Episode
 from kernle.storage.sqlite import SQLiteStorage
 
 
