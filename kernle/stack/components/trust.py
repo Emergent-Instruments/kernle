@@ -118,21 +118,12 @@ class TrustComponent:
             # No source entity = no trust check needed
             return None
 
-        # Determine the action type based on memory type
-        # Map memory types to trust threshold actions
-        action_map = {
-            "episode": "save_episode",
-            "note": "save_note",
-            "goal": "save_goal",
-            "raw": "save_raw",
-        }
-        action = action_map.get(memory_type, "save_episode")
-
-        # Look up the threshold for this action
-        threshold = TRUST_THRESHOLDS.get(action)
-        if threshold is None:
-            # Unknown action type, no check needed
-            return None
+        # Use the lowest TRUST_THRESHOLDS value as baseline for general saves.
+        # TRUST_THRESHOLDS defines action-specific thresholds (suggest_belief,
+        # request_deletion, etc.) but not per-memory-type save thresholds.
+        # The lowest threshold ("suggest_belief": 0.3) is appropriate for
+        # general memory saves since saving is a lower-privilege action.
+        threshold = min(TRUST_THRESHOLDS.values()) if TRUST_THRESHOLDS else 0.3
 
         # Get the trust assessment for this source entity
         try:
@@ -178,7 +169,7 @@ class TrustComponent:
         return {
             "trust_warning": (
                 f"Low trust ({trust_score:.2f}) for {source_entity} "
-                f"(threshold: {threshold:.2f} for {action})"
+                f"(threshold: {threshold:.2f} for save_{memory_type})"
             ),
             "trust_level": trust_score,
             "domain": domain,
